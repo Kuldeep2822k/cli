@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Use Node.js 20.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@39370e3970a6d050c08020d2b37765d11907f77f # v4.1.0
         with:
           node-version: 20.x
           cache: 'npm'
@@ -43,10 +43,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@39370e3970a6d050c08020d2b37765d11907f77f # v4.1.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -62,10 +62,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Use Node.js 20.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@39370e3970a6d050c08020d2b37765d11907f77f # v4.1.0
         with:
           node-version: 20.x
           cache: 'npm'
@@ -73,17 +73,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Dependency vulnerability audit
-        run: npm audit --audit-level=high --ignore-dev || true
+      - name: Production dependency vulnerability audit
+        run: npm audit --omit=dev --audit-level=high
 
-      - name: Verify zero native C/C++ dependencies
+      - name: Strict native binary & toolchain audit
         run: |
-          NATIVE_COUNT=$(npm ls | grep -i "node-gyp" | wc -l || true)
-          if [ "$NATIVE_COUNT" -gt 0 ]; then
-            echo "Error: Found native C/C++ dependencies! PALEE requires pure JS dependencies."
+          NATIVE_FILES=$(find node_modules -type f -name "*.node" 2>/dev/null | wc -l || true)
+          TOOLCHAIN_COUNT=$(npm ls | grep -iE "node-gyp|node-pre-gyp|prebuild-install|napi-rs|cmake-js" | wc -l || true)
+          if [ "$NATIVE_FILES" -gt 0 ] || [ "$TOOLCHAIN_COUNT" -gt 0 ]; then
+            echo "Error: Detected native C/C++ binaries or build toolchains in node_modules!"
+            find node_modules -type f -name "*.node"
             exit 1
           fi
-          echo "Verified: Zero native module dependencies in dependency tree."
+          echo "Verified: Zero native binary files or toolchains found in dependency tree."
 
   smoke-install:
     name: Global Package Smoke Test on ${{ matrix.os }}
@@ -94,10 +96,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Use Node.js 20.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@39370e3970a6d050c08020d2b37765d11907f77f # v4.1.0
         with:
           node-version: 20.x
           cache: 'npm'
