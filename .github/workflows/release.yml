@@ -132,7 +132,20 @@ jobs:
           node-version: 24.x
 
       - name: Install published package globally
-        run: npm install -g palee@latest
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Waiting for npm registry to propagate palee@$VERSION..."
+          for i in {1..12}; do
+            if npm install -g palee@$VERSION; then
+              echo "Successfully installed palee@$VERSION!"
+              exit 0
+            fi
+            echo "NPM registry lag. Retrying in 10 seconds..."
+            sleep 10
+          done
+          echo "Failed to install palee@$VERSION after 2 minutes."
+          exit 1
 
       - name: Add npm global bin directory to PATH
         run: |
