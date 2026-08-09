@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  quality-check:
+    name: Lint, Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Strict Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build production bundle
+        run: npm run build
+
+  test-matrix:
+    name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cross-platform matrix testing for Windows-specific file locking & retries
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit & invariant test suite
+        run: npm test
+
+  security-audit:
+    name: Security Audit & Native Module Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=high --ignore-dev || true
+
+      - name: Verify zero native C/C++ dependencies
+        run: |
+          NATIVE_COUNT=$(npm ls | grep -i "node-gyp" | wc -l || true)
+          if [ "$NATIVE_COUNT" -gt 0 ]; then
+            echo "Error: Found native C/C++ dependencies! PALEE requires pure JS dependencies."
+            exit 1
+          fi
+          echo "Verified: Zero native module dependencies in dependency tree."
+
+  smoke-install:
+    name: Global Package Smoke Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install CLI globally from source
+        run: npm install -g .
+
+      - name: Test global binary --version
+        run: palee --version
+
+      - name: Test global binary --help
+        run: palee --help

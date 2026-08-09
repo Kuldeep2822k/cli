@@ -1,0 +1,18 @@
+# Source files (only published compiled output in dist/)
+src/
+test/
+planning/
+examples/
+.github/
+.gemini/
+.claude/
+.vscode/
+
+# Config files
+tsconfig.json
+AUDIT_REPORT.md
+senior_code_audit.md
+
+# Logs & temp
+*.log
+*.tgz
