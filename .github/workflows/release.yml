@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Use Node.js 20.x
         uses: actions/setup-node@v4
@@ -43,7 +43,7 @@ jobs:
       id-token: write # Required for npm provenance attestation
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Use Node.js 20.x
         uses: actions/setup-node@v4
@@ -70,7 +70,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
