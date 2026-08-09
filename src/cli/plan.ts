@@ -40,13 +40,18 @@ async function planCommand(): Promise<void> {
       if (!frontmatter || !frontmatter.palee_id) continue;
 
       const id = frontmatter.palee_id as string;
+      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+      if (dueAt && Number.isNaN(dueAt.getTime())) {
+        dueAt = null;
+      }
+
       topics.set(id, {
         palee_id: id,
         title: (frontmatter.title as string) || path.basename(filePath, '.md'),
         path: path.relative(vaultPath, filePath),
         topic_mastery: (frontmatter.topic_mastery as number) || 0,
         depends_on: (frontmatter.depends_on as string[]) || [],
-        due_at: frontmatter.due_at ? new Date(frontmatter.due_at as string) : null,
+        due_at: dueAt,
         repetition: (frontmatter.repetition as number) || 0,
         difficulty: (frontmatter.difficulty as string) || 'intermediate',
       });

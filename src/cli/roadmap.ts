@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
-import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
+import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
 import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, RoadmapFile, TopicNode } from '../types';
@@ -126,13 +126,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     rl.question('', async (answer: string) => {
       rl.close();
 
-      if (answer.toLowerCase() !== 'y') {
+      if (answer.trim().toLowerCase() !== 'y') {
         console.log('Aborted.');
         process.exit(0);
       }
 
       let created = 0;
       let updated = 0;
+      let failed = 0;
 
       for (const topic of roadmap.topics) {
         const resolvedVault = path.resolve(vaultPath);
@@ -140,22 +141,34 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         
         if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
           console.error(`Error: Roadmap path escapes vault: ${topic.path}`);
+          failed++;
           continue;
         }
 
         const dir = path.dirname(absolutePath);
 
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
+        try {
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+        } catch (e) {
+          console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
+          failed++;
+          continue;
         }
 
         let content = '';
         let fingerprint: string | null = null;
         let isNew = false;
+        let existingData: Record<string, unknown> = {};
 
         if (fs.existsSync(absolutePath)) {
           content = fs.readFileSync(absolutePath, 'utf8');
           fingerprint = computeFingerprint(content);
+          const parsed = parseFrontmatter(content);
+          if (parsed.frontmatter) {
+            existingData = parsed.frontmatter;
+          }
         } else {
           isNew = true;
           content = `# ${topic.title}\n\n(Add your notes here)`;
@@ -163,27 +176,33 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
         const paleeData: Record<string, unknown> = {
           palee_id: topic.id,
-          palee_schema: 1,
+          palee_schema: existingData.palee_schema ?? 1,
           title: topic.title,
-          difficulty: topic.difficulty || 'intermediate',
-          depends_on: topic.depends_on || [],
-          topic_mastery: 0.0,
-          assessed_at: null,
-          conceptual: 0.0,
-          practical: 0.0,
-          debug: 0.0,
-          feynman: 0.0,
-          ease_factor: 2.5,
-          interval_days: 1,
-          repetition: 0,
-          lapses: 0,
-          last_quality: null,
-          last_reviewed_at: null,
-          due_at: null,
+          difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
+          depends_on: topic.depends_on || existingData.depends_on || [],
+          topic_mastery: existingData.topic_mastery ?? 0.0,
+          assessed_at: existingData.assessed_at ?? null,
+          conceptual: existingData.conceptual ?? 0.0,
+          practical: existingData.practical ?? 0.0,
+          debug: existingData.debug ?? 0.0,
+          feynman: existingData.feynman ?? 0.0,
+          ease_factor: existingData.ease_factor ?? 2.5,
+          interval_days: existingData.interval_days ?? 1,
+          repetition: existingData.repetition ?? 0,
+          lapses: existingData.lapses ?? 0,
+          last_quality: existingData.last_quality ?? null,
+          last_reviewed_at: existingData.last_reviewed_at ?? null,
+          due_at: existingData.due_at ?? null,
         };
 
         const updatedContent = updateFrontmatter(content, paleeData);
-        await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
+        try {
+          await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
+        } catch (e) {
+          console.error(`Error writing ${topic.path}: ${(e as Error).message}`);
+          failed++;
+          continue;
+        }
 
         if (isNew) {
           created++;
@@ -193,10 +212,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
 
       console.log();
-      console.log('✓ Roadmap imported successfully');
-      console.log(`  Created: ${created} notes`);
-      console.log(`  Updated: ${updated} notes`);
-      process.exit(0);
+      if (failed > 0) {
+        console.error(`Failed to import ${failed} topics.`);
+        console.log(`  Created: ${created} notes`);
+        console.log(`  Updated: ${updated} notes`);
+        process.exit(1);
+      } else {
+        console.log('✓ Roadmap imported successfully');
+        console.log(`  Created: ${created} notes`);
+        console.log(`  Updated: ${updated} notes`);
+        process.exit(0);
+      }
     });
 
   } catch (e: unknown) {

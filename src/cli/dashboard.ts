@@ -41,6 +41,11 @@ async function dashboardCommand(): Promise<void> {
 
       if (!frontmatter || !frontmatter.palee_id) continue;
 
+      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+      if (dueAt && Number.isNaN(dueAt.getTime())) {
+        dueAt = null;
+      }
+
       topics.push({
         id: frontmatter.palee_id as string,
         title: (frontmatter.title as string) || path.basename(filePath, '.md'),
@@ -48,7 +53,7 @@ async function dashboardCommand(): Promise<void> {
         repetition: (frontmatter.repetition as number) || 0,
         lapses: (frontmatter.lapses as number) || 0,
         difficulty: (frontmatter.difficulty as string) || 'intermediate',
-        due_at: frontmatter.due_at ? new Date(frontmatter.due_at as string) : null,
+        due_at: dueAt,
       });
     }
 

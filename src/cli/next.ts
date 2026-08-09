@@ -39,9 +39,12 @@ async function nextCommand(options: NextOptions): Promise<void> {
 
       if (!frontmatter || !frontmatter.palee_id) continue;
 
-      const dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+      if (dueAt && Number.isNaN(dueAt.getTime())) {
+        dueAt = null; // Treat invalid dates as null (due immediately)
+      }
 
-      // Topics without due_at are new and always ready
+      // Topics without due_at (or with invalid dates) are new and always ready
       if (!dueAt || dueAt <= now) {
         dueTopics.push({
           id: frontmatter.palee_id as string,
