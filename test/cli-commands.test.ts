@@ -141,7 +141,7 @@ topics:
     assert.strictEqual(parsed.frontmatter!.repetition, 5); // Should be preserved
   });
 
-  test('review command updates mastery and SM2 fields', () => {
+  test('review command updates SM2 fields but preserves mastery', () => {
     // Review R-1
     const result = runCLI(['review', 'R-1', '4']);
     assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
@@ -152,11 +152,14 @@ topics:
 
     assert.ok(parsed.frontmatter!.last_reviewed_at);
     assert.ok(parsed.frontmatter!.due_at);
-    assert.strictEqual(parsed.frontmatter!.conceptual, 0.8);
-    assert.strictEqual(parsed.frontmatter!.practical, 0.8);
-    assert.strictEqual(parsed.frontmatter!.debug, 0.8);
-    assert.strictEqual(parsed.frontmatter!.feynman, 0.8);
-    // (c+p+d+f*2)/5 = (0.8+0.8+0.8+1.6)/5 = 4/5 = 0.8
-    assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8);
+    // The due_at should be a date-only string YYYY-MM-DD
+    assert.match(parsed.frontmatter!.due_at as string, /^\d{4}-\d{2}-\d{2}$/);
+    
+    // Mastery fields should NOT be overwritten by review
+    assert.strictEqual(parsed.frontmatter!.conceptual, 0); // Unchanged from init
+    assert.strictEqual(parsed.frontmatter!.practical, 0);
+    assert.strictEqual(parsed.frontmatter!.debug, 0);
+    assert.strictEqual(parsed.frontmatter!.feynman, 0);
+    assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
 });

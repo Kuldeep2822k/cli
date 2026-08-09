@@ -31,22 +31,21 @@ async function dashboardCommand(): Promise<void> {
 
     const vaultPath = config.vaultPath;
     const files = walkVault(vaultPath);
-    const topics: DashboardTopic[] = [];
     const now = new Date();
 
-    // Load all topics
-    for (const filePath of files) {
-      const content = fs.readFileSync(filePath, 'utf8');
+    // Load all topics concurrently
+    const filePromises = files.map(async (filePath) => {
+      const content = await fs.promises.readFile(filePath, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
 
-      if (!frontmatter || !frontmatter.palee_id) continue;
+      if (!frontmatter || !frontmatter.palee_id) return null;
 
       let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
       if (dueAt && Number.isNaN(dueAt.getTime())) {
         dueAt = null;
       }
 
-      topics.push({
+      return {
         id: frontmatter.palee_id as string,
         title: (frontmatter.title as string) || path.basename(filePath, '.md'),
         mastery: (frontmatter.topic_mastery as number) || 0,
@@ -54,8 +53,11 @@ async function dashboardCommand(): Promise<void> {
         lapses: (frontmatter.lapses as number) || 0,
         difficulty: (frontmatter.difficulty as string) || 'intermediate',
         due_at: dueAt,
-      });
-    }
+      };
+    });
+
+    const parsedTopics = await Promise.all(filePromises);
+    const topics: DashboardTopic[] = parsedTopics.filter((t): t is DashboardTopic => t !== null);
 
     console.log('╔════════════════════════════════════════════════════════════╗');
     console.log('║              PALEE Learning Dashboard                     ║');

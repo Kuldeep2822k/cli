@@ -108,7 +108,7 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
  */
 function computeDueDate(fromDate: Date | string | number, days: number): Date {
   const due = new Date(fromDate);
-  due.setDate(due.getDate() + days);
+  due.setUTCDate(due.getUTCDate() + days);
   return due;
 }
 

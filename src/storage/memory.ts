@@ -157,6 +157,11 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
       if (file.startsWith('S-') && file.endsWith('.md')) {
         const filePath = path.join(sessionsDir, file);
         try {
+          const stat = fs.statSync(filePath);
+          if (stat.size === 0) {
+            try { fs.unlinkSync(filePath); } catch {}
+            continue;
+          }
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter } = parseFrontmatter(content);
           if (frontmatter && frontmatter.session_id) {
@@ -169,8 +174,10 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               status: (frontmatter.status as 'completed' | 'draft') || 'completed',
             });
           }
-        } catch {
-          // Skip unreadable files
+        } catch (e: any) {
+          if (e && !e.code) {
+            try { fs.unlinkSync(filePath); } catch {}
+          }
         }
       }
     }
@@ -220,6 +227,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
       if (file.startsWith('S-') && file.endsWith('.md')) {
         const filePath = path.join(sessionsDir, file);
         try {
+          const stat = fs.statSync(filePath);
+          if (stat.size === 0) {
+            try { fs.unlinkSync(filePath); } catch {}
+            continue;
+          }
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter, body } = parseFrontmatter(content);
           if (frontmatter && frontmatter.session_id) {
@@ -229,8 +241,10 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
               newestSession = { file: filePath, frontmatter, body };
             }
           }
-        } catch {
-          // Skip unreadable
+        } catch (e: any) {
+          if (e && !e.code) {
+            try { fs.unlinkSync(filePath); } catch {}
+          }
         }
       }
     }

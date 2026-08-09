@@ -27,16 +27,18 @@ async function adoptCommand(relativePath: string, options: AdoptOptions): Promis
     }
 
     const vaultPath = config.vaultPath;
-    const resolvedVault = path.resolve(vaultPath);
+    const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
     const absolutePath = path.resolve(vaultPath, relativePath);
     
-    if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
-      console.error(`Error: Path escapes vault: ${relativePath}`);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`Error: File not found: ${relativePath}`);
       process.exit(2);
     }
 
-    if (!fs.existsSync(absolutePath)) {
-      console.error(`Error: File not found: ${relativePath}`);
+    const realPath = fs.realpathSync(absolutePath);
+
+    if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
+      console.error(`Error: Path escapes vault: ${relativePath}`);
       process.exit(2);
     }
 

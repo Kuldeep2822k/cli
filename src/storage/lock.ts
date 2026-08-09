@@ -114,10 +114,17 @@ function createLock(lockDir: string, targetPath: string): LockData {
       // We only attempt to delete the exact files we observed in this iteration.
       for (const file of files) {
         const filePath = path.join(lockDir, file);
+        const quarantinePath = filePath + '.quarantine';
         try {
-          const stats = fs.statSync(filePath);
+          // Rename acts as an atomic test-and-set to prevent Process B from renewing
+          // a lock we are about to delete.
+          fs.renameSync(filePath, quarantinePath);
+          const stats = fs.statSync(quarantinePath);
           if (Date.now() - stats.mtimeMs > STALE_TIMEOUT) {
-            fs.unlinkSync(filePath);
+            fs.unlinkSync(quarantinePath);
+          } else {
+            // It was refreshed before we renamed it! Restore it.
+            fs.renameSync(quarantinePath, filePath);
           }
         } catch {}
       }
@@ -192,6 +199,7 @@ class Lock {
         updateHeartbeat(this.lockPath, this.lockData.lock_id);
       }
     }, HEARTBEAT_INTERVAL);
+    this.heartbeatTimer.unref();
   }
 
   release(): void {

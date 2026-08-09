@@ -81,25 +81,10 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const reviewedAt = new Date();
     const dueDate = computeDueDate(reviewedAt, newState.interval_days!);
 
-    const newScore = quality / 5.0;
-    const { computeMastery } = await import('../engine/mastery');
-    const topicMastery = computeMastery({
-      conceptual: newScore,
-      practical: newScore,
-      debug: newScore,
-      feynman: newScore
-    });
-
     const updates: Record<string, unknown> = {
       ...newState,
       last_reviewed_at: reviewedAt.toISOString(),
-      due_at: dueDate.toISOString(),
-      conceptual: newScore,
-      practical: newScore,
-      debug: newScore,
-      feynman: newScore,
-      topic_mastery: topicMastery,
-      assessed_at: reviewedAt.toISOString(),
+      due_at: dueDate.toISOString().split('T')[0], // Date-only YYYY-MM-DD
     };
 
     const updatedContent = updateFrontmatter(content, updates);

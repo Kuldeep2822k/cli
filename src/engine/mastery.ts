@@ -34,8 +34,8 @@ function computeMastery(assessment: Partial<Assessment>): number {
 }
 
 function isAnomalousAssessment(current: Partial<Assessment>, previous: Partial<Assessment> | null): boolean {
-  // First assessments are never anomalous
-  if (!previous || !previous.assessed_at) {
+  // First assessments are never anomalous, or missing timestamps
+  if (!previous || !previous.assessed_at || !current.assessed_at) {
     return false;
   }
 

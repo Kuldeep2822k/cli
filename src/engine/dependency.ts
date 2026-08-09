@@ -42,6 +42,7 @@ function topologicalSort(topics: Map<string, TopicNode>): string[] {
 
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const visiting = new Set<string>();
+  const visited = new Set<string>();
   const pathStack: string[] = [];
 
   function visit(id: string): string[] | null {
@@ -50,6 +51,7 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
       const cycleStart = pathStack.indexOf(id);
       return pathStack.slice(cycleStart).concat(id);
     }
+    if (visited.has(id)) return null;
 
     const topic = topics.get(id);
     if (!topic) return null;
@@ -65,6 +67,7 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
 
     pathStack.pop();
     visiting.delete(id);
+    visited.add(id);
     return null;
   }
 

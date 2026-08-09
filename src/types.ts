@@ -97,6 +97,7 @@ export interface CacheEntry<T = unknown> {
   size: number;
   fingerprint: string;
   data: T;
+  lastVerified: number;
 }
 
 // ─── Frontmatter ────────────────────────────────────────────────────

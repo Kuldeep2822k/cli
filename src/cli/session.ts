@@ -154,8 +154,8 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       const files = fs.readdirSync(sessionsDir);
-      const confirmed = files.filter(f => f.startsWith('S-') && f.endsWith('.md'));
-      const drafts = files.filter(f => f.startsWith('DRAFT-S-') && f.endsWith('.md'));
+      const confirmed = files.filter(f => f.startsWith('S-') && f.endsWith('.md')).sort().reverse();
+      const drafts = files.filter(f => f.startsWith('DRAFT-S-') && f.endsWith('.md')).sort().reverse();
 
       console.log('=== PALEE Sessions ===\n');
       console.log(`Confirmed Sessions: ${confirmed.length}`);

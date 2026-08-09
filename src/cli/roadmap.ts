@@ -66,11 +66,6 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       if (!title) errors.push('Topic missing "title" field');
       if (!relativePath) {
         errors.push('Topic missing "path" field');
-      } else {
-        const absolutePath = path.resolve(vaultPath, relativePath);
-        if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
-          errors.push(`Roadmap path escapes vault: ${relativePath}`);
-        }
       }
 
       if (seenIds.has(id)) {
@@ -100,7 +95,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const content = fs.readFileSync(file, 'utf8');
         const parsed = parseFrontmatter(content);
         if (parsed.frontmatter && parsed.frontmatter.palee_id) {
-          topicsMap.set(parsed.frontmatter.palee_id as string, { palee_id: parsed.frontmatter.palee_id as string, depends_on: parsed.frontmatter.depends_on as string[] || [], topic_mastery: 0 });
+          const pid = parsed.frontmatter.palee_id as string;
+          if (!topicsMap.has(pid)) {
+            topicsMap.set(pid, { palee_id: pid, depends_on: parsed.frontmatter.depends_on as string[] || [], topic_mastery: 0 });
+          }
         }
       } catch {}
     }
@@ -170,11 +168,25 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       for (const topic of roadmap.topics) {
         const absolutePath = path.resolve(vaultPath, topic.path);
+        
+        const relative = path.relative(resolvedVault, absolutePath);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          console.error(`Roadmap path escapes vault: ${topic.path}`);
+          failed++;
+          continue;
+        }
+
         const dir = path.dirname(absolutePath);
 
         try {
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
+          }
+          const realDir = fs.realpathSync(dir);
+          if (!realDir.startsWith(resolvedVault + path.sep) && realDir !== resolvedVault) {
+            console.error(`Roadmap directory escapes vault (via symlink): ${topic.path}`);
+            failed++;
+            continue;
           }
         } catch (e) {
           console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
@@ -188,6 +200,18 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         let existingData: Record<string, unknown> = {};
 
         if (fs.existsSync(absolutePath)) {
+          try {
+            const realPath = fs.realpathSync(absolutePath);
+            if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
+              console.error(`Roadmap path escapes vault (via symlink): ${topic.path}`);
+              failed++;
+              continue;
+            }
+          } catch (e) {
+            console.error(`Error resolving file for ${topic.path}: ${(e as Error).message}`);
+            failed++;
+            continue;
+          }
           content = fs.readFileSync(absolutePath, 'utf8');
           fingerprint = computeFingerprint(content);
           const parsed = parseFrontmatter(content);

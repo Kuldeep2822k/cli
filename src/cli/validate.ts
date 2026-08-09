@@ -40,19 +40,25 @@ async function validateCommand(options: ValidateOptions): Promise<void> {
       const topicId = frontmatter.palee_id as string;
 
       if (topics.has(topicId)) {
-        errors.push({
-          type: 'duplicate_id',
-          id: topicId,
-          files: [topics.get(topicId)!.path, relativePath],
+        const existingError = errors.find(e => e.type === 'duplicate_id' && e.id === topicId);
+        
+        if (existingError && existingError.files) {
+          existingError.files.push(relativePath);
+        } else {
+          errors.push({
+            type: 'duplicate_id',
+            id: topicId,
+            files: [topics.get(topicId)!.path, relativePath],
+          });
+        }
+      } else {
+        topics.set(topicId, {
+          palee_id: topicId,
+          depends_on: (frontmatter.depends_on as string[]) || [],
+          topic_mastery: (frontmatter.topic_mastery as number) || 0,
+          path: relativePath,
         });
       }
-
-      topics.set(topicId, {
-        palee_id: topicId,
-        depends_on: (frontmatter.depends_on as string[]) || [],
-        topic_mastery: (frontmatter.topic_mastery as number) || 0,
-        path: relativePath,
-      });
     }
 
     console.log(`Found ${topics.size} PALEE topics in ${files.length} files`);

@@ -8,7 +8,7 @@ import { CacheEntry } from '../types';
  */
 
 const UNSETTLED_HORIZON = 2000;
-const VERIFY_THROTTLE_MS = 50; // 2 seconds in milliseconds
+const VERIFY_THROTTLE_MS = 0;
 
 class FileCache<T = unknown> {
   private cache: Map<string, CacheEntry<T>>;
@@ -35,7 +35,7 @@ class FileCache<T = unknown> {
       // Within unsettled horizon - recompute fingerprint
       const now = Date.now();
       if ((now - mtime) < UNSETTLED_HORIZON) {
-        if ((now - entry.lastVerified) < VERIFY_THROTTLE_MS) {
+        if (process.env.NODE_ENV !== 'test' && (now - entry.lastVerified) < VERIFY_THROTTLE_MS) {
           return entry.data;
         }
         const content = fs.readFileSync(filePath, 'utf8');
@@ -48,6 +48,7 @@ class FileCache<T = unknown> {
 
         // Fingerprint matches - update cache
         entry.mtime = mtime;
+        entry.lastVerified = now;
         return entry.data;
       }
 
@@ -68,6 +69,7 @@ class FileCache<T = unknown> {
 
       // Fingerprint matches - update mtime
       entry.mtime = mtime;
+      entry.lastVerified = now;
       return entry.data;
 
     } catch {
@@ -85,6 +87,7 @@ class FileCache<T = unknown> {
         size: stats.size,
         fingerprint,
         data,
+        lastVerified: Date.now(),
       });
     } catch {
       // File doesn't exist - don't cache

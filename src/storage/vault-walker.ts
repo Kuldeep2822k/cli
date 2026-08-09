@@ -25,7 +25,8 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
     if (followSymlinks) {
       try { 
         realDir = fs.realpathSync(dir);
-        if (!realDir.startsWith(resolvedVaultPath)) return;
+        const relativePath = path.relative(resolvedVaultPath, realDir);
+        if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return;
       } catch { return; }
     }
     if (visited.has(realDir)) return;
