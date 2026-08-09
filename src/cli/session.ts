@@ -71,8 +71,18 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         await rebuildHotAndIndex(vaultPath);
       }
 
-      const hotContent = fs.readFileSync(hotPath, 'utf8');
-      const { frontmatter, body } = parseFrontmatter(hotContent);
+      let hotContent = fs.readFileSync(hotPath, 'utf8');
+      let { frontmatter, body, error } = parseFrontmatter(hotContent);
+
+      if (error || (frontmatter && !frontmatter.palee_schema)) {
+        console.warn('Corrupt hot memory detected. Rebuilding...');
+        fs.unlinkSync(hotPath);
+        await rebuildHotAndIndex(vaultPath);
+        hotContent = fs.readFileSync(hotPath, 'utf8');
+        const parsed = parseFrontmatter(hotContent);
+        frontmatter = parsed.frontmatter;
+        body = parsed.body;
+      }
 
       console.log('=== PALEE Session Started ===\n');
       if (!config.aiProvider) {
@@ -116,9 +126,15 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         ended_at: new Date().toISOString(),
       }, `Completed learning session for ${topicId}.`);
 
-      // Clean up drafts on confirmed session end
+      // Clean up drafts on confirmed session end for the current topic
       for (const draftPath of drafts) {
-        try { fs.unlinkSync(draftPath); } catch { /* ignore */ }
+        try {
+          const content = fs.readFileSync(draftPath, 'utf8');
+          const { frontmatter } = parseFrontmatter(content);
+          if (frontmatter && frontmatter.topic_id === topicId) {
+            fs.unlinkSync(draftPath);
+          }
+        } catch { /* ignore */ }
       }
 
       // Regenerate derived views

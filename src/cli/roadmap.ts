@@ -8,6 +8,7 @@ import path from 'path';
 import yaml from 'yaml';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
+import { walkVault } from '../storage/vault-walker';
 import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, RoadmapFile, TopicNode } from '../types';
 import readline from 'readline';
@@ -56,12 +57,21 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const seenPaths = new Set<string>();
     const topicsMap = new Map<string, TopicNode>();
 
+    const resolvedVault = path.resolve(vaultPath);
+
     for (const topic of roadmap.topics) {
       const { id, title, path: relativePath, difficulty, order } = topic;
 
       if (!id) errors.push('Topic missing "id" field');
       if (!title) errors.push('Topic missing "title" field');
-      if (!relativePath) errors.push('Topic missing "path" field');
+      if (!relativePath) {
+        errors.push('Topic missing "path" field');
+      } else {
+        const absolutePath = path.resolve(vaultPath, relativePath);
+        if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
+          errors.push(`Roadmap path escapes vault: ${relativePath}`);
+        }
+      }
 
       if (seenIds.has(id)) {
         errors.push(`Duplicate topic ID: ${id}`);
@@ -82,6 +92,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
 
       topicsMap.set(id, { palee_id: id, depends_on: topic.depends_on || [], topic_mastery: 0 });
+    }
+
+    const files = walkVault(vaultPath);
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        const parsed = parseFrontmatter(content);
+        if (parsed.frontmatter && parsed.frontmatter.palee_id) {
+          topicsMap.set(parsed.frontmatter.palee_id as string, { palee_id: parsed.frontmatter.palee_id as string, depends_on: parsed.frontmatter.depends_on as string[] || [], topic_mastery: 0 });
+        }
+      } catch {}
     }
 
     for (const topic of roadmap.topics) {
@@ -148,15 +169,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let failed = 0;
 
       for (const topic of roadmap.topics) {
-        const resolvedVault = path.resolve(vaultPath);
         const absolutePath = path.resolve(vaultPath, topic.path);
-        
-        if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
-          console.error(`Error: Roadmap path escapes vault: ${topic.path}`);
-          failed++;
-          continue;
-        }
-
         const dir = path.dirname(absolutePath);
 
         try {

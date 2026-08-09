@@ -55,7 +55,7 @@ async function adoptCommand(relativePath: string, options: AdoptOptions): Promis
       process.exit(2);
     }
 
-    const dependsOn = options.dependsOn ? options.dependsOn.split(',').map(s => s.trim()) : [];
+    const dependsOn = options.dependsOn ? options.dependsOn.split(',').map(s => s.trim()).filter(Boolean) : [];
 
     const topicId = generateTopicId();
 

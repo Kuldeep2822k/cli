@@ -8,7 +8,7 @@ import { FrontmatterResult, NodeError } from '../types';
  */
 
 function parseFrontmatter(content: string): FrontmatterResult {
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
 
   if (!fmMatch) {
     return { frontmatter: null, body: content, raw: null };
@@ -19,6 +19,9 @@ function parseFrontmatter(content: string): FrontmatterResult {
 
   try {
     const doc = parseDocument(raw);
+    if (doc.errors && doc.errors.length > 0) {
+      return { frontmatter: null, body, raw, error: doc.errors[0].message };
+    }
     const frontmatter = doc.toJSON() as Record<string, unknown>;
     return { frontmatter, body, raw, doc };
   } catch (e: unknown) {
@@ -29,6 +32,9 @@ function parseFrontmatter(content: string): FrontmatterResult {
 
 function updateFrontmatter(content: string, updates: Record<string, unknown>): string {
   const parsed = parseFrontmatter(content);
+  if (parsed.error) {
+    throw new Error(`Malformed frontmatter: ${parsed.error}`);
+  }
 
   if (!parsed.frontmatter) {
     const newFm = { ...updates };

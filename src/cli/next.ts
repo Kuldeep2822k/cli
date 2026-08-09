@@ -64,7 +64,8 @@ async function nextCommand(options: NextOptions): Promise<void> {
 
     // Sort by due date (null first, then oldest)
     dueTopics.sort((a, b) => {
-      if (!a.dueAt) return -1;
+      if (!a.dueAt && !b.dueAt) return 0;
+    if (!a.dueAt) return -1;
       if (!b.dueAt) return 1;
       return a.dueAt.getTime() - b.dueAt.getTime();
     });

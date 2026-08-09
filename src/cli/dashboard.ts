@@ -67,7 +67,7 @@ async function dashboardCommand(): Promise<void> {
     const mastered = topics.filter(t => t.mastery >= 0.7).length;
     const learning = topics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
     const newTopics = topics.filter(t => t.mastery === 0).length;
-    const due = topics.filter(t => !t.due_at || t.due_at <= now).length;
+    const due = topics.filter(t => t.due_at && t.due_at <= now).length;
 
     console.log(`Total Topics:      ${total}`);
     console.log(`Mastered (≥70%):   ${mastered} (${(mastered / total * 100 || 0).toFixed(1)}%)`);
@@ -93,7 +93,7 @@ async function dashboardCommand(): Promise<void> {
     console.log();
 
     // Next review
-    const dueTopics = topics.filter(t => !t.due_at || t.due_at <= now);
+    const dueTopics = topics.filter(t => t.due_at && t.due_at <= now);
     if (dueTopics.length > 0) {
       dueTopics.sort((a, b) => {
         if (!a.due_at) return -1;

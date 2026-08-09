@@ -106,14 +106,20 @@ function createLock(lockDir: string, targetPath: string): LockData {
       const freshLocks = parsedLocks.filter(l => !isLockStale(l));
       if (freshLocks.length > 0) {
         const active = freshLocks[0].data;
-        throw new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
+        const err = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`); (err as any).code = 'ECONFLICT'; throw err;
       }
 
       // If we reach here, the directory exists but ALL active locks (if any) are stale!
       // We must clean up the stale directory to reset the state.
       // We only attempt to delete the exact files we observed in this iteration.
       for (const file of files) {
-        try { fs.unlinkSync(path.join(lockDir, file)); } catch {}
+        const filePath = path.join(lockDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (Date.now() - stats.mtimeMs > STALE_TIMEOUT) {
+            fs.unlinkSync(filePath);
+          }
+        } catch {}
       }
 
       try {

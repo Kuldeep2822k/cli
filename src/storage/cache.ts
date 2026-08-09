@@ -7,7 +7,8 @@ import { CacheEntry } from '../types';
  * Prevents reusing stale cache during rapid edit cycles
  */
 
-const UNSETTLED_HORIZON = 2000; // 2 seconds in milliseconds
+const UNSETTLED_HORIZON = 2000;
+const VERIFY_THROTTLE_MS = 50; // 2 seconds in milliseconds
 
 class FileCache<T = unknown> {
   private cache: Map<string, CacheEntry<T>>;
@@ -34,6 +35,9 @@ class FileCache<T = unknown> {
       // Within unsettled horizon - recompute fingerprint
       const now = Date.now();
       if ((now - mtime) < UNSETTLED_HORIZON) {
+        if ((now - entry.lastVerified) < VERIFY_THROTTLE_MS) {
+          return entry.data;
+        }
         const content = fs.readFileSync(filePath, 'utf8');
         const fingerprint = computeFingerprint(content);
 
@@ -49,6 +53,7 @@ class FileCache<T = unknown> {
 
       // Outside unsettled horizon and mtime matches - cache hit
       if (entry.mtime === mtime) {
+        entry.lastVerified = now;
         return entry.data;
       }
 

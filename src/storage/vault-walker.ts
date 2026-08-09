@@ -18,11 +18,15 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
   const { followSymlinks = false } = options;
   const results: string[] = [];
   const visited = new Set<string>();
+  const resolvedVaultPath = path.resolve(vaultPath);
 
   function walk(dir: string): void {
     let realDir = dir;
     if (followSymlinks) {
-      try { realDir = fs.realpathSync(dir); } catch { return; }
+      try { 
+        realDir = fs.realpathSync(dir);
+        if (!realDir.startsWith(resolvedVaultPath)) return;
+      } catch { return; }
     }
     if (visited.has(realDir)) return;
     visited.add(realDir);

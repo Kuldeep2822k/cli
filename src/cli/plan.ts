@@ -73,7 +73,8 @@ async function planCommand(): Promise<void> {
     console.log(`Reviews Due: ${dueTopics.length}`);
     if (dueTopics.length > 0) {
       const sorted = dueTopics.sort((a, b) => {
-        if (!a.due_at) return -1;
+        if (!a.due_at && !b.due_at) return 0;
+    if (!a.due_at) return -1;
         if (!b.due_at) return 1;
         return a.due_at.getTime() - b.due_at.getTime();
       });
