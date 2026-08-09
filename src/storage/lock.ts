@@ -55,7 +55,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
     try {
       fs.mkdirSync(lockDir);
       // We won the lock directory! Write our session file.
-      fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      try {
+        fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      } catch (writeErr: unknown) {
+        if ((writeErr as NodeError).code === 'ENOENT') {
+          // Directory was removed before we could write!
+          continue;
+        }
+        throw writeErr;
+      }
       return lockData;
     } catch (e: unknown) {
       const err = e as NodeError;
@@ -70,12 +78,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw readErr;
       }
 
-      const activeFiles = files.filter(f => f.endsWith('.json') && !f.endsWith('.stale.json'));
+      const activeFiles = files.filter(f => f.endsWith('.json'));
 
       if (activeFiles.length === 0) {
-        // Corrupted/empty directory (previous owner crashed before writing file, or we caught them in between)
+        // Corrupted/empty directory (previous owner crashed before writing file, or we caught them in between, or garbage files)
+        for (const file of files) {
+          try { fs.unlinkSync(path.join(lockDir, file)); } catch {}
+        }
         try {
-          fs.rmdirSync(lockDir); // Will fail with ENOTEMPTY if someone just wrote a file
+          fs.rmdirSync(lockDir);
         } catch (rmErr: unknown) {
           if ((rmErr as NodeError).code === 'ENOTEMPTY') continue; // Someone wrote a file, retry read
         }
@@ -99,20 +110,19 @@ function createLock(lockDir: string, targetPath: string): LockData {
       }
 
       // All active locks are stale. We must quarantine ALL of them to take over.
-      // If we fail to rename ANY of them, it means someone else beat us to it.
+      // If we fail to unlink ANY of them, it means someone else beat us to it.
       let takeoverSuccessful = true;
       for (const staleLock of parsedLocks) {
         const oldPath = path.join(lockDir, staleLock.filename);
-        const quarantinePath = path.join(lockDir, `${staleLock.filename}.stale`);
         try {
-          fs.renameSync(oldPath, quarantinePath);
-        } catch (renameErr: unknown) {
-          if ((renameErr as NodeError).code === 'ENOENT') {
-            // Someone else already renamed/deleted it! We lost the takeover race.
+          fs.unlinkSync(oldPath);
+        } catch (unlinkErr: unknown) {
+          if ((unlinkErr as NodeError).code === 'ENOENT') {
+            // Someone else already unlinked it! We lost the takeover race.
             takeoverSuccessful = false;
             break;
           }
-          throw renameErr;
+          throw unlinkErr;
         }
       }
 
@@ -122,7 +132,16 @@ function createLock(lockDir: string, targetPath: string): LockData {
       }
 
       // We successfully quarantined the stale lock(s). The lock is ours!
-      fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      try {
+        fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      } catch (writeErr: unknown) {
+        if ((writeErr as NodeError).code === 'ENOENT') {
+          // The lock directory was removed out from under us by the stale owner releasing!
+          // We must retry creating the directory.
+          continue;
+        }
+        throw writeErr;
+      }
       return lockData;
     }
   }
@@ -133,7 +152,7 @@ function updateHeartbeat(lockDir: string, expectedLockId: string): void {
   let fd: number | null = null;
   try {
     // Open with r+ ensures we only update if the file STILL exists.
-    // If someone quarantined us, they renamed it, and this throws ENOENT.
+    // If someone quarantined us, they unlinked it, and this throws ENOENT.
     fd = fs.openSync(lockFile, 'r+');
     const content = fs.readFileSync(fd, 'utf8');
     if (!content.trim()) return;
@@ -158,7 +177,7 @@ function updateHeartbeat(lockDir: string, expectedLockId: string): void {
 function releaseLock(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   try {
-    // Delete our specific session file. If someone else took over, they renamed it.
+    // Delete our specific session file. If someone else took over, they unlinked it.
     // We catch ENOENT safely.
     fs.unlinkSync(lockFile);
   } catch {}
