@@ -152,14 +152,12 @@ describe('File Locking', () => {
 
     const lock2 = new Lock(testVaultPath, testFilePath);
     try {
-      const start = Date.now();
       let err: any;
       try {
         await lock2.acquire();
       } catch (e) {
         err = e;
       }
-      const end = Date.now();
 
       assert.ok(err, 'Expected error to be thrown');
       assert.strictEqual(err.code, 'ECONFLICT');
