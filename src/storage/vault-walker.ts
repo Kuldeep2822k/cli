@@ -17,8 +17,16 @@ const EXCLUDED_DIRS = new Set([
 function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
   const { followSymlinks = false } = options;
   const results: string[] = [];
+  const visited = new Set<string>();
 
   function walk(dir: string): void {
+    let realDir = dir;
+    if (followSymlinks) {
+      try { realDir = fs.realpathSync(dir); } catch { return; }
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
+
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
