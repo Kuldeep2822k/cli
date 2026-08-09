@@ -30,24 +30,36 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
 
-      // Skip symlinks unless explicitly following them
-      if (entry.isSymbolicLink() && !followSymlinks) {
-        continue;
+      let isDir = entry.isDirectory();
+      let isFil = entry.isFile();
+
+      if (entry.isSymbolicLink()) {
+        if (!followSymlinks) {
+          continue;
+        }
+        try {
+          const stat = fs.statSync(fullPath);
+          isDir = stat.isDirectory();
+          isFil = stat.isFile();
+        } catch {
+          // Dead link, skip
+          continue;
+        }
       }
 
       // Skip hidden directories (starting with .)
-      if (entry.isDirectory() && entry.name.startsWith('.')) {
+      if (isDir && entry.name.startsWith('.')) {
         continue;
       }
 
       // Skip excluded directories
-      if (entry.isDirectory() && EXCLUDED_DIRS.has(entry.name)) {
+      if (isDir && EXCLUDED_DIRS.has(entry.name)) {
         continue;
       }
 
-      if (entry.isDirectory()) {
+      if (isDir) {
         walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      } else if (isFil && entry.name.endsWith('.md')) {
         results.push(fullPath);
       }
     }

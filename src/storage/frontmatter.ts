@@ -8,7 +8,7 @@ import { FrontmatterResult, NodeError } from '../types';
  */
 
 function parseFrontmatter(content: string): FrontmatterResult {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
   if (!fmMatch) {
     return { frontmatter: null, body: content, raw: null };

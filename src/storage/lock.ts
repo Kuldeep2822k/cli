@@ -85,8 +85,8 @@ function quarantineStaleLock(lockPath: string): void {
   try {
     fs.renameSync(lockPath, quarantinePath);
   } catch {
-    // If rename fails, try delete
-    fs.unlinkSync(lockPath);
+    // If rename fails, someone else already claimed or deleted it
+    // Do not unlink!
   }
 }
 
@@ -104,9 +104,12 @@ function updateHeartbeat(lockPath: string): void {
   }
 }
 
-function releaseLock(lockPath: string): void {
+function releaseLock(lockPath: string, expectedLockId: string): void {
   try {
-    fs.unlinkSync(lockPath);
+    const currentLock = readLock(lockPath);
+    if (currentLock && currentLock.lock_id === expectedLockId) {
+      fs.unlinkSync(lockPath);
+    }
   } catch {
     // Lock already released or doesn't exist
   }
@@ -116,6 +119,7 @@ class Lock {
   private targetPath: string;
   readonly lockPath: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null;
+  private lockData: LockData | null = null;
 
   constructor(vaultPath: string, targetPath: string) {
     this.targetPath = targetPath;
@@ -124,7 +128,8 @@ class Lock {
   }
 
   async acquire(): Promise<void> {
-    createLock(this.lockPath, this.targetPath);
+    this.lockData = createLock(this.lockPath, this.targetPath);
+    this.startHeartbeat();
   }
 
   startHeartbeat(): void {
@@ -139,7 +144,9 @@ class Lock {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    releaseLock(this.lockPath);
+    if (this.lockData) {
+      releaseLock(this.lockPath, this.lockData.lock_id);
+    }
   }
 }
 

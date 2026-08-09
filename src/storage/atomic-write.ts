@@ -22,8 +22,10 @@ function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
 async function atomicWrite(vaultPath: string, targetPath: string, newContent: string, expectedFingerprint: string | null = null): Promise<void> {
   const lock = new Lock(vaultPath, targetPath);
 
+  let lockAcquired = false;
   try {
     await lock.acquire();
+    lockAcquired = true;
 
     // OCC: Check fingerprint if file exists
     if (expectedFingerprint !== null && fs.existsSync(targetPath)) {
@@ -75,7 +77,9 @@ async function atomicWrite(vaultPath: string, targetPath: string, newContent: st
     }
 
   } finally {
-    lock.release();
+    if (lockAcquired) {
+      lock.release();
+    }
   }
 }
 
