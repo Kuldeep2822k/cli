@@ -203,8 +203,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
         if (fs.existsSync(absolutePath)) {
           try {
+            const realVault = fs.realpathSync(path.resolve(vaultPath));
             const realPath = fs.realpathSync(absolutePath);
-            if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
+            const isFileInside = realPath === realVault || realPath.startsWith(realVault + path.sep);
+            if (!isFileInside) {
               console.error(`Roadmap path escapes vault (via symlink): ${topic.path}`);
               failed++;
               continue;
