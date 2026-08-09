@@ -8,7 +8,7 @@
     "palee": "./dist/bin/palee.js"
   },
   "scripts": {
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
     "lint": "echo 'Lint check passed (add eslint in future)'"
   },

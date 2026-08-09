@@ -104,8 +104,18 @@ jobs:
           node-version: 20.x
           cache: 'npm'
 
+      - name: Build production bundle
+        run: npm run build
+
       - name: Install CLI globally from source
-        run: npm install -g .
+        run: |
+          npm install -g .
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "$(npm config get prefix)" >> $GITHUB_PATH
+          else
+            echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+          fi
+        shell: bash
 
       - name: Test global binary --version
         run: palee --version
