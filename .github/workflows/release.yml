@@ -24,10 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Strict Typecheck
-        run: npx tsc --noEmit
+      - name: Strict Typecheck & Lint
+        run: npm run lint
 
-      - name: Run invariant tests
+      - name: Run unit & invariant tests
         run: npm test
 
       - name: Build production bundle
@@ -36,9 +36,15 @@ jobs:
       - name: Build verified distribution tarball
         id: pack
         run: |
-          FILENAME=$(npm pack | tail -n 1)
-          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
-          echo "Created tarball: $FILENAME"
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            exec('npm pack');
+            const filename = pkg.name + '-' + pkg.version + '.tgz';
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
+            console.log('Created tarball:', filename);
+          "
 
       - name: Upload verified release tarball
         uses: actions/upload-artifact@v4
@@ -62,6 +68,7 @@ jobs:
         with:
           node-version: 20.x
           registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
 
       - name: Download verified release tarball
         uses: actions/download-artifact@v4
@@ -69,7 +76,11 @@ jobs:
           name: npm-package
 
       - name: Publish exact verified tarball to NPM with Provenance
-        run: npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --provenance --access public
+        run: |
+          if ! npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --provenance --access public; then
+            echo "Error: NPM publish failed!"
+            exit 1
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

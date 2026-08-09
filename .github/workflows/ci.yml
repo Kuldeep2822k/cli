@@ -26,9 +26,7 @@ jobs:
         run: npm ci
 
       - name: Lint & Strict Typecheck
-        run: |
-          npm run lint
-          npx tsc --noEmit
+        run: npm run lint
 
       - name: Build production bundle
         run: npm run build
@@ -82,12 +80,13 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
+            const path = require('path');
             const exec = require('child_process').execSync;
             function findNodeFiles(dir) {
               let results = [];
               if (!fs.existsSync(dir)) return results;
               for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
-                const p = dir + '/' + f.name;
+                const p = path.join(dir, f.name);
                 if (f.isDirectory()) results = results.concat(findNodeFiles(p));
                 else if (f.name.endsWith('.node')) results.push(p);
               }
@@ -143,8 +142,18 @@ jobs:
       - name: Install CLI globally from packed tarball
         run: npm install -g ${{ steps.pack.outputs.filename }}
 
+      - name: Add npm global bin directory to PATH
+        run: |
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            const prefix = exec('npm config get prefix', { encoding: 'utf8' }).trim();
+            const binDir = process.platform === 'win32' ? prefix : prefix + '/bin';
+            fs.appendFileSync(process.env.GITHUB_PATH, binDir + '\n');
+          "
+
       - name: Test global binary --version
-        run: npx palee --version
+        run: palee --version
 
       - name: Test global binary --help
-        run: npx palee --help
+        run: palee --help
