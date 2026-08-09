@@ -144,7 +144,7 @@ jobs:
         run: npm install -g ${{ steps.pack.outputs.filename }}
 
       - name: Test global binary --version
-        run: palee --version
+        run: npx palee --version
 
       - name: Test global binary --help
-        run: palee --help
+        run: npx palee --help
