@@ -25,8 +25,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Strict Typecheck
-        run: npx tsc --noEmit
+      - name: Lint & Strict Typecheck
+        run: |
+          npm run lint
+          npx tsc --noEmit
 
       - name: Build production bundle
         run: npm run build
@@ -76,16 +78,31 @@ jobs:
       - name: Production dependency vulnerability audit
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Strict native binary & toolchain audit
+      - name: Cross-platform native binary & toolchain audit
         run: |
-          NATIVE_FILES=$(find node_modules -type f -name "*.node" 2>/dev/null | wc -l || true)
-          TOOLCHAIN_COUNT=$(npm ls | grep -iE "node-gyp|node-pre-gyp|prebuild-install|napi-rs|cmake-js" | wc -l || true)
-          if [ "$NATIVE_FILES" -gt 0 ] || [ "$TOOLCHAIN_COUNT" -gt 0 ]; then
-            echo "Error: Detected native C/C++ binaries or build toolchains in node_modules!"
-            find node_modules -type f -name "*.node"
-            exit 1
-          fi
-          echo "Verified: Zero native binary files or toolchains found in dependency tree."
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            function findNodeFiles(dir) {
+              let results = [];
+              if (!fs.existsSync(dir)) return results;
+              for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = dir + '/' + f.name;
+                if (f.isDirectory()) results = results.concat(findNodeFiles(p));
+                else if (f.name.endsWith('.node')) results.push(p);
+              }
+              return results;
+            }
+            const nodeFiles = findNodeFiles('node_modules');
+            let lsOutput = '';
+            try { lsOutput = exec('npm ls', { encoding: 'utf8' }) || ''; } catch (e) { lsOutput = e.stdout || ''; }
+            const hasToolchain = /node-gyp|node-pre-gyp|prebuild-install|napi-rs|cmake-js/i.test(lsOutput);
+            if (nodeFiles.length > 0 || hasToolchain) {
+              console.error('Native modules/toolchains detected:', nodeFiles);
+              process.exit(1);
+            }
+            console.log('Verified: Zero native binary files or toolchains found in dependency tree.');
+          "
 
   smoke-install:
     name: Global Package Smoke Test on ${{ matrix.os }}
@@ -104,18 +121,27 @@ jobs:
           node-version: 20.x
           cache: 'npm'
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Build production bundle
         run: npm run build
 
-      - name: Install CLI globally from source
+      - name: Build tarball package
+        id: pack
         run: |
-          npm install -g .
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            echo "$(npm config get prefix)" >> $GITHUB_PATH
-          else
-            echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
-          fi
-        shell: bash
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            exec('npm pack');
+            const filename = pkg.name + '-' + pkg.version + '.tgz';
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
+            console.log('Created tarball:', filename);
+          "
+
+      - name: Install CLI globally from packed tarball
+        run: npm install -g ${{ steps.pack.outputs.filename }}
 
       - name: Test global binary --version
         run: palee --version

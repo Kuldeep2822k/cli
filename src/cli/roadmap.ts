@@ -182,9 +182,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
+          const realVault = fs.realpathSync(path.resolve(vaultPath));
           const realDir = fs.realpathSync(dir);
-          const realVault = fs.existsSync(resolvedVault) ? fs.realpathSync(resolvedVault) : resolvedVault;
-          if (!realDir.startsWith(realVault + path.sep) && realDir !== realVault) {
+          const isInside = realDir === realVault || realDir.startsWith(realVault + path.sep);
+          if (!isInside) {
             console.error(`Roadmap directory escapes vault (via symlink): ${topic.path}`);
             failed++;
             continue;
