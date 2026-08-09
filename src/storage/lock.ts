@@ -16,6 +16,12 @@ const STALE_TIMEOUT_OTHER = 120000; // 120 seconds
 
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
+interface ParsedLock {
+  filename: string;
+  data: LockData | null;
+  mtime: number;
+}
+
 function generateLockId(): string {
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
   const random = crypto.randomBytes(2).toString('hex');
@@ -30,21 +36,10 @@ function getLockDir(vaultPath: string, targetPath: string): string {
   return path.join(locksDir, `${hash}.lockdir`);
 }
 
-interface ParsedLock {
-  filename: string;
-  data: LockData | null;
-  mtime: number;
-}
-
 function isLockStale(lockInfo: ParsedLock): boolean {
-  let heartbeatTime: number;
-  if (lockInfo.data && lockInfo.data.heartbeat_at) {
-    heartbeatTime = new Date(lockInfo.data.heartbeat_at).getTime();
-  } else {
-    heartbeatTime = lockInfo.mtime;
-  }
+  if (lockInfo.mtime === 0) return true; // File disappeared mid-read
   const now = Date.now();
-  return now - heartbeatTime > STALE_TIMEOUT;
+  return now - lockInfo.mtime > STALE_TIMEOUT;
 }
 
 function createLock(lockDir: string, targetPath: string): LockData {
@@ -56,6 +51,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
     pid: process.pid,
     hostname: os.hostname(),
     created_at: now,
+    // heartbeat_at is kept for legacy compatibility if read by old clients, but we use mtime natively
     heartbeat_at: now,
   };
 
@@ -107,11 +103,12 @@ function createLock(lockDir: string, targetPath: string): LockData {
       const parsedLocks: ParsedLock[] = activeFiles.map(f => {
         const filePath = path.join(lockDir, f);
         try {
+          const stats = fs.statSync(filePath);
           const content = fs.readFileSync(filePath, 'utf8');
-          return { filename: f, data: JSON.parse(content) as LockData, mtime: fs.statSync(filePath).mtime.getTime() };
+          return { filename: f, data: JSON.parse(content) as LockData, mtime: stats.mtimeMs };
         } catch {
           try {
-            return { filename: f, data: null, mtime: fs.statSync(filePath).mtime.getTime() };
+            return { filename: f, data: null, mtime: fs.statSync(filePath).mtimeMs };
           } catch {
             return { filename: f, data: null, mtime: 0 };
           }
@@ -164,28 +161,13 @@ function createLock(lockDir: string, targetPath: string): LockData {
 
 function updateHeartbeat(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
-  let fd: number | null = null;
   try {
-    // Open with r+ ensures we only update if the file STILL exists.
-    // If someone quarantined us, they unlinked it, and this throws ENOENT.
-    fd = fs.openSync(lockFile, 'r+');
-    const content = fs.readFileSync(fd, 'utf8');
-    if (!content.trim()) return;
-    const lock = JSON.parse(content) as LockData;
-    
-    // Safety check just in case, though the filename guarantees the ID.
-    if (lock.lock_id === expectedLockId) {
-      lock.heartbeat_at = new Date().toISOString();
-      const updatedContent = Buffer.from(JSON.stringify(lock, null, 2), 'utf8');
-      fs.ftruncateSync(fd, 0);
-      fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
-    }
+    const now = new Date();
+    // utimesSync updates mtime/atime natively without modifying file contents.
+    // Throws ENOENT if file was quarantined (unlinked) by a stale takeover.
+    fs.utimesSync(lockFile, now, now);
   } catch {
-    // If ENOENT, we were quarantined and lost the lock. Stop updating.
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch {}
-    }
+    // If ENOENT, we lost the lock. Stop updating.
   }
 }
 

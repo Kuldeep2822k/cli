@@ -80,27 +80,24 @@ describe('File Locking', () => {
     lock.release();
   });
 
-  test('heartbeat updates heartbeat_at field', async () => {
+  test('heartbeat updates mtime', async () => {
     const lock = new Lock(testVaultPath, testFilePath);
     await lock.acquire();
 
-    const initialLockData = getLockData(lock.lockPath);
-    const initialHeartbeat = initialLockData.heartbeat_at;
+    const files = fs.readdirSync(lock.lockPath).filter(f => f.endsWith('.json'));
+    const lockFile = path.join(lock.lockPath, files[0]);
+    const initialMtime = fs.statSync(lockFile).mtimeMs;
 
     await new Promise(resolve => setTimeout(resolve, 1100));
 
-    // Force heartbeat update via internal timer or manual
-    // Actually, we can manually trigger the update logic by reading and overwriting
-    const lockData = getLockData(lock.lockPath);
-    lockData.heartbeat_at = new Date().toISOString();
-    const files = fs.readdirSync(lock.lockPath).filter(f => f.endsWith('.json'));
-    fs.writeFileSync(path.join(lock.lockPath, files[0]), JSON.stringify(lockData, null, 2));
+    // Force heartbeat update via manual utimesSync
+    const now = new Date();
+    fs.utimesSync(lockFile, now, now);
 
-    const updatedLockData = getLockData(lock.lockPath);
-    const updatedHeartbeat = updatedLockData.heartbeat_at;
+    const updatedMtime = fs.statSync(lockFile).mtimeMs;
 
-    assert.notStrictEqual(initialHeartbeat, updatedHeartbeat);
-    assert.ok(new Date(updatedHeartbeat) > new Date(initialHeartbeat));
+    assert.notStrictEqual(initialMtime, updatedMtime);
+    assert.ok(updatedMtime > initialMtime);
 
     lock.release();
   });
@@ -111,12 +108,13 @@ describe('File Locking', () => {
 
     const lockPath = lock1.lockPath;
 
-    // Manually make lock stale by modifying heartbeat_at
+    // Manually make lock stale by modifying mtime
     const lockData = getLockData(lockPath);
-    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000).toISOString();
-    lockData.heartbeat_at = staleTime;
     const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
-    fs.writeFileSync(path.join(lockPath, files[0]), JSON.stringify(lockData, null, 2));
+    const lockFile = path.join(lockPath, files[0]);
+    
+    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000);
+    fs.utimesSync(lockFile, staleTime, staleTime);
 
     // Don't release lock1 - leave it in stale state
     const lock2 = new Lock(testVaultPath, testFilePath);
