@@ -19,7 +19,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
-          cache: 'npm'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install dependencies
         run: npm ci
@@ -28,7 +35,7 @@ jobs:
         run: npm run lint
 
       - name: Run unit & invariant tests
-        run: npm test
+        run: npm run test:coverage
 
       - name: Build production bundle
         run: npm run build
@@ -68,7 +75,14 @@ jobs:
         with:
           node-version: 20.x
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Download verified release tarball
         uses: actions/download-artifact@v4
@@ -106,3 +120,29 @@ jobs:
           draft: false
           prerelease: false
           files: ${{ needs.verify-and-pack.outputs.package-filename }}
+
+  smoke-test:
+    name: Post-Release Smoke Test
+    needs: publish-npm
+    runs-on: windows-latest
+    steps:
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install published package globally
+        run: npm install -g palee@latest
+
+      - name: Add npm global bin directory to PATH
+        run: |
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            const prefix = exec('npm config get prefix', { encoding: 'utf8' }).trim();
+            const binDir = process.platform === 'win32' ? prefix : prefix + '/bin';
+            fs.appendFileSync(process.env.GITHUB_PATH, binDir + '\n');
+          "
+
+      - name: Test global binary
+        run: palee --version
