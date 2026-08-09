@@ -97,6 +97,7 @@ export interface CacheEntry<T = unknown> {
   size: number;
   fingerprint: string;
   data: T;
+  lastVerified: number;
 }
 
 // ─── Frontmatter ────────────────────────────────────────────────────
@@ -156,6 +157,7 @@ export interface ValidateOptions {
 
 export interface RoadmapOptions {
   from?: string;
+  yes?: boolean;
 }
 
 // ─── Roadmap YAML ───────────────────────────────────────────────────
