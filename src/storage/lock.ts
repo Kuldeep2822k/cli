@@ -7,6 +7,7 @@ import { LockData, NodeError } from '../types';
 /**
  * File locking with heartbeat and stale lock recovery
  * Platform-aware: 60s stale timeout on Windows, 120s elsewhere
+ * Uses atomic directory creation to prevent TOCTOU race conditions.
  */
 
 const HEARTBEAT_INTERVAL = 15000; // 15 seconds
@@ -16,10 +17,7 @@ const STALE_TIMEOUT_OTHER = 120000; // 120 seconds
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
 function generateLockId(): string {
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d{3}Z$/, '');
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
   const random = crypto.randomBytes(2).toString('hex');
   return `L-${timestamp}-${random}`;
 }
@@ -29,7 +27,7 @@ function getLockPath(vaultPath: string, targetPath: string): string {
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   const lockDir = path.join(vaultPath, '.palee', 'locks');
   fs.mkdirSync(lockDir, { recursive: true });
-  return path.join(lockDir, `${hash}.lock`);
+  return path.join(lockDir, `${hash}.lockdir`);
 }
 
 function createLock(lockPath: string, targetPath: string): LockData {
@@ -44,26 +42,23 @@ function createLock(lockPath: string, targetPath: string): LockData {
     heartbeat_at: now,
   };
 
-  const lockContent = JSON.stringify(lockData, null, 2);
-
   try {
-    // Exclusive create - fails if file exists
-    fs.writeFileSync(lockPath, lockContent, { flag: 'wx' });
+    fs.mkdirSync(lockPath);
+    const dataFile = path.join(lockPath, `${lockId}.json`);
+    fs.writeFileSync(dataFile, JSON.stringify(lockData, null, 2), 'utf8');
     return lockData;
   } catch (e: unknown) {
     const err = e as NodeError;
     if (err.code === 'EEXIST') {
-      // Lock exists - check if stale
       const existingLock = readLock(lockPath);
       if (isLockStale(existingLock)) {
         quarantineStaleLock(lockPath);
-        // Retry creation
-        fs.writeFileSync(lockPath, lockContent, { flag: 'wx' });
+        fs.mkdirSync(lockPath);
+        const dataFile = path.join(lockPath, `${lockId}.json`);
+        fs.writeFileSync(dataFile, JSON.stringify(lockData, null, 2), 'utf8');
         return lockData;
       }
-      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${existingLock?.pid}`, {
-        cause: e,
-      });
+      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${existingLock?.pid}`);
     }
     throw err;
   }
@@ -71,7 +66,10 @@ function createLock(lockPath: string, targetPath: string): LockData {
 
 function readLock(lockPath: string): LockData | null {
   try {
-    const content = fs.readFileSync(lockPath, 'utf8');
+    const files = fs.readdirSync(lockPath);
+    const dataFile = files.find(f => f.endsWith('.json'));
+    if (!dataFile) return null;
+    const content = fs.readFileSync(path.join(lockPath, dataFile), 'utf8');
     return JSON.parse(content) as LockData;
   } catch {
     return null;
@@ -91,49 +89,32 @@ function quarantineStaleLock(lockPath: string): void {
     fs.renameSync(lockPath, quarantinePath);
   } catch {
     // If rename fails, someone else already claimed or deleted it
-    // Do not unlink!
   }
 }
 
 function updateHeartbeat(lockPath: string, expectedLockId: string): void {
-  let fd: number | null = null;
   try {
-    fd = fs.openSync(lockPath, 'r+');
-    const content = fs.readFileSync(fd, 'utf8');
+    const dataFile = path.join(lockPath, `${expectedLockId}.json`);
+    const content = fs.readFileSync(dataFile, 'utf8');
     const lock = JSON.parse(content) as LockData;
-    if (lock && lock.lock_id === expectedLockId) {
-      lock.heartbeat_at = new Date().toISOString();
-      const updatedContent = Buffer.from(JSON.stringify(lock, null, 2), 'utf8');
-      fs.ftruncateSync(fd, 0);
-      fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
-    }
+    
+    lock.heartbeat_at = new Date().toISOString();
+    
+    const tempFile = path.join(lockPath, `${expectedLockId}.tmp`);
+    fs.writeFileSync(tempFile, JSON.stringify(lock, null, 2), 'utf8');
+    fs.renameSync(tempFile, dataFile);
   } catch {
-    // Heartbeat update failed - continue, next interval will retry
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch {}
-    }
+    // Heartbeat update failed - likely quarantined
   }
 }
 
 function releaseLock(lockPath: string, expectedLockId: string): void {
   try {
-    const releasePath = lockPath + '.release.' + expectedLockId;
-    fs.renameSync(lockPath, releasePath);
-    
-    const currentLock = readLock(releasePath);
-    if (currentLock && currentLock.lock_id === expectedLockId) {
-      fs.unlinkSync(releasePath);
-    } else {
-      // It wasn't ours! Restore it so the rightful owner keeps it.
-      try {
-        fs.renameSync(releasePath, lockPath);
-      } catch {
-        // Ignore restore errors if someone else immediately created a new lock
-      }
-    }
+    const dataFile = path.join(lockPath, `${expectedLockId}.json`);
+    fs.unlinkSync(dataFile);
+    fs.rmdirSync(lockPath);
   } catch {
-    // Lock already released or doesn't exist
+    // Lock already released, doesn't exist, or directory wasn't empty
   }
 }
 
@@ -174,4 +155,8 @@ class Lock {
   }
 }
 
-export { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT };
+export {
+  Lock,
+  HEARTBEAT_INTERVAL,
+  STALE_TIMEOUT,
+};
