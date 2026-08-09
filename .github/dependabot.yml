@@ -15,7 +15,7 @@ updates:
       - "dependencies"
       - "javascript"
     groups:
-      dev-dependencies:
+      all-dependencies:
         patterns:
           - "*"
         update-types:

@@ -151,21 +151,24 @@ describe('File Locking', () => {
     await lock1.acquire();
 
     const lock2 = new Lock(testVaultPath, testFilePath);
-    const start = Date.now();
-    let err: any;
     try {
-      await lock2.acquire();
-    } catch (e) {
-      err = e;
+      const start = Date.now();
+      let err: any;
+      try {
+        await lock2.acquire();
+      } catch (e) {
+        err = e;
+      }
+      const end = Date.now();
+
+      assert.ok(err, 'Expected error to be thrown');
+      assert.strictEqual(err.code, 'ECONFLICT');
+      // Ensure it failed immediately without retry loops for active locks
+      assert.ok(end - start < 100, 'Expected immediate ECONFLICT without retry delay');
+    } finally {
+      lock1.release();
+      lock2.release();
     }
-    const end = Date.now();
-
-    assert.ok(err, 'Expected error to be thrown');
-    assert.strictEqual(err.code, 'ECONFLICT');
-    // Ensure it failed immediately without retry loops for active locks
-    assert.ok(end - start < 100, 'Expected immediate ECONFLICT without retry delay');
-
-    lock1.release();
   });
 
   test('validates Windows specific stale lock timing behavior', async () => {
@@ -176,31 +179,34 @@ describe('File Locking', () => {
 
     const lock1 = new Lock(testVaultPath, testFilePath);
     await lock1.acquire();
-
-    const lockPath = lock1.lockPath;
-    const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
-    const lockFile = path.join(lockPath, files[0]);
-    
-    // Set exactly to 59 seconds ago (just under Windows 60s timeout)
-    const activeTime = new Date(Date.now() - 59000);
-    fs.utimesSync(lockFile, activeTime, activeTime);
-
     const lock2 = new Lock(testVaultPath, testFilePath);
-    // Should still fail with ECONFLICT because it hasn't reached 60s
-    await assert.rejects(
-      async () => await lock2.acquire(),
-      { code: 'ECONFLICT' }
-    );
 
-    // Now set exactly to 61 seconds ago (just over Windows 60s timeout)
-    const staleTime = new Date(Date.now() - 61000);
-    fs.utimesSync(lockFile, staleTime, staleTime);
+    try {
+      const lockPath = lock1.lockPath;
+      const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
+      const lockFile = path.join(lockPath, files[0]);
+      
+      // Set exactly to 59 seconds ago (just under Windows 60s timeout)
+      const activeTime = new Date(Date.now() - 59000);
+      fs.utimesSync(lockFile, activeTime, activeTime);
 
-    // Should succeed because it exceeded 60s
-    await assert.doesNotReject(
-      async () => await lock2.acquire()
-    );
+      // Should still fail with ECONFLICT because it hasn't reached 60s
+      await assert.rejects(
+        async () => await lock2.acquire(),
+        { code: 'ECONFLICT' }
+      );
 
-    lock2.release();
+      // Now set exactly to 61 seconds ago (just over Windows 60s timeout)
+      const staleTime = new Date(Date.now() - 61000);
+      fs.utimesSync(lockFile, staleTime, staleTime);
+
+      // Should succeed because it exceeded 60s
+      await assert.doesNotReject(
+        async () => await lock2.acquire()
+      );
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
   });
 });
