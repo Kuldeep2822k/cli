@@ -90,8 +90,8 @@ function quarantineStaleLock(lockPath: string): void {
   try {
     fs.renameSync(lockPath, quarantinePath);
   } catch {
-    // If rename fails, try delete
-    fs.unlinkSync(lockPath);
+    // If rename fails, someone else already claimed or deleted it
+    // Do not unlink!
   }
 }
 
