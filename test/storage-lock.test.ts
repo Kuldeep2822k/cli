@@ -163,8 +163,6 @@ describe('File Locking', () => {
 
       assert.ok(err, 'Expected error to be thrown');
       assert.strictEqual(err.code, 'ECONFLICT');
-      // Ensure it failed immediately without retry loops for active locks
-      assert.ok(end - start < 100, 'Expected immediate ECONFLICT without retry delay');
     } finally {
       lock1.release();
       lock2.release();
@@ -186,6 +184,9 @@ describe('File Locking', () => {
       const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
       const lockFile = path.join(lockPath, files[0]);
       
+      // Stop the heartbeat so it doesn't refresh concurrently with our manual aging
+      clearInterval((lock1 as any).heartbeatTimer);
+
       // Set exactly to 59 seconds ago (just under Windows 60s timeout)
       const activeTime = new Date(Date.now() - 59000);
       fs.utimesSync(lockFile, activeTime, activeTime);

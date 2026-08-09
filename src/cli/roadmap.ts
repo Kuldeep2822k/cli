@@ -177,6 +177,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         }
 
         const dir = path.dirname(absolutePath);
+        let resolvedTargetPath = absolutePath;
 
         try {
           if (!fs.existsSync(dir)) {
@@ -190,6 +191,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             failed++;
             continue;
           }
+          // Lock target directory to resolved canonical path to prevent TOCTOU
+          resolvedTargetPath = path.join(realDir, path.basename(absolutePath));
         } catch (e) {
           console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
           failed++;
@@ -201,22 +204,23 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         let isNew = false;
         let existingData: Record<string, unknown> = {};
 
-        if (fs.existsSync(absolutePath)) {
+        if (fs.existsSync(resolvedTargetPath)) {
           try {
             const realVault = fs.realpathSync(path.resolve(vaultPath));
-            const realPath = fs.realpathSync(absolutePath);
+            const realPath = fs.realpathSync(resolvedTargetPath);
             const isFileInside = realPath === realVault || realPath.startsWith(realVault + path.sep);
             if (!isFileInside) {
               console.error(`Roadmap path escapes vault (via symlink): ${topic.path}`);
               failed++;
               continue;
             }
+            resolvedTargetPath = realPath;
           } catch (e) {
             console.error(`Error resolving file for ${topic.path}: ${(e as Error).message}`);
             failed++;
             continue;
           }
-          content = fs.readFileSync(absolutePath, 'utf8');
+          content = fs.readFileSync(resolvedTargetPath, 'utf8');
           fingerprint = computeFingerprint(content);
           const parsed = parseFrontmatter(content);
           if (parsed.frontmatter) {
@@ -250,7 +254,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
         const updatedContent = updateFrontmatter(content, paleeData);
         try {
-          await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
+          await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
         } catch (e) {
           console.error(`Error writing ${topic.path}: ${(e as Error).message}`);
           failed++;
