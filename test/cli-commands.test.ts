@@ -87,7 +87,7 @@ topics:
     // 2. Mock user input for prompt (Y)
     let result;
     try {
-      const stdout = execSync(`echo y | npx tsx bin/palee.ts roadmap --from "${roadmapYaml}"`, {
+      const stdout = execSync(`npx tsx bin/palee.ts roadmap --from "${roadmapYaml}" --yes`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
         encoding: 'utf8',
@@ -126,7 +126,7 @@ topics:
 `);
     
     try {
-      execSync(`echo y | npx tsx bin/palee.ts roadmap --from "${roadmapYaml}"`, {
+      execSync(`npx tsx bin/palee.ts roadmap --from "${roadmapYaml}" --yes`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
         stdio: 'pipe',

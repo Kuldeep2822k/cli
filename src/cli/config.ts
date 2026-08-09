@@ -9,6 +9,10 @@ import os from 'os';
 import { PaleeConfig, NodeError } from '../types';
 
 function getConfigPath(): string {
+  if (process.env.PALEE_CONFIG_DIR) {
+    return path.join(process.env.PALEE_CONFIG_DIR, 'config.json');
+  }
+
   if (process.platform === 'win32') {
     const localAppData = process.env.LOCALAPPDATA;
     if (!localAppData) {

@@ -20,11 +20,11 @@ interface ReviewCandidate {
 
 async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
   try {
-    const quality = parseInt(qualityStr, 10);
-    if (isNaN(quality) || quality < 0 || quality > 5) {
+    if (!/^[0-5]$/.test(qualityStr)) {
       console.error('Error: Quality must be an integer from 0 to 5');
       process.exit(2);
     }
+    const quality = parseInt(qualityStr, 10);
 
     const configModule = await import('./config');
     const config = configModule.loadConfig();
