@@ -101,6 +101,18 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
 }
 
 /**
+ * Format Date to local date-only string (YYYY-MM-DD)
+ * @param {Date} date
+ * @returns {string}
+ */
+function formatLocalDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Compute due date by adding calendar days
  * @param {Date} fromDate - Starting date
  * @param {number} days - Days to add
@@ -108,7 +120,8 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
  */
 function computeDueDate(fromDate: Date | string | number, days: number): Date {
   const due = new Date(fromDate);
-  due.setUTCDate(due.getUTCDate() + days);
+  // Perform calendar arithmetic in local timezone to avoid cross-DST shift bugs
+  due.setDate(due.getDate() + days);
   return due;
 }
 
@@ -116,5 +129,6 @@ export {
   calculateEaseFactorDelta,
   processReview,
   computeDueDate,
+  formatLocalDateOnly,
   roundHalfUp,
 };

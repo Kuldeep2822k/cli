@@ -8,7 +8,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
-import { processReview, computeDueDate } from '../engine/sm2';
+import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 
 interface ReviewCandidate {
   id: string;
@@ -83,8 +83,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
 
     const updates: Record<string, unknown> = {
       ...newState,
-      last_reviewed_at: reviewedAt.toISOString(),
-      due_at: dueDate.toISOString().split('T')[0], // Date-only YYYY-MM-DD
+      last_reviewed_at: formatLocalDateOnly(reviewedAt),
+      due_at: formatLocalDateOnly(dueDate),
     };
 
     const updatedContent = updateFrontmatter(content, updates);
@@ -96,7 +96,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     console.log(`  Quality: ${quality}`);
     console.log(`  New ease factor: ${newState.ease_factor}`);
     console.log(`  Next interval: ${newState.interval_days} day(s)`);
-    console.log(`  Due: ${dueDate.toISOString().split('T')[0]}`);
+    console.log(`  Due: ${formatLocalDateOnly(dueDate)}`);
     console.log(`  Repetitions: ${newState.repetition}`);
 
     if (quality < 3) {
