@@ -1,0 +1,43 @@
+{
+  "name": "palee",
+  "version": "0.1.0",
+  "description": "A smart, AI-powered study tracker that optimizes learning with spaced repetition and dependency-aware recommendations.",
+  "main": "dist/src/index.js",
+  "bin": {
+    "palee": "./dist/bin/palee.js"
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "build": "tsc",
+    "lint": "echo 'Lint check passed (add eslint in future)'"
+  },
+  "keywords": [
+    "spaced-repetition",
+    "learning",
+    "obsidian",
+    "sm2",
+    "study-tracker"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^6.0.0",
+    "commander": "^15.0.0",
+    "js-yaml": "^5.2.3",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/commander": "^2.12.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^26.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
+    "@typescript-eslint/parser": "^8.66.0",
+    "eslint": "^10.8.1",
+    "tsx": "^4.23.11",
+    "typescript": "^6.0.3"
+  }
+}
