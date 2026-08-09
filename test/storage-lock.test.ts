@@ -5,11 +5,17 @@ import path from 'path';
 import os from 'os';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from '../src/storage/lock';
 
-function getLockData(lockPath: string) {
-  if (!fs.existsSync(lockPath)) return null;
-  const content = fs.readFileSync(lockPath, 'utf8');
-  if (!content.trim()) return null;
-  return JSON.parse(content);
+function getLockData(lockDir: string) {
+  if (!fs.existsSync(lockDir)) return null;
+  try {
+    const files = fs.readdirSync(lockDir).filter(f => f.endsWith('.json'));
+    if (files.length === 0) return null;
+    const content = fs.readFileSync(path.join(lockDir, files[0]), 'utf8');
+    if (!content.trim()) return null;
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
 }
 
 describe('File Locking', () => {
@@ -87,7 +93,8 @@ describe('File Locking', () => {
     // Actually, we can manually trigger the update logic by reading and overwriting
     const lockData = getLockData(lock.lockPath);
     lockData.heartbeat_at = new Date().toISOString();
-    fs.writeFileSync(lock.lockPath, JSON.stringify(lockData, null, 2));
+    const files = fs.readdirSync(lock.lockPath).filter(f => f.endsWith('.json'));
+    fs.writeFileSync(path.join(lock.lockPath, files[0]), JSON.stringify(lockData, null, 2));
 
     const updatedLockData = getLockData(lock.lockPath);
     const updatedHeartbeat = updatedLockData.heartbeat_at;
@@ -108,7 +115,8 @@ describe('File Locking', () => {
     const lockData = getLockData(lockPath);
     const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000).toISOString();
     lockData.heartbeat_at = staleTime;
-    fs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2));
+    const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
+    fs.writeFileSync(path.join(lockPath, files[0]), JSON.stringify(lockData, null, 2));
 
     // Don't release lock1 - leave it in stale state
     const lock2 = new Lock(testVaultPath, testFilePath);

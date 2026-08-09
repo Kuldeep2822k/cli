@@ -30,9 +30,19 @@ function getLockDir(vaultPath: string, targetPath: string): string {
   return path.join(locksDir, `${hash}.lockdir`);
 }
 
-function isLockStale(lock: LockData | null): boolean {
-  if (!lock || !lock.heartbeat_at) return true;
-  const heartbeatTime = new Date(lock.heartbeat_at).getTime();
+interface ParsedLock {
+  filename: string;
+  data: LockData | null;
+  mtime: number;
+}
+
+function isLockStale(lockInfo: ParsedLock): boolean {
+  let heartbeatTime: number;
+  if (lockInfo.data && lockInfo.data.heartbeat_at) {
+    heartbeatTime = new Date(lockInfo.data.heartbeat_at).getTime();
+  } else {
+    heartbeatTime = lockInfo.mtime;
+  }
   const now = Date.now();
   return now - heartbeatTime > STALE_TIMEOUT;
 }
@@ -94,16 +104,21 @@ function createLock(lockDir: string, targetPath: string): LockData {
       }
 
       // Check all active lock files (usually just 1)
-      const parsedLocks = activeFiles.map(f => {
+      const parsedLocks: ParsedLock[] = activeFiles.map(f => {
+        const filePath = path.join(lockDir, f);
         try {
-          const content = fs.readFileSync(path.join(lockDir, f), 'utf8');
-          return { filename: f, data: JSON.parse(content) as LockData };
+          const content = fs.readFileSync(filePath, 'utf8');
+          return { filename: f, data: JSON.parse(content) as LockData, mtime: fs.statSync(filePath).mtime.getTime() };
         } catch {
-          return { filename: f, data: null };
+          try {
+            return { filename: f, data: null, mtime: fs.statSync(filePath).mtime.getTime() };
+          } catch {
+            return { filename: f, data: null, mtime: 0 };
+          }
         }
       });
 
-      const freshLocks = parsedLocks.filter(l => !isLockStale(l.data));
+      const freshLocks = parsedLocks.filter(l => !isLockStale(l));
       if (freshLocks.length > 0) {
         const active = freshLocks[0].data;
         throw new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
