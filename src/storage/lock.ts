@@ -95,17 +95,24 @@ function quarantineStaleLock(lockPath: string): void {
   }
 }
 
-function updateHeartbeat(lockPath: string): void {
+function updateHeartbeat(lockPath: string, expectedLockId: string): void {
+  let fd: number | null = null;
   try {
-    const lock = readLock(lockPath);
-    if (lock) {
+    fd = fs.openSync(lockPath, 'r+');
+    const content = fs.readFileSync(fd, 'utf8');
+    const lock = JSON.parse(content) as LockData;
+    if (lock && lock.lock_id === expectedLockId) {
       lock.heartbeat_at = new Date().toISOString();
-      const tempPath = lockPath + '.tmp';
-      fs.writeFileSync(tempPath, JSON.stringify(lock, null, 2), 'utf8');
-      fs.renameSync(tempPath, lockPath);
+      const updatedContent = Buffer.from(JSON.stringify(lock, null, 2), 'utf8');
+      fs.ftruncateSync(fd, 0);
+      fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
     }
   } catch {
     // Heartbeat update failed - continue, next interval will retry
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
 }
 
@@ -150,7 +157,9 @@ class Lock {
   startHeartbeat(): void {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
-      updateHeartbeat(this.lockPath);
+      if (this.lockData) {
+        updateHeartbeat(this.lockPath, this.lockData.lock_id);
+      }
     }, HEARTBEAT_INTERVAL);
   }
 
