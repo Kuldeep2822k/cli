@@ -86,18 +86,6 @@ function createLock(lockDir: string, targetPath: string): LockData {
 
       const activeFiles = files.filter(f => f.endsWith('.json'));
 
-      if (activeFiles.length === 0) {
-        // Corrupted/empty directory (previous owner crashed before writing file, or we caught them in between, or garbage files)
-        for (const file of files) {
-          try { fs.unlinkSync(path.join(lockDir, file)); } catch {}
-        }
-        try {
-          fs.rmdirSync(lockDir);
-        } catch (rmErr: unknown) {
-          if ((rmErr as NodeError).code === 'ENOTEMPTY') continue; // Someone wrote a file, retry read
-        }
-        continue; // Directory removed, retry mkdir
-      }
 
       // Check all active lock files (usually just 1)
       const parsedLocks: ParsedLock[] = activeFiles.map(f => {
@@ -121,40 +109,27 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
       }
 
-      // All active locks are stale. We must quarantine ALL of them to take over.
-      // If we fail to unlink ANY of them, it means someone else beat us to it.
-      let takeoverSuccessful = true;
-      for (const staleLock of parsedLocks) {
-        const oldPath = path.join(lockDir, staleLock.filename);
-        try {
-          fs.unlinkSync(oldPath);
-        } catch (unlinkErr: unknown) {
-          if ((unlinkErr as NodeError).code === 'ENOENT') {
-            // Someone else already unlinked it! We lost the takeover race.
-            takeoverSuccessful = false;
-            break;
-          }
-          throw unlinkErr;
-        }
+      // If we reach here, the directory exists but ALL active locks (if any) are stale!
+      // We must clean up the stale directory to reset the state.
+      // We only attempt to delete the exact files we observed in this iteration.
+      for (const file of files) {
+        try { fs.unlinkSync(path.join(lockDir, file)); } catch {}
       }
 
-      if (!takeoverSuccessful) {
-        // We failed to quarantine. Someone else is taking over. Retry the whole process.
-        continue; 
-      }
-
-      // We successfully quarantined the stale lock(s). The lock is ours!
       try {
-        fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
-      } catch (writeErr: unknown) {
-        if ((writeErr as NodeError).code === 'ENOENT') {
-          // The lock directory was removed out from under us by the stale owner releasing!
-          // We must retry creating the directory.
-          continue;
+        fs.rmdirSync(lockDir);
+      } catch (rmErr: unknown) {
+        // ENOTEMPTY: A new file was written (someone else won the lock).
+        // ENOENT: Someone else already removed the directory.
+        if ((rmErr as NodeError).code === 'ENOTEMPTY' || (rmErr as NodeError).code === 'ENOENT') {
+          continue; 
         }
-        throw writeErr;
+        throw rmErr;
       }
-      return lockData;
+
+      // Successfully removed the stale lock directory! 
+      // Restart the loop to attempt mkdirSync acquisition.
+      continue;
     }
   }
 }
