@@ -7,7 +7,7 @@ import { LockData, NodeError } from '../types';
 /**
  * File locking with heartbeat and stale lock recovery
  * Platform-aware: 60s stale timeout on Windows, 120s elsewhere
- * Uses file descriptors (r+) for atomic check-and-set to prevent TOCTOU races.
+ * Uses atomic directory creation + session-specific filenames to guarantee zero TOCTOU races.
  */
 
 const HEARTBEAT_INTERVAL = 15000; // 15 seconds
@@ -22,22 +22,12 @@ function generateLockId(): string {
   return `L-${timestamp}-${random}`;
 }
 
-function getLockPath(vaultPath: string, targetPath: string): string {
+function getLockDir(vaultPath: string, targetPath: string): string {
   const relativePath = path.relative(vaultPath, targetPath).replace(/\\/g, '/');
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
-  const lockDir = path.join(vaultPath, '.palee', 'locks');
-  fs.mkdirSync(lockDir, { recursive: true });
-  return path.join(lockDir, `${hash}.lock`);
-}
-
-function readLock(lockPath: string): LockData | null {
-  try {
-    const content = fs.readFileSync(lockPath, 'utf8');
-    if (!content.trim()) return null;
-    return JSON.parse(content) as LockData;
-  } catch {
-    return null;
-  }
+  const locksDir = path.join(vaultPath, '.palee', 'locks');
+  fs.mkdirSync(locksDir, { recursive: true });
+  return path.join(locksDir, `${hash}.lockdir`);
 }
 
 function isLockStale(lock: LockData | null): boolean {
@@ -47,35 +37,7 @@ function isLockStale(lock: LockData | null): boolean {
   return now - heartbeatTime > STALE_TIMEOUT;
 }
 
-function takeOverStaleLock(lockPath: string, expectedLockId: string | null, newLockData: LockData): boolean {
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(lockPath, 'r+');
-    const content = fs.readFileSync(fd, 'utf8');
-    let currentLockId: string | null = null;
-    if (content.trim()) {
-      const lock = JSON.parse(content) as LockData;
-      currentLockId = lock.lock_id;
-    }
-    
-    if (currentLockId !== expectedLockId) {
-      return false; // Someone else took it over or changed it
-    }
-    
-    const updatedContent = Buffer.from(JSON.stringify(newLockData, null, 2), 'utf8');
-    fs.ftruncateSync(fd, 0);
-    fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
-    return true;
-  } catch {
-    return false;
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch {}
-    }
-  }
-}
-
-function createLock(lockPath: string, targetPath: string): LockData {
+function createLock(lockDir: string, targetPath: string): LockData {
   const lockId = generateLockId();
   const now = new Date().toISOString();
   const lockData: LockData = {
@@ -87,33 +49,97 @@ function createLock(lockPath: string, targetPath: string): LockData {
     heartbeat_at: now,
   };
 
-  try {
-    fs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2), { flag: 'wx' });
-    return lockData;
-  } catch (e: unknown) {
-    const err = e as NodeError;
-    if (err.code === 'EEXIST') {
-      const existingLock = readLock(lockPath);
-      if (isLockStale(existingLock)) {
-        const expectedId = existingLock ? existingLock.lock_id : null;
-        if (takeOverStaleLock(lockPath, expectedId, lockData)) {
-          return lockData;
+  const lockFile = path.join(lockDir, `${lockId}.json`);
+
+  while (true) {
+    try {
+      fs.mkdirSync(lockDir);
+      // We won the lock directory! Write our session file.
+      fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      return lockData;
+    } catch (e: unknown) {
+      const err = e as NodeError;
+      if (err.code !== 'EEXIST') throw err;
+
+      // The lock directory exists. We must inspect it to see if we can recover it.
+      let files: string[];
+      try {
+        files = fs.readdirSync(lockDir);
+      } catch (readErr: unknown) {
+        if ((readErr as NodeError).code === 'ENOENT') continue; // Someone deleted it, retry mkdir
+        throw readErr;
+      }
+
+      const activeFiles = files.filter(f => f.endsWith('.json') && !f.endsWith('.stale.json'));
+
+      if (activeFiles.length === 0) {
+        // Corrupted/empty directory (previous owner crashed before writing file, or we caught them in between)
+        try {
+          fs.rmdirSync(lockDir); // Will fail with ENOTEMPTY if someone just wrote a file
+        } catch (rmErr: unknown) {
+          if ((rmErr as NodeError).code === 'ENOTEMPTY') continue; // Someone wrote a file, retry read
+        }
+        continue; // Directory removed, retry mkdir
+      }
+
+      // Check all active lock files (usually just 1)
+      const parsedLocks = activeFiles.map(f => {
+        try {
+          const content = fs.readFileSync(path.join(lockDir, f), 'utf8');
+          return { filename: f, data: JSON.parse(content) as LockData };
+        } catch {
+          return { filename: f, data: null };
+        }
+      });
+
+      const freshLocks = parsedLocks.filter(l => !isLockStale(l.data));
+      if (freshLocks.length > 0) {
+        const active = freshLocks[0].data;
+        throw new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
+      }
+
+      // All active locks are stale. We must quarantine ALL of them to take over.
+      // If we fail to rename ANY of them, it means someone else beat us to it.
+      let takeoverSuccessful = true;
+      for (const staleLock of parsedLocks) {
+        const oldPath = path.join(lockDir, staleLock.filename);
+        const quarantinePath = path.join(lockDir, `${staleLock.filename}.stale`);
+        try {
+          fs.renameSync(oldPath, quarantinePath);
+        } catch (renameErr: unknown) {
+          if ((renameErr as NodeError).code === 'ENOENT') {
+            // Someone else already renamed/deleted it! We lost the takeover race.
+            takeoverSuccessful = false;
+            break;
+          }
+          throw renameErr;
         }
       }
-      const currentLock = readLock(lockPath);
-      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${currentLock?.pid || 'unknown'}`);
+
+      if (!takeoverSuccessful) {
+        // We failed to quarantine. Someone else is taking over. Retry the whole process.
+        continue; 
+      }
+
+      // We successfully quarantined the stale lock(s). The lock is ours!
+      fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+      return lockData;
     }
-    throw err;
   }
 }
 
-function updateHeartbeat(lockPath: string, expectedLockId: string): void {
+function updateHeartbeat(lockDir: string, expectedLockId: string): void {
+  const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   let fd: number | null = null;
   try {
-    fd = fs.openSync(lockPath, 'r+');
+    // Open with r+ ensures we only update if the file STILL exists.
+    // If someone quarantined us, they renamed it, and this throws ENOENT.
+    fd = fs.openSync(lockFile, 'r+');
     const content = fs.readFileSync(fd, 'utf8');
     if (!content.trim()) return;
     const lock = JSON.parse(content) as LockData;
+    
+    // Safety check just in case, though the filename guarantees the ID.
     if (lock.lock_id === expectedLockId) {
       lock.heartbeat_at = new Date().toISOString();
       const updatedContent = Buffer.from(JSON.stringify(lock, null, 2), 'utf8');
@@ -121,6 +147,7 @@ function updateHeartbeat(lockPath: string, expectedLockId: string): void {
       fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
     }
   } catch {
+    // If ENOENT, we were quarantined and lost the lock. Stop updating.
   } finally {
     if (fd !== null) {
       try { fs.closeSync(fd); } catch {}
@@ -128,33 +155,31 @@ function updateHeartbeat(lockPath: string, expectedLockId: string): void {
   }
 }
 
-function releaseLock(lockPath: string, expectedLockId: string): void {
-  let fd: number | null = null;
+function releaseLock(lockDir: string, expectedLockId: string): void {
+  const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   try {
-    fd = fs.openSync(lockPath, 'r+');
-    const content = fs.readFileSync(fd, 'utf8');
-    if (!content.trim()) return;
-    const lock = JSON.parse(content) as LockData;
-    if (lock.lock_id === expectedLockId) {
-      fs.ftruncateSync(fd, 0); // Empty the file to release it
-    }
-  } catch {
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch {}
-    }
-  }
+    // Delete our specific session file. If someone else took over, they renamed it.
+    // We catch ENOENT safely.
+    fs.unlinkSync(lockFile);
+  } catch {}
+
+  try {
+    // Only removes the directory if it's completely empty.
+    // If someone else took over, they created a new session file, so this fails with ENOTEMPTY.
+    // This perfectly prevents deleting another writer's lock.
+    fs.rmdirSync(lockDir);
+  } catch {}
 }
 
 class Lock {
   private targetPath: string;
-  readonly lockPath: string;
+  readonly lockPath: string; // This is a directory path
   private heartbeatTimer: ReturnType<typeof setInterval> | null;
   private lockData: LockData | null = null;
 
   constructor(vaultPath: string, targetPath: string) {
     this.targetPath = targetPath;
-    this.lockPath = getLockPath(vaultPath, targetPath);
+    this.lockPath = getLockDir(vaultPath, targetPath);
     this.heartbeatTimer = null;
   }
 
