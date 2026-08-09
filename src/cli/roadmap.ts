@@ -115,21 +115,33 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       console.log(`  • ${topic.path}`);
     }
     console.log();
-    console.log('Proceed? (y/N): ');
+    if (!options.yes && !process.stdin.isTTY) {
+      console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
+      process.exit(2);
+    }
 
-    // In Phase 1, auto-confirm for non-interactive
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
+    if (options.yes) {
+      console.log('Auto-confirmed via --yes.');
+      await doImport();
+    } else {
+      console.log('Proceed? (y/N): ');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
 
-    rl.question('', async (answer: string) => {
-      rl.close();
+      rl.question('', async (answer: string) => {
+        rl.close();
+        if (answer.trim().toLowerCase() !== 'y') {
+          console.log('Aborted.');
+          process.exit(0);
+        }
+        await doImport();
+      });
+    }
 
-      if (answer.trim().toLowerCase() !== 'y') {
-        console.log('Aborted.');
-        process.exit(0);
-      }
+    async function doImport() {
+      try {
 
       let created = 0;
       let updated = 0;
@@ -223,7 +235,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.log(`  Updated: ${updated} notes`);
         process.exit(0);
       }
-    });
+      } catch (err: unknown) {
+        console.error(`Error during import: ${(err as Error).message}`);
+        process.exit(5);
+      }
+    }
 
   } catch (e: unknown) {
     const err = e as Error;

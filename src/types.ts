@@ -156,6 +156,7 @@ export interface ValidateOptions {
 
 export interface RoadmapOptions {
   from?: string;
+  yes?: boolean;
 }
 
 // ─── Roadmap YAML ───────────────────────────────────────────────────

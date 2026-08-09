@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --import tsx --test test/**/*.test.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
     "lint": "echo 'Lint check passed (add eslint in future)'"
   },
   "keywords": [

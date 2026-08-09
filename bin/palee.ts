@@ -83,6 +83,7 @@ program
   .command('roadmap')
   .description('Manage learning roadmaps')
   .option('--from <file>', 'Import roadmap from YAML file')
+  .option('-y, --yes', 'Skip confirmation prompt')
   .action(roadmapCommand);
 
 // palee migrate
