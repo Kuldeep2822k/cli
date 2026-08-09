@@ -93,9 +93,9 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
 
       console.log('=== Learning Progress ===\n');
       console.log(`Total Topics: ${total}`);
-      console.log(`  Mastered (≥70%): ${mastered} (${(mastered / total * 100).toFixed(1)}%)`);
-      console.log(`  Learning: ${learning} (${(learning / total * 100).toFixed(1)}%)`);
-      console.log(`  New: ${newTopics} (${(newTopics / total * 100).toFixed(1)}%)`);
+      console.log(`  Mastered (≥70%): ${mastered} (${(total > 0 ? mastered / total * 100 : 0).toFixed(1)}%)`);
+      console.log(`  Learning: ${learning} (${(total > 0 ? learning / total * 100 : 0).toFixed(1)}%)`);
+      console.log(`  New: ${newTopics} (${(total > 0 ? newTopics / total * 100 : 0).toFixed(1)}%)`);
       console.log();
       console.log(`Average Mastery: ${(avgMastery * 100).toFixed(1)}%`);
       console.log(`Total Reviews: ${totalReps}`);

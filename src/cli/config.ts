@@ -67,6 +67,10 @@ async function configCommand(action?: string, value?: string): Promise<void> {
         console.error(`Error: vault path does not exist: ${absolutePath}`);
         process.exit(2);
       }
+      if (!fs.statSync(absolutePath).isDirectory()) {
+        console.error(`Error: vault path is not a directory: ${absolutePath}`);
+        process.exit(2);
+      }
 
       const config = loadConfig();
       config.vaultPath = absolutePath;

@@ -135,7 +135,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let updated = 0;
 
       for (const topic of roadmap.topics) {
-        const absolutePath = path.join(vaultPath, topic.path);
+        const resolvedVault = path.resolve(vaultPath);
+        const absolutePath = path.resolve(vaultPath, topic.path);
+        
+        if (!absolutePath.startsWith(resolvedVault + path.sep) && absolutePath !== resolvedVault) {
+          console.error(`Error: Roadmap path escapes vault: ${topic.path}`);
+          continue;
+        }
+
         const dir = path.dirname(absolutePath);
 
         if (!fs.existsSync(dir)) {

@@ -41,7 +41,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         if (!options.interactive) {
           console.log();
           console.log('Unconfirmed draft checkpoint detected.');
-          console.log('Run in interactive mode or use "palee session recovery" to resolve.');
+          console.log('Run "palee session start --interactive" to resolve.');
           process.exit(0);
         }
 
