@@ -5,13 +5,11 @@ import path from 'path';
 import os from 'os';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from '../src/storage/lock';
 
-function readTestLock(lockDir: string) {
-  if (!fs.existsSync(lockDir)) return null;
-  const files = fs.readdirSync(lockDir);
-  const dataFile = files.find(f => f.endsWith('.json'));
-  if (!dataFile) return null;
-  const content = fs.readFileSync(path.join(lockDir, dataFile), 'utf8');
-  return { path: path.join(lockDir, dataFile), data: JSON.parse(content) };
+function getLockData(lockPath: string) {
+  if (!fs.existsSync(lockPath)) return null;
+  const content = fs.readFileSync(lockPath, 'utf8');
+  if (!content.trim()) return null;
+  return JSON.parse(content);
 }
 
 describe('File Locking', () => {
@@ -32,19 +30,17 @@ describe('File Locking', () => {
     const lock = new Lock(testVaultPath, testFilePath);
     await lock.acquire();
 
-    const lockDir = lock.lockPath;
-    assert.ok(fs.existsSync(lockDir));
+    const lockPath = lock.lockPath;
+    assert.ok(fs.existsSync(lockPath));
 
-    const lockFile = readTestLock(lockDir);
-    assert.ok(lockFile);
-    
-    const lockData = lockFile.data;
+    const lockData = getLockData(lockPath);
+    assert.ok(lockData);
     assert.ok(lockData.lock_id.startsWith('L-'));
     assert.strictEqual(lockData.pid, process.pid);
     assert.strictEqual(lockData.target, testFilePath);
 
     lock.release();
-    assert.ok(!fs.existsSync(lockDir));
+    assert.ok(getLockData(lockPath) === null);
   });
 
   test('second lock acquisition fails with conflict', async () => {
@@ -63,19 +59,15 @@ describe('File Locking', () => {
   test('lock release occurs after success', async () => {
     const lock = new Lock(testVaultPath, testFilePath);
     await lock.acquire();
-    const lockDir = lock.lockPath;
-
     lock.release();
-    assert.ok(!fs.existsSync(lockDir));
+    assert.ok(getLockData(lock.lockPath) === null);
   });
 
   test('lock includes heartbeat_at field', async () => {
     const lock = new Lock(testVaultPath, testFilePath);
     await lock.acquire();
 
-    const lockFile = readTestLock(lock.lockPath);
-    assert.ok(lockFile);
-    const lockData = lockFile.data;
+    const lockData = getLockData(lock.lockPath);
     assert.ok(lockData.heartbeat_at);
     assert.ok(new Date(lockData.heartbeat_at).getTime() > 0);
 
@@ -86,26 +78,19 @@ describe('File Locking', () => {
     const lock = new Lock(testVaultPath, testFilePath);
     await lock.acquire();
 
-    const initialLockFile = readTestLock(lock.lockPath);
-    assert.ok(initialLockFile);
-    const initialHeartbeat = initialLockFile.data.heartbeat_at;
+    const initialLockData = getLockData(lock.lockPath);
+    const initialHeartbeat = initialLockData.heartbeat_at;
 
-    // Wait long enough for timestamp precision
     await new Promise(resolve => setTimeout(resolve, 1100));
 
-    // Read, update, and write lock
-    const lockFile = readTestLock(lock.lockPath);
-    assert.ok(lockFile);
-    const lockData = lockFile.data;
+    // Force heartbeat update via internal timer or manual
+    // Actually, we can manually trigger the update logic by reading and overwriting
+    const lockData = getLockData(lock.lockPath);
     lockData.heartbeat_at = new Date().toISOString();
-    
-    const tempPath = lockFile.path + '.tmp';
-    fs.writeFileSync(tempPath, JSON.stringify(lockData, null, 2));
-    fs.renameSync(tempPath, lockFile.path);
+    fs.writeFileSync(lock.lockPath, JSON.stringify(lockData, null, 2));
 
-    const updatedLockFile = readTestLock(lock.lockPath);
-    assert.ok(updatedLockFile);
-    const updatedHeartbeat = updatedLockFile.data.heartbeat_at;
+    const updatedLockData = getLockData(lock.lockPath);
+    const updatedHeartbeat = updatedLockData.heartbeat_at;
 
     assert.notStrictEqual(initialHeartbeat, updatedHeartbeat);
     assert.ok(new Date(updatedHeartbeat) > new Date(initialHeartbeat));
@@ -113,32 +98,27 @@ describe('File Locking', () => {
     lock.release();
   });
 
-  test('stale lock recovery quarantines old lock', async () => {
+  test('stale lock recovery takes over old lock', async () => {
     const lock1 = new Lock(testVaultPath, testFilePath);
     await lock1.acquire();
 
-    const lockDir = lock1.lockPath;
+    const lockPath = lock1.lockPath;
 
     // Manually make lock stale by modifying heartbeat_at
-    const lockFile = readTestLock(lockDir);
-    assert.ok(lockFile);
-    const lockData = lockFile.data;
+    const lockData = getLockData(lockPath);
     const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000).toISOString();
     lockData.heartbeat_at = staleTime;
-    fs.writeFileSync(lockFile.path, JSON.stringify(lockData, null, 2));
+    fs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2));
 
     // Don't release lock1 - leave it in stale state
-    // Create new lock object pointing to same file
     const lock2 = new Lock(testVaultPath, testFilePath);
 
-    // Should succeed after detecting stale lock and quarantining
+    // Should succeed after detecting stale lock and taking it over
     await lock2.acquire();
 
-    // Check quarantine file exists
-    const locksParentDir = path.dirname(lockDir);
-    const files = fs.readdirSync(locksParentDir);
-    const hasStale = files.some(f => f.includes('.stale.'));
-    assert.ok(hasStale, 'Stale lock should be quarantined');
+    const newLockData = getLockData(lockPath);
+    assert.notStrictEqual(newLockData.lock_id, lockData.lock_id);
+    assert.strictEqual(newLockData.pid, process.pid);
 
     lock2.release();
   });
@@ -157,7 +137,6 @@ describe('File Locking', () => {
 
   test('lock release handles already-released lock', () => {
     const lock = new Lock(testVaultPath, testFilePath);
-    // Release without acquire - should not throw
     assert.doesNotThrow(() => lock.release());
   });
 });

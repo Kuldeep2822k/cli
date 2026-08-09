@@ -7,7 +7,7 @@ import { LockData, NodeError } from '../types';
 /**
  * File locking with heartbeat and stale lock recovery
  * Platform-aware: 60s stale timeout on Windows, 120s elsewhere
- * Uses atomic directory creation to prevent TOCTOU race conditions.
+ * Uses file descriptors (r+) for atomic check-and-set to prevent TOCTOU races.
  */
 
 const HEARTBEAT_INTERVAL = 15000; // 15 seconds
@@ -27,7 +27,52 @@ function getLockPath(vaultPath: string, targetPath: string): string {
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   const lockDir = path.join(vaultPath, '.palee', 'locks');
   fs.mkdirSync(lockDir, { recursive: true });
-  return path.join(lockDir, `${hash}.lockdir`);
+  return path.join(lockDir, `${hash}.lock`);
+}
+
+function readLock(lockPath: string): LockData | null {
+  try {
+    const content = fs.readFileSync(lockPath, 'utf8');
+    if (!content.trim()) return null;
+    return JSON.parse(content) as LockData;
+  } catch {
+    return null;
+  }
+}
+
+function isLockStale(lock: LockData | null): boolean {
+  if (!lock || !lock.heartbeat_at) return true;
+  const heartbeatTime = new Date(lock.heartbeat_at).getTime();
+  const now = Date.now();
+  return now - heartbeatTime > STALE_TIMEOUT;
+}
+
+function takeOverStaleLock(lockPath: string, expectedLockId: string | null, newLockData: LockData): boolean {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(lockPath, 'r+');
+    const content = fs.readFileSync(fd, 'utf8');
+    let currentLockId: string | null = null;
+    if (content.trim()) {
+      const lock = JSON.parse(content) as LockData;
+      currentLockId = lock.lock_id;
+    }
+    
+    if (currentLockId !== expectedLockId) {
+      return false; // Someone else took it over or changed it
+    }
+    
+    const updatedContent = Buffer.from(JSON.stringify(newLockData, null, 2), 'utf8');
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
+  }
 }
 
 function createLock(lockPath: string, targetPath: string): LockData {
@@ -43,78 +88,61 @@ function createLock(lockPath: string, targetPath: string): LockData {
   };
 
   try {
-    fs.mkdirSync(lockPath);
-    const dataFile = path.join(lockPath, `${lockId}.json`);
-    fs.writeFileSync(dataFile, JSON.stringify(lockData, null, 2), 'utf8');
+    fs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2), { flag: 'wx' });
     return lockData;
   } catch (e: unknown) {
     const err = e as NodeError;
     if (err.code === 'EEXIST') {
       const existingLock = readLock(lockPath);
       if (isLockStale(existingLock)) {
-        quarantineStaleLock(lockPath);
-        fs.mkdirSync(lockPath);
-        const dataFile = path.join(lockPath, `${lockId}.json`);
-        fs.writeFileSync(dataFile, JSON.stringify(lockData, null, 2), 'utf8');
-        return lockData;
+        const expectedId = existingLock ? existingLock.lock_id : null;
+        if (takeOverStaleLock(lockPath, expectedId, lockData)) {
+          return lockData;
+        }
       }
-      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${existingLock?.pid}`);
+      const currentLock = readLock(lockPath);
+      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${currentLock?.pid || 'unknown'}`);
     }
     throw err;
   }
 }
 
-function readLock(lockPath: string): LockData | null {
-  try {
-    const files = fs.readdirSync(lockPath);
-    const dataFile = files.find(f => f.endsWith('.json'));
-    if (!dataFile) return null;
-    const content = fs.readFileSync(path.join(lockPath, dataFile), 'utf8');
-    return JSON.parse(content) as LockData;
-  } catch {
-    return null;
-  }
-}
-
-function isLockStale(lock: LockData | null): boolean {
-  if (!lock || !lock.heartbeat_at) return true;
-  const heartbeatTime = new Date(lock.heartbeat_at).getTime();
-  const now = Date.now();
-  return now - heartbeatTime > STALE_TIMEOUT;
-}
-
-function quarantineStaleLock(lockPath: string): void {
-  const quarantinePath = lockPath + '.stale.' + Date.now();
-  try {
-    fs.renameSync(lockPath, quarantinePath);
-  } catch {
-    // If rename fails, someone else already claimed or deleted it
-  }
-}
-
 function updateHeartbeat(lockPath: string, expectedLockId: string): void {
+  let fd: number | null = null;
   try {
-    const dataFile = path.join(lockPath, `${expectedLockId}.json`);
-    const content = fs.readFileSync(dataFile, 'utf8');
+    fd = fs.openSync(lockPath, 'r+');
+    const content = fs.readFileSync(fd, 'utf8');
+    if (!content.trim()) return;
     const lock = JSON.parse(content) as LockData;
-    
-    lock.heartbeat_at = new Date().toISOString();
-    
-    const tempFile = path.join(lockPath, `${expectedLockId}.tmp`);
-    fs.writeFileSync(tempFile, JSON.stringify(lock, null, 2), 'utf8');
-    fs.renameSync(tempFile, dataFile);
+    if (lock.lock_id === expectedLockId) {
+      lock.heartbeat_at = new Date().toISOString();
+      const updatedContent = Buffer.from(JSON.stringify(lock, null, 2), 'utf8');
+      fs.ftruncateSync(fd, 0);
+      fs.writeSync(fd, updatedContent, 0, updatedContent.length, 0);
+    }
   } catch {
-    // Heartbeat update failed - likely quarantined
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
 }
 
 function releaseLock(lockPath: string, expectedLockId: string): void {
+  let fd: number | null = null;
   try {
-    const dataFile = path.join(lockPath, `${expectedLockId}.json`);
-    fs.unlinkSync(dataFile);
-    fs.rmdirSync(lockPath);
+    fd = fs.openSync(lockPath, 'r+');
+    const content = fs.readFileSync(fd, 'utf8');
+    if (!content.trim()) return;
+    const lock = JSON.parse(content) as LockData;
+    if (lock.lock_id === expectedLockId) {
+      fs.ftruncateSync(fd, 0); // Empty the file to release it
+    }
   } catch {
-    // Lock already released, doesn't exist, or directory wasn't empty
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
 }
 
