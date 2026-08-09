@@ -106,7 +106,9 @@ function createLock(lockDir: string, targetPath: string): LockData {
       const freshLocks = parsedLocks.filter(l => !isLockStale(l));
       if (freshLocks.length > 0) {
         const active = freshLocks[0].data;
-        const err = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`); (err as any).code = 'ECONFLICT'; throw err;
+        const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
       }
 
       // If we reach here, the directory exists but ALL active locks (if any) are stale!
