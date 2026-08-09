@@ -16,7 +16,10 @@ const STALE_TIMEOUT_OTHER = 120000; // 120 seconds
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
 function generateLockId(): string {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, '');
   const random = crypto.randomBytes(2).toString('hex');
   return `L-${timestamp}-${random}`;
 }
@@ -58,7 +61,9 @@ function createLock(lockPath: string, targetPath: string): LockData {
         fs.writeFileSync(lockPath, lockContent, { flag: 'wx' });
         return lockData;
       }
-      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${existingLock?.pid}`);
+      throw new Error(`Lock conflict: ${targetPath} is locked by PID ${existingLock?.pid}`, {
+        cause: e,
+      });
     }
     throw err;
   }
@@ -77,7 +82,7 @@ function isLockStale(lock: LockData | null): boolean {
   if (!lock || !lock.heartbeat_at) return true;
   const heartbeatTime = new Date(lock.heartbeat_at).getTime();
   const now = Date.now();
-  return (now - heartbeatTime) > STALE_TIMEOUT;
+  return now - heartbeatTime > STALE_TIMEOUT;
 }
 
 function quarantineStaleLock(lockPath: string): void {
@@ -85,8 +90,8 @@ function quarantineStaleLock(lockPath: string): void {
   try {
     fs.renameSync(lockPath, quarantinePath);
   } catch {
-    // If rename fails, someone else already claimed or deleted it
-    // Do not unlink!
+    // If rename fails, try delete
+    fs.unlinkSync(lockPath);
   }
 }
 
@@ -106,9 +111,19 @@ function updateHeartbeat(lockPath: string): void {
 
 function releaseLock(lockPath: string, expectedLockId: string): void {
   try {
-    const currentLock = readLock(lockPath);
+    const releasePath = lockPath + '.release.' + expectedLockId;
+    fs.renameSync(lockPath, releasePath);
+    
+    const currentLock = readLock(releasePath);
     if (currentLock && currentLock.lock_id === expectedLockId) {
-      fs.unlinkSync(lockPath);
+      fs.unlinkSync(releasePath);
+    } else {
+      // It wasn't ours! Restore it so the rightful owner keeps it.
+      try {
+        fs.renameSync(releasePath, lockPath);
+      } catch {
+        // Ignore restore errors if someone else immediately created a new lock
+      }
     }
   } catch {
     // Lock already released or doesn't exist
@@ -150,8 +165,4 @@ class Lock {
   }
 }
 
-export {
-  Lock,
-  HEARTBEAT_INTERVAL,
-  STALE_TIMEOUT,
-};
+export { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT };
