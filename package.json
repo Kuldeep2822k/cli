@@ -8,7 +8,7 @@
     "palee": "./dist/bin/palee.js"
   },
   "scripts": {
-    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "test": "node --import tsx --test test/cli-commands.test.ts test/engine-dependency.test.ts test/engine-mastery.test.ts test/engine-sm2.test.ts test/smoke.test.ts test/storage-atomic-write.test.ts test/storage-cache.test.ts test/storage-frontmatter.test.ts test/storage-lock.test.ts test/storage-memory.test.ts test/storage-walker.test.ts",
     "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
     "lint": "tsc --noEmit"
   },
