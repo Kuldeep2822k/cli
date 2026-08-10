@@ -18,3 +18,7 @@ senior_code_audit.md
 # Logs & temp
 *.log
 *.tgz
+
+coverage/
+scripts/
+eslint.config.mjs
