@@ -58,7 +58,7 @@ jobs:
             const { execSync } = require('child_process');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             execSync('npm pack');
-            const filename = pkg.name + '-' + pkg.version + '.tgz';
+            const filename = pkg.name.replace('@', '').replace('/', '-') + '-' + pkg.version + '.tgz';
             fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
             fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\n');
             console.log('Created tarball:', filename);

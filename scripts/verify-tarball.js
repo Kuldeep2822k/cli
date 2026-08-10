@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const pkg = require('../package.json');
-const tarList = execSync(`tar -tzf palee-${pkg.version}.tgz`, { encoding: 'utf8' }).split('\n');
+const filename = pkg.name.replace('@', '').replace('/', '-') + '-' + pkg.version + '.tgz';
+const tarList = execSync(`tar -tzf ${filename}`, { encoding: 'utf8' }).split('\n');
 
 const REQUIRED = [
   'package/' + pkg.main,
