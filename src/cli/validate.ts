@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import { loadConfig } from './config';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
@@ -12,7 +13,6 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
 
 async function validateCommand(options: ValidateOptions): Promise<void> {
   try {
-    const { loadConfig } = await import('./config');
     const config = loadConfig();
 
     if (!config.vaultPath) {

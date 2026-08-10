@@ -5,40 +5,7 @@
 
 import { TopicNode, ValidationError, ValidationResult } from '../types';
 
-function topologicalSort(topics: Map<string, TopicNode>): string[] {
-  const visited = new Set<string>();
-  const visiting = new Set<string>();
-  const result: string[] = [];
 
-  function visit(id: string): void {
-    if (visited.has(id)) return;
-    if (visiting.has(id)) {
-      throw new Error(`Cycle detected involving topic ${id}`);
-    }
-
-    visiting.add(id);
-
-    const topic = topics.get(id);
-    if (!topic) {
-      throw new Error(`Missing topic ${id} referenced as dependency`);
-    }
-
-    const deps = topic.depends_on || [];
-    for (const depId of deps) {
-      visit(depId);
-    }
-
-    visiting.delete(id);
-    visited.add(id);
-    result.push(id);
-  }
-
-  for (const id of topics.keys()) {
-    visit(id);
-  }
-
-  return result;
-}
 
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const visiting = new Set<string>();
@@ -150,9 +117,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 }
 
 export {
-  topologicalSort,
   detectCycle,
-  areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
 };

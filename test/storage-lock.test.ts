@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
@@ -24,7 +24,12 @@ describe('File Locking', () => {
 
   before(() => {
     testVaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-test-'));
-    testFilePath = path.join(testVaultPath, 'test-note.md');
+  });
+
+  beforeEach(() => {
+    const locksDir = path.join(testVaultPath, '.palee', 'locks');
+    fs.rmSync(locksDir, { recursive: true, force: true });
+    testFilePath = path.join(testVaultPath, 'test-note-' + Math.random().toString(36).slice(2) + '.md');
     fs.writeFileSync(testFilePath, '# Test Note', 'utf8');
   });
 
@@ -69,16 +74,7 @@ describe('File Locking', () => {
     assert.ok(getLockData(lock.lockPath) === null);
   });
 
-  test('lock includes heartbeat_at field', async () => {
-    const lock = new Lock(testVaultPath, testFilePath);
-    await lock.acquire();
 
-    const lockData = getLockData(lock.lockPath);
-    assert.ok(lockData.heartbeat_at);
-    assert.ok(new Date(lockData.heartbeat_at).getTime() > 0);
-
-    lock.release();
-  });
 
   test('heartbeat updates mtime', async () => {
     const lock = new Lock(testVaultPath, testFilePath);

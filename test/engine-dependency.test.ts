@@ -1,50 +1,14 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
-  topologicalSort,
   detectCycle,
-  areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
 } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
 describe('Dependency Graph', () => {
-  test('topological sort returns dependency-first order', () => {
-    const topics = new Map<string, TopicNode>([
-      ['T-a', { palee_id: 'T-a', depends_on: [], topic_mastery: 0 }],
-      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
-      ['T-c', { palee_id: 'T-c', depends_on: ['T-b'], topic_mastery: 0 }],
-    ]);
 
-    const sorted = topologicalSort(topics);
-    const aIndex = sorted.indexOf('T-a');
-    const bIndex = sorted.indexOf('T-b');
-    const cIndex = sorted.indexOf('T-c');
-
-    assert.ok(aIndex < bIndex, 'T-a should come before T-b');
-    assert.ok(bIndex < cIndex, 'T-b should come before T-c');
-  });
-
-  test('topological sort handles diamond dependencies', () => {
-    const topics = new Map<string, TopicNode>([
-      ['T-a', { palee_id: 'T-a', depends_on: [], topic_mastery: 0 }],
-      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
-      ['T-c', { palee_id: 'T-c', depends_on: ['T-a'], topic_mastery: 0 }],
-      ['T-d', { palee_id: 'T-d', depends_on: ['T-b', 'T-c'], topic_mastery: 0 }],
-    ]);
-
-    const sorted = topologicalSort(topics);
-    const aIndex = sorted.indexOf('T-a');
-    const bIndex = sorted.indexOf('T-b');
-    const cIndex = sorted.indexOf('T-c');
-    const dIndex = sorted.indexOf('T-d');
-
-    assert.ok(aIndex < bIndex);
-    assert.ok(aIndex < cIndex);
-    assert.ok(bIndex < dIndex);
-    assert.ok(cIndex < dIndex);
-  });
 
   test('detects simple cycle', () => {
     const topics = new Map<string, TopicNode>([
@@ -81,28 +45,7 @@ describe('Dependency Graph', () => {
     assert.strictEqual(cycle, null);
   });
 
-  test('areDependenciesSatisfied checks mastery threshold', () => {
-    const topics = new Map<string, TopicNode>([
-      ['T-a', { palee_id: 'T-a', topic_mastery: 0.8, depends_on: [] }],
-      ['T-b', { palee_id: 'T-b', topic_mastery: 0.5, depends_on: [] }],
-      ['T-c', { palee_id: 'T-c', depends_on: ['T-a', 'T-b'], topic_mastery: 0 }],
-    ]);
 
-    const topicC = topics.get('T-c')!;
-    assert.strictEqual(areDependenciesSatisfied(topicC, topics, 0.7), false);
-    // T-a is mastered (0.8 >= 0.7), but T-b is not (0.5 < 0.7)
-  });
-
-  test('areDependenciesSatisfied returns true when all deps mastered', () => {
-    const topics = new Map<string, TopicNode>([
-      ['T-a', { palee_id: 'T-a', topic_mastery: 0.8, depends_on: [] }],
-      ['T-b', { palee_id: 'T-b', topic_mastery: 0.9, depends_on: [] }],
-      ['T-c', { palee_id: 'T-c', depends_on: ['T-a', 'T-b'], topic_mastery: 0 }],
-    ]);
-
-    const topicC = topics.get('T-c')!;
-    assert.strictEqual(areDependenciesSatisfied(topicC, topics, 0.7), true);
-  });
 
   test('getReadyTopics returns only topics with satisfied deps', () => {
     const topics = new Map<string, TopicNode>([

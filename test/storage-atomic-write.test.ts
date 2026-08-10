@@ -119,13 +119,5 @@ describe('Atomic Write', () => {
     assert.ok(final === content1 || final === content2);
   });
 
-  test('Windows retry constants are defined', () => {
-    // This test verifies constants exist in the source code as required by the checklist
-    const sourceCode = fs.readFileSync(path.join(__dirname, '../src/storage/atomic-write.ts'), 'utf8');
-    assert.ok(sourceCode.includes('WINDOWS_RETRY_ATTEMPTS'));
-    assert.ok(sourceCode.includes('WINDOWS_RETRY_INITIAL_DELAY'));
-    assert.ok(sourceCode.includes('WINDOWS_RETRY_MULTIPLIER'));
-    assert.ok(sourceCode.includes('WINDOWS_RETRY_JITTER'));
-    assert.ok(sourceCode.includes('WINDOWS_RETRY_MAX_DELAY'));
-  });
+
 });

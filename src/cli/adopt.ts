@@ -1,3 +1,4 @@
+import { loadConfig } from './config';
 /**
  * Adopt Command Handler
  * Adopts an existing note as a PALEE topic
@@ -18,8 +19,7 @@ function generateTopicId(): string {
 
 async function adoptCommand(relativePath: string, options: AdoptOptions): Promise<void> {
   try {
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
