@@ -16,7 +16,7 @@ PALEE helps you learn efficiently by:
 
 ### Installation
 ```bash
-npm install -g palee
+npm install -g @kuldeep2822k/palee
 ```
 
 ### Connect to Your Obsidian Vault

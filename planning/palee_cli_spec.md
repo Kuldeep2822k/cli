@@ -282,7 +282,7 @@ PALEE targets Windows as a first-class platform. All file paths use Node's `path
 ### Phase 4: Distribution
 1. Package as npm module
 2. Publish to npm registry
-3. Document installation (`npm install -g palee`)
+3. Document installation (`npm install -g @kuldeep2822k/palee`)
 4. Create example workflows and tutorials
 
 ## Resolved Design Decisions
@@ -315,7 +315,7 @@ For example, a future migration may convert a top-level `last_reviewed` field in
 ## Success Criteria
 
 1. **Technical**:
-   - CLI installs via `npm install -g palee`
+   - CLI installs via `npm install -g @kuldeep2822k/palee`
    - All core commands work with zero AI/network
    - AI module works with free tier models
    - Obsidian vault integration seamless

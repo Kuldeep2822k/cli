@@ -29,6 +29,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@kuldeep2822k/palee": "^0.1.0",
     "commander": "^15.0.0",
     "yaml": "^2.9.0"
   },
