@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  quality-check:
+    name: Lint, Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Lint & Strict Typecheck
+        run: npm run check
+
+      - name: Build production bundle
+        run: npm run build
+
+  test-matrix:
+    name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: >-
+        ${{ fromJSON(
+        github.event_name == 'pull_request'
+        && '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"windows-latest","node-version":"24.x"}]}'
+        || '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"ubuntu-latest","node-version":"26.x"},{"os":"windows-latest","node-version":"22.x"},{"os":"windows-latest","node-version":"24.x"},{"os":"macos-latest","node-version":"22.x"},{"os":"macos-latest","node-version":"24.x"}]}'
+        ) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run unit & invariant test suite
+        run: npm run test:coverage
+
+      - name: Verify Changed-Code Coverage
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
+        run: |
+          npx diff-cover coverage/lcov.info \
+            --compare-branch=origin/main \
+            --fail-under=50
+
+  smoke-install:
+    name: Global Package Smoke Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: >-
+        ${{ fromJSON(github.event_name == 'pull_request' && '{ "os": ["ubuntu-latest", "windows-latest"] }' || '{ "os": ["ubuntu-latest", "windows-latest", "macos-latest"] }') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Build tarball package
+        id: pack
+        run: |
+          node -e "
+            const fs = require('fs');
+            const exec = require('child_process').execSync;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            exec('npm pack');
+            const filename = pkg.name + '-' + pkg.version + '.tgz';
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\n');
+            console.log('Created tarball:', filename);
+          "
+
+      - name: Dynamic Tarball Assertions
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/verify-tarball.js
+
+      - name: Install CLI globally from packed tarball
+        run: npm install -g ${{ steps.pack.outputs.filename }}
+
+      - name: Verify Exact Version Match
+        shell: bash
+        run: |
+          EXPECTED="${{ steps.pack.outputs.version }}"
+          ACTUAL=$(palee --version | tr -d '\r\n ')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "❌ Version mismatch! Expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+          echo "✅ Version match: $ACTUAL"
+
+      - name: Test global binary --help
+        run: palee --help
+
+  ci-success:
+    if: always()
+    needs: [quality-check, test-matrix, smoke-install]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            echo "CI Failed"
+            exit 1
+          fi
+          echo "CI Succeeded"

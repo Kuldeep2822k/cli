@@ -8,9 +8,12 @@
     "palee": "./dist/bin/palee.js"
   },
   "scripts": {
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "check": "npm run typecheck && npm run lint",
     "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
-    "lint": "echo 'Lint check passed (add eslint in future)'"
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test:coverage": "c8 npm test"
   },
   "keywords": [
     "spaced-repetition",
@@ -23,22 +26,23 @@
   "license": "MIT",
   "type": "commonjs",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "chalk": "^4.1.2",
     "commander": "^15.0.0",
-    "js-yaml": "^5.2.3",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/commander": "^2.12.0",
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.66.0",
+    "c8": "^12.0.0",
+    "diff-cover": "^2.0.5",
     "eslint": "^10.8.1",
     "tsx": "^4.23.11",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.66.0"
   }
 }

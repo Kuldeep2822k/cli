@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
@@ -24,7 +24,12 @@ describe('File Locking', () => {
 
   before(() => {
     testVaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-test-'));
-    testFilePath = path.join(testVaultPath, 'test-note.md');
+  });
+
+  beforeEach(() => {
+    const locksDir = path.join(testVaultPath, '.palee', 'locks');
+    fs.rmSync(locksDir, { recursive: true, force: true });
+    testFilePath = path.join(testVaultPath, 'test-note-' + Math.random().toString(36).slice(2) + '.md');
     fs.writeFileSync(testFilePath, '# Test Note', 'utf8');
   });
 
@@ -69,16 +74,7 @@ describe('File Locking', () => {
     assert.ok(getLockData(lock.lockPath) === null);
   });
 
-  test('lock includes heartbeat_at field', async () => {
-    const lock = new Lock(testVaultPath, testFilePath);
-    await lock.acquire();
 
-    const lockData = getLockData(lock.lockPath);
-    assert.ok(lockData.heartbeat_at);
-    assert.ok(new Date(lockData.heartbeat_at).getTime() > 0);
-
-    lock.release();
-  });
 
   test('heartbeat updates mtime', async () => {
     const lock = new Lock(testVaultPath, testFilePath);
@@ -144,5 +140,96 @@ describe('File Locking', () => {
   test('lock release handles already-released lock', () => {
     const lock = new Lock(testVaultPath, testFilePath);
     assert.doesNotThrow(() => lock.release());
+  });
+
+  test('validates lock collision throws ECONFLICT', async () => {
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+
+    const lock2 = new Lock(testVaultPath, testFilePath);
+    try {
+      let err: any;
+      try {
+        await lock2.acquire();
+      } catch (e) {
+        err = e;
+      }
+
+      assert.ok(err, 'Expected error to be thrown');
+      assert.strictEqual(err.code, 'ECONFLICT');
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
+  });
+
+  test('lock identity is consistent across symlinks', async () => {
+    const symlinkPath = path.join(testVaultPath, 'symlink-note.md');
+    try {
+      fs.symlinkSync(path.basename(testFilePath), symlinkPath);
+    } catch (e: any) {
+      if (e.code === 'EPERM' || e.code === 'ENOTSUP') return; // Skip if symlinks require admin
+      throw e;
+    }
+
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+
+    const lock2 = new Lock(testVaultPath, symlinkPath);
+    try {
+      let err: any;
+      try {
+        await lock2.acquire();
+      } catch (e) {
+        err = e;
+      }
+      assert.ok(err, 'Expected error to be thrown');
+      assert.strictEqual(err.code, 'ECONFLICT');
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
+  });
+
+  test('validates Windows specific stale lock timing behavior', async () => {
+    // Only run this test logic if on Windows, but the test passes universally by skipping on non-Windows
+    if (process.platform !== 'win32') {
+      return; 
+    }
+
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+    const lock2 = new Lock(testVaultPath, testFilePath);
+
+    try {
+      const lockPath = lock1.lockPath;
+      const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
+      const lockFile = path.join(lockPath, files[0]);
+      
+      // Stop the heartbeat so it doesn't refresh concurrently with our manual aging
+      clearInterval((lock1 as any).heartbeatTimer);
+
+      // Set exactly to 59 seconds ago (just under Windows 60s timeout)
+      const activeTime = new Date(Date.now() - 59000);
+      fs.utimesSync(lockFile, activeTime, activeTime);
+
+      // Should still fail with ECONFLICT because it hasn't reached 60s
+      await assert.rejects(
+        async () => await lock2.acquire(),
+        { code: 'ECONFLICT' }
+      );
+
+      // Now set exactly to 61 seconds ago (just over Windows 60s timeout)
+      const staleTime = new Date(Date.now() - 61000);
+      fs.utimesSync(lockFile, staleTime, staleTime);
+
+      // Should succeed because it exceeded 60s
+      await assert.doesNotReject(
+        async () => await lock2.acquire()
+      );
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
   });
 });

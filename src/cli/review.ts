@@ -1,3 +1,4 @@
+import { loadConfig } from './config';
 /**
  * Review Command Handler
  * Records a manual review for a topic
@@ -26,8 +27,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     }
     const quality = parseInt(qualityStr, 10);
 
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');

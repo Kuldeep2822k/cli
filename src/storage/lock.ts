@@ -29,7 +29,24 @@ function generateLockId(): string {
 }
 
 function getLockDir(vaultPath: string, targetPath: string): string {
-  const relativePath = path.relative(vaultPath, targetPath).replace(/\\/g, '/');
+  let resolvedTarget = targetPath;
+  try {
+    if (fs.existsSync(targetPath)) {
+      resolvedTarget = fs.realpathSync(targetPath);
+    } else {
+      const dir = fs.realpathSync(path.dirname(targetPath));
+      resolvedTarget = path.join(dir, path.basename(targetPath));
+    }
+  } catch {
+    // Fallback if directory also doesn't exist
+  }
+  
+  let resolvedVault = vaultPath;
+  try {
+    resolvedVault = fs.realpathSync(vaultPath);
+  } catch {}
+
+  const relativePath = path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/');
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   const locksDir = path.join(vaultPath, '.palee', 'locks');
   fs.mkdirSync(locksDir, { recursive: true });
@@ -51,8 +68,6 @@ function createLock(lockDir: string, targetPath: string): LockData {
     pid: process.pid,
     hostname: os.hostname(),
     created_at: now,
-    // heartbeat_at is kept for legacy compatibility if read by old clients, but we use mtime natively
-    heartbeat_at: now,
   };
 
   const lockFile = path.join(lockDir, `${lockId}.json`);
@@ -111,11 +126,31 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw conflictErr;
       }
 
+      if (activeFiles.length === 0) {
+        let incomingConflict = false;
+        try {
+          const dirStat = fs.statSync(lockDir);
+          if (Date.now() - dirStat.mtimeMs < 5000) {
+            incomingConflict = true;
+          }
+        } catch {}
+        
+        if (incomingConflict) {
+          const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by an incoming process`) as NodeError;
+          conflictErr.code = 'ECONFLICT';
+          throw conflictErr;
+        }
+      }
+
       // If we reach here, the directory exists but ALL active locks (if any) are stale!
       // We must clean up the stale directory to reset the state.
       // We only attempt to delete the exact files we observed in this iteration.
       for (const file of files) {
         const filePath = path.join(lockDir, file);
+        if (!file.endsWith('.json')) {
+          try { fs.unlinkSync(filePath); } catch {}
+          continue;
+        }
         const quarantinePath = filePath + '.quarantine';
         try {
           // Rename acts as an atomic test-and-set to prevent Process B from renewing

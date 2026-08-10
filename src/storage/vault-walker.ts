@@ -8,9 +8,6 @@ import { WalkOptions } from '../types';
  */
 
 const EXCLUDED_DIRS = new Set([
-  '.obsidian',
-  '.trash',
-  '.git',
   'node_modules',
 ]);
 

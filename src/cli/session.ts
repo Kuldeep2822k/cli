@@ -1,3 +1,5 @@
+import readline from 'readline';
+import { loadConfig } from './config';
 /**
  * Session Command Handler
  * Manages learning sessions and session memory
@@ -19,8 +21,7 @@ import { SessionOptions } from '../types';
 
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
@@ -45,7 +46,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           process.exit(0);
         }
 
-        const readline = await import('readline');
+        
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         const question = (q: string) => new Promise<string>(resolve => rl.question(q, resolve));
 
