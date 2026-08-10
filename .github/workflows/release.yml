@@ -101,7 +101,7 @@ jobs:
         id: check-published
         run: |
           VERSION=${{ needs.verify-and-pack.outputs.version }}
-          if npm view "palee@${VERSION}" version >/dev/null 2>&1; then
+          if npm view "@kuldeep2822k/palee@${VERSION}" version >/dev/null 2>&1; then
             echo "already_published=true" >> "$GITHUB_OUTPUT"
             echo "⚠️ Version ${VERSION} is already published on npm. Skipping publish step."
           else
@@ -150,16 +150,16 @@ jobs:
         shell: bash
         run: |
           VERSION=${{ needs.verify-and-pack.outputs.version }}
-          echo "Waiting for npm registry to propagate palee@$VERSION..."
+          echo "Waiting for npm registry to propagate @kuldeep2822k/palee@$VERSION..."
           for i in {1..12}; do
-            if npm install -g palee@$VERSION; then
-              echo "Successfully installed palee@$VERSION!"
+            if npm install -g @kuldeep2822k/palee@$VERSION; then
+              echo "Successfully installed @kuldeep2822k/palee@$VERSION!"
               exit 0
             fi
             echo "NPM registry lag. Retrying in 10 seconds..."
             sleep 10
           done
-          echo "Failed to install palee@$VERSION after 2 minutes."
+          echo "Failed to install @kuldeep2822k/palee@$VERSION after 2 minutes."
           exit 1
 
       - name: Verify Exact Version Match
