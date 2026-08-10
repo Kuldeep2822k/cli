@@ -57,7 +57,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const seenPaths = new Set<string>();
     const topicsMap = new Map<string, TopicNode>();
 
-    const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
+    const resolvedVault = path.resolve(vaultPath);
 
     for (const topic of roadmap.topics) {
       const { id, title, path: relativePath, difficulty, order } = topic;
