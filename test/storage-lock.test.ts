@@ -146,7 +146,7 @@ describe('File Locking', () => {
     assert.doesNotThrow(() => lock.release());
   });
 
-  test('validates lock collision throws ECONFLICT immediately without delay', async () => {
+  test('validates lock collision throws ECONFLICT', async () => {
     const lock1 = new Lock(testVaultPath, testFilePath);
     await lock1.acquire();
 
@@ -159,6 +159,34 @@ describe('File Locking', () => {
         err = e;
       }
 
+      assert.ok(err, 'Expected error to be thrown');
+      assert.strictEqual(err.code, 'ECONFLICT');
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
+  });
+
+  test('lock identity is consistent across symlinks', async () => {
+    const symlinkPath = path.join(testVaultPath, 'symlink-note.md');
+    try {
+      fs.symlinkSync(path.basename(testFilePath), symlinkPath);
+    } catch (e: any) {
+      if (e.code === 'EPERM' || e.code === 'ENOTSUP') return; // Skip if symlinks require admin
+      throw e;
+    }
+
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+
+    const lock2 = new Lock(testVaultPath, symlinkPath);
+    try {
+      let err: any;
+      try {
+        await lock2.acquire();
+      } catch (e) {
+        err = e;
+      }
       assert.ok(err, 'Expected error to be thrown');
       assert.strictEqual(err.code, 'ECONFLICT');
     } finally {

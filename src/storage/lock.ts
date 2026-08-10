@@ -29,7 +29,24 @@ function generateLockId(): string {
 }
 
 function getLockDir(vaultPath: string, targetPath: string): string {
-  const relativePath = path.relative(vaultPath, targetPath).replace(/\\/g, '/');
+  let resolvedTarget = targetPath;
+  try {
+    if (fs.existsSync(targetPath)) {
+      resolvedTarget = fs.realpathSync(targetPath);
+    } else {
+      const dir = fs.realpathSync(path.dirname(targetPath));
+      resolvedTarget = path.join(dir, path.basename(targetPath));
+    }
+  } catch {
+    // Fallback if directory also doesn't exist
+  }
+  
+  let resolvedVault = vaultPath;
+  try {
+    resolvedVault = fs.realpathSync(vaultPath);
+  } catch {}
+
+  const relativePath = path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/');
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   const locksDir = path.join(vaultPath, '.palee', 'locks');
   fs.mkdirSync(locksDir, { recursive: true });
