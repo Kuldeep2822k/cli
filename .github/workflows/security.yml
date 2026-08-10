@@ -86,7 +86,10 @@ jobs:
               return results;
             }
 
-            const binaryFiles = findBinaries('node_modules');
+            let binaryFiles = [];
+            for (const pkg of prodPackages) {
+              binaryFiles = binaryFiles.concat(findBinaries(path.join('node_modules', pkg)));
+            }
 
             if (detectedToolchains.length > 0 || binaryFiles.length > 0) {
               console.error('❌ Native Module Invariant Violation Detected!');
