@@ -1,6 +1,8 @@
 # Source files (only published compiled output in dist/)
 src/
 test/
+bin/
+dist/test/
 planning/
 examples/
 .github/

@@ -1,3 +1,4 @@
+import { loadConfig } from './config';
 /**
  * Migrate Command Handler
  * Schema migration (Phase 1: stub only)
@@ -10,8 +11,7 @@ import { parseFrontmatter } from '../storage/frontmatter';
 async function migrateCommand(): Promise<void> {
   try {
     // Load config
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');

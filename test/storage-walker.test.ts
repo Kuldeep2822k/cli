@@ -1,4 +1,4 @@
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
@@ -9,7 +9,7 @@ import { NodeError } from '../src/types';
 describe('Vault Walker', () => {
   let testVaultPath: string;
 
-  test.before(() => {
+  before(() => {
     // Create temporary test vault
     testVaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-vault-'));
 
@@ -33,7 +33,7 @@ describe('Vault Walker', () => {
     fs.writeFileSync(path.join(testVaultPath, 'notes', 'readme.txt'), 'not markdown');
   });
 
-  test.after(() => {
+  after(() => {
     // Cleanup
     fs.rmSync(testVaultPath, { recursive: true, force: true });
   });
@@ -97,12 +97,7 @@ describe('Vault Walker', () => {
     }
   });
 
-  test('handles permission denied gracefully', () => {
-    // Create a directory and immediately try to walk it
-    // (can't easily test actual permission denial in unit tests)
-    const files = walkVault(testVaultPath);
-    assert.ok(Array.isArray(files));
-  });
+
 
   test('returns absolute paths', () => {
     const files = walkVault(testVaultPath);

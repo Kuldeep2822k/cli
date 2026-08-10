@@ -1,0 +1,151 @@
+name: Security & Audit
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'package-lock.json'
+      - 'package.json'
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  codeql:
+    name: CodeQL SAST Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          category: "/language:javascript-typescript"
+
+  dependency-review:
+    name: PR Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+
+  npm-audit-and-native:
+    name: NPM Audit & Native Module Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@39370e3970a6d050c3809044ca787e801f92e858 # v4.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Dual-scope npm audit: production-only for PRs, full scan for scheduled/push
+      - name: Production dependency vulnerability audit
+        if: github.event_name == 'pull_request'
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Full dependency vulnerability audit (production + dev)
+        if: github.event_name != 'pull_request'
+        run: npm audit --audit-level=high
+
+      - name: Native Module Guardrail
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const { execSync } = require('child_process');
+
+            const BANNED_TOOLCHAINS = new Set([
+              'node-gyp', 'node-pre-gyp', '@mapbox/node-pre-gyp',
+              'prebuild-install', 'napi-rs', '@napi-rs/cli', 'cmake-js', 'node-addon-api'
+            ]);
+            const BANNED_EXTENSIONS = ['.node', '.so', '.dylib', '.dll', '.exe', '.elf'];
+
+            let prodTree;
+            try {
+              prodTree = JSON.parse(execSync('npm ls --omit=dev --json', { encoding: 'utf8' }));
+            } catch (e) {
+              prodTree = JSON.parse(e.stdout || '{}');
+            }
+
+            function extractPackages(node, found = new Set()) {
+              if (!node || !node.dependencies) return found;
+              for (const [name, pkg] of Object.entries(node.dependencies)) {
+                found.add(name.toLowerCase());
+                extractPackages(pkg, found);
+              }
+              return found;
+            }
+
+            const prodPackages = extractPackages(prodTree);
+            const detectedToolchains = [...prodPackages].filter(pkg => BANNED_TOOLCHAINS.has(pkg));
+
+            function findBinaries(dir) {
+              let results = [];
+              if (!fs.existsSync(dir)) return results;
+              for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, f.name);
+                if (f.isDirectory()) results = results.concat(findBinaries(p));
+                else if (BANNED_EXTENSIONS.includes(path.extname(f.name).toLowerCase())) results.push(p);
+              }
+              return results;
+            }
+
+            const binaryFiles = findBinaries('node_modules');
+
+            if (detectedToolchains.length > 0 || binaryFiles.length > 0) {
+              console.error('❌ Native Module Invariant Violation Detected!');
+              if (detectedToolchains.length > 0) console.error('Forbidden Toolchains:', detectedToolchains);
+              if (binaryFiles.length > 0) console.error('Forbidden Binaries:', binaryFiles);
+              process.exit(1);
+            }
+            console.log('✅ Native Audit Passed: Zero native binaries or toolchains in production tree.');
+          "
+
+      - name: Permissive Open-Source License Audit
+        run: |
+          node -e "
+            const { execSync } = require('child_process');
+            const ALLOWED = new Set(['MIT', 'ISC', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'CC0-1.0', 'Unlicense']);
+
+            const raw = execSync('npm ls --omit=dev --json', { encoding: 'utf8' });
+            const tree = JSON.parse(raw);
+
+            function auditLicenses(node) {
+              if (!node || !node.dependencies) return;
+              for (const [name, pkg] of Object.entries(node.dependencies)) {
+                const license = pkg.license || 'UNKNOWN';
+                if (!ALLOWED.has(license)) {
+                  console.error('❌ Prohibited or unapproved license detected in production dependency:', name, '->', license);
+                  process.exit(1);
+                }
+                auditLicenses(pkg);
+              }
+            }
+
+            auditLicenses(tree);
+            console.log('✅ License Audit Passed: All production dependencies maintain approved permissive licenses.');
+          "

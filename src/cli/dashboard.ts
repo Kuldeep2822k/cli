@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
+import { loadConfig } from './config';
 
 interface DashboardTopic {
   id: string;
@@ -20,9 +21,7 @@ interface DashboardTopic {
 
 async function dashboardCommand(): Promise<void> {
   try {
-    // Load config
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
@@ -33,31 +32,29 @@ async function dashboardCommand(): Promise<void> {
     const files = walkVault(vaultPath);
     const now = new Date();
 
-    // Load all topics concurrently
-    const filePromises = files.map(async (filePath) => {
-      const content = await fs.promises.readFile(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
+    // Load all topics sequentially
+    const topics: DashboardTopic[] = [];
+    for (const filePath of files) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const { frontmatter } = parseFrontmatter(content);
+        if (!frontmatter || !frontmatter.palee_id) continue;
 
-      if (!frontmatter || !frontmatter.palee_id) return null;
-
-      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
-      if (dueAt && Number.isNaN(dueAt.getTime())) {
-        dueAt = null;
-      }
-
-      return {
-        id: frontmatter.palee_id as string,
-        title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-        mastery: (frontmatter.topic_mastery as number) || 0,
-        repetition: (frontmatter.repetition as number) || 0,
-        lapses: (frontmatter.lapses as number) || 0,
-        difficulty: (frontmatter.difficulty as string) || 'intermediate',
-        due_at: dueAt,
-      };
-    });
-
-    const parsedTopics = await Promise.all(filePromises);
-    const topics: DashboardTopic[] = parsedTopics.filter((t): t is DashboardTopic => t !== null);
+        let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+        if (dueAt && Number.isNaN(dueAt.getTime())) {
+          dueAt = null;
+        }
+        topics.push({
+          id: frontmatter.palee_id as string,
+          title: (frontmatter.title as string) || path.basename(filePath, '.md'),
+          mastery: (frontmatter.topic_mastery as number) || 0,
+          repetition: (frontmatter.repetition as number) || 0,
+          lapses: (frontmatter.lapses as number) || 0,
+          difficulty: (frontmatter.difficulty as string) || 'intermediate',
+          due_at: dueAt,
+        });
+      } catch {}
+    }
 
     console.log('╔════════════════════════════════════════════════════════════╗');
     console.log('║              PALEE Learning Dashboard                     ║');

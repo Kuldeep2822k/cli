@@ -87,7 +87,6 @@ export interface LockData {
   pid: number;
   hostname: string;
   created_at: string;
-  heartbeat_at: string;
 }
 
 // ─── Cache ──────────────────────────────────────────────────────────

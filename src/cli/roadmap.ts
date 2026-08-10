@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
+import { loadConfig } from './config';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
@@ -21,8 +22,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       process.exit(2);
     }
 
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
@@ -149,14 +149,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         output: process.stdout,
       });
 
-      rl.question('', async (answer: string) => {
-        rl.close();
-        if (answer.trim().toLowerCase() !== 'y') {
-          console.log('Aborted.');
-          process.exit(0);
-        }
-        await doImport();
-      });
+      const answer = await new Promise<string>(resolve => rl.question('', resolve));
+      rl.close();
+      if (answer.trim().toLowerCase() !== 'y') {
+        console.log('Aborted.');
+        process.exit(0);
+      }
+      await doImport();
     }
 
     async function doImport() {
@@ -183,16 +182,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
-          const realVault = fs.realpathSync(path.resolve(vaultPath));
-          const realDir = fs.realpathSync(dir);
-          const isInside = realDir === realVault || realDir.startsWith(realVault + path.sep);
-          if (!isInside) {
-            console.error(`Roadmap directory escapes vault (via symlink): ${topic.path}`);
+          const canonicalDir = fs.realpathSync(dir);
+          if (!canonicalDir.startsWith(resolvedVault)) {
+            console.error(`Symlink escape detected: ${topic.path} resolves outside vault`);
             failed++;
             continue;
           }
-          // Lock target directory to resolved canonical path to prevent TOCTOU
-          resolvedTargetPath = path.join(realDir, path.basename(absolutePath));
+          resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
         } catch (e) {
           console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
           failed++;
@@ -205,21 +201,6 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         let existingData: Record<string, unknown> = {};
 
         if (fs.existsSync(resolvedTargetPath)) {
-          try {
-            const realVault = fs.realpathSync(path.resolve(vaultPath));
-            const realPath = fs.realpathSync(resolvedTargetPath);
-            const isFileInside = realPath === realVault || realPath.startsWith(realVault + path.sep);
-            if (!isFileInside) {
-              console.error(`Roadmap path escapes vault (via symlink): ${topic.path}`);
-              failed++;
-              continue;
-            }
-            resolvedTargetPath = realPath;
-          } catch (e) {
-            console.error(`Error resolving file for ${topic.path}: ${(e as Error).message}`);
-            failed++;
-            continue;
-          }
           content = fs.readFileSync(resolvedTargetPath, 'utf8');
           fingerprint = computeFingerprint(content);
           const parsed = parseFrontmatter(content);

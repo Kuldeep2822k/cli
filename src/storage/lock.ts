@@ -68,8 +68,6 @@ function createLock(lockDir: string, targetPath: string): LockData {
     pid: process.pid,
     hostname: os.hostname(),
     created_at: now,
-    // heartbeat_at is kept for legacy compatibility if read by old clients, but we use mtime natively
-    heartbeat_at: now,
   };
 
   const lockFile = path.join(lockDir, `${lockId}.json`);
@@ -128,11 +126,26 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw conflictErr;
       }
 
+      if (activeFiles.length === 0) {
+        try {
+          const dirStat = fs.statSync(lockDir);
+          if (Date.now() - dirStat.mtimeMs < 5000) {
+            const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by an incoming process`) as NodeError;
+            conflictErr.code = 'ECONFLICT';
+            throw conflictErr;
+          }
+        } catch {}
+      }
+
       // If we reach here, the directory exists but ALL active locks (if any) are stale!
       // We must clean up the stale directory to reset the state.
       // We only attempt to delete the exact files we observed in this iteration.
       for (const file of files) {
         const filePath = path.join(lockDir, file);
+        if (!file.endsWith('.json')) {
+          try { fs.unlinkSync(filePath); } catch {}
+          continue;
+        }
         const quarantinePath = filePath + '.quarantine';
         try {
           // Rename acts as an atomic test-and-set to prevent Process B from renewing

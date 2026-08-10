@@ -1,3 +1,4 @@
+import { loadConfig } from './config';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -23,8 +24,7 @@ interface ProgressTopic {
 
 async function progressCommand(options: ProgressOptions): Promise<void> {
   try {
-    const configModule = await import('./config');
-    const config = configModule.loadConfig();
+    const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');

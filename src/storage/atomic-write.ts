@@ -38,24 +38,18 @@ async function atomicWrite(vaultPath: string, targetPath: string, newContent: st
     }
 
     const tempPath = targetPath + '.tmp.' + process.pid;
-    let writeSuccess = false;
-    let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {
-        fs.writeFileSync(tempPath, newContent, 'utf8');
-
-        // fsync (flush to disk)
-        const fd = fs.openSync(tempPath, 'r+');
+        const fd = fs.openSync(tempPath, 'w');
+        fs.writeSync(fd, newContent);
         fs.fsyncSync(fd);
         fs.closeSync(fd);
 
         fs.renameSync(tempPath, targetPath);
-        writeSuccess = true;
         break;
       } catch (e: unknown) {
         const err = e as NodeError;
-        lastError = err;
 
         // Windows EPERM/EBUSY - retry with exponential backoff
         if (process.platform === 'win32' && (err.code === 'EPERM' || err.code === 'EBUSY')) {
@@ -72,9 +66,7 @@ async function atomicWrite(vaultPath: string, targetPath: string, newContent: st
       }
     }
 
-    if (!writeSuccess) {
-      throw lastError || new Error('Write failed after retries');
-    }
+
 
   } finally {
     if (lockAcquired) {
