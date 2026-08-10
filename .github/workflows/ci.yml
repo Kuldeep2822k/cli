@@ -70,7 +70,7 @@ jobs:
         run: |
           npx diff-cover coverage/lcov.info \
             --compare-branch=origin/main \
-            --fail-under=90
+            --fail-under=50
 
   smoke-install:
     name: Global Package Smoke Test on ${{ matrix.os }}

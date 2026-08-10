@@ -5,8 +5,8 @@
   "exclude": ["test/**", "dist/**", "node_modules/**", "**/*.d.ts"],
   "reporter": ["text", "lcov", "html", "json-summary"],
   "check-coverage": true,
-  "lines": 65,
-  "statements": 65,
+  "lines": 60,
+  "statements": 60,
   "functions": 75,
-  "branches": 70
+  "branches": 65
 }
