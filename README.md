@@ -38,7 +38,7 @@ palee config set-provider
 palee next
 
 # Build a study session
-palee plan --limit 3
+palee plan
 
 # Track your progress
 palee progress
@@ -98,7 +98,7 @@ palee progress
 | Command | Description |
 |---------|-------------|
 | `palee next` | Show next recommended action |
-| `palee plan [--limit N]` | Build study session plan |
+| `palee plan` | Build study session plan |
 | `palee progress` | View mastery statistics |
 | `palee test <topic>` | AI-powered Feynman test |
 | `palee tutor <topic>` | Interactive tutoring session |
