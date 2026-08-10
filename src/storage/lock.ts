@@ -127,14 +127,19 @@ function createLock(lockDir: string, targetPath: string): LockData {
       }
 
       if (activeFiles.length === 0) {
+        let incomingConflict = false;
         try {
           const dirStat = fs.statSync(lockDir);
           if (Date.now() - dirStat.mtimeMs < 5000) {
-            const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by an incoming process`) as NodeError;
-            conflictErr.code = 'ECONFLICT';
-            throw conflictErr;
+            incomingConflict = true;
           }
         } catch {}
+        
+        if (incomingConflict) {
+          const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by an incoming process`) as NodeError;
+          conflictErr.code = 'ECONFLICT';
+          throw conflictErr;
+        }
       }
 
       // If we reach here, the directory exists but ALL active locks (if any) are stale!

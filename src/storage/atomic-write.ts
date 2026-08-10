@@ -41,10 +41,16 @@ async function atomicWrite(vaultPath: string, targetPath: string, newContent: st
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {
-        const fd = fs.openSync(tempPath, 'w');
-        fs.writeSync(fd, newContent);
-        fs.fsyncSync(fd);
-        fs.closeSync(fd);
+        let fd: number | null = null;
+        try {
+          fd = fs.openSync(tempPath, 'w');
+          fs.writeSync(fd, newContent);
+          fs.fsyncSync(fd);
+        } finally {
+          if (fd !== null) {
+            try { fs.closeSync(fd); } catch {}
+          }
+        }
 
         fs.renameSync(tempPath, targetPath);
         break;

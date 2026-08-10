@@ -183,7 +183,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             fs.mkdirSync(dir, { recursive: true });
           }
           const canonicalDir = fs.realpathSync(dir);
-          if (!canonicalDir.startsWith(resolvedVault)) {
+          if (canonicalDir !== resolvedVault && !canonicalDir.startsWith(resolvedVault + path.sep)) {
             console.error(`Symlink escape detected: ${topic.path} resolves outside vault`);
             failed++;
             continue;
