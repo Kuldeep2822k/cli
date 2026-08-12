@@ -180,6 +180,100 @@ Create a `GUIDE.md` at the repo root (or `docs/beginners-guide.md`) covering:
 
 ---
 
+## 6. `config set-provider` Is Broken — Blocks All AI Features
+
+### Problem
+
+The README shows an interactive prompt flow:
+
+```bash
+palee config set-provider
+# base_url: https://opencode.ai/zen/v1
+# api_key: YOUR_FREE_TIER_KEY
+# model: nemotron-3-ultra-free
+```
+
+But the actual implementation (`src/cli/config.ts:86-97`) takes a single string argument and stores it as `aiProvider`. There's no prompt, no `base_url`, no `api_key` storage.
+
+The `PaleeConfig` type (`src/types.ts:76-80`) only has:
+
+```typescript
+interface PaleeConfig {
+  vaultPath?: string;
+  aiProvider?: string;  // Just a single string
+  model?: string;
+}
+```
+
+No `apiKey`, no `baseUrl` field exists.
+
+### Impact
+
+- User follows README → gets `Error: provider name required` — confusing
+- No way to store API credentials → all Phase 2 AI commands will have no credentials to use
+- `palee test`, `palee tutor`, guided roadmap — all blocked
+
+### Fix Required
+
+- Add `baseUrl` and `apiKey` to `PaleeConfig`
+- Make `set-provider` an interactive prompt (or accept 3 arguments)
+- Store `apiKey` in the config file
+- Update `config show` to explicitly redact `api_key` (invariant: "config show never prints api_key")
+
+---
+
+## 7. `config show` — No `api_key` Redaction (Because None Exists)
+
+### Problem
+
+The invariant says: "`config show` never prints `api_key`."
+
+The implementation doesn't print one — but only because the `api_key` field doesn't exist at all. The invariant passes vacuously.
+
+### Impact
+
+When `api_key` is added (to fix issue #6), someone could accidentally print it if redaction isn't explicitly implemented.
+
+### Fix Required
+
+Fix together with issue #6 — when adding `apiKey` to config, add explicit redaction:
+
+```typescript
+console.log(`  API Key: ${config.apiKey ? '••••••••' : '(not set)'}`);
+```
+
+---
+
+## 8. Mastery Scores Depend on AI Testing — No Phase 1 Workaround
+
+### Problem
+
+Topic mastery is computed from 4 assessment scores: `conceptual`, `practical`, `debug`, `feynman`. These are meant to be set by `palee test` (AI Feynman testing), which doesn't exist yet.
+
+Meanwhile, `palee review` only updates SM-2 scheduling fields (`ease_factor`, `interval_days`, `repetition`) but never touches mastery. Result: **users review topics but mastery stays at 0% forever**.
+
+```bash
+$ palee review T-docker 5    # Perfect review!
+$ palee progress
+  Mastery: 0.0%               # Still zero — demoralizing
+```
+
+### Design Intent
+
+The design separates "review" (recall scheduling) from "assessment" (understanding depth). This is correct architecturally, but leaves Phase 1 with **no visible progress feedback**.
+
+### Options
+
+1. **Phase 1 stopgap**: Let `review` update a rough mastery estimate from quality scores (e.g., `topic_mastery = avg(last_N_qualities) / 5`). Not spec-accurate but gives users feedback.
+2. **Accept the gap**: Document that mastery requires AI provider. Add a note in `progress` output: "Mastery scores require AI testing (`palee test`). Currently showing review-only data."
+3. **Wait for Phase 2**: Implement `palee test` first, which properly sets assessment scores and triggers mastery computation.
+
+### Missing Code
+
+No `computeTopicMastery()` function exists anywhere in the codebase. Even when `palee test` is built, someone will need to implement the formula: `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)`.
+
+---
+
 ## Priority Order
 
 1. **Batch adopt** — Biggest onboarding blocker. Users can't start easily.
