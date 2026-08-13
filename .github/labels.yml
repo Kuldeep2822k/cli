@@ -1,0 +1,63 @@
+- name: bug
+  color: "#d73a4a"
+  description: Something isn't working
+- name: enhancement
+  color: "#a2eeef"
+  description: New feature or request
+- name: documentation
+  color: "#0075ca"
+  description: Improvements or additions to documentation
+- name: breaking
+  color: "#d93f0b"
+  description: A breaking change to the CLI
+- name: chore
+  color: "#fbca04"
+  description: General chores and maintenance
+- name: core
+  color: "#c2e0c6"
+  description: Core source code changes
+- name: tests
+  color: "#89e093"
+  description: Test suite changes
+- name: build
+  color: "#0e8a16"
+  description: Build system, dependencies, and CI workflows
+- name: good first issue
+  color: "#7057ff"
+  description: Good for newcomers
+- name: help wanted
+  color: "#008672"
+  description: Extra attention is needed
+- name: release: major
+  color: "#b60205"
+  description: Major release
+- name: release: minor
+  color: "#bfd4f2"
+  description: Minor release
+- name: release: patch
+  color: "#0e8a16"
+  description: Patch release
+- name: dependencies
+  color: "#0366d6"
+  description: Dependency updates
+- name: refactor
+  color: "#e99695"
+  description: Refactoring code without changing behavior
+- name: wontfix
+  color: "#ffffff"
+  description: This will not be worked on
+- name: duplicate
+  color: "#cfd3d7"
+  description: This issue or pull request already exists
+- name: "status: blocked"
+  color: "#000000"
+  description: Blocked by another issue or external dependency
+- name: "priority: critical"
+  color: "#b60205"
+  description: Critical priority requiring immediate attention
+- name: ci
+  color: "#207de5"
+  description: Continuous Integration related changes
+- name: actions
+  color: "#0052cc"
+  description: GitHub Actions related changes
