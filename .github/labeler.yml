@@ -1,0 +1,37 @@
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'examples/**/*'
+      - 'planning/**/*'
+
+core:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/**/*'
+      - 'bin/**/*'
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'test/**/*'
+
+build:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - '.github/**/*'
+      - 'scripts/**/*'
+      - '.*ignore'
+      - '.*rc*'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
