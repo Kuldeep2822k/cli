@@ -55,3 +55,9 @@
 - name: "priority: critical"
   color: "#b60205"
   description: Critical priority requiring immediate attention
+- name: ci
+  color: "#207de5"
+  description: Continuous Integration related changes
+- name: actions
+  color: "#0052cc"
+  description: GitHub Actions related changes
