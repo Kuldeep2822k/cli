@@ -28,13 +28,13 @@
 - name: help wanted
   color: "#008672"
   description: Extra attention is needed
-- name: release: major
+- name: "release: major"
   color: "#b60205"
   description: Major release
-- name: release: minor
+- name: "release: minor"
   color: "#bfd4f2"
   description: Minor release
-- name: release: patch
+- name: "release: patch"
   color: "#0e8a16"
   description: Patch release
 - name: dependencies
