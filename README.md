@@ -140,7 +140,7 @@ palee_id: T-docker-volumes
 topic: Docker Volumes
 track: devops
 status: learning
-difficulty: 2
+difficulty: beginner
 dependencies:
   - T-docker-basics
 assessment:
@@ -173,13 +173,13 @@ Session memory is stored inside the connected vault:
 
 `hot.md` is capped at 250 words and points to the latest full session. Full session notes preserve the learning history without forcing every future AI prompt to load the entire log.
 
-See [memory_design.md](memory_design.md) for the session-memory format, lifecycle, stable IDs, and recovery rules.
+See [memory_design.md](planning/memory_design.md) for the session-memory format, lifecycle, stable IDs, and recovery rules.
 
-See [storage_design.md](storage_design.md) for frontmatter preservation, atomic writes, vault traversal, validation, and cache behavior.
+See [storage_design.md](planning/storage_design.md) for frontmatter preservation, atomic writes, vault traversal, validation, and cache behavior.
 
-See [invariants.md](invariants.md) for the acceptance-test blueprint that must pass before Phase 1 is considered complete.
+See [invariants.md](planning/invariants.md) for the acceptance-test blueprint that must pass before Phase 1 is considered complete.
 
-See [roadmap_design.md](roadmap_design.md) for the imported-roadmap and guided personalized-roadmap contracts.
+See [roadmap_design.md](planning/roadmap_design.md) for the imported-roadmap and guided personalized-roadmap contracts.
 
 ## Philosophy
 
@@ -214,4 +214,4 @@ Detailed contribution guidelines will be added with the implementation source.
 
 ## License
 
-Planned license: MIT. The license file will be added before distribution.
+MIT (see [LICENSE](LICENSE)).
