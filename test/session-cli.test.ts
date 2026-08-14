@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,7 @@ describe('Session CLI In-Process Coverage', () => {
   });
 
   after(() => {
+    process.exitCode = 0;
     if (prevConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
@@ -32,9 +33,22 @@ describe('Session CLI In-Process Coverage', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  beforeEach(() => {
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
   test('resolveSessionTopic returns explicit topic if given', () => {
     const topic = resolveSessionTopic(vaultDir, 'T-kubernetes-basics');
     assert.strictEqual(topic, 'T-kubernetes-basics');
+  });
+
+  test('resolveSessionTopic returns null for explicit (none) or whitespace (none)', () => {
+    assert.strictEqual(resolveSessionTopic(vaultDir, '(none)'), null);
+    assert.strictEqual(resolveSessionTopic(vaultDir, '  (none)  '), null);
   });
 
   test('resolveSessionTopic resolves active_topic from .palee/hot.md', () => {
@@ -51,54 +65,34 @@ describe('Session CLI In-Process Coverage', () => {
     assert.strictEqual(topic, 'T-active-memory');
   });
 
-  test('resolveSessionTopic exits 2 when active_topic is missing or (none)', () => {
+  test('resolveSessionTopic returns null when active_topic is missing, whitespace or (none)', () => {
     const paleeDir = path.join(vaultDir, '.palee');
     const hotPath = path.join(paleeDir, 'hot.md');
-    fs.writeFileSync(
-      hotPath,
-      '---\npalee_schema: 1\nactive_topic: "(none)"\n---\n# Working Memory\n',
-      'utf8'
-    );
 
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    const origError = console.error;
-    console.error = () => {};
-    process.exit = ((code?: number) => {
-      exitCode = code;
-      throw new Error(`process.exit:${code}`);
-    }) as any;
+    fs.writeFileSync(hotPath, '---\npalee_schema: 1\nactive_topic: " (none) "\n---\n# Working Memory\n', 'utf8');
+    assert.strictEqual(resolveSessionTopic(vaultDir), null);
 
-    try {
-      assert.throws(() => resolveSessionTopic(vaultDir), /process\.exit:2/);
-      assert.strictEqual(exitCode, 2);
-    } finally {
-      process.exit = origExit;
-      console.error = origError;
-    }
+    fs.writeFileSync(hotPath, '---\npalee_schema: 1\nactive_topic: "   "\n---\n# Working Memory\n', 'utf8');
+    assert.strictEqual(resolveSessionTopic(vaultDir), null);
   });
 
-  test('resolveSessionTopic exits 2 when hot.md has corrupt frontmatter', () => {
+  test('resolveSessionTopic returns null when hot.md has corrupt frontmatter or is missing', () => {
     const paleeDir = path.join(vaultDir, '.palee');
     const hotPath = path.join(paleeDir, 'hot.md');
     fs.writeFileSync(hotPath, 'corrupt without frontmatter', 'utf8');
+    assert.strictEqual(resolveSessionTopic(vaultDir), null);
 
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    const origError = console.error;
-    console.error = () => {};
-    process.exit = ((code?: number) => {
-      exitCode = code;
-      throw new Error(`process.exit:${code}`);
-    }) as any;
+    fs.unlinkSync(hotPath);
+    assert.strictEqual(resolveSessionTopic(vaultDir), null);
+  });
 
-    try {
-      assert.throws(() => resolveSessionTopic(vaultDir), /process\.exit:2/);
-      assert.strictEqual(exitCode, 2);
-    } finally {
-      process.exit = origExit;
-      console.error = origError;
-    }
+  test('sessionCommand sets exitCode 2 when draft or end called without topic', async () => {
+    await sessionCommand('draft');
+    assert.strictEqual(process.exitCode, 2);
+
+    process.exitCode = undefined;
+    await sessionCommand('end');
+    assert.strictEqual(process.exitCode, 2);
   });
 
   test('sessionCommand handles start, draft, end, and list actions', async () => {
@@ -126,24 +120,8 @@ describe('Session CLI In-Process Coverage', () => {
     await sessionCommand('list');
   });
 
-  test('sessionCommand exits 2 on unknown action', async () => {
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    const origError = console.error;
-    console.error = () => {};
-    process.exit = ((code?: number) => {
-      exitCode = code;
-      throw new Error(`process.exit:${code}`);
-    }) as any;
-
-    try {
-      await assert.rejects(async () => {
-        await sessionCommand('invalid-action');
-      }, /process\.exit:2/);
-      assert.strictEqual(exitCode, 2);
-    } finally {
-      process.exit = origExit;
-      console.error = origError;
-    }
+  test('sessionCommand sets exitCode 2 on unknown action', async () => {
+    await sessionCommand('invalid-action');
+    assert.strictEqual(process.exitCode, 2);
   });
 });

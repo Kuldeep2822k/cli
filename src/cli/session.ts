@@ -20,9 +20,13 @@ import {
 } from '../storage';
 import { SessionOptions } from '../types';
 
-export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string {
+export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string | null {
   if (explicitTopic && explicitTopic.trim().length > 0) {
-    return explicitTopic.trim();
+    const trimmed = explicitTopic.trim();
+    if (trimmed.toLowerCase() !== '(none)') {
+      return trimmed;
+    }
+    return null;
   }
 
   // Check .palee/hot.md for active_topic
@@ -33,19 +37,19 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
       const { frontmatter } = parseFrontmatter(content);
       if (
         frontmatter &&
-        typeof frontmatter.active_topic === 'string' &&
-        frontmatter.active_topic.trim().length > 0 &&
-        frontmatter.active_topic !== '(none)'
+        typeof frontmatter.active_topic === 'string'
       ) {
-        return frontmatter.active_topic.trim();
+        const active = frontmatter.active_topic.trim();
+        if (active.length > 0 && active.toLowerCase() !== '(none)') {
+          return active;
+        }
       }
     } catch {
-      // ignore parse error, fallback to error
+      // ignore parse error, fallback to null
     }
   }
 
-  console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
-  process.exit(2);
+  return null;
 }
 
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
@@ -127,8 +131,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'draft') {
-      const draftId = generateDraftId();
       const topicId = resolveSessionTopic(vaultPath, options.topic);
+      if (!topicId) {
+        console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
+        process.exitCode = 2;
+        return;
+      }
+
+      const draftId = generateDraftId();
       const draftPath = await writeDraftCheckpoint(vaultPath, draftId, {
         topic_id: topicId,
         started_at: new Date().toISOString(),
@@ -139,9 +149,15 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'end') {
+      const topicId = resolveSessionTopic(vaultPath, options.topic);
+      if (!topicId) {
+        console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
+        process.exitCode = 2;
+        return;
+      }
+
       const drafts = getDrafts(vaultPath);
       const sessionId = generateSessionId();
-      const topicId = resolveSessionTopic(vaultPath, options.topic);
 
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
@@ -202,15 +218,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
     console.error(`Error: Unknown session action: '${action}'`);
     console.error('Valid actions: start, end, draft, list');
-    process.exit(2);
+    process.exitCode = 2;
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
-    if (err && typeof err.message === 'string' && err.message.startsWith('process.exit:')) {
-      throw err;
-    }
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 
