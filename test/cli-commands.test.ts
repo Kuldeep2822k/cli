@@ -205,5 +205,21 @@ topics:
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);
   });
+
+  test('commands exit with code 2 on non-existent vault path', () => {
+    const missingVault = path.join(tempDir, 'missing-vault');
+    fs.mkdirSync(missingVault, { recursive: true });
+    runCLI(['config', 'set-vault', missingVault]);
+    fs.rmSync(missingVault, { recursive: true, force: true });
+
+    for (const cmd of ['dashboard', 'plan', 'progress', 'next']) {
+      const result = runCLI([cmd]);
+      assert.strictEqual(result.status, 2, `${cmd} should exit with code 2 on missing vault`);
+      assert.match(result.stderr, /Vault path not found/);
+    }
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
 });
 

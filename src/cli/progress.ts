@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding } from './onboarding';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -32,6 +33,11 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
     }
 
     const vaultPath = config.vaultPath;
+    if (!fs.existsSync(vaultPath)) {
+      console.error(`Error: Vault path not found: ${vaultPath}`);
+      process.exit(2);
+    }
+
     const files = walkVault(vaultPath);
     const topics: ProgressTopic[] = [];
 
@@ -56,13 +62,8 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
 
     if (topics.length === 0 && !options.topic) {
       console.log('=== Learning Progress ===\n');
-      console.log('No topics found in vault.\n');
-      console.log('To get started:');
-      console.log('  • Adopt an existing note:');
-      console.log('    palee adopt "path/to/note.md"\n');
-      console.log('  • Import a curriculum roadmap:');
-      console.log('    palee roadmap --from <file.yaml>\n');
-      process.exit(0);
+      printEmptyVaultOnboarding();
+      return;
     }
 
     if (options.topic) {
@@ -128,7 +129,7 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
       }
     }
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

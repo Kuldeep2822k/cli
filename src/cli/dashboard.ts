@@ -8,6 +8,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding } from './onboarding';
 
 interface DashboardTopic {
   id: string;
@@ -29,6 +30,11 @@ async function dashboardCommand(): Promise<void> {
     }
 
     const vaultPath = config.vaultPath;
+    if (!fs.existsSync(vaultPath)) {
+      console.error(`Error: Vault path not found: ${vaultPath}`);
+      process.exit(2);
+    }
+
     const files = walkVault(vaultPath);
     const now = new Date();
 
@@ -62,13 +68,8 @@ async function dashboardCommand(): Promise<void> {
     console.log();
 
     if (topics.length === 0) {
-      console.log('No topics found in vault.\n');
-      console.log('To get started:');
-      console.log('  • Adopt an existing note:');
-      console.log('    palee adopt "path/to/note.md"\n');
-      console.log('  • Import a curriculum roadmap:');
-      console.log('    palee roadmap --from <file.yaml>\n');
-      process.exit(0);
+      printEmptyVaultOnboarding();
+      return;
     }
 
     // Stats
@@ -125,7 +126,7 @@ async function dashboardCommand(): Promise<void> {
     console.log('Run "palee next" to start reviewing');
     console.log('Run "palee plan" to see today\'s learning plan');
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

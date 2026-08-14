@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding } from './onboarding';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -29,6 +30,11 @@ async function nextCommand(options: NextOptions): Promise<void> {
     }
 
     const vaultPath = config.vaultPath;
+    if (!fs.existsSync(vaultPath)) {
+      console.error(`Error: Vault path not found: ${vaultPath}`);
+      process.exit(2);
+    }
+
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
     let totalTopics = 0;
@@ -60,18 +66,13 @@ async function nextCommand(options: NextOptions): Promise<void> {
     }
 
     if (totalTopics === 0) {
-      console.log('No topics found in vault.\n');
-      console.log('To get started:');
-      console.log('  • Adopt an existing note:');
-      console.log('    palee adopt "path/to/note.md"\n');
-      console.log('  • Import a curriculum roadmap:');
-      console.log('    palee roadmap --from <file.yaml>\n');
-      process.exit(0);
+      printEmptyVaultOnboarding();
+      return;
     }
 
     if (dueTopics.length === 0) {
       console.log('No topics due for review.');
-      process.exit(0);
+      return;
     }
 
     // Sort by due date (null first, then oldest)
@@ -109,7 +110,7 @@ async function nextCommand(options: NextOptions): Promise<void> {
       console.log(`  Path: ${next.path}`);
     }
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

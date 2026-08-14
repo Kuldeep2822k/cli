@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding } from './onboarding';
 /**
  * Plan Command Handler
  * Shows learning plan for the day
@@ -29,6 +30,11 @@ async function planCommand(): Promise<void> {
     }
 
     const vaultPath = config.vaultPath;
+    if (!fs.existsSync(vaultPath)) {
+      console.error(`Error: Vault path not found: ${vaultPath}`);
+      process.exit(2);
+    }
+
     const files = walkVault(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
@@ -64,17 +70,11 @@ async function planCommand(): Promise<void> {
       }
     }
 
-    // Get ready to learn (deps satisfied, not mastered)
     console.log('=== Today\'s Learning Plan ===\n');
 
     if (topics.size === 0) {
-      console.log('No topics found in vault.\n');
-      console.log('To get started:');
-      console.log('  • Adopt an existing note:');
-      console.log('    palee adopt "path/to/note.md"\n');
-      console.log('  • Import a curriculum roadmap:');
-      console.log('    palee roadmap --from <file.yaml>\n');
-      process.exit(0);
+      printEmptyVaultOnboarding();
+      return;
     }
 
     // Get ready to learn (deps satisfied, not mastered)
@@ -134,7 +134,7 @@ async function planCommand(): Promise<void> {
     console.log(`  Learning: ${learningCount}`);
     console.log(`  New: ${newCount}`);
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
