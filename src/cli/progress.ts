@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -25,13 +26,7 @@ interface ProgressTopic {
 async function progressCommand(options: ProgressOptions): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const topics: ProgressTopic[] = [];
 
@@ -52,6 +47,12 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
         last_reviewed_at: (frontmatter.last_reviewed_at as string) || null,
         difficulty: (frontmatter.difficulty as string) || 'intermediate',
       });
+    }
+
+    if (topics.length === 0 && !options.topic) {
+      console.log('=== Learning Progress ===\n');
+      printEmptyVaultOnboarding();
+      return;
     }
 
     if (options.topic) {
@@ -117,7 +118,7 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
       }
     }
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

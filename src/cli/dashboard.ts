@@ -8,6 +8,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 
 interface DashboardTopic {
   id: string;
@@ -22,13 +23,7 @@ interface DashboardTopic {
 async function dashboardCommand(): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const now = new Date();
 
@@ -60,6 +55,11 @@ async function dashboardCommand(): Promise<void> {
     console.log('║              PALEE Learning Dashboard                     ║');
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log();
+
+    if (topics.length === 0) {
+      printEmptyVaultOnboarding();
+      return;
+    }
 
     // Stats
     const total = topics.length;
@@ -115,7 +115,7 @@ async function dashboardCommand(): Promise<void> {
     console.log('Run "palee next" to start reviewing');
     console.log('Run "palee plan" to see today\'s learning plan');
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

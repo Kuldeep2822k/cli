@@ -17,6 +17,19 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
   const visited = new Set<string>();
   const resolvedVaultPath = path.resolve(vaultPath);
 
+  if (!fs.existsSync(resolvedVaultPath)) {
+    throw new Error(`Vault path does not exist: ${resolvedVaultPath}`);
+  }
+  const rootStat = fs.statSync(resolvedVaultPath);
+  if (!rootStat.isDirectory()) {
+    throw new Error(`Vault path is not a directory: ${resolvedVaultPath}`);
+  }
+  try {
+    fs.accessSync(resolvedVaultPath, fs.constants.R_OK);
+  } catch {
+    throw new Error(`Vault path is not readable (permission denied): ${resolvedVaultPath}`);
+  }
+
   function walk(dir: string): void {
     let realDir = dir;
     if (followSymlinks) {

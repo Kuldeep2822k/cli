@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -22,15 +23,10 @@ interface DueTopic {
 async function nextCommand(options: NextOptions): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
+    let totalTopics = 0;
     const now = new Date();
 
     for (const filePath of files) {
@@ -38,6 +34,7 @@ async function nextCommand(options: NextOptions): Promise<void> {
       const { frontmatter } = parseFrontmatter(content);
 
       if (!frontmatter || !frontmatter.palee_id) continue;
+      totalTopics++;
 
       let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
       if (dueAt && Number.isNaN(dueAt.getTime())) {
@@ -57,9 +54,14 @@ async function nextCommand(options: NextOptions): Promise<void> {
       }
     }
 
+    if (totalTopics === 0) {
+      printEmptyVaultOnboarding();
+      return;
+    }
+
     if (dueTopics.length === 0) {
       console.log('No topics due for review.');
-      process.exit(0);
+      return;
     }
 
     // Sort by due date (null first, then oldest)
@@ -97,7 +99,7 @@ async function nextCommand(options: NextOptions): Promise<void> {
       console.log(`  Path: ${next.path}`);
     }
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;

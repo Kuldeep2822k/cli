@@ -172,18 +172,51 @@ topics:
     assert.doesNotMatch(result.stdout, /NaN/);
   });
 
-  test('dashboard command handles empty vault with 0.0% and no NaN', () => {
+  test('commands display onboarding guidance on empty vault', () => {
     const emptyVault = path.join(tempDir, 'empty-vault');
-    fs.mkdirSync(emptyVault);
+    fs.mkdirSync(emptyVault, { recursive: true });
     runCLI(['config', 'set-vault', emptyVault]);
 
-    const result = runCLI(['dashboard']);
-    assert.strictEqual(result.status, 0);
-    assert.match(result.stdout, /Total Topics:\s+0/);
-    assert.match(result.stdout, /Mastered \(≥70%\):\s+0 \(0\.0%\)/);
-    assert.match(result.stdout, /Learning:\s+0 \(0\.0%\)/);
-    assert.match(result.stdout, /New:\s+0 \(0\.0%\)/);
-    assert.doesNotMatch(result.stdout, /NaN/);
+    // 1. dashboard
+    const dashResult = runCLI(['dashboard']);
+    assert.strictEqual(dashResult.status, 0);
+    assert.match(dashResult.stdout, /No topics found in vault/);
+    assert.match(dashResult.stdout, /palee adopt/);
+    assert.match(dashResult.stdout, /palee roadmap --from/);
+
+    // 2. plan
+    const planResult = runCLI(['plan']);
+    assert.strictEqual(planResult.status, 0);
+    assert.match(planResult.stdout, /No topics found in vault/);
+    assert.match(planResult.stdout, /palee adopt/);
+
+    // 3. progress
+    const progResult = runCLI(['progress']);
+    assert.strictEqual(progResult.status, 0);
+    assert.match(progResult.stdout, /No topics found in vault/);
+    assert.match(progResult.stdout, /palee adopt/);
+
+    // 4. next
+    const nextResult = runCLI(['next']);
+    assert.strictEqual(nextResult.status, 0);
+    assert.match(nextResult.stdout, /No topics found in vault/);
+    assert.match(nextResult.stdout, /palee adopt/);
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
+
+  test('commands exit with code 2 on non-existent vault path', () => {
+    const missingVault = path.join(tempDir, 'missing-vault');
+    fs.mkdirSync(missingVault, { recursive: true });
+    runCLI(['config', 'set-vault', missingVault]);
+    fs.rmSync(missingVault, { recursive: true, force: true });
+
+    for (const cmd of ['dashboard', 'plan', 'progress', 'next']) {
+      const result = runCLI([cmd]);
+      assert.strictEqual(result.status, 2, `${cmd} should exit with code 2 on missing vault`);
+      assert.match(result.stderr, /Vault path not found/);
+    }
 
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);

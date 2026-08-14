@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Plan Command Handler
  * Shows learning plan for the day
@@ -22,13 +23,7 @@ interface PlanTopic extends TopicNode {
 async function planCommand(): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
@@ -64,10 +59,15 @@ async function planCommand(): Promise<void> {
       }
     }
 
+    console.log('=== Today\'s Learning Plan ===\n');
+
+    if (topics.size === 0) {
+      printEmptyVaultOnboarding();
+      return;
+    }
+
     // Get ready to learn (deps satisfied, not mastered)
     const readyTopics = getReadyTopics(topics, 0.7) as PlanTopic[];
-
-    console.log('=== Today\'s Learning Plan ===\n');
 
     // Section 1: Due for review
     console.log(`Reviews Due: ${dueTopics.length}`);
@@ -123,7 +123,7 @@ async function planCommand(): Promise<void> {
     console.log(`  Learning: ${learningCount}`);
     console.log(`  New: ${newCount}`);
 
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
