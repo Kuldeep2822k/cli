@@ -221,5 +221,48 @@ topics:
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);
   });
+
+  test('session end requires topic when hot.md has no active topic', () => {
+    // Ensure clean vault without hot.md active_topic
+    const sessionTestVault = path.join(tempDir, 'session-vault');
+    fs.mkdirSync(sessionTestVault, { recursive: true });
+    runCLI(['config', 'set-vault', sessionTestVault]);
+
+    const result = runCLI(['session', 'end']);
+    assert.strictEqual(result.status, 2);
+    assert.match(result.stderr, /Topic required/);
+
+    // Assert that no phantom T-general file was created
+    const sessionsDir = path.join(sessionTestVault, '.palee', 'sessions');
+    if (fs.existsSync(sessionsDir)) {
+      const files = fs.readdirSync(sessionsDir);
+      assert.strictEqual(files.filter(f => f.includes('T-general')).length, 0);
+    }
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
+
+  test('session end records session when explicit topic is provided', () => {
+    const sessionTestVault = path.join(tempDir, 'session-vault-explicit');
+    fs.mkdirSync(sessionTestVault, { recursive: true });
+    runCLI(['config', 'set-vault', sessionTestVault]);
+
+    const result = runCLI(['session', 'end', '--topic', 'T-docker-basics']);
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /Session recorded/);
+
+    // Verify session note exists and has T-docker-basics topic_id
+    const sessionsDir = path.join(sessionTestVault, '.palee', 'sessions');
+    const files = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
+    assert.strictEqual(files.length, 1);
+
+    const sessionContent = fs.readFileSync(path.join(sessionsDir, files[0]), 'utf8');
+    const { frontmatter } = parseFrontmatter(sessionContent);
+    assert.strictEqual(frontmatter?.topic_id, 'T-docker-basics');
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
 });
 

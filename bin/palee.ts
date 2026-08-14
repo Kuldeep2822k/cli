@@ -98,6 +98,7 @@ program
   .description('Manage learning sessions')
   .argument('<action>', 'Action: start, end, list')
   .option('-i, --interactive', 'Run in interactive mode')
+  .option('--topic <id>', 'Topic ID for session')
   .action(sessionCommand);
 
 // palee dashboard
