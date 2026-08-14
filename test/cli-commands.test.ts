@@ -162,4 +162,31 @@ topics:
     assert.strictEqual(parsed.frontmatter!.feynman, 0);
     assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
+
+  test('dashboard command outputs formatted stats without NaN on populated vault', () => {
+    const result = runCLI(['dashboard']);
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /PALEE Learning Dashboard/);
+    assert.match(result.stdout, /Total Topics:\s+2/);
+    assert.match(result.stdout, /Mastered \(≥70%\):\s+1 \(50\.0%\)/);
+    assert.doesNotMatch(result.stdout, /NaN/);
+  });
+
+  test('dashboard command handles empty vault with 0.0% and no NaN', () => {
+    const emptyVault = path.join(tempDir, 'empty-vault');
+    fs.mkdirSync(emptyVault);
+    runCLI(['config', 'set-vault', emptyVault]);
+
+    const result = runCLI(['dashboard']);
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /Total Topics:\s+0/);
+    assert.match(result.stdout, /Mastered \(≥70%\):\s+0 \(0\.0%\)/);
+    assert.match(result.stdout, /Learning:\s+0 \(0\.0%\)/);
+    assert.match(result.stdout, /New:\s+0 \(0\.0%\)/);
+    assert.doesNotMatch(result.stdout, /NaN/);
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
 });
+

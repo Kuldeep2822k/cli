@@ -68,10 +68,14 @@ async function dashboardCommand(): Promise<void> {
     const newTopics = topics.filter(t => t.mastery === 0).length;
     const due = topics.filter(t => t.due_at && t.due_at <= now).length;
 
+    const masteredPct = total > 0 ? (mastered / total * 100).toFixed(1) : '0.0';
+    const learningPct = total > 0 ? (learning / total * 100).toFixed(1) : '0.0';
+    const newPct = total > 0 ? (newTopics / total * 100).toFixed(1) : '0.0';
+
     console.log(`Total Topics:      ${total}`);
-    console.log(`Mastered (≥70%):   ${mastered} (${(mastered / total * 100 || 0).toFixed(1)}%)`);
-    console.log(`Learning:          ${learning} (${(learning / total * 100 || 0).toFixed(1)}%)`);
-    console.log(`New:               ${newTopics} (${(newTopics / total * 100 || 0).toFixed(1)}%)`);
+    console.log(`Mastered (≥70%):   ${mastered} (${masteredPct}%)`);
+    console.log(`Learning:          ${learning} (${learningPct}%)`);
+    console.log(`New:               ${newTopics} (${newPct}%)`);
     console.log(`Due for Review:    ${due}`);
     console.log();
 
