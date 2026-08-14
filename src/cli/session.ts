@@ -1,6 +1,6 @@
 import readline from 'readline';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { isJsonOutput, validateVaultPath } from './onboarding';
 /**
  * Session Command Handler
  * Manages learning sessions and session memory
@@ -55,7 +55,9 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
+    if (!vaultPath) return;
 
     if (action === 'start') {
       const drafts = getDrafts(vaultPath);
@@ -189,6 +191,15 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     if (action === 'list') {
       const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
       if (!fs.existsSync(sessionsDir)) {
+        if (jsonMode) {
+          console.log(JSON.stringify({
+            confirmed: [],
+            drafts: [],
+            total_confirmed: 0,
+            total_drafts: 0,
+          }));
+          return;
+        }
         console.log('No session records found.');
         return;
       }
@@ -196,6 +207,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const files = fs.readdirSync(sessionsDir);
       const confirmed = files.filter(f => f.startsWith('S-') && f.endsWith('.md')).sort().reverse();
       const drafts = files.filter(f => f.startsWith('DRAFT-S-') && f.endsWith('.md')).sort().reverse();
+
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          confirmed,
+          drafts,
+          total_confirmed: confirmed.length,
+          total_drafts: drafts.length,
+        }));
+        return;
+      }
 
       console.log('=== PALEE Sessions ===\n');
       console.log(`Confirmed Sessions: ${confirmed.length}`);

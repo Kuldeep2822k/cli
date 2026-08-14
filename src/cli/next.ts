@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -20,10 +20,13 @@ interface DueTopic {
   repetition: number;
 }
 
-async function nextCommand(options: NextOptions): Promise<void> {
+async function nextCommand(options: NextOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
     let totalTopics = 0;
@@ -55,11 +58,27 @@ async function nextCommand(options: NextOptions): Promise<void> {
     }
 
     if (totalTopics === 0) {
+      if (jsonMode) {
+        if (options.all) {
+          console.log(JSON.stringify({ due_topics: [], total_topics: 0, next: null }));
+        } else {
+          console.log(JSON.stringify({ next: null, due_count: 0, total_topics: 0 }));
+        }
+        return;
+      }
       printEmptyVaultOnboarding();
       return;
     }
 
     if (dueTopics.length === 0) {
+      if (jsonMode) {
+        if (options.all) {
+          console.log(JSON.stringify({ due_topics: [], total_topics: totalTopics, next: null }));
+        } else {
+          console.log(JSON.stringify({ next: null, due_count: 0, total_topics: totalTopics }));
+        }
+        return;
+      }
       console.log('No topics due for review.');
       return;
     }
@@ -67,10 +86,36 @@ async function nextCommand(options: NextOptions): Promise<void> {
     // Sort by due date (null first, then oldest)
     dueTopics.sort((a, b) => {
       if (!a.dueAt && !b.dueAt) return 0;
-    if (!a.dueAt) return -1;
+      if (!a.dueAt) return -1;
       if (!b.dueAt) return 1;
       return a.dueAt.getTime() - b.dueAt.getTime();
     });
+
+    if (jsonMode) {
+      const serializedDue = dueTopics.map(t => ({
+        id: t.id,
+        title: t.title,
+        path: t.path,
+        due_at: t.dueAt ? t.dueAt.toISOString() : null,
+        mastery: t.mastery,
+        repetition: t.repetition,
+      }));
+
+      if (options.all) {
+        console.log(JSON.stringify({
+          due_topics: serializedDue,
+          total_topics: totalTopics,
+          next: serializedDue[0] || null,
+        }));
+      } else {
+        console.log(JSON.stringify({
+          next: serializedDue[0] || null,
+          due_count: dueTopics.length,
+          total_topics: totalTopics,
+        }));
+      }
+      return;
+    }
 
     if (options.all) {
       console.log(`${dueTopics.length} topic(s) due for review:\n`);
@@ -108,4 +153,5 @@ async function nextCommand(options: NextOptions): Promise<void> {
   }
 }
 
+export { nextCommand };
 export default nextCommand;

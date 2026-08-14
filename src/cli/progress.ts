@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -23,10 +23,13 @@ interface ProgressTopic {
   difficulty: Difficulty;
 }
 
-async function progressCommand(options: ProgressOptions): Promise<void> {
+async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const topics: ProgressTopic[] = [];
 
@@ -50,6 +53,23 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
     }
 
     if (topics.length === 0 && !options.topic) {
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          total_topics: 0,
+          mastered: 0,
+          learning: 0,
+          new: 0,
+          avg_mastery: 0,
+          total_reviews: 0,
+          total_lapses: 0,
+          by_difficulty: {
+            beginner: { total: 0, avg_mastery: 0 },
+            intermediate: { total: 0, avg_mastery: 0 },
+            advanced: { total: 0, avg_mastery: 0 },
+          },
+        }));
+        return;
+      }
       console.log('=== Learning Progress ===\n');
       printEmptyVaultOnboarding();
       return;
@@ -62,8 +82,28 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
       );
 
       if (!match) {
-        console.error(`Error: Topic not found: ${options.topic}`);
-        process.exit(2);
+        if (jsonMode) {
+          console.error(JSON.stringify({ error: `Topic not found: ${options.topic}` }));
+        } else {
+          console.error(`Error: Topic not found: ${options.topic}`);
+        }
+        process.exitCode = 2;
+        return;
+      }
+
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          id: match.id,
+          title: match.title,
+          path: match.path,
+          mastery: match.mastery,
+          difficulty: match.difficulty,
+          repetition: match.repetition,
+          lapses: match.lapses,
+          assessed_at: match.assessed_at,
+          last_reviewed_at: match.last_reviewed_at,
+        }));
+        return;
       }
 
       console.log(`Progress for: ${match.title}`);
@@ -92,6 +132,45 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
         ? topics.reduce((sum, t) => sum + t.mastery, 0) / total
         : 0;
 
+      const byDifficulty: Record<string, ProgressTopic[]> = {
+        beginner: topics.filter(t => t.difficulty === 'beginner'),
+        intermediate: topics.filter(t => t.difficulty === 'intermediate'),
+        advanced: topics.filter(t => t.difficulty === 'advanced'),
+      };
+
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          total_topics: total,
+          mastered,
+          learning,
+          new: newTopics,
+          avg_mastery: avgMastery,
+          total_reviews: totalReps,
+          total_lapses: totalLapses,
+          by_difficulty: {
+            beginner: {
+              total: byDifficulty.beginner.length,
+              avg_mastery: byDifficulty.beginner.length > 0
+                ? byDifficulty.beginner.reduce((s, t) => s + t.mastery, 0) / byDifficulty.beginner.length
+                : 0,
+            },
+            intermediate: {
+              total: byDifficulty.intermediate.length,
+              avg_mastery: byDifficulty.intermediate.length > 0
+                ? byDifficulty.intermediate.reduce((s, t) => s + t.mastery, 0) / byDifficulty.intermediate.length
+                : 0,
+            },
+            advanced: {
+              total: byDifficulty.advanced.length,
+              avg_mastery: byDifficulty.advanced.length > 0
+                ? byDifficulty.advanced.reduce((s, t) => s + t.mastery, 0) / byDifficulty.advanced.length
+                : 0,
+            },
+          },
+        }));
+        return;
+      }
+
       console.log('=== Learning Progress ===\n');
       console.log(`Total Topics: ${total}`);
       console.log(`  Mastered (≥70%): ${mastered} (${(total > 0 ? mastered / total * 100 : 0).toFixed(1)}%)`);
@@ -102,12 +181,6 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
       console.log(`Total Reviews: ${totalReps}`);
       console.log(`Total Lapses: ${totalLapses}`);
       console.log();
-
-      const byDifficulty: Record<string, ProgressTopic[]> = {
-        beginner: topics.filter(t => t.difficulty === 'beginner'),
-        intermediate: topics.filter(t => t.difficulty === 'intermediate'),
-        advanced: topics.filter(t => t.difficulty === 'advanced'),
-      };
 
       console.log('By Difficulty:');
       for (const [level, list] of Object.entries(byDifficulty)) {
@@ -127,4 +200,5 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
   }
 }
 
+export { progressCommand };
 export default progressCommand;

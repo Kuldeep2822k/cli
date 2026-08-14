@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Plan Command Handler
  * Shows learning plan for the day
@@ -10,7 +10,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { getReadyTopics } from '../engine/dependency';
-import { Difficulty, normalizeDifficulty, TopicNode } from '../types';
+import { Difficulty, normalizeDifficulty, PlanOptions, TopicNode } from '../types';
 
 interface PlanTopic extends TopicNode {
   title: string;
@@ -20,10 +20,13 @@ interface PlanTopic extends TopicNode {
   difficulty: Difficulty;
 }
 
-async function planCommand(): Promise<void> {
+async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
@@ -59,9 +62,23 @@ async function planCommand(): Promise<void> {
       }
     }
 
-    console.log('=== Today\'s Learning Plan ===\n');
-
     if (topics.size === 0) {
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          total_topics: 0,
+          reviews_due: [],
+          ready_to_learn: [],
+          counts: {
+            due: 0,
+            ready: 0,
+            mastered: 0,
+            learning: 0,
+            new: 0,
+          },
+        }));
+        return;
+      }
+      console.log('=== Today\'s Learning Plan ===\n');
       printEmptyVaultOnboarding();
       return;
     }
@@ -69,26 +86,65 @@ async function planCommand(): Promise<void> {
     // Get ready to learn (deps satisfied, not mastered)
     const readyTopics = getReadyTopics(topics, 0.7) as PlanTopic[];
 
+    const diffOrder: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
+    const sortedDue = dueTopics.slice().sort((a, b) => {
+      if (!a.due_at && !b.due_at) return 0;
+      if (!a.due_at) return -1;
+      if (!b.due_at) return 1;
+      return a.due_at.getTime() - b.due_at.getTime();
+    });
+    const sortedReady = readyTopics.slice().sort((a, b) => {
+      return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
+    });
+
+    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= 0.7).length;
+    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < 0.7).length;
+    const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
+
+    if (jsonMode) {
+      console.log(JSON.stringify({
+        total_topics: topics.size,
+        reviews_due: sortedDue.map(t => ({
+          id: t.palee_id,
+          title: t.title,
+          path: t.path,
+          due_at: t.due_at ? t.due_at.toISOString() : null,
+          repetition: t.repetition,
+          difficulty: t.difficulty,
+        })),
+        ready_to_learn: sortedReady.map(t => ({
+          id: t.palee_id,
+          title: t.title,
+          path: t.path,
+          topic_mastery: t.topic_mastery,
+          difficulty: t.difficulty,
+        })),
+        counts: {
+          due: dueTopics.length,
+          ready: readyTopics.length,
+          mastered: masteredCount,
+          learning: learningCount,
+          new: newCount,
+        },
+      }));
+      return;
+    }
+
+    console.log('=== Today\'s Learning Plan ===\n');
+
     // Section 1: Due for review
     console.log(`Reviews Due: ${dueTopics.length}`);
     if (dueTopics.length > 0) {
-      const sorted = dueTopics.sort((a, b) => {
-        if (!a.due_at && !b.due_at) return 0;
-    if (!a.due_at) return -1;
-        if (!b.due_at) return 1;
-        return a.due_at.getTime() - b.due_at.getTime();
-      });
-
-      for (let i = 0; i < Math.min(5, sorted.length); i++) {
-        const topic = sorted[i];
+      for (let i = 0; i < Math.min(5, sortedDue.length); i++) {
+        const topic = sortedDue[i];
         const dueStr = topic.due_at
           ? topic.due_at.toISOString().split('T')[0]
           : 'Never reviewed';
         console.log(`  • ${topic.title} (${topic.palee_id}) - Due: ${dueStr}`);
       }
 
-      if (sorted.length > 5) {
-        console.log(`  ... and ${sorted.length - 5} more`);
+      if (sortedDue.length > 5) {
+        console.log(`  ... and ${sortedDue.length - 5} more`);
       }
     }
     console.log();
@@ -96,27 +152,18 @@ async function planCommand(): Promise<void> {
     // Section 2: Ready to learn
     console.log(`Ready to Learn: ${readyTopics.length}`);
     if (readyTopics.length > 0) {
-      const diffOrder: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
-      const sorted = readyTopics.sort((a, b) => {
-        return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
-      });
-
-      for (let i = 0; i < Math.min(5, sorted.length); i++) {
-        const topic = sorted[i];
+      for (let i = 0; i < Math.min(5, sortedReady.length); i++) {
+        const topic = sortedReady[i];
         console.log(`  • ${topic.title} (${topic.palee_id}) - ${topic.difficulty}`);
       }
 
-      if (sorted.length > 5) {
-        console.log(`  ... and ${sorted.length - 5} more`);
+      if (sortedReady.length > 5) {
+        console.log(`  ... and ${sortedReady.length - 5} more`);
       }
     }
     console.log();
 
     // Section 3: Summary stats
-    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= 0.7).length;
-    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < 0.7).length;
-    const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
-
     console.log('Progress Summary:');
     console.log(`  Total Topics: ${topics.size}`);
     console.log(`  Mastered (≥70%): ${masteredCount}`);
@@ -132,4 +179,5 @@ async function planCommand(): Promise<void> {
   }
 }
 
+export { planCommand };
 export default planCommand;
