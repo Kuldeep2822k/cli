@@ -31,6 +31,7 @@ async function nextCommand(options: NextOptions): Promise<void> {
     const vaultPath = config.vaultPath;
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
+    let totalTopics = 0;
     const now = new Date();
 
     for (const filePath of files) {
@@ -38,6 +39,7 @@ async function nextCommand(options: NextOptions): Promise<void> {
       const { frontmatter } = parseFrontmatter(content);
 
       if (!frontmatter || !frontmatter.palee_id) continue;
+      totalTopics++;
 
       let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
       if (dueAt && Number.isNaN(dueAt.getTime())) {
@@ -55,6 +57,16 @@ async function nextCommand(options: NextOptions): Promise<void> {
           repetition: (frontmatter.repetition as number) || 0,
         });
       }
+    }
+
+    if (totalTopics === 0) {
+      console.log('No topics found in vault.\n');
+      console.log('To get started:');
+      console.log('  • Adopt an existing note:');
+      console.log('    palee adopt "path/to/note.md"\n');
+      console.log('  • Import a curriculum roadmap:');
+      console.log('    palee roadmap --from <file.yaml>\n');
+      process.exit(0);
     }
 
     if (dueTopics.length === 0) {

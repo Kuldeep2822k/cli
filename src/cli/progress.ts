@@ -54,6 +54,17 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
       });
     }
 
+    if (topics.length === 0 && !options.topic) {
+      console.log('=== Learning Progress ===\n');
+      console.log('No topics found in vault.\n');
+      console.log('To get started:');
+      console.log('  • Adopt an existing note:');
+      console.log('    palee adopt "path/to/note.md"\n');
+      console.log('  • Import a curriculum roadmap:');
+      console.log('    palee roadmap --from <file.yaml>\n');
+      process.exit(0);
+    }
+
     if (options.topic) {
       const match = topics.find(t =>
         t.id === options.topic || t.id.includes(options.topic!) ||

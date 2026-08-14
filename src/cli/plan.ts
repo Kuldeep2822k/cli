@@ -65,9 +65,20 @@ async function planCommand(): Promise<void> {
     }
 
     // Get ready to learn (deps satisfied, not mastered)
-    const readyTopics = getReadyTopics(topics, 0.7) as PlanTopic[];
-
     console.log('=== Today\'s Learning Plan ===\n');
+
+    if (topics.size === 0) {
+      console.log('No topics found in vault.\n');
+      console.log('To get started:');
+      console.log('  • Adopt an existing note:');
+      console.log('    palee adopt "path/to/note.md"\n');
+      console.log('  • Import a curriculum roadmap:');
+      console.log('    palee roadmap --from <file.yaml>\n');
+      process.exit(0);
+    }
+
+    // Get ready to learn (deps satisfied, not mastered)
+    const readyTopics = getReadyTopics(topics, 0.7) as PlanTopic[];
 
     // Section 1: Due for review
     console.log(`Reviews Due: ${dueTopics.length}`);

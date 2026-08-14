@@ -61,6 +61,16 @@ async function dashboardCommand(): Promise<void> {
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log();
 
+    if (topics.length === 0) {
+      console.log('No topics found in vault.\n');
+      console.log('To get started:');
+      console.log('  • Adopt an existing note:');
+      console.log('    palee adopt "path/to/note.md"\n');
+      console.log('  • Import a curriculum roadmap:');
+      console.log('    palee roadmap --from <file.yaml>\n');
+      process.exit(0);
+    }
+
     // Stats
     const total = topics.length;
     const mastered = topics.filter(t => t.mastery >= 0.7).length;
