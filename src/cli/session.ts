@@ -1,5 +1,6 @@
 import readline from 'readline';
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 /**
  * Session Command Handler
  * Manages learning sessions and session memory
@@ -19,16 +20,38 @@ import {
 } from '../storage';
 import { SessionOptions } from '../types';
 
+function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string {
+  if (explicitTopic && explicitTopic.trim().length > 0) {
+    return explicitTopic.trim();
+  }
+
+  // Check .palee/hot.md for active_topic
+  const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+  if (fs.existsSync(hotPath)) {
+    try {
+      const content = fs.readFileSync(hotPath, 'utf8');
+      const { frontmatter } = parseFrontmatter(content);
+      if (
+        frontmatter &&
+        typeof frontmatter.active_topic === 'string' &&
+        frontmatter.active_topic.trim().length > 0 &&
+        frontmatter.active_topic !== '(none)'
+      ) {
+        return frontmatter.active_topic.trim();
+      }
+    } catch {
+      // ignore parse error, fallback to error
+    }
+  }
+
+  console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
+  process.exit(2);
+}
+
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
 
     if (action === 'start') {
       const drafts = getDrafts(vaultPath);
@@ -43,7 +66,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           console.log();
           console.log('Unconfirmed draft checkpoint detected.');
           console.log('Run "palee session start --interactive" to resolve.');
-          process.exit(0);
+          return;
         }
 
         
@@ -100,25 +123,25 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       console.log('─────────────────────────────────────────────────────────────');
       console.log(body.trim());
       console.log('─────────────────────────────────────────────────────────────');
-      process.exit(0);
+      return;
     }
 
     if (action === 'draft') {
       const draftId = generateDraftId();
-      const topicId = options.topic || 'T-general';
+      const topicId = resolveSessionTopic(vaultPath, options.topic);
       const draftPath = await writeDraftCheckpoint(vaultPath, draftId, {
         topic_id: topicId,
         started_at: new Date().toISOString(),
       }, 'Draft checkpoint captured during learning session.');
 
       console.log(`✓ Draft checkpoint created: ${path.basename(draftPath)}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'end') {
       const drafts = getDrafts(vaultPath);
       const sessionId = generateSessionId();
-      const topicId = options.topic || 'T-general';
+      const topicId = resolveSessionTopic(vaultPath, options.topic);
 
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
@@ -144,14 +167,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       console.log(`✓ Session recorded: ${sessionId}`);
       console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);
       console.log('✓ Working memory (hot.md) and index (index.md) updated.');
-      process.exit(0);
+      return;
     }
 
     if (action === 'list') {
       const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
       if (!fs.existsSync(sessionsDir)) {
         console.log('No session records found.');
-        process.exit(0);
+        return;
       }
 
       const files = fs.readdirSync(sessionsDir);
@@ -174,7 +197,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
       }
 
-      process.exit(0);
+      return;
     }
 
     console.error(`Error: Unknown session action: '${action}'`);
