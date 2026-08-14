@@ -20,7 +20,7 @@ import {
 } from '../storage';
 import { SessionOptions } from '../types';
 
-function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string {
+export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string {
   if (explicitTopic && explicitTopic.trim().length > 0) {
     return explicitTopic.trim();
   }
@@ -206,9 +206,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
   } catch (e: unknown) {
     const err = e as Error;
+    if (err && typeof err.message === 'string' && err.message.startsWith('process.exit:')) {
+      throw err;
+    }
     console.error(`Error: ${err.message}`);
     process.exit(5);
   }
 }
 
+export { sessionCommand };
 export default sessionCommand;
