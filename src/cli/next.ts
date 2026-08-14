@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding } from './onboarding';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -23,18 +23,7 @@ interface DueTopic {
 async function nextCommand(options: NextOptions): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
-    if (!fs.existsSync(vaultPath)) {
-      console.error(`Error: Vault path not found: ${vaultPath}`);
-      process.exit(2);
-    }
-
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
     let totalTopics = 0;

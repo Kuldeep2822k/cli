@@ -105,4 +105,19 @@ describe('Vault Walker', () => {
       assert.ok(path.isAbsolute(file));
     });
   });
+
+  test('throws error when root vault path does not exist', () => {
+    const nonExistent = path.join(testVaultPath, 'does-not-exist');
+    assert.throws(() => {
+      walkVault(nonExistent);
+    }, /Vault path does not exist/);
+  });
+
+  test('throws error when root vault path is a file', () => {
+    const filePath = path.join(testVaultPath, 'root.md');
+    assert.throws(() => {
+      walkVault(filePath);
+    }, /Vault path is not a directory/);
+  });
 });
+

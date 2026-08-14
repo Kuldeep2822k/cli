@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding } from './onboarding';
+import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Plan Command Handler
  * Shows learning plan for the day
@@ -23,18 +23,7 @@ interface PlanTopic extends TopicNode {
 async function planCommand(): Promise<void> {
   try {
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
-    }
-
-    const vaultPath = config.vaultPath;
-    if (!fs.existsSync(vaultPath)) {
-      console.error(`Error: Vault path not found: ${vaultPath}`);
-      process.exit(2);
-    }
-
+    const vaultPath = validateVaultPath(config.vaultPath);
     const files = walkVault(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
