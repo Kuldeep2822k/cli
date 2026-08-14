@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -23,7 +23,8 @@ interface DueTopic {
 async function nextCommand(options: NextOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
     const files = walkVault(vaultPath);
@@ -57,7 +58,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     }
 
     if (totalTopics === 0) {
-      if (options.json) {
+      if (jsonMode) {
         if (options.all) {
           console.log(JSON.stringify({ due_topics: [], total_topics: 0, next: null }));
         } else {
@@ -70,7 +71,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     }
 
     if (dueTopics.length === 0) {
-      if (options.json) {
+      if (jsonMode) {
         if (options.all) {
           console.log(JSON.stringify({ due_topics: [], total_topics: totalTopics, next: null }));
         } else {
@@ -90,7 +91,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       return a.dueAt.getTime() - b.dueAt.getTime();
     });
 
-    if (options.json) {
+    if (jsonMode) {
       const serializedDue = dueTopics.map(t => ({
         id: t.id,
         title: t.title,

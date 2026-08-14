@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Plan Command Handler
  * Shows learning plan for the day
@@ -23,7 +23,8 @@ interface PlanTopic extends TopicNode {
 async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
     const files = walkVault(vaultPath);
@@ -62,7 +63,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
 
     if (topics.size === 0) {
-      if (options.json) {
+      if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
           reviews_due: [],
@@ -100,7 +101,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < 0.7).length;
     const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
 
-    if (options.json) {
+    if (jsonMode) {
       console.log(JSON.stringify({
         total_topics: topics.size,
         reviews_due: sortedDue.map(t => ({

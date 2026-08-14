@@ -11,13 +11,21 @@ export interface VaultValidationOptions {
 }
 
 /**
+ * Determines whether machine-readable JSON output should be used:
+ * either when explicitly requested via --json or when output is non-TTY (piped/redirected).
+ */
+export function isJsonOutput(options?: { json?: boolean }): boolean {
+  return Boolean(options?.json || (process.stdout && process.stdout.isTTY === false));
+}
+
+/**
  * Validates that the vault path is configured, exists, is a directory, and is readable.
- * Sets process.exitCode = 2 and prints error (as JSON if options.json is true) on any configuration/access failure.
+ * Sets process.exitCode = 2 and prints error (as JSON if isJsonOutput is true) on any configuration/access failure.
  * Returns the resolved vault path string if valid, or null on failure.
  */
 export function validateVaultPath(vaultPath?: string, options: VaultValidationOptions = {}): string | null {
   const reportError = (msg: string) => {
-    if (options.json) {
+    if (isJsonOutput(options)) {
       console.error(JSON.stringify({ error: msg }));
     } else {
       console.error(`Error: ${msg}`);

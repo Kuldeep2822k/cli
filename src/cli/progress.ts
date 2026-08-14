@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -26,7 +26,8 @@ interface ProgressTopic {
 async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
     const files = walkVault(vaultPath);
@@ -52,7 +53,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     }
 
     if (topics.length === 0 && !options.topic) {
-      if (options.json) {
+      if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
           mastered: 0,
@@ -81,7 +82,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       );
 
       if (!match) {
-        if (options.json) {
+        if (jsonMode) {
           console.error(JSON.stringify({ error: `Topic not found: ${options.topic}` }));
         } else {
           console.error(`Error: Topic not found: ${options.topic}`);
@@ -90,7 +91,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         return;
       }
 
-      if (options.json) {
+      if (jsonMode) {
         console.log(JSON.stringify({
           id: match.id,
           title: match.title,
@@ -137,7 +138,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         advanced: topics.filter(t => t.difficulty === 'advanced'),
       };
 
-      if (options.json) {
+      if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: total,
           mastered,

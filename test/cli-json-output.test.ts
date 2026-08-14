@@ -308,4 +308,79 @@ depends_on:
       assert.strictEqual(data.drafts[0], 'DRAFT-S-20260814T120500.md');
     });
   });
+
+  describe('Non-TTY (Piped/Redirected) Auto-JSON Selection', () => {
+    const originalIsTTY = process.stdout.isTTY;
+
+    beforeEach(() => {
+      // Mock piped/redirected stdout
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+      // Create a topic in tmpDir
+      fs.writeFileSync(
+        path.join(tmpDir, 'topic-tty.md'),
+        `---
+palee_schema: 1
+palee_id: T-topic-tty
+title: TTY Test Topic
+difficulty: beginner
+topic_mastery: 0.5
+repetition: 1
+lapses: 0
+due_at: 2020-01-01T00:00:00.000Z
+depends_on: []
+---
+# TTY
+`,
+        'utf8'
+      );
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+    });
+
+    test('next on non-TTY automatically outputs JSON without --json flag', async () => {
+      await nextCommand({});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 1);
+      assert.strictEqual(data.due_count, 1);
+      assert.strictEqual(data.next.id, 'T-topic-tty');
+    });
+
+    test('plan on non-TTY automatically outputs JSON without --json flag', async () => {
+      await planCommand({});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 1);
+      assert.strictEqual(data.counts.due, 1);
+    });
+
+    test('progress on non-TTY automatically outputs JSON without --json flag', async () => {
+      await progressCommand({});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 1);
+      assert.strictEqual(data.by_difficulty.beginner.total, 1);
+    });
+
+    test('dashboard on non-TTY automatically outputs JSON without --json flag', async () => {
+      await dashboardCommand({});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 1);
+      assert.strictEqual(data.reviews_due, 1);
+    });
+
+    test('validate on non-TTY automatically outputs JSON without --json flag', async () => {
+      await validateCommand({});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.valid, true);
+      assert.strictEqual(data.topic_count, 1);
+    });
+
+    test('session list on non-TTY automatically outputs JSON without --json flag', async () => {
+      await sessionCommand('list', {});
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_confirmed, 0);
+      assert.strictEqual(data.total_drafts, 0);
+    });
+  });
 });

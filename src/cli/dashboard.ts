@@ -8,7 +8,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { loadConfig } from './config';
-import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 import { Difficulty, DashboardOptions, normalizeDifficulty } from '../types';
 
 interface DashboardTopic {
@@ -24,7 +24,8 @@ interface DashboardTopic {
 async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
     const files = walkVault(vaultPath);
@@ -57,7 +58,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     }
 
     if (topics.length === 0) {
-      if (options.json) {
+      if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
           mastered: 0,
@@ -112,7 +113,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
       next = dueTopics[0];
     }
 
-    if (options.json) {
+    if (jsonMode) {
       console.log(JSON.stringify({
         total_topics: total,
         mastered,

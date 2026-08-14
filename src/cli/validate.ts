@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { isJsonOutput, validateVaultPath } from './onboarding';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
@@ -15,10 +15,11 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    const jsonMode = isJsonOutput(options);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    if (!options.json) {
+    if (!jsonMode) {
       console.log(`Validating vault: ${vaultPath}`);
       console.log();
     }
@@ -63,7 +64,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     const graphValidation = validateDependencyGraph(topics);
     errors.push(...graphValidation.errors);
 
-    if (options.json) {
+    if (jsonMode) {
       console.log(JSON.stringify({
         valid: errors.length === 0,
         topic_count: topics.size,
