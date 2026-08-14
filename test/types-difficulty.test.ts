@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { Difficulty, Topic } from '../src/types';
+import { Difficulty, Topic, normalizeDifficulty } from '../src/types';
 
 describe('Difficulty Enum & Types', () => {
   test('Difficulty type accommodates beginner, intermediate, and advanced', () => {
@@ -9,6 +9,44 @@ describe('Difficulty Enum & Types', () => {
     assert.ok(difficulties.includes('beginner'));
     assert.ok(difficulties.includes('intermediate'));
     assert.ok(difficulties.includes('advanced'));
+  });
+
+  test('normalizeDifficulty normalizes canonical strings', () => {
+    assert.strictEqual(normalizeDifficulty('beginner'), 'beginner');
+    assert.strictEqual(normalizeDifficulty('intermediate'), 'intermediate');
+    assert.strictEqual(normalizeDifficulty('advanced'), 'advanced');
+  });
+
+  test('normalizeDifficulty handles whitespace and uppercase casing', () => {
+    assert.strictEqual(normalizeDifficulty('  Advanced  '), 'advanced');
+    assert.strictEqual(normalizeDifficulty('BEGINNER'), 'beginner');
+    assert.strictEqual(normalizeDifficulty('\tIntermediate\n'), 'intermediate');
+  });
+
+  test('normalizeDifficulty coerces numeric levels (1-5)', () => {
+    assert.strictEqual(normalizeDifficulty(1), 'beginner');
+    assert.strictEqual(normalizeDifficulty(0), 'beginner');
+    assert.strictEqual(normalizeDifficulty(2), 'intermediate');
+    assert.strictEqual(normalizeDifficulty(3), 'intermediate');
+    assert.strictEqual(normalizeDifficulty(4), 'advanced');
+    assert.strictEqual(normalizeDifficulty(5), 'advanced');
+  });
+
+  test('normalizeDifficulty coerces stringified numbers', () => {
+    assert.strictEqual(normalizeDifficulty('1'), 'beginner');
+    assert.strictEqual(normalizeDifficulty(' 2 '), 'intermediate');
+    assert.strictEqual(normalizeDifficulty('3'), 'intermediate');
+    assert.strictEqual(normalizeDifficulty('4'), 'advanced');
+    assert.strictEqual(normalizeDifficulty(' 5 '), 'advanced');
+  });
+
+  test('normalizeDifficulty safely falls back to intermediate on unknown values', () => {
+    assert.strictEqual(normalizeDifficulty(null), 'intermediate');
+    assert.strictEqual(normalizeDifficulty(undefined), 'intermediate');
+    assert.strictEqual(normalizeDifficulty(''), 'intermediate');
+    assert.strictEqual(normalizeDifficulty('expert'), 'intermediate');
+    assert.strictEqual(normalizeDifficulty({}), 'intermediate');
+    assert.strictEqual(normalizeDifficulty(Number.NaN), 'intermediate');
   });
 
   test('Topic interface accepts Difficulty string enum', () => {

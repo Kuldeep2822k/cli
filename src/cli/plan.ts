@@ -10,7 +10,7 @@ import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { getReadyTopics } from '../engine/dependency';
-import { Difficulty, TopicNode } from '../types';
+import { Difficulty, normalizeDifficulty, TopicNode } from '../types';
 
 interface PlanTopic extends TopicNode {
   title: string;
@@ -40,9 +40,6 @@ async function planCommand(): Promise<void> {
         dueAt = null;
       }
 
-      const diff = frontmatter.difficulty as Difficulty;
-      const validDiff: Difficulty = (diff === 'beginner' || diff === 'advanced') ? diff : 'intermediate';
-
       topics.set(id, {
         palee_id: id,
         title: (frontmatter.title as string) || path.basename(filePath, '.md'),
@@ -51,7 +48,7 @@ async function planCommand(): Promise<void> {
         depends_on: (frontmatter.depends_on as string[]) || [],
         due_at: dueAt,
         repetition: (frontmatter.repetition as number) || 0,
-        difficulty: validDiff,
+        difficulty: normalizeDifficulty(frontmatter.difficulty),
       });
     }
 

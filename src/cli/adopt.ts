@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
-import { AdoptOptions, Difficulty } from '../types';
+import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
 function generateTopicId(): string {
   const now = new Date();
@@ -50,11 +50,15 @@ async function adoptCommand(relativePath: string, options: AdoptOptions): Promis
       process.exit(2);
     }
 
-    const difficulty = (options.difficulty as Difficulty) || 'intermediate';
-    const validDifficulties: Difficulty[] = ['beginner', 'intermediate', 'advanced'];
-    if (!validDifficulties.includes(difficulty)) {
-      console.error(`Error: Invalid difficulty. Must be one of: ${validDifficulties.join(', ')}`);
-      process.exit(2);
+    let difficulty: Difficulty = 'intermediate';
+    if (options.difficulty !== undefined) {
+      const rawInput = String(options.difficulty).trim().toLowerCase();
+      const validInputs = ['beginner', 'intermediate', 'advanced', '1', '2', '3', '4', '5'];
+      if (!validInputs.includes(rawInput)) {
+        console.error(`Error: Invalid difficulty. Must be one of: beginner, intermediate, advanced`);
+        process.exit(2);
+      }
+      difficulty = normalizeDifficulty(options.difficulty);
     }
 
     const dependsOn = options.dependsOn ? options.dependsOn.split(',').map(s => s.trim()).filter(Boolean) : [];

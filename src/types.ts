@@ -20,6 +20,32 @@ export interface Review {
 
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 
+/**
+ * Normalizes any difficulty input (string, number, or variant) into canonical Difficulty enum.
+ * - Strings: case-folded and trimmed ('beginner' | 'intermediate' | 'advanced')
+ * - Numbers: 1 -> 'beginner', 2..3 -> 'intermediate', 4..5 -> 'advanced'
+ * - Fallback: 'intermediate'
+ */
+export function normalizeDifficulty(raw: unknown): Difficulty {
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase();
+    if (s === 'beginner' || s === 'intermediate' || s === 'advanced') {
+      return s;
+    }
+    const num = Number.parseInt(s, 10);
+    if (!Number.isNaN(num)) {
+      if (num <= 1) return 'beginner';
+      if (num <= 3) return 'intermediate';
+      return 'advanced';
+    }
+  } else if (typeof raw === 'number' && !Number.isNaN(raw)) {
+    if (raw <= 1) return 'beginner';
+    if (raw <= 3) return 'intermediate';
+    return 'advanced';
+  }
+  return 'intermediate';
+}
+
 export interface Topic {
   palee_schema: number;
   palee_id: string;

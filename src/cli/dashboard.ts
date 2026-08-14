@@ -9,7 +9,7 @@ import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { loadConfig } from './config';
 import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { Difficulty } from '../types';
+import { Difficulty, normalizeDifficulty } from '../types';
 
 interface DashboardTopic {
   id: string;
@@ -36,9 +36,6 @@ async function dashboardCommand(): Promise<void> {
         const { frontmatter } = parseFrontmatter(content);
 
         if (frontmatter && frontmatter.palee_id) {
-          const diff = frontmatter.difficulty as Difficulty;
-          const validDiff: Difficulty = (diff === 'beginner' || diff === 'advanced') ? diff : 'intermediate';
-          
           let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
           if (dueAt && Number.isNaN(dueAt.getTime())) {
             dueAt = null;
@@ -50,7 +47,7 @@ async function dashboardCommand(): Promise<void> {
             mastery: (frontmatter.topic_mastery as number) || 0,
             repetition: (frontmatter.repetition as number) || 0,
             lapses: (frontmatter.lapses as number) || 0,
-            difficulty: validDiff,
+            difficulty: normalizeDifficulty(frontmatter.difficulty),
             due_at: dueAt,
           });
         }
