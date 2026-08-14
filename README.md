@@ -132,35 +132,34 @@ palee config set-vault /path/to/obsidian/vault
 
 ## Data Model
 
-Each topic is tracked with:
+Each topic note stores flat YAML frontmatter directly inside your Obsidian vault:
 ```yaml
 ---
 palee_schema: 1
 palee_id: T-docker-volumes
-topic: Docker Volumes
-track: devops
-status: learning
+title: Docker Volumes
 difficulty: beginner
-dependencies:
+depends_on:
   - T-docker-basics
-assessment:
-  conceptual: 0.85
-  practical: 0.70
-  debug: 0.60
-  feynman: 0.75
-  assessed_at: 2026-01-15
-review:
-  interval_days: 6
-  repetition: 1
-  ease_factor: 2.36
-  lapses: 0
-  last_quality: 4
-  last_reviewed_at: 2026-01-15
-  due_at: 2026-01-21
+topic_mastery: 0.725
+conceptual: 0.85
+practical: 0.70
+debug: 0.60
+feynman: 0.75
+assessed_at: 2026-01-15
+ease_factor: 2.36
+interval_days: 6
+repetition: 1
+lapses: 0
+last_quality: 4
+last_reviewed_at: 2026-01-15
+due_at: 2026-01-21
 ---
 ```
 
-`assessment` measures understanding and is independent from `review`, which records recall quality for SM-2 scheduling. PALEE uses `not_started`, `learning`, `paused`, and `archived` as operational statuses; mastery is derived from assessment scores rather than stored as an ambiguous `completed` status.
+Frontmatter stores flat keys directly for clean Obsidian parsing and fast atomic updates. Programmatic TypeScript interfaces (`Topic`) map these fields into structured conceptual and review metrics.
+
+`topic_mastery` is derived from assessment scores (`(conceptual + practical + debug + 2*feynman) / 5`), independent from SM-2 recall scheduling. Newly adopted notes begin with `topic_mastery: 0.0` and `null` review fields.
 
 Session memory is stored inside the connected vault:
 

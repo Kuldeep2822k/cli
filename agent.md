@@ -18,10 +18,12 @@ No path aliases — plain relative imports (`'../types'`, `'./frontmatter'`). Da
 ## CLI conventions (from src/cli/*.ts and bin/palee.ts)
 
 - **Adding a command** requires: a default-exported handler in `src/cli/<name>.ts`, a `.command()...action(handler)` block in `bin/palee.ts`, and a matching `*Options` type in `src/types.ts` for any flags.
-- Every handler starts with `loadConfig()`; when `!config.vaultPath`, print exactly `Error: Vault path not configured. Run: palee config set-vault <path>` to stderr and `process.exit(2)`.
+- Every reading handler starts with `loadConfig()` and `const vaultPath = validateVaultPath(config.vaultPath, { json: options?.json }); if (!vaultPath) return;`. On missing/invalid vault, `validateVaultPath` prints to stderr (plain text or structured JSON) and sets `process.exitCode = 2`.
 - Discover notes via `walkVault` + `parseFrontmatter`; filter on `frontmatter.palee_id`. WalkVault skips dot-dirs (`.obsidian`, `.palee`, `.git`), `node_modules`, symlinks — `.palee/` is never scanned as topics.
-- Wrap every handler in try/catch → `console.error(\`Error: ${err.message}\`); process.exit(5)`.
-- **Exit codes are load-bearing** (README and CI assert them): `0` success, `1` partial import failure, `2` usage/config, `3` validation failures, `4` OCC lock conflict, `5` unexpected exception. Every code path calls `process.exit(n)` explicitly.
+- Wrap every handler in try/catch → `console.error(\`Error: ${err.message}\`); process.exitCode = 5; return;`.
+- **Exit codes are load-bearing** (README and CI assert them): `0` success, `1` partial import failure, `2` usage/config, `3` validation failures, `4` OCC lock conflict, `5` unexpected exception.
+  - **Standard policy**: Prefer `process.exitCode = N; return;` on success and recoverable errors so Node can cleanly flush buffered `stdout`/`stderr` streams and complete test runner cycles.
+  - Reserve `process.exit(5)` for unrecoverable top-level fatal exceptions.
 - Output style: plain `console.log`/`console.error` — **no ANSI colors, no tables, no progress bars, no emoji**. Symbols: `✓` success, `⚠` warning, `•` bullets, `─` separators, `=== ... ===` headers (boxed `╔═╗` only on dashboard), 2-space sub-detail indents, `(not set)` / `(none)` empty states, `.toFixed(1)` percentages. Always guard division calculations with `total > 0` checks.
 
 ## Sacred invariants (never break; all are test-pinned)
