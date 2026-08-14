@@ -18,11 +18,13 @@ No path aliases — plain relative imports (`'../types'`, `'./frontmatter'`). Da
 ## CLI conventions (from src/cli/*.ts and bin/palee.ts)
 
 - **Adding a command** requires: a default-exported handler in `src/cli/<name>.ts`, a `.command()...action(handler)` block in `bin/palee.ts`, and a matching `*Options` type in `src/types.ts` for any flags.
-- Every handler starts with `loadConfig()`; when `!config.vaultPath`, print exactly `Error: Vault path not configured. Run: palee config set-vault <path>` to stderr and `process.exit(2)`.
+- Every reading handler starts with `loadConfig()` and `const vaultPath = validateVaultPath(config.vaultPath, { json: options?.json }); if (!vaultPath) return;`. On missing/invalid vault, `validateVaultPath` prints to stderr (plain text or structured JSON) and sets `process.exitCode = 2`.
 - Discover notes via `walkVault` + `parseFrontmatter`; filter on `frontmatter.palee_id`. WalkVault skips dot-dirs (`.obsidian`, `.palee`, `.git`), `node_modules`, symlinks — `.palee/` is never scanned as topics.
-- Wrap every handler in try/catch → `console.error(\`Error: ${err.message}\`); process.exit(5)`.
-- **Exit codes are load-bearing** (README and CI assert them): `0` success, `1` partial import failure, `2` usage/config, `3` validation failures, `4` OCC lock conflict, `5` unexpected exception. Every code path calls `process.exit(n)` explicitly.
-- Output style: plain `console.log`/`console.error` — **no ANSI colors, no tables, no progress bars, no emoji**. Symbols: `✓` success, `⚠` warning, `•` bullets, `─` separators, `=== ... ===` headers (boxed `╔═╗` only on dashboard), 2-space sub-detail indents, `(not set)` / `(none)` empty states, `.toFixed(1)` percentages. Always guard div-by-zero with `|| 0` before `.toFixed(1)`.
+- Wrap every handler in try/catch → `console.error(\`Error: ${err.message}\`); process.exitCode = 5; return;`.
+- **Exit codes are load-bearing** (README and CI assert them): `0` success, `1` partial import failure, `2` usage/config, `3` validation failures, `4` OCC lock conflict, `5` unexpected exception.
+  - **Standard policy**: Prefer `process.exitCode = N; return;` on success and recoverable errors so Node can cleanly flush buffered `stdout`/`stderr` streams and complete test runner cycles.
+  - Reserve `process.exit(5)` for unrecoverable top-level fatal exceptions.
+- Output style: plain `console.log`/`console.error` — **no ANSI colors, no tables, no progress bars, no emoji**. Symbols: `✓` success, `⚠` warning, `•` bullets, `─` separators, `=== ... ===` headers (boxed `╔═╗` only on dashboard), 2-space sub-detail indents, `(not set)` / `(none)` empty states, `.toFixed(1)` percentages. Always guard division calculations with `total > 0` checks.
 
 ## Sacred invariants (never break; all are test-pinned)
 
@@ -49,9 +51,9 @@ Storage (`src/storage/`):
 
 ## On-disk formats
 
-- **Topic note frontmatter is FLAT** (not the nested `assessment`/`review` shape in `types.ts` — the type is out of sync; code reads flat keys). Order written by `adopt.ts`: `palee_id`, `palee_schema`, `difficulty`, `depends_on`, `topic_mastery`, `assessed_at`, `conceptual/practical/debug/feynman`, `ease_factor`, `interval_days`, `repetition`, `lapses`, `last_quality`, `last_reviewed_at`, `due_at`. `difficulty` is the string enum `beginner|intermediate|advanced` (despite `types.ts:27` typing it `number` — cast `as string`). `last_quality`, `last_reviewed_at`, `due_at`, `assessed_at` may be literal `null` — branch on null before `new Date(...)`, default via `|| 0`. Dates are `YYYY-MM-DD` for review/due fields; sessions/hot use full ISO with ms+Z; never assume one format.
+- **Topic note frontmatter is FLAT** (not the nested `assessment`/`review` shape in `types.ts` — the type is out of sync; code reads flat keys). Order written by `adopt.ts`: `palee_id`, `palee_schema`, `difficulty`, `depends_on`, `topic_mastery`, `assessed_at`, `conceptual/practical/debug/feynman`, `ease_factor`, `interval_days`, `repetition`, `lapses`, `last_quality`, `last_reviewed_at`, `due_at`. `difficulty` is the string enum `Difficulty = 'beginner' | 'intermediate' | 'advanced'` standardized in `src/types.ts` with `normalizeDifficulty()`. `last_quality`, `last_reviewed_at`, `due_at`, `assessed_at` may be literal `null` — branch on null before `new Date(...)`, default via `|| 0`. Dates are `YYYY-MM-DD` for review/due fields; sessions/hot use full ISO with ms+Z; never assume one format.
 - **`.palee/index.md`**: `palee_schema: 1`, `type: "session_index"`, `updated_at: YYYY-MM-DD`; body `# PALEE Session Index` + `Total Sessions: N` + `- [[S-<id>]] - Topic: T-x (YYYY-MM-DD)`, newest first. `.palee` metadata files quote all strings with double quotes; topic notes are unquoted.
-- **Session file** `.palee/sessions/S-<id>.md`: FM `palee_schema`, `session_id`, `topic_id`, `started_at`, `ended_at`, `status: "completed"|"draft"`; body `# Session: <id>`. `topic_id` defaults to phantom `T-general` when none given (known bug — don't rely on it).
+- **Session file** `.palee/sessions/S-<id>.md`: FM `palee_schema`, `session_id`, `topic_id`, `started_at`, `ended_at`, `status: "completed"|"draft"`; body `# Session: <id>`. `topic_id` requires explicit `--topic` or resolves active topic from `.palee/hot.md`.
 - `parseFrontmatter` requires `---` at byte 0; a UTF-8 BOM or leading blank line silently yields `{frontmatter: null}` and skips the note everywhere. Don't "normalize" the blank line between frontmatter and body — it changes fingerprints.
 
 ## Verification loop — run before considering a change done
@@ -66,7 +68,7 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.
 
 ## Known gaps (fix deliberately, or leave clearly marked)
 
-- `--json` / non-TTY machine output: specified, unimplemented. Must have no ANSI, no spinners.
+- `--json` and non-TTY machine output: Implemented across all 6 reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`).
 - `validate --fix` and `session end` are Phase-1 stubs ("not implemented"). `migrate` is read-only and fails closed on unrecognized schemas.
 - `computeTopicMastery()` does not exist — mastery stays at the value `adopt` seeds (0.0); do not invent an unblessed mastery formula. Spec formula: `round((c + p + d + 2f) / 5, 4)`; zero active topics ⇒ `global_mastery: null`, never numeric 0.
 - `config set-provider` is a single-string setter; `PaleeConfig` has no `apiKey`/`baseUrl` — blocks Phase-2 AI. Never print secrets from `config show`.
