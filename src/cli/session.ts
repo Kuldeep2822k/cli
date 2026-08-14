@@ -55,7 +55,8 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
 
     if (action === 'start') {
       const drafts = getDrafts(vaultPath);

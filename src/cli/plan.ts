@@ -23,7 +23,9 @@ interface PlanTopic extends TopicNode {
 async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();

@@ -24,7 +24,9 @@ interface DashboardTopic {
 async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const now = new Date();
 

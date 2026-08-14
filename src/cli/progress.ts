@@ -23,10 +23,12 @@ interface ProgressTopic {
   difficulty: Difficulty;
 }
 
-async function progressCommand(options: ProgressOptions): Promise<void> {
+async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const topics: ProgressTopic[] = [];
 

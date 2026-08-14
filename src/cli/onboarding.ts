@@ -6,39 +6,53 @@
 import fs from 'fs';
 import path from 'path';
 
+export interface VaultValidationOptions {
+  json?: boolean;
+}
+
 /**
  * Validates that the vault path is configured, exists, is a directory, and is readable.
- * Exits with code 2 on any configuration/access failure.
+ * Sets process.exitCode = 2 and prints error (as JSON if options.json is true) on any configuration/access failure.
+ * Returns the resolved vault path string if valid, or null on failure.
  */
-export function validateVaultPath(vaultPath?: string): string {
+export function validateVaultPath(vaultPath?: string, options: VaultValidationOptions = {}): string | null {
+  const reportError = (msg: string) => {
+    if (options.json) {
+      console.error(JSON.stringify({ error: msg }));
+    } else {
+      console.error(`Error: ${msg}`);
+    }
+    process.exitCode = 2;
+  };
+
   if (!vaultPath) {
-    console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-    process.exit(2);
+    reportError('Vault path not configured. Run: palee config set-vault <path>');
+    return null;
   }
 
   const resolved = path.resolve(vaultPath);
   if (!fs.existsSync(resolved)) {
-    console.error(`Error: Vault path not found: ${resolved}`);
-    process.exit(2);
+    reportError(`Vault path not found: ${resolved}`);
+    return null;
   }
 
   try {
     const stat = fs.statSync(resolved);
     if (!stat.isDirectory()) {
-      console.error(`Error: Vault path is not a directory: ${resolved}`);
-      process.exit(2);
+      reportError(`Vault path is not a directory: ${resolved}`);
+      return null;
     }
   } catch (err: unknown) {
     const error = err as Error;
-    console.error(`Error: Cannot access vault path: ${error.message}`);
-    process.exit(2);
+    reportError(`Cannot access vault path: ${error.message}`);
+    return null;
   }
 
   try {
     fs.accessSync(resolved, fs.constants.R_OK);
   } catch {
-    console.error(`Error: Vault path is not readable (permission denied): ${resolved}`);
-    process.exit(2);
+    reportError(`Vault path is not readable (permission denied): ${resolved}`);
+    return null;
   }
 
   return resolved;

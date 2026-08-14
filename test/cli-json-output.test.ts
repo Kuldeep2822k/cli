@@ -13,13 +13,20 @@ import { saveConfig } from '../src/cli/config';
 
 describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
   let tmpDir: string;
+  let tmpConfigDir: string;
+  let prevConfigDir: string | undefined;
   let loggedOutputs: string[] = [];
   let loggedErrors: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
 
   beforeEach(() => {
+    prevConfigDir = process.env.PALEE_CONFIG_DIR;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-json-test-'));
+    tmpConfigDir = path.join(tmpDir, '.config');
+    fs.mkdirSync(tmpConfigDir, { recursive: true });
+    process.env.PALEE_CONFIG_DIR = tmpConfigDir;
+
     saveConfig({ vaultPath: tmpDir });
     loggedOutputs = [];
     loggedErrors = [];
@@ -36,6 +43,11 @@ describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
     console.log = originalLog;
     console.error = originalError;
     process.exitCode = 0;
+    if (prevConfigDir !== undefined) {
+      process.env.PALEE_CONFIG_DIR = prevConfigDir;
+    } else {
+      delete process.env.PALEE_CONFIG_DIR;
+    }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* ignore */ }
@@ -53,9 +65,35 @@ describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
     return JSON.parse(raw);
   }
 
-  describe('Empty Vault Output', () => {
-    test('next --json on empty vault produces valid JSON structure', async () => {
+  describe('Configuration & Setup Error Output in JSON mode', () => {
+    test('validate --json emits structured JSON error when vault not configured', async () => {
+      saveConfig({ vaultPath: undefined });
+      await validateCommand({ json: true });
+      const err = getLastParsedJsonError();
+      assert.ok(err.error.includes('Vault path not configured'));
+      assert.strictEqual(process.exitCode, 2);
+    });
+
+    test('next --json emits structured JSON error when vault path not found', async () => {
+      saveConfig({ vaultPath: path.join(tmpDir, 'does-not-exist') });
       await nextCommand({ json: true });
+      const err = getLastParsedJsonError();
+      assert.ok(err.error.includes('Vault path not found'));
+      assert.strictEqual(process.exitCode, 2);
+    });
+  });
+
+  describe('Empty Vault Output', () => {
+    test('next --json on empty vault produces consistent single next structure', async () => {
+      await nextCommand({ json: true });
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 0);
+      assert.strictEqual(data.due_count, 0);
+      assert.strictEqual(data.next, null);
+    });
+
+    test('next --all --json on empty vault produces due_topics array structure', async () => {
+      await nextCommand({ all: true, json: true });
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 0);
       assert.deepStrictEqual(data.due_topics, []);

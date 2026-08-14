@@ -20,10 +20,12 @@ interface DueTopic {
   repetition: number;
 }
 
-async function nextCommand(options: NextOptions): Promise<void> {
+async function nextCommand(options: NextOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
+
     const files = walkVault(vaultPath);
     const dueTopics: DueTopic[] = [];
     let totalTopics = 0;
@@ -56,7 +58,11 @@ async function nextCommand(options: NextOptions): Promise<void> {
 
     if (totalTopics === 0) {
       if (options.json) {
-        console.log(JSON.stringify({ due_topics: [], total_topics: 0, next: null }));
+        if (options.all) {
+          console.log(JSON.stringify({ due_topics: [], total_topics: 0, next: null }));
+        } else {
+          console.log(JSON.stringify({ next: null, due_count: 0, total_topics: 0 }));
+        }
         return;
       }
       printEmptyVaultOnboarding();
@@ -65,7 +71,11 @@ async function nextCommand(options: NextOptions): Promise<void> {
 
     if (dueTopics.length === 0) {
       if (options.json) {
-        console.log(JSON.stringify({ due_topics: [], total_topics: totalTopics, next: null }));
+        if (options.all) {
+          console.log(JSON.stringify({ due_topics: [], total_topics: totalTopics, next: null }));
+        } else {
+          console.log(JSON.stringify({ next: null, due_count: 0, total_topics: totalTopics }));
+        }
         return;
       }
       console.log('No topics due for review.');

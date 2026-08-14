@@ -15,7 +15,8 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
+    const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+    if (!vaultPath) return;
 
     if (!options.json) {
       console.log(`Validating vault: ${vaultPath}`);
