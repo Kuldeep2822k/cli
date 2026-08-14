@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
-import { AdoptOptions } from '../types';
+import { AdoptOptions, Difficulty } from '../types';
 
 function generateTopicId(): string {
   const now = new Date();
@@ -50,8 +50,8 @@ async function adoptCommand(relativePath: string, options: AdoptOptions): Promis
       process.exit(2);
     }
 
-    const difficulty = options.difficulty || 'intermediate';
-    const validDifficulties = ['beginner', 'intermediate', 'advanced'];
+    const difficulty = (options.difficulty as Difficulty) || 'intermediate';
+    const validDifficulties: Difficulty[] = ['beginner', 'intermediate', 'advanced'];
     if (!validDifficulties.includes(difficulty)) {
       console.error(`Error: Invalid difficulty. Must be one of: ${validDifficulties.join(', ')}`);
       process.exit(2);

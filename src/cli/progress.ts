@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
-import { ProgressOptions } from '../types';
+import { Difficulty, ProgressOptions } from '../types';
 
 interface ProgressTopic {
   id: string;
@@ -20,7 +20,7 @@ interface ProgressTopic {
   lapses: number;
   assessed_at: string | null;
   last_reviewed_at: string | null;
-  difficulty: string;
+  difficulty: Difficulty;
 }
 
 async function progressCommand(options: ProgressOptions): Promise<void> {
@@ -36,6 +36,9 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
 
       if (!frontmatter || !frontmatter.palee_id) continue;
 
+      const diff = frontmatter.difficulty as Difficulty;
+      const validDiff: Difficulty = (diff === 'beginner' || diff === 'advanced') ? diff : 'intermediate';
+
       topics.push({
         id: frontmatter.palee_id as string,
         title: (frontmatter.title as string) || path.basename(filePath, '.md'),
@@ -45,7 +48,7 @@ async function progressCommand(options: ProgressOptions): Promise<void> {
         lapses: (frontmatter.lapses as number) || 0,
         assessed_at: (frontmatter.assessed_at as string) || null,
         last_reviewed_at: (frontmatter.last_reviewed_at as string) || null,
-        difficulty: (frontmatter.difficulty as string) || 'intermediate',
+        difficulty: validDiff,
       });
     }
 

@@ -18,13 +18,15 @@ export interface Review {
   due_at: string | null;
 }
 
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
+
 export interface Topic {
   palee_schema: number;
   palee_id: string;
   topic: string;
   track?: string;
   status: 'not_started' | 'learning' | 'paused' | 'archived';
-  difficulty: number;
+  difficulty: Difficulty;
   dependencies: string[];
   assessment: Assessment;
   review: Review;
@@ -138,7 +140,7 @@ export interface TopicNode {
 // ─── CLI Options ────────────────────────────────────────────────────
 
 export interface AdoptOptions {
-  difficulty?: string;
+  difficulty?: Difficulty;
   dependsOn?: string;
 }
 
@@ -165,7 +167,7 @@ export interface RoadmapTopic {
   id: string;
   title: string;
   path: string;
-  difficulty?: string;
+  difficulty?: Difficulty;
   depends_on?: string[];
   order?: number;
 }

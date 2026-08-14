@@ -9,6 +9,7 @@ import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { loadConfig } from './config';
 import { printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { Difficulty } from '../types';
 
 interface DashboardTopic {
   id: string;
@@ -16,7 +17,7 @@ interface DashboardTopic {
   mastery: number;
   repetition: number;
   lapses: number;
-  difficulty: string;
+  difficulty: Difficulty;
   due_at: Date | null;
 }
 
@@ -33,21 +34,26 @@ async function dashboardCommand(): Promise<void> {
       try {
         const content = fs.readFileSync(filePath, 'utf8');
         const { frontmatter } = parseFrontmatter(content);
-        if (!frontmatter || !frontmatter.palee_id) continue;
 
-        let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
-        if (dueAt && Number.isNaN(dueAt.getTime())) {
-          dueAt = null;
+        if (frontmatter && frontmatter.palee_id) {
+          const diff = frontmatter.difficulty as Difficulty;
+          const validDiff: Difficulty = (diff === 'beginner' || diff === 'advanced') ? diff : 'intermediate';
+          
+          let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+          if (dueAt && Number.isNaN(dueAt.getTime())) {
+            dueAt = null;
+          }
+
+          topics.push({
+            id: frontmatter.palee_id as string,
+            title: (frontmatter.title as string) || path.basename(filePath, '.md'),
+            mastery: (frontmatter.topic_mastery as number) || 0,
+            repetition: (frontmatter.repetition as number) || 0,
+            lapses: (frontmatter.lapses as number) || 0,
+            difficulty: validDiff,
+            due_at: dueAt,
+          });
         }
-        topics.push({
-          id: frontmatter.palee_id as string,
-          title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-          mastery: (frontmatter.topic_mastery as number) || 0,
-          repetition: (frontmatter.repetition as number) || 0,
-          lapses: (frontmatter.lapses as number) || 0,
-          difficulty: (frontmatter.difficulty as string) || 'intermediate',
-          due_at: dueAt,
-        });
       } catch {}
     }
 
