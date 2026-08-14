@@ -172,14 +172,31 @@ export interface AdoptOptions {
 
 export interface NextOptions {
   all?: boolean;
+  json?: boolean;
+}
+
+export interface PlanOptions {
+  json?: boolean;
+}
+
+export interface DashboardOptions {
+  json?: boolean;
 }
 
 export interface ProgressOptions {
   topic?: string;
+  json?: boolean;
 }
 
 export interface ValidateOptions {
   fix?: boolean;
+  json?: boolean;
+}
+
+export interface SessionOptions {
+  interactive?: boolean;
+  topic?: string;
+  json?: boolean;
 }
 
 export interface RoadmapOptions {

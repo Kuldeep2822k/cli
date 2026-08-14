@@ -5,24 +5,22 @@
 
 import fs from 'fs';
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
 import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
 
-async function validateCommand(options: ValidateOptions): Promise<void> {
+async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
+    const vaultPath = validateVaultPath(config.vaultPath);
 
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+    if (!options.json) {
+      console.log(`Validating vault: ${vaultPath}`);
+      console.log();
     }
-
-    const vaultPath = config.vaultPath;
-    console.log(`Validating vault: ${vaultPath}`);
-    console.log();
 
     const files = walkVault(vaultPath);
     const topics = new Map<string, TopicNode & { path: string }>();
@@ -61,15 +59,29 @@ async function validateCommand(options: ValidateOptions): Promise<void> {
       }
     }
 
-    console.log(`Found ${topics.size} PALEE topics in ${files.length} files`);
-    console.log();
-
     const graphValidation = validateDependencyGraph(topics);
     errors.push(...graphValidation.errors);
 
+    if (options.json) {
+      console.log(JSON.stringify({
+        valid: errors.length === 0,
+        topic_count: topics.size,
+        file_count: files.length,
+        error_count: errors.length,
+        errors,
+      }));
+      if (errors.length > 0) {
+        process.exitCode = 3;
+      }
+      return;
+    }
+
+    console.log(`Found ${topics.size} PALEE topics in ${files.length} files`);
+    console.log();
+
     if (errors.length === 0) {
       console.log('✓ Vault validation passed - no errors found');
-      process.exit(0);
+      return;
     } else {
       console.log(`✗ Found ${errors.length} validation error(s):\n`);
 
@@ -89,7 +101,8 @@ async function validateCommand(options: ValidateOptions): Promise<void> {
         console.log('Note: --fix is not implemented in Phase 1');
       }
 
-      process.exit(3);
+      process.exitCode = 3;
+      return;
     }
 
   } catch (e: unknown) {
@@ -99,4 +112,5 @@ async function validateCommand(options: ValidateOptions): Promise<void> {
   }
 }
 
+export { validateCommand };
 export default validateCommand;

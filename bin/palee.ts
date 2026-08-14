@@ -48,12 +48,14 @@ program
   .command('next')
   .description('Show the next topic due for review')
   .option('--all', 'Show all due topics')
+  .option('--json', 'Output in JSON format')
   .action(nextCommand);
 
 // palee plan
 program
   .command('plan')
   .description('Show learning plan for the day')
+  .option('--json', 'Output in JSON format')
   .action(planCommand);
 
 // palee progress
@@ -61,6 +63,7 @@ program
   .command('progress')
   .description('Show learning progress summary')
   .option('--topic <id>', 'Show progress for specific topic')
+  .option('--json', 'Output in JSON format')
   .action(progressCommand);
 
 // palee review
@@ -76,6 +79,7 @@ program
   .command('validate')
   .description('Validate vault integrity')
   .option('--fix', 'Attempt to fix validation errors')
+  .option('--json', 'Output in JSON format')
   .action(validateCommand);
 
 // palee roadmap
@@ -99,12 +103,14 @@ program
   .argument('<action>', 'Action: start, end, list')
   .option('-i, --interactive', 'Run in interactive mode')
   .option('--topic <id>', 'Topic ID for session')
+  .option('--json', 'Output in JSON format')
   .action(sessionCommand);
 
 // palee dashboard
 program
   .command('dashboard')
   .description('Show interactive learning dashboard')
+  .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 
 // Show help if no command provided

@@ -189,6 +189,15 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     if (action === 'list') {
       const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
       if (!fs.existsSync(sessionsDir)) {
+        if (options.json) {
+          console.log(JSON.stringify({
+            confirmed: [],
+            drafts: [],
+            total_confirmed: 0,
+            total_drafts: 0,
+          }));
+          return;
+        }
         console.log('No session records found.');
         return;
       }
@@ -196,6 +205,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const files = fs.readdirSync(sessionsDir);
       const confirmed = files.filter(f => f.startsWith('S-') && f.endsWith('.md')).sort().reverse();
       const drafts = files.filter(f => f.startsWith('DRAFT-S-') && f.endsWith('.md')).sort().reverse();
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          confirmed,
+          drafts,
+          total_confirmed: confirmed.length,
+          total_drafts: drafts.length,
+        }));
+        return;
+      }
 
       console.log('=== PALEE Sessions ===\n');
       console.log(`Confirmed Sessions: ${confirmed.length}`);
