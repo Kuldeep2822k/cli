@@ -97,6 +97,18 @@ FileCache Validation Logic
 
 ```mermaid
 stateDiagram-v2
+    [*] --> CheckEntry: get(filePath)
+    CheckEntry --> CacheMiss: Entry not found
+    CheckEntry --> CheckSize: Entry found
+    CheckSize --> Invalidate: Stat size != Cached size
+    CheckSize --> CheckHorizon: Stat size == Cached size
+    CheckHorizon --> Invalidate: Age < 2s and Hash changed
+    CheckHorizon --> CacheHit: Age < 2s and Hash match
+    CheckHorizon --> CacheHit: Age >= 2s and Mtime match
+    CheckHorizon --> Invalidate: Age >= 2s and Mtime mismatch
+    Invalidate --> CacheMiss: Remove entry
+    CacheHit --> [*]: Return cached data
+    CacheMiss --> [*]: Return null
 ```
 
 Sources: [src/storage/cache.ts#13-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L13-L80)[test/storage-cache.test.ts#44-88](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts#L44-L88)

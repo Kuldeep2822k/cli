@@ -109,10 +109,8 @@ Sources:[src/cli/session.ts#55-220](https://github.com/Kuldeep2822k/cli/blob/mai
 
 The session management relies on the `src/storage/memory.ts` module to handle the physical file layout within the `.palee/` directory.
 
-### Session ID Structure
-
-- Confirmed: `S-<ISO_TIMESTAMP>-<RANDOM_HEX>.md`[src/storage/memory.ts#16-20](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L16-L20)
-- Draft: `DRAFT-S-<ISO_TIMESTAMP>-<RANDOM_HEX>.md`[src/storage/memory.ts#17-21](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L17-L21)
+- Confirmed: `S-<TIMESTAMP>-<RANDOM_HEX>.md` [src/storage/memory.ts#31-36](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L31-L36)
+- Draft: `DRAFT-S-<RANDOM_HEX>.md` [src/storage/memory.ts#38-41](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L38-L41)
 
 ### Memory Synchronization Logic
 

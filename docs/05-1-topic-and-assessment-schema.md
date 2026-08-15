@@ -56,17 +56,21 @@ Sources:[src/types.ts#49-59](https://github.com/Kuldeep2822k/cli/blob/main/src/t
 
 ## 2. Four-Pillar Assessment Model
 
-The `Assessment` object measures mastery across four distinct pedagogical dimensions. This data is used to calculate `topic_mastery` (a weighted average) which influences the dependency engine's readiness checks.
+The `Assessment` object measures mastery across four distinct pedagogical dimensions. This data is used to calculate `topic_mastery` via a weighted average formula:
+
+$$\text{topic\_mastery} = \operatorname{round}\left(\frac{\text{conceptual} + \text{practical} + \text{debug} + (2 \times \text{feynman})}{5}, 4\right)$$
+
+Feynman technique evaluation carries double weighting (40%) to prioritize true conceptual articulation.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `conceptual` | `number` | Understanding of theoretical principles (0.0 to 1.0). |
-| `practical` | `number` | Ability to apply knowledge in a hands-on context. |
-| `debug` | `number` | Proficiency in identifying and fixing errors in the topic area. |
-| `feynman` | `number` | Ability to explain the topic simply to others. |
-| `assessed_at` | `string` | ISO timestamp of the last assessment update. |
+| `practical` | `number` | Ability to apply knowledge in a hands-on context (0.0 to 1.0). |
+| `debug` | `number` | Proficiency in identifying and fixing errors in the topic area (0.0 to 1.0). |
+| `feynman` | `number` | Ability to explain the topic simply to others (0.0 to 1.0, 40% weight). |
+| `assessed_at` | `string \| null` | ISO timestamp of the last assessment update. |
 
-Sources:[src/types.ts#3-9](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L9)[examples/Docker Fundamentals.md#9-12](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1#L9-L12)
+Sources:[src/types.ts#3-9](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L9)[planning/invariants.md#33](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L33)[examples/Docker Fundamentals.md#9-12](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1#L9-L12)
 
 ---
 
@@ -79,7 +83,9 @@ The `Review` object stores the Spaced Repetition System (SRS) state, implementin
 - `ease_factor`: The multiplier for the next interval (default `2.5`, minimum `1.3`) [src/types.ts#14](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L14-L14)
 - `interval_days`: The number of days until the next review [src/types.ts#12](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L12-L12)
 - `repetition`: Count of consecutive successful reviews [src/types.ts#13](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L13-L13)
-- `lapses`: Count of failed reviews (quality < 3) [src/types.ts#15](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L15-L15)
+- `lapses`: Count of failed reviews (quality < 3) on learned topics [src/types.ts#15](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L15-L15)
+- `last_quality`: The most recent recall quality rating (0–5) [src/types.ts#16](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L16-L16)
+- `last_reviewed_at`: A date-only string (`YYYY-MM-DD`) recording when the topic was last reviewed [src/types.ts#17](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L17)
 - `due_at`: A date-only string (`YYYY-MM-DD`) indicating when the topic is next due for review [src/types.ts#18](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L18-L18)
 
 Review State Transition Logic
@@ -141,10 +147,13 @@ const paleeData: Record<string, unknown> = {
   practical: 0.0,
   debug: 0.0,
   feynman: 0.0,
+  assessed_at: null,
   ease_factor: 2.5,
   interval_days: 1,
   repetition: 0,
   lapses: 0,
+  last_quality: null,
+  last_reviewed_at: null,
   due_at: null,
 };
 ```

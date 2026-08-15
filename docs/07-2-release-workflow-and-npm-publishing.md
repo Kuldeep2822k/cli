@@ -122,7 +122,7 @@ Sources: [.github/workflows/release.yml#140-179](https://github.com/Kuldeep2822k
 
 The package distribution is controlled by two files that define what enters the NPM ecosystem:
 
-- `package.json`: Defines the entry points for the compiled code. The `bin` field maps the `palee` command to `dist/bin/palee.js`[package-lock.json#15-17](https://github.com/Kuldeep2822k/cli/blob/main/package-lock.json#L15-L17)
+- `package.json`: Defines the entry points for the compiled code. The `bin` field maps the `palee` command to `dist/bin/palee.js` [package.json#8-10](https://github.com/Kuldeep2822k/cli/blob/main/package.json#L8-L10)
 - `.npmignore`: Explicitly excludes development artifacts, such as `src/`, `test/`, and `planning/` documentation, to keep the installation footprint small [.npmignore#1-25](https://github.com/Kuldeep2822k/cli/blob/main/.npmignore#L1-L25)
 
-Sources: [package-lock.json#1-34](https://github.com/Kuldeep2822k/cli/blob/main/package-lock.json#L1-L34)[.npmignore#1-25](https://github.com/Kuldeep2822k/cli/blob/main/.npmignore#L1-L25)
+Sources: [package.json#1-34](https://github.com/Kuldeep2822k/cli/blob/main/package.json#L1-L34)[.npmignore#1-25](https://github.com/Kuldeep2822k/cli/blob/main/.npmignore#L1-L25)

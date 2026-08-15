@@ -5,7 +5,9 @@ Relevant source files
 - [.github/labeler.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml)
 - [.github/labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/labels.yml)
 - [.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
+- [.github/workflows/deploy-docs.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/deploy-docs.yml)
 - [.github/workflows/pr-labeler.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-labeler.yml)
+- [.github/workflows/pr-sanitizer.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-sanitizer.yml)
 - [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)
 - [.github/workflows/security.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/security.yml)
 - [.github/workflows/sync-labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml)
@@ -31,11 +33,12 @@ flowchart LR
         SEC[".github/workflows/security.yml"]
         REL[".github/workflows/release.yml"]
         LAB[".github/workflows/pr-labeler.yml"]
+        DOCS[".github/workflows/deploy-docs.yml"]
     end
     subgraph Triggers
         PR["Pull Request"]
         PushMain["Push to main"]
-        Tag["Git Tag (v*. . )"]
+        Tag["Git Tag (v*.*.*)"]
         Sched["Schedule (Weekly)"]
     end
     PR --> CI
@@ -43,6 +46,7 @@ flowchart LR
     PR --> SEC
     PushMain --> CI
     PushMain --> SEC
+    PushMain --> DOCS
     Tag --> REL
     Sched --> SEC
 ```

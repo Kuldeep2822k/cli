@@ -68,6 +68,7 @@ Each CLI command has a corresponding TypeScript interface that defines its accep
 | `AdoptOptions` | `palee adopt` | `difficulty` (Difficulty), `dependsOn` (string) [src/types.ts#168-171](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L168-L171) |
 | `NextOptions` | `palee next` | `all` (boolean), `json` (boolean) [src/types.ts#173-176](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L173-L176) |
 | `PlanOptions` | `palee plan` | `json` (boolean) [src/types.ts#178-180](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L178-L180) |
+| `DashboardOptions` | `palee dashboard` | `json` (boolean) [src/types.ts#182-184](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L182-L184) |
 | `ProgressOptions` | `palee progress` | `topic` (string), `json` (boolean) [src/types.ts#186-189](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L186-L189) |
 | `ValidateOptions` | `palee validate` | `fix` (boolean), `json` (boolean) [src/types.ts#191-194](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L191-L194) |
 | `RoadmapOptions` | `palee roadmap` | `from` (string), `yes` (boolean) [src/types.ts#202-205](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L202-L205) |

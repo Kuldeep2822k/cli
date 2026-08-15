@@ -136,6 +136,17 @@ The engine maintains several strict invariants to ensure scheduling stability:
 
 ```mermaid
 stateDiagram-v2
+    [*] --> NewTopic: Initial State (Rep 0, Interval 1d)
+    NewTopic --> Rep1: Quality >= 3 (Interval 1d, Rep 1)
+    NewTopic --> NewTopic: Quality < 3 (Interval 1d, Rep 0)
+    Rep1 --> Rep2: Quality >= 3 (Interval 6d, Rep 2)
+    Rep1 --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
+    Rep2 --> RepN: Quality >= 3 (Interval = Prev * EF, Rep N)
+    Rep2 --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
+    RepN --> RepN: Quality >= 3 (Interval = Prev * EF, Rep N+1)
+    RepN --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
+    Lapse --> Rep1: Quality >= 3 (Interval 1d, Rep 1)
+    Lapse --> Lapse: Quality < 3 (Interval 1d, Rep 0)
 ```
 
 Sources:

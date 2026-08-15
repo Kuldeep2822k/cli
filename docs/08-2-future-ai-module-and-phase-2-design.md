@@ -97,8 +97,8 @@ The `palee test <topic>` command (Phase 2) implements the Feynman technique:
 
 1. Context Loading: The engine reads the target topic note as the primary study material [planning/PHASE_2_GAPS.md#139-140](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L139-L140)
 2. Interactive Dialogue: The AI asks conceptual questions; the user explains in their own words [planning/PHASE_2_GAPS.md#140-141](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L140-L141)
-3. Multi-Dimensional Grading: The AI produces a `roadmap_proposal` object containing scores for `conceptual`, `practical`, `debug`, and `feynman` pillars [planning/ai_module_design.md#88-102](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L88-L102)
-4. Persistence: Scores are written to the topic's frontmatter, which in turn influences the SM-2 `due_at` calculation [planning/PHASE_2_GAPS.md#143-144](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L143-L144)
+3. Multi-Dimensional Grading: The AI produces an `assessment_proposal` object containing scores for `conceptual`, `practical`, `debug`, and `feynman` pillars [planning/ai_module_design.md#88-102](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L88-L102)
+4. Persistence: Scores are written to the topic's frontmatter (`assessment`), updating `topic_mastery`. Spaced-repetition recall scheduling (`due_at`) remains independently driven by user review records [planning/palee_cli_spec.md#190-196](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L190-L196)
 
 Sources:[planning/PHASE_2_GAPS.md#112-146](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L146)[planning/ai_module_design.md#88-116](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L88-L116)
 

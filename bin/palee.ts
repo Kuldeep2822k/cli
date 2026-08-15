@@ -100,7 +100,7 @@ program
 program
   .command('session')
   .description('Manage learning sessions')
-  .argument('<action>', 'Action: start, end, list')
+  .argument('<action>', 'Action: start, draft, end, list')
   .option('-i, --interactive', 'Run in interactive mode')
   .option('--topic <id>', 'Topic ID for session')
   .option('--json', 'Output in JSON format')
