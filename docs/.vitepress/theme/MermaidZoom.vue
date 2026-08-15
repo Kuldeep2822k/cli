@@ -122,12 +122,26 @@ function closeModal() {
   }
 }
 
+const activePointers = new Map<number, { x: number; y: number }>()
+let initialPinchDistance = 0
+let initialPinchScale = 1
+let initialPinchCenter = { x: 0, y: 0 }
+let initialTranslate = { x: 0, y: 0 }
+
+function getDistance(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  return Math.hypot(p1.x - p2.x, p1.y - p2.y)
+}
+
+function getCenter(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+}
+
 function zoomIn() {
-  modalScale.value = Math.min(modalScale.value * 1.25, 5)
+  modalScale.value = Math.min(modalScale.value * 1.25, 6)
 }
 
 function zoomOut() {
-  modalScale.value = Math.max(modalScale.value / 1.25, 0.4)
+  modalScale.value = Math.max(modalScale.value / 1.25, 0.25)
 }
 
 function resetZoom() {
@@ -138,39 +152,83 @@ function resetZoom() {
 
 function handleWheel(e: WheelEvent) {
   e.preventDefault()
-  if (e.deltaY < 0) {
-    zoomIn()
+  if (e.ctrlKey) {
+    // Trackpad pinch-to-zoom gesture
+    const zoomFactor = Math.exp(-e.deltaY * 0.01)
+    modalScale.value = Math.min(Math.max(modalScale.value * zoomFactor, 0.25), 6)
   } else {
-    zoomOut()
+    // Mouse wheel or discrete scroll
+    if (e.deltaY < 0) {
+      zoomIn()
+    } else {
+      zoomOut()
+    }
   }
 }
 
 function handlePointerDown(e: PointerEvent) {
   if (e.button !== 0 && e.pointerType === 'mouse') return
-  isDragging.value = true
-  dragStartX.value = e.clientX - modalTranslateX.value
-  dragStartY.value = e.clientY - modalTranslateY.value
+  
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
   const target = e.currentTarget as HTMLElement
   if (target?.setPointerCapture) {
     try {
       target.setPointerCapture(e.pointerId)
     } catch (_) {}
   }
+
+  if (activePointers.size === 1) {
+    isDragging.value = true
+    dragStartX.value = e.clientX - modalTranslateX.value
+    dragStartY.value = e.clientY - modalTranslateY.value
+  } else if (activePointers.size === 2) {
+    isDragging.value = false
+    const pts = Array.from(activePointers.values())
+    initialPinchDistance = getDistance(pts[0], pts[1])
+    initialPinchScale = modalScale.value
+    initialPinchCenter = getCenter(pts[0], pts[1])
+    initialTranslate = { x: modalTranslateX.value, y: modalTranslateY.value }
+  }
 }
 
 function handlePointerMove(e: PointerEvent) {
-  if (!isDragging.value) return
-  modalTranslateX.value = e.clientX - dragStartX.value
-  modalTranslateY.value = e.clientY - dragStartY.value
+  if (!activePointers.has(e.pointerId)) return
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+  if (activePointers.size === 1 && isDragging.value) {
+    modalTranslateX.value = e.clientX - dragStartX.value
+    modalTranslateY.value = e.clientY - dragStartY.value
+  } else if (activePointers.size === 2 && initialPinchDistance > 0) {
+    const pts = Array.from(activePointers.values())
+    const currentDistance = getDistance(pts[0], pts[1])
+    const currentCenter = getCenter(pts[0], pts[1])
+    
+    const scaleMultiplier = currentDistance / initialPinchDistance
+    const newScale = Math.min(Math.max(initialPinchScale * scaleMultiplier, 0.25), 6)
+    modalScale.value = newScale
+
+    modalTranslateX.value = initialTranslate.x + (currentCenter.x - initialPinchCenter.x)
+    modalTranslateY.value = initialTranslate.y + (currentCenter.y - initialPinchCenter.y)
+  }
 }
 
 function handlePointerUp(e: PointerEvent) {
-  isDragging.value = false
+  activePointers.delete(e.pointerId)
   const target = e.currentTarget as HTMLElement
   if (target?.releasePointerCapture) {
     try {
       target.releasePointerCapture(e.pointerId)
     } catch (_) {}
+  }
+
+  if (activePointers.size === 1) {
+    const remaining = Array.from(activePointers.values())[0]
+    isDragging.value = true
+    dragStartX.value = remaining.x - modalTranslateX.value
+    dragStartY.value = remaining.y - modalTranslateY.value
+  } else if (activePointers.size === 0) {
+    isDragging.value = false
+    initialPinchDistance = 0
   }
 }
 
@@ -278,10 +336,6 @@ onUnmounted(() => {
 
     <!-- Modal Header Toolbar -->
     <div class="modal-header-toolbar">
-      <div class="modal-title-hint">
-        <span class="hint-dot"></span>
-        <span>Drag to pan • Scroll to zoom</span>
-      </div>
       <div class="modal-actions-group">
         <button class="modal-tool-btn" @click="zoomIn" title="Zoom In (+)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
@@ -343,35 +397,18 @@ onUnmounted(() => {
   position: absolute;
   top: 18px;
   right: 24px;
-  left: 24px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   z-index: 100000;
   pointer-events: none;
 }
 
-.modal-title-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: #0e1117;
-  border: 1px solid #21262d;
-  border-radius: 20px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #8b949e;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
-}
-
-.hint-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #3b82f6;
-  box-shadow: 0 0 8px #3b82f6;
+@media (max-width: 640px) {
+  .modal-header-toolbar {
+    top: 12px;
+    right: 12px;
+  }
 }
 
 .modal-actions-group {
