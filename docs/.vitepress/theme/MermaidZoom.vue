@@ -2,28 +2,47 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 
 const isOpen = ref(false)
-const activeSvg = ref('')
+const svgContainerRef = ref<HTMLElement | null>(null)
 const scale = ref(1)
 const translateX = ref(0)
 const translateY = ref(0)
 const isDragging = ref(false)
 const startX = ref(0)
 const startY = ref(0)
+let currentSourceSvg: SVGSVGElement | null = null
 
-function openModal(svgHtml: string) {
-  activeSvg.value = svgHtml
+function openModal(svgElement: SVGSVGElement) {
+  currentSourceSvg = svgElement
   scale.value = 1.1
   translateX.value = 0
   translateY.value = 0
   isOpen.value = true
+  
   if (typeof document !== 'undefined') {
     document.body.style.overflow = 'hidden'
   }
+
+  nextTick(() => {
+    if (svgContainerRef.value && currentSourceSvg) {
+      // Safe DOM cloning without innerHTML / v-html string injection
+      const cloned = currentSourceSvg.cloneNode(true) as SVGSVGElement
+      cloned.removeAttribute('id')
+      cloned.style.maxWidth = '90vw'
+      cloned.style.maxHeight = '85vh'
+      cloned.style.width = 'auto'
+      cloned.style.height = 'auto'
+      cloned.style.background = 'transparent'
+      svgContainerRef.value.replaceChildren(cloned)
+    }
+  })
 }
 
 function closeModal() {
   isOpen.value = false
-  activeSvg.value = ''
+  currentSourceSvg = null
+  if (svgContainerRef.value) {
+    svgContainerRef.value.replaceChildren()
+  }
   if (typeof document !== 'undefined') {
     document.body.style.overflow = ''
   }
@@ -52,20 +71,41 @@ function handleWheel(e: WheelEvent) {
   }
 }
 
-function handleMouseDown(e: MouseEvent) {
+// Pointer Events for unified Mouse & Touch drag-to-pan
+function handlePointerDown(e: PointerEvent) {
+  if (e.button !== 0 && e.pointerType === 'mouse') return
   isDragging.value = true
   startX.value = e.clientX - translateX.value
   startY.value = e.clientY - translateY.value
+  const target = e.currentTarget as HTMLElement
+  if (target && target.setPointerCapture) {
+    try {
+      target.setPointerCapture(e.pointerId)
+    } catch (_) {}
+  }
 }
 
-function handleMouseMove(e: MouseEvent) {
+function handlePointerMove(e: PointerEvent) {
   if (!isDragging.value) return
   translateX.value = e.clientX - startX.value
   translateY.value = e.clientY - startY.value
 }
 
-function handleMouseUp() {
+function handlePointerUp(e: PointerEvent) {
   isDragging.value = false
+  const target = e.currentTarget as HTMLElement
+  if (target && target.releasePointerCapture) {
+    try {
+      target.releasePointerCapture(e.pointerId)
+    } catch (_) {}
+  }
+}
+
+function handleViewportClick(e: MouseEvent) {
+  // Allow clicking anywhere on the empty backdrop to close
+  if (e.target === e.currentTarget || (svgContainerRef.value && !svgContainerRef.value.contains(e.target as Node))) {
+    closeModal()
+  }
 }
 
 function handleKeyDown(e: KeyboardEvent) {
@@ -74,25 +114,37 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
 function attachMermaidListeners() {
   if (typeof document === 'undefined') return
-  nextTick(() => {
-    const targets = document.querySelectorAll('.mermaid, [data-mermaid], .vp-mermaid')
-    targets.forEach((container) => {
-      const el = container as HTMLElement
-      if (el.dataset.zoomAttached) return
-      el.dataset.zoomAttached = 'true'
-      el.classList.add('mermaid-interactive')
-      el.title = 'Click to zoom and pan diagram'
+  
+  const contentArea = document.querySelector('.VPContent') || document.body
+  const targets = contentArea.querySelectorAll('.mermaid, [data-mermaid], .vp-mermaid')
+  
+  targets.forEach((container) => {
+    const el = container as HTMLElement
+    if (el.dataset.zoomAttached) return
+    el.dataset.zoomAttached = 'true'
+    el.classList.add('mermaid-interactive')
+    el.title = 'Click to zoom and pan diagram'
 
-      el.addEventListener('click', (e) => {
-        const svg = el.querySelector('svg')
-        if (svg) {
-          openModal(svg.outerHTML)
-        }
-      })
+    el.addEventListener('click', () => {
+      const svg = el.querySelector('svg')
+      if (svg) {
+        openModal(svg)
+      }
     })
   })
+}
+
+function debouncedAttach() {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    nextTick(() => {
+      attachMermaidListeners()
+    })
+  }, 120)
 }
 
 let observer: MutationObserver | null = null
@@ -102,11 +154,16 @@ onMounted(() => {
     window.addEventListener('keydown', handleKeyDown)
     attachMermaidListeners()
 
-    observer = new MutationObserver(() => {
-      attachMermaidListeners()
+    // Scoped observation on content container with debouncing
+    const targetNode = document.querySelector('.VPContent') || document.body
+    observer = new MutationObserver((mutations) => {
+      const hasAddedNodes = mutations.some((m) => m.addedNodes && m.addedNodes.length > 0)
+      if (hasAddedNodes) {
+        debouncedAttach()
+      }
     })
 
-    observer.observe(document.body, {
+    observer.observe(targetNode, {
       childList: true,
       subtree: true
     })
@@ -116,6 +173,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeyDown)
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
   }
   if (observer) {
     observer.disconnect()
@@ -143,19 +203,20 @@ onUnmounted(() => {
 
     <div
       class="mermaid-modal-viewport"
+      @click="handleViewportClick"
       @wheel="handleWheel"
-      @mousedown="handleMouseDown"
-      @mousemove="handleMouseMove"
-      @mouseup="handleMouseUp"
-      @mouseleave="handleMouseUp"
+      @pointerdown="handlePointerDown"
+      @pointermove="handlePointerMove"
+      @pointerup="handlePointerUp"
+      @pointercancel="handlePointerUp"
     >
       <div
+        ref="svgContainerRef"
         class="mermaid-modal-content"
         :style="{
           transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
           cursor: isDragging ? 'grabbing' : 'grab'
         }"
-        v-html="activeSvg"
       ></div>
     </div>
   </div>
@@ -230,6 +291,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  touch-action: none;
 }
 
 .mermaid-modal-content {
@@ -238,6 +300,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
 }
 
 .mermaid-modal-content :deep(svg) {
@@ -246,5 +309,6 @@ onUnmounted(() => {
   width: auto !important;
   height: auto !important;
   background: transparent !important;
+  pointer-events: auto;
 }
 </style>
