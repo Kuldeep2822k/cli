@@ -15,50 +15,67 @@
   --vp-c-gutter: #090a0f;
 }
 
-/* Mermaid Interactive Diagram Container */
+/* Mermaid Diagram Card Container */
+.mermaid-diagram-card,
 .mermaid,
 [data-mermaid],
 .vp-mermaid {
   position: relative;
   background: #000000 !important;
   border: 1px solid #1e2430;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 16px 0;
+  border-radius: 10px;
+  padding: 24px 20px 20px 20px;
+  margin: 20px 0;
+  overflow: auto;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  cursor: zoom-in;
+  cursor: pointer;
 }
 
+.mermaid-diagram-card:hover,
 .mermaid:hover,
 [data-mermaid]:hover,
 .vp-mermaid:hover {
   border-color: #3b82f6;
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.12);
 }
 
-.mermaid::after,
-[data-mermaid]::after,
-.vp-mermaid::after {
-  content: 'Click to zoom and pan';
+/* Diagram toolbar button on the card */
+.diagram-card-toolbar {
   position: absolute;
   top: 10px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+.mermaid-diagram-card:hover .diagram-card-toolbar,
+.mermaid:hover .diagram-card-toolbar {
+  opacity: 1;
+}
+
+.diagram-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-weight: 500;
   color: #94a3b8;
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  background: #0e1117;
+  border: 1px solid #21262d;
+  border-radius: 6px;
   padding: 3px 8px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
-.mermaid:hover::after,
-[data-mermaid]:hover::after,
-.vp-mermaid:hover::after {
-  opacity: 1;
+.diagram-toolbar-btn:hover {
+  background: #161b22;
+  border-color: #3b82f6;
+  color: #60a5fa;
 }
 
 /* Feature cards base styling */
