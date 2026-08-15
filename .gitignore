@@ -5,3 +5,5 @@ dist/
 .claude/
 coverage/
 *.tgz
+docs/.vitepress/dist/
+docs/.vitepress/cache/
