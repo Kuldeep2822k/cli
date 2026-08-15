@@ -28,7 +28,7 @@ export default withMermaid(
     },
 
     themeConfig: {
-      siteTitle: '⚡ PALEE CLI',
+      siteTitle: 'PALEE CLI',
       
       nav: [
         { text: 'Guide', link: '/01-0-overview' },
