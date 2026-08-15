@@ -12,7 +12,7 @@ const REQUIRED = [
   'package/README.md',
   'package/LICENSE'
 ];
-const FORBIDDEN = ['package/src/', 'package/test/', 'package/.github/', 'package/planning/', 'package/coverage/'];
+const FORBIDDEN = ['package/src/', 'package/test/', 'package/.github/', 'package/planning/', 'package/coverage/', 'package/assets/'];
 
 for (const req of REQUIRED) {
   if (!tarList.some(f => f.startsWith(req))) {

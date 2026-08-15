@@ -6,6 +6,7 @@ dist/test/
 planning/
 examples/
 docs/
+assets/
 .github/
 .gemini/
 .claude/
