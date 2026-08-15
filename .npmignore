@@ -5,6 +5,7 @@ bin/
 dist/test/
 planning/
 examples/
+docs/
 .github/
 .gemini/
 .claude/
