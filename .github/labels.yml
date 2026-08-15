@@ -76,3 +76,12 @@
 - name: "priority: low"
   color: "0e8a16"
   description: Low priority
+- name: "P1"
+  color: "b60205"
+  description: "Highest Priority (Must fix / Next to ship)"
+- name: "P2"
+  color: "d93f0b"
+  description: "Medium-High Priority (Scheduled for release)"
+- name: "P3"
+  color: "fbca04"
+  description: "Normal Priority (Backlog)"
