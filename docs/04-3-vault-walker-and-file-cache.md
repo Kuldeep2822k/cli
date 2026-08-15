@@ -89,26 +89,31 @@ When `FileCache.get(filePath)` is called, the following validation sequence occu
 2. Horizon Check: Determines if the file is "freshly modified" or "settled" [src/storage/cache.ts#37](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L37-L37)
 3. Fingerprint Check: Uses `computeFingerprint` from `src/storage/frontmatter.ts` to detect content-level changes if `mtime` is unreliable [src/storage/cache.ts#42](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L42-L42)[src/storage/cache.ts#63](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L63-L63)
 
-### Cache State Machine
+### Cache Validation Flowchart
 
-The diagram below maps the `FileCache` logic to the internal state transitions and filesystem checks.
-
-FileCache Validation Logic
+The diagram below maps the `FileCache` logic across internal validation steps, the 2-second unsettled horizon, and filesystem checks.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> CheckEntry: get(filePath)
-    CheckEntry --> CacheMiss: Entry not found
-    CheckEntry --> CheckSize: Entry found
-    CheckSize --> Invalidate: Stat size != Cached size
-    CheckSize --> CheckHorizon: Stat size == Cached size
-    CheckHorizon --> Invalidate: Age < 2s and Hash changed
-    CheckHorizon --> CacheHit: Age < 2s and Hash match
-    CheckHorizon --> CacheHit: Age >= 2s and Mtime match
-    CheckHorizon --> Invalidate: Age >= 2s and Mtime mismatch
-    Invalidate --> CacheMiss: Remove entry
-    CacheHit --> [*]: Return cached data
-    CacheMiss --> [*]: Return null
+flowchart TD
+    Start(["get(filePath)"]) --> CheckEntry{"Entry in Cache?"}
+    
+    CheckEntry -- "No" --> CacheMiss["Cache Miss"]
+    CheckEntry -- "Yes" --> CheckSize{"File Size Matches?"}
+    
+    CheckSize -- "Mismatch" --> Invalidate["Invalidate Entry"]
+    CheckSize -- "Match" --> CheckHorizon{"File Age &lt; 2s?<br/>(Unsettled Horizon)"}
+    
+    CheckHorizon -- "Yes (&lt; 2s)" --> CheckHash{"Hash Matches?"}
+    CheckHash -- "Match" --> CacheHit["Cache Hit"]
+    CheckHash -- "Mismatch" --> Invalidate
+    
+    CheckHorizon -- "No (&ge; 2s)" --> CheckMtime{"mtime Matches?"}
+    CheckMtime -- "Match" --> CacheHit
+    CheckMtime -- "Mismatch" --> Invalidate
+    
+    Invalidate --> CacheMiss
+    CacheHit --> ReturnHit(["Return Cached Data"])
+    CacheMiss --> ReturnNull(["Return null"])
 ```
 
 Sources: [src/storage/cache.ts#13-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L13-L80)[test/storage-cache.test.ts#44-88](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts#L44-L88)

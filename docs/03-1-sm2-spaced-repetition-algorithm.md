@@ -132,21 +132,29 @@ The engine maintains several strict invariants to ensure scheduling stability:
 | Integer Quality | `if (!Number.isInteger(quality) ... ) throw Error`[src/engine/sm2.ts#38-40](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L38-L40) |
 | Repetition Reset | `if (quality < 3) { newRepetition = 0; ... }`[src/engine/sm2.ts#65-70](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L65-L70) |
 
-### SM-2 State Transition Diagram
+### SM-2 Execution Pipeline
 
 ```mermaid
-stateDiagram-v2
-    [*] --> NewTopic: Initial State (Rep 0, Interval 1d)
-    NewTopic --> Rep1: Quality >= 3 (Interval 1d, Rep 1)
-    NewTopic --> NewTopic: Quality < 3 (Interval 1d, Rep 0)
-    Rep1 --> Rep2: Quality >= 3 (Interval 6d, Rep 2)
-    Rep1 --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
-    Rep2 --> RepN: Quality >= 3 (Interval = Prev * EF, Rep N)
-    Rep2 --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
-    RepN --> RepN: Quality >= 3 (Interval = Prev * EF, Rep N+1)
-    RepN --> Lapse: Quality < 3 (Interval 1d, Rep 0, Lapses +1)
-    Lapse --> Rep1: Quality >= 3 (Interval 1d, Rep 1)
-    Lapse --> Lapse: Quality < 3 (Interval 1d, Rep 0)
+flowchart TD
+    Start(["Review Input (Topic, Quality: 0-5)"]) --> CheckQ{"Quality &ge; 3?<br/>(Successful Recall)"}
+    
+    CheckQ -- "No (Quality &lt; 3: Failure)" --> CheckLapse{"Repetition &gt; 0?<br/>(Learned Topic)"}
+    CheckLapse -- "Yes" --> LapseInc["Lapses += 1<br/>Repetition = 0<br/>Interval = 1 day"]
+    CheckLapse -- "No (First Attempt)" --> LapseNoInc["Repetition = 0<br/>Interval = 1 day"]
+    
+    CheckQ -- "Yes (Quality &ge; 3: Pass)" --> CheckRep{"Current Repetition"}
+    CheckRep -- "Rep 0" --> Rep1["Repetition = 1<br/>Interval = 1 day"]
+    CheckRep -- "Rep 1" --> Rep2["Repetition = 2<br/>Interval = 6 days"]
+    CheckRep -- "Rep 2+" --> RepN["Repetition += 1<br/>Interval = round(Prev &times; EF)"]
+    
+    LapseInc --> UpdateEF["Update Ease Factor:<br/>&Delta;EF = 0.1 - (5-q)&times;(0.08 + (5-q)&times;0.02)<br/>EF = max(1.30, EF + &Delta;EF)"]
+    LapseNoInc --> UpdateEF
+    Rep1 --> UpdateEF
+    Rep2 --> UpdateEF
+    RepN --> UpdateEF
+    
+    UpdateEF --> Schedule["Compute due_at = Today + Interval days"]
+    Schedule --> Done(["Update Note Frontmatter"])
 ```
 
 Sources:
