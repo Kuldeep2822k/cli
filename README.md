@@ -1,6 +1,14 @@
 # PALEE CLI
 
+[![Documentation](https://img.shields.io/badge/docs-kuldeep2822k.github.io%2Fcli-blue?style=flat-square&logo=gitbook&logoColor=white)](https://kuldeep2822k.github.io/cli/)
+[![npm version](https://img.shields.io/npm/v/@kuldeep2822k/palee?style=flat-square&color=blue)](https://www.npmjs.com/package/@kuldeep2822k/palee)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+
 A smart, AI-powered study tracker that optimizes learning with spaced repetition and dependency-aware recommendations.
+
+## Documentation
+
+Complete interactive documentation with architecture guides, interactive Mermaid diagrams, and CLI command references is available at [https://kuldeep2822k.github.io/cli/](https://kuldeep2822k.github.io/cli/).
 
 ## Overview
 
