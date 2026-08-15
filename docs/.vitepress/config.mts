@@ -9,6 +9,11 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
 
+    head: [
+      ['link', { rel: 'icon', type: 'image/png', href: '/cli/favicon.png' }],
+      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/cli/palee-logo.svg' }]
+    ],
+
     mermaid: {
       theme: 'base',
       themeVariables: {
@@ -28,6 +33,7 @@ export default withMermaid(
     },
 
     themeConfig: {
+      logo: '/palee-logo.png',
       siteTitle: 'PALEE CLI',
       
       nav: [

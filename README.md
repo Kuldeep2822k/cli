@@ -1,10 +1,19 @@
-# PALEE CLI
+<p align="center">
+  <img src="./assets/palee-logo.png" width="160" alt="PALEE Logo" />
+</p>
 
-[![Documentation](https://img.shields.io/badge/docs-kuldeep2822k.github.io%2Fcli-blue?style=flat-square&logo=gitbook&logoColor=white)](https://kuldeep2822k.github.io/cli/)
-[![npm version](https://img.shields.io/npm/v/@kuldeep2822k/palee?style=flat-square&color=blue)](https://www.npmjs.com/package/@kuldeep2822k/palee)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+<h1 align="center">PALEE CLI</h1>
 
-A smart, AI-powered study tracker that optimizes learning with spaced repetition and dependency-aware recommendations.
+<p align="center">
+  <a href="https://kuldeep2822k.github.io/cli/"><img src="https://img.shields.io/badge/docs-kuldeep2822k.github.io%2Fcli-blue?style=flat-square&logo=gitbook&logoColor=white" alt="Documentation" /></a>
+  <a href="https://www.npmjs.com/package/@kuldeep2822k/palee"><img src="https://img.shields.io/npm/v/@kuldeep2822k/palee?style=flat-square&color=blue" alt="npm version" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT" /></a>
+</p>
+
+<p align="center">
+  <strong>Personal Active Learning &amp; Evaluation Engine</strong><br />
+  A deterministic, Spaced-Repetition (SM-2) &amp; Directed Acyclic Graph (DAG) study engine for Obsidian vaults.
+</p>
 
 ## Documentation
 
