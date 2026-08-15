@@ -12,6 +12,9 @@
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint",
     "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "test:coverage": "c8 npm test"
   },
@@ -29,7 +32,6 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-
     "commander": "^15.0.0",
     "yaml": "^2.9.0"
   },
@@ -42,8 +44,11 @@
     "c8": "^12.0.0",
     "diff-cover": "^2.0.5",
     "eslint": "^10.8.1",
+    "mermaid": "^11.16.1",
     "tsx": "^4.23.11",
     "typescript": "^5.6.3",
-    "typescript-eslint": "^8.66.0"
+    "typescript-eslint": "^8.66.0",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   }
 }
