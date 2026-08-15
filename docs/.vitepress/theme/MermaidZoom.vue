@@ -10,6 +10,74 @@ const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartY = ref(0)
 
+// Safely scopes all IDs and references inside the cloned SVG to prevent duplicate IDs in the DOM
+function scopeSvgIds(svg: SVGSVGElement, prefix: string) {
+  const idMap = new Map<string, string>()
+
+  if (svg.id) {
+    const newId = `${prefix}${svg.id}`
+    idMap.set(svg.id, newId)
+    svg.id = newId
+  }
+
+  const elementsWithId = svg.querySelectorAll('[id]')
+  elementsWithId.forEach((el) => {
+    const oldId = el.id
+    if (oldId && !oldId.startsWith(prefix)) {
+      const newId = `${prefix}${oldId}`
+      idMap.set(oldId, newId)
+      el.id = newId
+    }
+  })
+
+  if (idMap.size === 0) return
+
+  const refAttributes = [
+    'href',
+    'xlink:href',
+    'clip-path',
+    'mask',
+    'filter',
+    'marker-start',
+    'marker-mid',
+    'marker-end',
+    'fill',
+    'stroke'
+  ]
+
+  const allElements = svg.querySelectorAll('*')
+  allElements.forEach((el) => {
+    refAttributes.forEach((attr) => {
+      const val = el.getAttribute(attr)
+      if (!val) return
+
+      let newVal = val
+      idMap.forEach((newId, oldId) => {
+        if (newVal === `#${oldId}`) {
+          newVal = `#${newId}`
+        } else if (newVal.includes(`#${oldId}`)) {
+          const regex = new RegExp(`(#|url\\(['"]?#)${oldId}(['"]?\\))`, 'g')
+          newVal = newVal.replace(regex, `$1${newId}$2`)
+        }
+      })
+
+      if (newVal !== val) {
+        el.setAttribute(attr, newVal)
+      }
+    })
+  })
+
+  const styleTags = svg.querySelectorAll('style')
+  styleTags.forEach((styleTag) => {
+    let css = styleTag.textContent || ''
+    idMap.forEach((newId, oldId) => {
+      const selectorRegex = new RegExp(`#${oldId}\\b`, 'g')
+      css = css.replace(selectorRegex, `#${newId}`)
+    })
+    styleTag.textContent = css
+  })
+}
+
 function openModal(svgElement: SVGSVGElement) {
   isModalOpen.value = true
   modalScale.value = 1
@@ -22,10 +90,10 @@ function openModal(svgElement: SVGSVGElement) {
 
   nextTick(() => {
     if (modalSvgContainer.value) {
-      // Clone exact SVG node preserving all ID attributes, inline styles, and viewBox
       const clone = svgElement.cloneNode(true) as SVGSVGElement
+      const prefix = `modal-diag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-`
+      scopeSvgIds(clone, prefix)
       
-      // Ensure SVG has proper viewBox and sizing
       const viewBox = clone.getAttribute('viewBox')
       if (viewBox) {
         const parts = viewBox.split(/[\s,]+/).map(Number)
@@ -106,13 +174,18 @@ function handlePointerUp(e: PointerEvent) {
   }
 }
 
+function handleViewportClick(e: MouseEvent) {
+  if (e.target === e.currentTarget || (modalSvgContainer.value && !modalSvgContainer.value.contains(e.target as Node))) {
+    closeModal()
+  }
+}
+
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape' && isModalOpen.value) {
     closeModal()
   }
 }
 
-// Enhance diagrams with top toolbar on the page
 function setupDiagramToolbars() {
   if (typeof document === 'undefined') return
   
@@ -124,14 +197,11 @@ function setupDiagramToolbars() {
     if (el.dataset.toolbarAttached) return
     el.dataset.toolbarAttached = 'true'
 
-    // Create diagram container wrapper
     el.classList.add('mermaid-diagram-card')
 
-    // Create action toolbar
     const toolbar = document.createElement('div')
     toolbar.className = 'diagram-card-toolbar'
 
-    // Fullscreen button
     const expandBtn = document.createElement('button')
     expandBtn.className = 'diagram-toolbar-btn'
     expandBtn.title = 'Open Fullscreen Zoom & Pan'
@@ -148,7 +218,6 @@ function setupDiagramToolbars() {
     toolbar.appendChild(expandBtn)
     el.appendChild(toolbar)
 
-    // Clicking anywhere on the diagram also opens fullscreen inspection
     el.addEventListener('click', (e) => {
       const target = e.target as HTMLElement
       if (target.closest('.diagram-card-toolbar')) return
@@ -230,9 +299,10 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Modal Viewport Canvas -->
+    <!-- Modal Viewport Canvas with direct backdrop click dismiss -->
     <div
       class="modal-canvas-viewport"
+      @click="handleViewportClick"
       @wheel="handleWheel"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"
@@ -266,6 +336,7 @@ onUnmounted(() => {
   inset: 0;
   background: rgba(5, 7, 10, 0.94);
   backdrop-filter: blur(12px);
+  cursor: pointer;
 }
 
 .modal-header-toolbar {
