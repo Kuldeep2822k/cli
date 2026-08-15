@@ -1,12 +1,12 @@
 # Dependency Graph Engine
 Relevant source files
 
-- [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/cli/validate.ts)
-- [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts)
-- [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/index.ts)
-- [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/sm2.ts)
-- [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/test/engine-dependency.test.ts)
-- [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/test/engine-sm2.test.ts)
+- [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
+- [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
+- [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
+- [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
+- [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
+- [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 
 The Dependency Graph Engine is a core component of the PALEE engine layer responsible for modeling and validating the relationships between learning topics. It treats the curriculum as a Directed Acyclic Graph (DAG) where nodes represent topics and edges represent prerequisite requirements.
 
@@ -22,8 +22,8 @@ The engine represents the vault's structure using the `TopicNode` interface. Thi
 
 Sources:
 
-- `TopicNode` definition: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L6-L6))
-- Usage in graph: [src/engine/dependency.ts#10](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L10-L10)
+- `TopicNode` definition: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L6-L6))
+- Usage in graph: [src/engine/dependency.ts#10](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L10)
 
 ---
 
@@ -35,12 +35,12 @@ The engine uses a Mastery Threshold (defaulting to `0.7` or 70%) to determine if
 
 This function evaluates a specific `TopicNode` against the global map of topics. It returns `false` if:
 
-1. A dependency ID is missing from the graph (broken link) [src/engine/dependency.ts#54-56](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L54-L56)
-2. A dependency's `topic_mastery` is below the `threshold`[src/engine/dependency.ts#58-61](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L58-L61)
+1. A dependency ID is missing from the graph (broken link) [src/engine/dependency.ts#54-56](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L54-L56)
+2. A dependency's `topic_mastery` is below the `threshold`[src/engine/dependency.ts#58-61](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L58-L61)
 
 ### `getReadyTopics`
 
-This function filters the entire vault to find topics suitable for the next learning session. It excludes topics that are already mastered (>= threshold) and those with unsatisfied dependencies [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L67-L83)
+This function filters the entire vault to find topics suitable for the next learning session. It excludes topics that are already mastered (>= threshold) and those with unsatisfied dependencies [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83)
 
 ### Data Flow: Natural Language to Code Entities
 
@@ -76,7 +76,7 @@ flowchart TD
 
 Sources:
 
-- Logic implementation: [src/engine/dependency.ts#49-83](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L49-L83)
+- Logic implementation: [src/engine/dependency.ts#49-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L49-L83)
 
 ---
 
@@ -88,16 +88,16 @@ To maintain a valid Directed Acyclic Graph (DAG), the engine must ensure there a
 
 The `detectCycle` function implements a Depth-First Search (DFS) algorithm using three distinct states to track traversal:
 
-1. `visiting` Set: Tracks nodes in the current recursion stack. If a node already in this set is encountered, a cycle exists [src/engine/dependency.ts#16-20](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L16-L20)
-2. `visited` Set: Tracks nodes that have been fully processed to avoid redundant work [src/engine/dependency.ts#21](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L21-L21)
-3. `pathStack`: An array used to reconstruct the exact path of the cycle for error reporting [src/engine/dependency.ts#13](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L13-L13)
+1. `visiting` Set: Tracks nodes in the current recursion stack. If a node already in this set is encountered, a cycle exists [src/engine/dependency.ts#16-20](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L16-L20)
+2. `visited` Set: Tracks nodes that have been fully processed to avoid redundant work [src/engine/dependency.ts#21](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L21-L21)
+3. `pathStack`: An array used to reconstruct the exact path of the cycle for error reporting [src/engine/dependency.ts#13](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L13-L13)
 
 ### `validateDependencyGraph`
 
 This is the primary entry point for vault integrity checks. It aggregates two types of `ValidationError`:
 
-- `missing_dependency`: Triggered when a `palee_id` listed in `depends_on` does not exist in the vault [src/engine/dependency.ts#92-101](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L92-L101)
-- `cycle`: Triggered if `detectCycle` returns a non-null path [src/engine/dependency.ts#104-111](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L104-L111)
+- `missing_dependency`: Triggered when a `palee_id` listed in `depends_on` does not exist in the vault [src/engine/dependency.ts#92-101](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L92-L101)
+- `cycle`: Triggered if `detectCycle` returns a non-null path [src/engine/dependency.ts#104-111](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L104-L111)
 
 ### Data Flow: Validation Pipeline
 
@@ -126,9 +126,9 @@ flowchart LR
 
 Sources:
 
-- Cycle detection logic: [src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L10-L47)
-- Validation logic: [src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L85-L117)
-- CLI integration: [src/cli/validate.ts#64-65](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/cli/validate.ts#L64-L65)
+- Cycle detection logic: [src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L47)
+- Validation logic: [src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L85-L117)
+- CLI integration: [src/cli/validate.ts#64-65](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L64-L65)
 
 ---
 
@@ -144,5 +144,5 @@ When the engine detects issues, it returns a `ValidationResult` containing `Vali
 
 Sources:
 
-- Error types: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/engine/dependency.ts#L6-L6))
-- CLI formatting: [src/cli/validate.ts#90-100](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/cli/validate.ts#L90-L100)
+- Error types: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L6-L6))
+- CLI formatting: [src/cli/validate.ts#90-100](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L90-L100)

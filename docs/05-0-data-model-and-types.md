@@ -1,10 +1,10 @@
-﻿# Data Model and Types
+# Data Model and Types
 Relevant source files
 
-- [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/cli/adopt.ts)
-- [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/index.ts)
-- [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts)
-- [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/test/types-difficulty.test.ts)
+- [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
+- [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/index.ts)
+- [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
 This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types are defined in `src/types.ts`[[src/types.ts:1-233]]().
 
@@ -46,7 +46,7 @@ flowchart LR
     E --> G
 ```
 
-Sources: [src/types.ts#3-164](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L3-L164)
+Sources: [src/types.ts#3-164](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L164)
 
 ---
 
@@ -60,7 +60,7 @@ The learning model is centered around the `Topic` interface, which represents th
 
 For details on how these fields are used in the SRS algorithm and frontmatter, see [Topic and Assessment Schema](./05-1-topic-and-assessment-schema.md).
 
-Sources: [src/types.ts#3-59](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L3-L59)
+Sources: [src/types.ts#3-59](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L59)
 
 ---
 
@@ -76,7 +76,7 @@ PALEE uses a strict `Difficulty` union type: `'beginner' | 'intermediate' | 'adv
 | Numeric | `4`, `5` or `"4"`, `"5"` | `'advanced'` |
 | Fallback | `null`, `undefined`, "expert" | `'intermediate'` |
 
-Sources: [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L29-L47)[test/types-difficulty.test.ts#14-50](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/test/types-difficulty.test.ts#L14-L50)
+Sources: [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)[test/types-difficulty.test.ts#14-50](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L14-L50)
 
 ---
 
@@ -88,7 +88,7 @@ Session management tracks active learning periods and persists "hot" working mem
 - HotMemoryData: Represents the state stored in `.palee/hot.md`, tracking the current `active_topic` and `last_session`[[src/types.ts:78-84]]().
 - LockData: Used by the locking mechanism to prevent concurrent vault modifications, tracking `pid` and `hostname`[[src/types.ts:112-118]]().
 
-Sources: [src/types.ts#78-118](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L78-L118)
+Sources: [src/types.ts#78-118](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L78-L118)
 
 ---
 
@@ -103,7 +103,7 @@ These types support the internal workings of the storage layer and the command-l
 
 For details on configuration paths and CLI flags, see [Configuration and CLI Option Types](./05-2-configuration-and-cli-option-types.md).
 
-Sources: [src/types.ts#104-206](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L104-L206)
+Sources: [src/types.ts#104-206](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L206)
 
 ---
 
@@ -132,4 +132,4 @@ flowchart LR
     TN --> VE
 ```
 
-Sources: [src/types.ts#142-164](https://github.com/Kuldeep2822k/cli/blob/e8b70e0d/src/types.ts#L142-L164)
+Sources: [src/types.ts#142-164](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L142-L164)
