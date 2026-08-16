@@ -32,7 +32,7 @@ export function resolveNoteTitle(
   parsedFrontmatter?: Record<string, unknown> | null
 ): string {
   let frontmatter = parsedFrontmatter;
-  let bodyContent = content;
+  let bodyContent: string;
 
   if (frontmatter === undefined) {
     const parsed = parseFrontmatter(content);
