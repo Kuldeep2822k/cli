@@ -141,6 +141,64 @@ topics:
     assert.strictEqual(parsed.frontmatter!.repetition, 5); // Should be preserved
   });
 
+  test('roadmap command imports from Markdown files with frontmatter and code blocks', () => {
+    const mdVault = path.join(tempDir, 'md-roadmap-vault');
+    fs.mkdirSync(mdVault, { recursive: true });
+    runCLI(['config', 'set-vault', mdVault]);
+
+    // 1. Test frontmatter roadmap in Markdown
+    const mdFrontmatterRoadmap = path.join(tempDir, 'roadmap-frontmatter.md');
+    fs.writeFileSync(mdFrontmatterRoadmap, `---
+title: Fullstack Path
+topics:
+  - id: R-md-1
+    title: TypeScript Advanced
+    path: ts-advanced.md
+    difficulty: advanced
+---
+
+# Fullstack Roadmap
+Detailed notes here...
+`);
+
+    const result1 = runCLI(['roadmap', '--from', mdFrontmatterRoadmap, '--yes']);
+    assert.strictEqual(result1.status, 0, `Command failed: ${result1.stderr}`);
+    assert.match(result1.stdout, /Roadmap imported successfully/);
+
+    const tsNotePath = path.join(mdVault, 'ts-advanced.md');
+    assert.ok(fs.existsSync(tsNotePath));
+    const tsParsed = parseFrontmatter(fs.readFileSync(tsNotePath, 'utf8'));
+    assert.strictEqual(tsParsed.frontmatter!.palee_id, 'R-md-1');
+    assert.strictEqual(tsParsed.frontmatter!.difficulty, 'advanced');
+
+    // 2. Test embedded YAML codeblock roadmap in Markdown
+    const mdCodeBlockRoadmap = path.join(tempDir, 'roadmap-codeblock.md');
+    fs.writeFileSync(mdCodeBlockRoadmap, `# Cloud Architecture
+
+\`\`\`yaml
+topics:
+  - id: R-md-2
+    title: Serverless Microservices
+    path: cloud/serverless.md
+    difficulty: intermediate
+    depends_on: [R-md-1]
+\`\`\`
+`);
+
+    const result2 = runCLI(['roadmap', '--from', mdCodeBlockRoadmap, '--yes']);
+    assert.strictEqual(result2.status, 0, `Command failed: ${result2.stderr}`);
+    assert.match(result2.stdout, /Roadmap imported successfully/);
+
+    const cloudNotePath = path.join(mdVault, 'cloud', 'serverless.md');
+    assert.ok(fs.existsSync(cloudNotePath));
+    const cloudParsed = parseFrontmatter(fs.readFileSync(cloudNotePath, 'utf8'));
+    assert.strictEqual(cloudParsed.frontmatter!.palee_id, 'R-md-2');
+    assert.deepStrictEqual(cloudParsed.frontmatter!.depends_on, ['R-md-1']);
+
+    // Restore vaultDir
+    runCLI(['config', 'set-vault', vaultDir]);
+  });
+
   test('review command updates SM2 fields but preserves mastery', () => {
     // Review R-1
     const result = runCLI(['review', 'R-1', '4']);
