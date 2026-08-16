@@ -5,14 +5,13 @@
 
 import fs from 'fs';
 import path from 'path';
-import yaml from 'yaml';
 import { loadConfig } from './config';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { parseRoadmapContent } from '../storage/roadmap-parser';
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { detectCycle } from '../engine/dependency';
-import { RoadmapOptions, RoadmapFile, TopicNode } from '../types';
+import { RoadmapOptions, TopicNode } from '../types';
 import readline from 'readline';
 
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
