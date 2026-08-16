@@ -20,34 +20,36 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
 
   // 1. If it's a Markdown file or contains frontmatter delimiters, try frontmatter first
   if (isMdFile || rawContent.trimStart().startsWith('---')) {
+    const fmResult = parseFrontmatter(rawContent);
+    if (fmResult.error) {
+      return {
+        roadmap: null,
+        error: `Invalid frontmatter YAML: ${fmResult.error}`,
+      };
+    }
+    if (fmResult.frontmatter && Array.isArray(fmResult.frontmatter.topics)) {
+      return {
+        roadmap: { topics: fmResult.frontmatter.topics as RoadmapTopic[] },
+        format: 'frontmatter',
+      };
+    }
+  }
+
+  // 2. Try Embedded YAML Code Blocks (supports whitespace or info strings after language tag)
+  const codeBlockRegex = /```(?:ya?ml)[^\n\r]*\r?\n([\s\S]*?)\r?\n```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = codeBlockRegex.exec(rawContent)) !== null) {
+    const codeBlockContent = match[1];
     try {
-      const { frontmatter } = parseFrontmatter(rawContent);
-      if (frontmatter && Array.isArray(frontmatter.topics)) {
+      const parsed = yaml.parse(codeBlockContent);
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
         return {
-          roadmap: { topics: frontmatter.topics as RoadmapTopic[] },
-          format: 'frontmatter',
+          roadmap: parsed as RoadmapFile,
+          format: 'codeblock',
         };
       }
     } catch {
-      // Continue to next format check
-    }
-
-    // 2. Try Embedded YAML Code Blocks in Markdown
-    const codeBlockRegex = /```(?:ya?ml)\r?\n([\s\S]*?)\r?\n```/gi;
-    let match: RegExpExecArray | null;
-    while ((match = codeBlockRegex.exec(rawContent)) !== null) {
-      const codeBlockContent = match[1];
-      try {
-        const parsed = yaml.parse(codeBlockContent);
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
-          return {
-            roadmap: parsed as RoadmapFile,
-            format: 'codeblock',
-          };
-        }
-      } catch {
-        // Continue searching other code blocks
-      }
+      // Continue searching other code blocks
     }
   }
 
@@ -69,25 +71,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
     }
   }
 
-  // 4. If not resolved yet, check code blocks in any text format
-  const codeBlockRegex = /```(?:ya?ml)\r?\n([\s\S]*?)\r?\n```/gi;
-  let match: RegExpExecArray | null;
-  while ((match = codeBlockRegex.exec(rawContent)) !== null) {
-    const codeBlockContent = match[1];
-    try {
-      const parsed = yaml.parse(codeBlockContent);
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
-        return {
-          roadmap: parsed as RoadmapFile,
-          format: 'codeblock',
-        };
-      }
-    } catch {
-      // Continue
-    }
-  }
-
-  // 5. Fallback: No valid topics array found
+  // 4. Fallback: No valid topics array found
   return {
     roadmap: null,
     error: 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]',

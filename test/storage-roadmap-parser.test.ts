@@ -120,6 +120,36 @@ Some random content.
     assert.match(result.error, /Markdown YAML Code Block/);
   });
 
+  test('parses code blocks with trailing whitespace and info-strings', () => {
+    const mdWithExtra = `# Info String Roadmap
+
+\`\`\`yaml   title="DevOps"
+topics:
+  - id: T-info-01
+    title: Info String Parsing
+    path: info.md
+\`\`\`
+`;
+    const result = parseRoadmapContent(mdWithExtra, 'info.md');
+    assert.strictEqual(result.format, 'codeblock');
+    assert.ok(result.roadmap);
+    assert.strictEqual(result.roadmap.topics.length, 1);
+    assert.strictEqual(result.roadmap.topics[0].id, 'T-info-01');
+  });
+
+  test('returns clear error when frontmatter has invalid YAML syntax', () => {
+    const invalidFm = `---
+topics: [broken yaml
+---
+
+# Title
+`;
+    const result = parseRoadmapContent(invalidFm, 'broken-fm.md');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.error);
+    assert.match(result.error, /Invalid frontmatter YAML/);
+  });
+
   test('returns clear error for invalid pure YAML syntax', () => {
     const brokenYaml = `
 topics:
