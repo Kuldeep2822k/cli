@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
+import { resolveNoteTitle } from '../src/cli/adopt';
 
 describe('CLI Adopt Batch Integration Tests', () => {
   let tempDir: string;
@@ -31,15 +32,15 @@ describe('CLI Adopt Batch Integration Tests', () => {
     fs.mkdirSync(path.join(vaultDir, 'MODULES', '02-linux'), { recursive: true });
     fs.writeFileSync(
       path.join(vaultDir, 'MODULES', '02-linux', '01-processes.md'),
-      `---\ntitle: Linux Processes\ntags:\n  - type/concept\n---\n# Linux Processes\n`
+      `---\ntags:\n  - type/concept\n---\n# Linux Process Deep Dive\n`
     );
     fs.writeFileSync(
       path.join(vaultDir, 'MODULES', '02-linux', 'lab-01-triage.md'),
-      `---\ntitle: Linux Triage Lab\ntags:\n  - type/lab\n---\n# Triage Lab\n`
+      `# Linux Triage Lab\n\nSome lab content without frontmatter.`
     );
     fs.writeFileSync(
       path.join(vaultDir, 'MODULES', '02-linux', 'rubric.md'),
-      `---\ntitle: Rubric\ntags:\n  - type/rubric\n---\n# Rubric\n`
+      `---\ntags:\n  - type/rubric\n---\n`
     );
 
     // PROJECTS/
@@ -71,6 +72,24 @@ describe('CLI Adopt Batch Integration Tests', () => {
     }
   }
 
+  test('resolveNoteTitle helper extracts title from frontmatter, H1 heading, or filename', () => {
+    // 1. Frontmatter title
+    assert.strictEqual(
+      resolveNoteTitle('---\ntitle: My Frontmatter Title\n---\n# Ignored H1\n', 'path/to/file.md'),
+      'My Frontmatter Title'
+    );
+    // 2. H1 heading in body
+    assert.strictEqual(
+      resolveNoteTitle('<!-- comment -->\n```ts\n# not h1\n```\n# Extracted H1 Title\n\nBody', 'path/to/file.md'),
+      'Extracted H1 Title'
+    );
+    // 3. Filename fallback
+    assert.strictEqual(
+      resolveNoteTitle('No headings here\nJust text', 'path/to/fallback-name.md'),
+      'fallback-name'
+    );
+  });
+
   test('palee adopt --dry-run previews adoption without modifying any files', () => {
     const result = runCLI(['adopt', '--all', '--dry-run', '--verbose']);
     assert.strictEqual(result.status, 0);
@@ -88,16 +107,33 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.match(result.stderr, /Non-interactive environment\. Use -y or --yes/);
   });
 
-  test('palee adopt <directory> scopes adoption strictly to the subtree', () => {
+  test('palee adopt rejects path escaping vault with code 2', () => {
+    const result = runCLI(['adopt', '../outside', '--yes']);
+    assert.strictEqual(result.status, 2);
+  });
+
+  test('palee adopt <directory> scopes adoption strictly and resolves titles with fallbacks', () => {
     const result = runCLI(['adopt', 'MODULES/02-linux', '--difficulty', 'beginner', '--yes']);
     assert.strictEqual(result.status, 0, `Command failed: ${result.stderr}`);
     assert.match(result.stdout, /Successfully adopted 3 notes/);
 
     // Verify 02-linux notes were adopted with difficulty=beginner
-    const linuxNote = path.join(vaultDir, 'MODULES', '02-linux', '01-processes.md');
-    const parsedLinux = parseFrontmatter(fs.readFileSync(linuxNote, 'utf8'));
-    assert.ok(parsedLinux.frontmatter?.palee_id);
-    assert.strictEqual(parsedLinux.frontmatter?.difficulty, 'beginner');
+    const procNote = path.join(vaultDir, 'MODULES', '02-linux', '01-processes.md');
+    const parsedProc = parseFrontmatter(fs.readFileSync(procNote, 'utf8'));
+    assert.ok(parsedProc.frontmatter?.palee_id);
+    assert.strictEqual(parsedProc.frontmatter?.difficulty, 'beginner');
+    // Title resolved from H1
+    assert.strictEqual(parsedProc.frontmatter?.title, 'Linux Process Deep Dive');
+
+    // Title resolved from H1 on note with no prior frontmatter
+    const triageNote = path.join(vaultDir, 'MODULES', '02-linux', 'lab-01-triage.md');
+    const parsedTriage = parseFrontmatter(fs.readFileSync(triageNote, 'utf8'));
+    assert.strictEqual(parsedTriage.frontmatter?.title, 'Linux Triage Lab');
+
+    // Title resolved from filename for rubric.md
+    const rubricNote = path.join(vaultDir, 'MODULES', '02-linux', 'rubric.md');
+    const parsedRubric = parseFrontmatter(fs.readFileSync(rubricNote, 'utf8'));
+    assert.strictEqual(parsedRubric.frontmatter?.title, 'rubric');
 
     // Verify 01-foundations notes were NOT adopted
     const foundNote = path.join(vaultDir, 'MODULES', '01-foundations', '01-systems.md');
@@ -127,10 +163,17 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(parseFrontmatter(fs.readFileSync(tmplNote, 'utf8')).frontmatter?.palee_id, undefined);
   });
 
-  test('palee adopt --all adopts remaining unadopted markdown files with confirmation bypass (-y)', () => {
-    const result = runCLI(['adopt', '--all', '-y']);
+  test('palee adopt with --include and --exclude handles glob patterns', () => {
+    const result = runCLI(['adopt', '--all', '--include', '**/*.md', '--exclude', '*template*', '-y']);
     assert.strictEqual(result.status, 0, `Command failed: ${result.stderr}`);
-    assert.match(result.stdout, /Already Adopted:\s+4 notes/);
-    assert.match(result.stdout, /Successfully adopted 2 notes/);
+    assert.match(result.stdout, /Successfully adopted 1 notes/);
+
+    // Project 1 note should be adopted
+    const projNote = path.join(vaultDir, 'PROJECTS', 'project-01.md');
+    assert.ok(parseFrontmatter(fs.readFileSync(projNote, 'utf8')).frontmatter?.palee_id);
+
+    // Template note was excluded
+    const tmplNote = path.join(vaultDir, 'MODULES', '01-foundations', 'runbook-template.md');
+    assert.strictEqual(parseFrontmatter(fs.readFileSync(tmplNote, 'utf8')).frontmatter?.palee_id, undefined);
   });
 });

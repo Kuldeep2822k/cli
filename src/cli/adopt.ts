@@ -20,6 +20,69 @@ function generateTopicId(): string {
   return `T-${timestamp}-${random}`;
 }
 
+/**
+ * Resolves the display title for a Markdown note:
+ * 1. Usable frontmatter `title` field (if defined and non-empty)
+ * 2. First level-1 heading (`# Title`) in Markdown body
+ * 3. Filename fallback (basename without .md extension)
+ */
+export function resolveNoteTitle(
+  content: string,
+  filePath?: string,
+  parsedFrontmatter?: Record<string, unknown> | null
+): string {
+  let frontmatter = parsedFrontmatter;
+  let bodyContent = content;
+
+  if (frontmatter === undefined) {
+    const parsed = parseFrontmatter(content);
+    frontmatter = parsed.frontmatter;
+    bodyContent = parsed.body;
+  } else {
+    bodyContent = content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/, '');
+  }
+
+  // Tier 1: Existing frontmatter title
+  if (frontmatter && frontmatter.title !== undefined && frontmatter.title !== null) {
+    if (typeof frontmatter.title === 'string') {
+      const cleanFmTitle = frontmatter.title.replace(/\r?\n/g, ' ').trim();
+      if (cleanFmTitle.length > 0) {
+        return cleanFmTitle;
+      }
+    } else if (typeof frontmatter.title === 'number' || typeof frontmatter.title === 'boolean') {
+      const cleanFmTitle = String(frontmatter.title).trim();
+      if (cleanFmTitle.length > 0) {
+        return cleanFmTitle;
+      }
+    }
+  }
+
+  // Tier 2: First H1 heading (# Title) in body
+  // Strip HTML comments
+  let sanitizedBody = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
+  // Strip fenced code blocks (``` and ~~~)
+  sanitizedBody = sanitizedBody.replace(/(?:```|~~~)[^`~]*?\r?\n[\s\S]*?\r?\n\s*(?:```|~~~)/g, '');
+
+  const h1Match = sanitizedBody.match(/^[ \t]{0,3}#[ \t]+([^#\r\n].*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/m);
+  if (h1Match && h1Match[1]) {
+    const cleanH1 = h1Match[1].trim();
+    if (cleanH1.length > 0) {
+      return cleanH1;
+    }
+  }
+
+  // Tier 3: Filename fallback
+  if (filePath) {
+    const ext = path.extname(filePath);
+    const basename = path.basename(filePath, ext);
+    if (basename.trim().length > 0) {
+      return basename.trim();
+    }
+  }
+
+  return 'Untitled';
+}
+
 async function promptConfirmation(message: string): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -40,6 +103,26 @@ interface StagedNote {
   relativePath: string;
   content: string;
   fingerprint: string;
+}
+
+interface RollbackRecord {
+  absolutePath: string;
+  relativePath: string;
+  originalContent: string;
+}
+
+async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Promise<void> {
+  if (journal.length === 0) return;
+
+  console.error('\nRolling back adopted notes...');
+  for (const item of [...journal].reverse()) {
+    try {
+      await atomicWrite(vaultPath, item.absolutePath, item.originalContent);
+    } catch (err: unknown) {
+      const e = err as Error;
+      console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
+    }
+  }
 }
 
 async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
@@ -99,9 +182,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         : [];
 
       const topicId = generateTopicId();
+      const title = resolveNoteTitle(content, absolutePath, frontmatter);
+
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
+        title,
         difficulty,
         depends_on: dependsOn,
         topic_mastery: 0.0,
@@ -125,6 +211,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
 
       console.log(`✓ Adopted as topic ${topicId}`);
+      console.log(`  Title: ${title}`);
       console.log(`  Path: ${targetPath}`);
       console.log(`  Difficulty: ${difficulty}`);
       if (dependsOn.length > 0) {
@@ -212,7 +299,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     }
 
     // Display summary preview
-    const scanLabel = targetPath ? targetPath : '(Entire Vault)';
+    const scanLabel = targetPath ? targetPath.replace(/\\/g, '/') : '(Entire Vault)';
     console.log('=== PALEE Batch Adoption ===');
     console.log(`Scope:            ${scanLabel}`);
     console.log(`Total Scanned:    ${allFiles.length} files`);
@@ -270,13 +357,31 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
     }
 
-    // Execute atomic batch writes
-    let adoptedCount = 0;
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 1: Preflight & Preparation
+    // ─────────────────────────────────────────────────────────────────
+    interface PreparedBatchItem {
+      absolutePath: string;
+      relativePath: string;
+      originalContent: string;
+      fingerprint: string;
+      updatedContent: string;
+    }
+
+    const preparedBatch: PreparedBatchItem[] = [];
     for (const note of toAdopt) {
+      // Re-read fresh content to minimize TOCTOU window
+      const freshContent = fs.readFileSync(note.absolutePath, 'utf8');
+      const freshFingerprint = computeFingerprint(freshContent);
+      const { frontmatter } = parseFrontmatter(freshContent);
+
       const topicId = generateTopicId();
+      const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
+
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
+        title,
         difficulty,
         depends_on: [],
         topic_mastery: 0.0,
@@ -294,13 +399,38 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         due_at: null,
       };
 
-      const updatedContent = updateFrontmatter(note.content, paleeData);
-      await atomicWrite(vaultPath, note.absolutePath, updatedContent, note.fingerprint);
-      adoptedCount++;
+      const updatedContent = updateFrontmatter(freshContent, paleeData);
+      preparedBatch.push({
+        absolutePath: note.absolutePath,
+        relativePath: note.relativePath,
+        originalContent: freshContent,
+        fingerprint: freshFingerprint,
+        updatedContent,
+      });
     }
 
-    console.log(`\n✓ Successfully adopted ${adoptedCount} notes into PALEE.`);
-    process.exit(0);
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 2: Execution with Rollback Journal
+    // ─────────────────────────────────────────────────────────────────
+    const journal: RollbackRecord[] = [];
+    try {
+      for (const item of preparedBatch) {
+        await atomicWrite(vaultPath, item.absolutePath, item.updatedContent, item.fingerprint);
+        journal.push({
+          absolutePath: item.absolutePath,
+          relativePath: item.relativePath,
+          originalContent: item.originalContent,
+        });
+      }
+
+      console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
+      process.exit(0);
+    } catch (writeErr: unknown) {
+      const err = writeErr as Error;
+      console.error(`\nBatch adoption write error: ${err.message}`);
+      await rollbackBatch(vaultPath, journal);
+      process.exit(5);
+    }
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);

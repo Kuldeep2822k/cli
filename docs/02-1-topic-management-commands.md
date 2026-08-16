@@ -55,11 +55,11 @@ PALEE provides granular filtering and preview capabilities to prevent adopting u
 
 When `adoptCommand` is invoked, it performs several safety and normalization steps:
 
-1. **Vault Validation**: Ensures the target file or directory exists and does not escape the configured `vaultPath` using `fs.realpathSync` to resolve symlinks [src/cli/adopt.ts#40-45](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L40-L45)
-2. **Idempotent Handling**: In batch mode, notes that already contain a `palee_id` are safely counted as "Already Adopted" and skipped without errors [src/cli/adopt.ts#175-180](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L175-L180)
-3. **Pattern & Tag Matching**: Evaluates note paths against `--include`/`--exclude` glob rules and frontmatter `tags` arrays using zero-dependency matching utilities [src/storage/pattern-matcher.ts#48-112](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L48-L112)
-4. **Difficulty Normalization**: Converts raw input (e.g., "1", "Beginner", "advanced") into a canonical `Difficulty` enum ('beginner', 'intermediate', 'advanced') using `normalizeDifficulty` [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)
-5. **Atomic Frontmatter Injection**: Injects `palee_id` (`T-YYYYMMDDTHHMMSS-xxxx`), difficulty, and initial SM-2 defaults (Ease Factor: 2.5, Interval: 1 day) using `atomicWrite` [src/storage/atomic-write.ts#1-20](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L1-L20)
+1. **Vault Validation**: Ensures the target file or directory exists and does not escape the configured `vaultPath` using `fs.realpathSync` to resolve symlinks [src/cli/adopt.ts#110-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L110-L115)
+2. **Title Resolution**: Resolves a display title using 3-tier precedence: (1) existing frontmatter `title`, (2) first level-1 heading `# Title` in body (ignoring code fences and HTML comments), (3) filename basename fallback [src/cli/adopt.ts#27-75](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L27-L75)
+3. **Idempotent Handling**: In batch mode, notes that already contain a `palee_id` are safely counted as "Already Adopted" and skipped without errors [src/cli/adopt.ts#220-225](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L220-L225)
+4. **Pattern & Tag Matching**: Evaluates note paths against `--include`/`--exclude` glob rules (with root recursion `**/*.md`, infix wildcards, and character classes) and frontmatter `tags` arrays (with 3-tier tag hierarchy matching and `#` normalization) [src/storage/pattern-matcher.ts#1-160](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L160)
+5. **Two-Phase Atomic Execution & Rollback Journal**: In batch mode, re-reads notes to capture fresh fingerprints and pre-computes transformations (Phase 1), then commits updates sequentially while maintaining a rollback journal (Phase 2). If any write fails, previously adopted notes in the batch are automatically restored to their original state [src/cli/adopt.ts#300-340](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L300-L340)
 
 ### Data Flow: Batch and Single Note Adoption
 
@@ -84,9 +84,11 @@ flowchart TD
     L -->|"Active Mode"| N{"User Confirmation (y/N)"}
     
     N -->|"Declined (N)"| O["Print 'Aborted.' & Exit 0"]
-    N -->|"Confirmed (Y)"| P["Atomic Batch Writer (atomicWrite)"]
-    P --> Q["Inject palee_id & SM-2 Defaults (Exit 0)"]
-    C --> P
+    N -->|"Confirmed (Y)"| P["Phase 1: Preflight & Fresh Fingerprints"]
+    P --> Q["Phase 2: Atomic Batch Writer + Rollback Journal"]
+    Q -->|"Success"| R["Inject palee_id & SM-2 Defaults (Exit 0)"]
+    Q -->|"Write Error"| S["Rollback Journal Restoration (Exit 5)"]
+    C --> R
 ```
 
 Sources: [src/cli/adopt.ts#1-250](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L1-L250)[src/storage/pattern-matcher.ts#1-112](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L112)[src/types.ts#165-178](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L165-L178)
