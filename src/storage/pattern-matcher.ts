@@ -259,7 +259,7 @@ export function validatePattern(patterns: string | string[]): void {
       globToRegex(trimmed);
     } catch (err: unknown) {
       const e = err as Error;
-      throw new Error(`Invalid glob pattern "${pattern}": ${e.message}`);
+      throw new Error(`Invalid glob pattern "${pattern}": ${e.message}`, { cause: err });
     }
   }
 }

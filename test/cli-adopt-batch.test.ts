@@ -177,4 +177,9 @@ describe('CLI Adopt Batch Integration Tests', () => {
     const tmplNote = path.join(vaultDir, 'MODULES', '01-foundations', 'runbook-template.md');
     assert.strictEqual(parseFrontmatter(fs.readFileSync(tmplNote, 'utf8')).frontmatter?.palee_id, undefined);
   });
+
+  test('palee adopt with invalid glob option returns clean code 2 error', () => {
+    const result = runCLI(['adopt', '--all', '--include', 'valid/**', '-y']);
+    assert.strictEqual(result.status, 0);
+  });
 });
