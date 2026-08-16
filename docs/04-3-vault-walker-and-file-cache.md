@@ -4,11 +4,13 @@ Relevant source files
 - [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
 - [src/storage/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/index.ts)
 - [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
+- [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
 - [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
 - [test/storage-atomic-write.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts)
 - [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
 - [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)
 - [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
+- [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 
 The storage subsystem relies on efficient discovery of Markdown files and a robust caching mechanism to ensure performance during large-scale vault operations. The `Vault Walker` provides a filtered recursive traversal of the Obsidian vault, while the `File Cache` implements a validation logic designed to handle rapid edit cycles without sacrificing data integrity.
@@ -128,3 +130,32 @@ Sources: [src/storage/cache.ts#13-80](https://github.com/Kuldeep2822k/cli/blob/m
 | `clear()` | Flushes all entries from the cache [src/storage/cache.ts#101-103](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L101-L103) |
 
 Sources: [src/storage/cache.ts#13-104](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L13-L104)
+
+---
+
+## Pattern Matcher and Tag Filter Engine
+
+The zero-dependency pattern matching utility (`src/storage/pattern-matcher.ts`) provides high-performance glob and metadata filtering for batch commands such as `palee adopt` [src/storage/pattern-matcher.ts#1-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L265)
+
+### Glob Translation Rules
+
+The `globToRegex` function converts standard glob strings into compiled regular expressions:
+
+- Root-Level and Recursive Matching: Leading `**/` expands to `(?:.*/)?`, allowing `**/*.md` to match root notes (e.g. `README.md`) as well as nested notes [src/storage/pattern-matcher.ts#67-75](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L67-L75)
+- Infix and Trailing Wildcards: Middle `/**/` matches zero or more intermediate directory levels (`/(?:.*/)?`), and suffix `/**` matches a directory subtree [src/storage/pattern-matcher.ts#76-88](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L76-L88)
+- Character Classes and Negation: Translates `[0-9]` and `[!0-9]` (or `[^0-9]`) with safe bracket escaping [src/storage/pattern-matcher.ts#30-46](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L30-L46)
+- Path Normalization: Automatically converts Windows backslashes (`\`) to forward slashes (`/`) [src/storage/pattern-matcher.ts#16-19](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L16-L19)
+
+### Frontmatter Tag Matching
+
+The `matchesTags` function extracts tags from YAML arrays (`tags: [a, b]`) or comma/whitespace-separated strings (`tags: "a, b"`), normalizes `#` prefixes, and performs 3-tier hierarchical matching [src/storage/pattern-matcher.ts#178-245](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L178-L245):
+
+1. Exact Match: Target `type/concept` matches note tag `type/concept`
+2. Prefix Match: Target `type` matches note tag `type/concept`
+3. Infix & Suffix Match: Target `cloud` or `aws` matches nested tag `domain/cloud/aws`
+
+### Early Validation
+
+The `validatePattern` function prevalidates `--include` and `--exclude` options before scanning begins, preventing syntax errors from causing unhandled runtime failures [src/storage/pattern-matcher.ts#250-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L250-L265)
+
+Sources: [src/storage/pattern-matcher.ts#1-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L265)[test/storage-pattern-matcher.test.ts#1-118](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts#L1-L118)
