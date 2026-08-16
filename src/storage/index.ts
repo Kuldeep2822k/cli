@@ -24,10 +24,16 @@ import {
   MAX_HOT_WORDS,
 } from './memory';
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
+import { matchesPattern, matchesTags, extractTags } from './pattern-matcher';
 
 export {
   // Vault operations
   walkVault,
+
+  // Pattern and Tag Matching
+  matchesPattern,
+  matchesTags,
+  extractTags,
 
   // Roadmap operations
   parseRoadmapContent,

@@ -168,6 +168,13 @@ export interface TopicNode {
 export interface AdoptOptions {
   difficulty?: Difficulty;
   dependsOn?: string;
+  all?: boolean;
+  include?: string;
+  exclude?: string;
+  tag?: string;
+  dryRun?: boolean;
+  verbose?: boolean;
+  yes?: boolean;
 }
 
 export interface NextOptions {

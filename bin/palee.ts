@@ -37,10 +37,17 @@ program
 // palee adopt
 program
   .command('adopt')
-  .description('Adopt an existing note as a PALEE topic')
-  .argument('<path>', 'Path to markdown file relative to vault root')
+  .description('Adopt existing notes as PALEE topics')
+  .argument('[path]', 'Path to markdown file or directory relative to vault root')
+  .option('--all', 'Adopt all markdown files across the vault')
   .option('--difficulty <level>', 'Difficulty: beginner, intermediate, advanced')
-  .option('--depends-on <ids>', 'Comma-separated topic IDs')
+  .option('--depends-on <ids>', 'Comma-separated topic IDs (single-file mode only)')
+  .option('--include <patterns>', 'Comma-separated inclusion glob patterns')
+  .option('--exclude <patterns>', 'Comma-separated exclusion glob patterns')
+  .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter')
+  .option('--dry-run', 'Simulate adoption and print summary without modifying files')
+  .option('--verbose', 'Print detailed file-by-file inspection list')
+  .option('-y, --yes', 'Skip confirmation prompt')
   .action(adoptCommand);
 
 // palee next
