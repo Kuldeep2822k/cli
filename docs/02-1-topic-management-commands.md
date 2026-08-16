@@ -6,57 +6,95 @@ Relevant source files
 - [src/cli/migrate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts)
 - [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
 - [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts)
+- [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- [test/cli-adopt-batch.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-adopt-batch.test.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+- [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
 Topic management commands facilitate the lifecycle of educational content within a PALEE vault. This includes adopting existing Markdown notes as tracked topics, bulk-importing structured curricula via YAML roadmaps, and ensuring schema consistency across the vault.
 
 ## Topic Adoption (`palee adopt`)
 
-The `adopt` command transforms a standard Markdown file into a PALEE topic by injecting the required metadata into its YAML frontmatter. This process is non-destructive to the existing body content.
+The `adopt` command transforms standard Markdown files into PALEE topics by injecting required metadata into their YAML frontmatter. This process is non-destructive to existing note bodies and preserves unknown frontmatter fields.
+
+`palee adopt` supports both single-file adoption and flexible batch adoption across directories or the entire vault.
+
+### Modes of Adoption
+
+#### 1. Single File Adoption
+Adopts an individual note and optionally specifies dependencies:
+```bash
+palee adopt "Data-Structures/Recursion.md" --difficulty advanced --depends-on "T-01-basics"
+```
+
+#### 2. Scoped Directory Adoption
+Adopts all Markdown notes located within a specific directory subtree:
+```bash
+palee adopt "MODULES/05-containers" --difficulty intermediate -y
+```
+
+#### 3. Vault-Wide Adoption
+Adopts all untracked Markdown notes across the entire configured vault:
+```bash
+palee adopt --all -y
+```
+
+### Filtering and Safety Options
+
+PALEE provides granular filtering and preview capabilities to prevent adopting unwanted files (such as templates or rubrics):
+
+| Option | Description | Example |
+| :--- | :--- | :--- |
+| `--include <patterns>` | Comma-separated glob patterns to include | `--include "0[1-4]-*,deep-dive*,lab-*"` |
+| `--exclude <patterns>` | Comma-separated glob patterns to skip | `--exclude "*template*,*rubric*,*checklist*"` |
+| `--tag <tags>` | Comma-separated Obsidian frontmatter tags | `--tag "type/concept,type/lab"` |
+| `--dry-run` | Simulates adoption and prints summary | `--dry-run` |
+| `--verbose` | Prints detailed file-by-file inspection list | `--verbose` |
+| `-y, --yes` | Skips interactive confirmation prompt | `-y` |
 
 ### Implementation Details
 
 When `adoptCommand` is invoked, it performs several safety and normalization steps:
 
-1. Vault Validation: Ensures the target file exists and does not escape the configured `vaultPath` using `fs.realpathSync` to resolve symlinks [src/cli/adopt.ts#30-43](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L30-L43)
-2. Duplicate Prevention: Checks if the note already contains a `palee_id` to prevent double-adoption [src/cli/adopt.ts#48-51](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L48-L51)
-3. Difficulty Normalization: Converts raw input (e.g., "1", "Beginner", "advanced") into a canonical `Difficulty` enum ('beginner', 'intermediate', 'advanced') using `normalizeDifficulty`[src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)[src/cli/adopt.ts#53-62](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L53-L62)
-4. ID Generation: Creates a unique `palee_id` using the format `T-YYYYMMDDTHHMMSS-xxxx`[src/cli/adopt.ts#13-18](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L13-L18)
-5. Metadata Injection: Initializes the topic with default SM-2 values (Ease Factor: 2.5, Interval: 1 day) and a four-pillar assessment structure [src/cli/adopt.ts#68-86](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L68-L86)
+1. **Vault Validation**: Ensures the target file or directory exists and does not escape the configured `vaultPath` using `fs.realpathSync` to resolve symlinks [src/cli/adopt.ts#110-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L110-L115)
+2. **Title Resolution**: Resolves a display title using 3-tier precedence: (1) existing frontmatter `title`, (2) first level-1 heading `# Title` in body (ignoring code fences and HTML comments), (3) filename basename fallback [src/cli/adopt.ts#27-75](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L27-L75)
+3. **Idempotent Handling**: In batch mode, notes that already contain a `palee_id` are safely counted as "Already Adopted" and skipped without errors [src/cli/adopt.ts#220-225](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L220-L225)
+4. **Pattern & Tag Matching**: Evaluates note paths against `--include`/`--exclude` glob rules (with root recursion `**/*.md`, infix wildcards, and character classes) and frontmatter `tags` arrays (with 3-tier tag hierarchy matching and `#` normalization) [src/storage/pattern-matcher.ts#1-160](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L160)
+5. **Two-Phase Atomic Execution & Rollback Journal**: In batch mode, re-reads notes to capture fresh fingerprints and pre-computes transformations (Phase 1), then commits updates sequentially while maintaining a rollback journal (Phase 2). If any write fails, previously adopted notes in the batch are automatically restored to their original state [src/cli/adopt.ts#300-340](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L300-L340)
 
-### Data Flow: Adopting a Note
-
-The following diagram illustrates the transition from a raw Markdown file to a PALEE-managed topic.
-
-Note Adoption Logic
+### Data Flow: Batch and Single Note Adoption
 
 ```mermaid
 flowchart TD
-    H["Vault: 'Recursion.md' (Updated)"]
-    subgraph subGraph1 ["Code Entity Space (src/cli/adopt.ts)"]
-        C["adoptCommand()"]
-        D["generateTopicId()"]
-        E["normalizeDifficulty()"]
-        F["updateFrontmatter()"]
-        G["atomicWrite()"]
-    end
-    subgraph subGraph0 ["Natural Language Space"]
-        A["User File: 'Recursion.md'"]
-        B["CLI Flag: --difficulty 'advanced'"]
-    end
-    A --> C
-    B --> C
-    C --> D
-    C --> E
-    D --> F
-    E --> F
-    F --> G
-    G --> H
+    A["palee adopt [path] [flags]"] --> B{"Input Mode"}
+
+    B -->|"Single File (.md)"| C["Single File Mode"]
+    B -->|"--all OR Directory Path"| D["Batch Adoption Engine"]
+
+    D --> E["Scan Subtree (walkVault)"]
+    E --> F["Extract Frontmatter & Tags (parseFrontmatter)"]
+    
+    F --> G{"Filter Evaluation"}
+    G -->|"Has palee_id"| H["Status: Already Adopted"]
+    G -->|"Fails --include / Matches --exclude"| I["Status: Excluded by Pattern"]
+    G -->|"Fails --tag"| J["Status: Excluded by Tag"]
+    G -->|"Passes Filters"| K["Status: Ready to Adopt"]
+
+    K --> L{"Execution Mode"}
+    L -->|"--dry-run"| M["Render Preview Summary & Exit 0"]
+    L -->|"Active Mode"| N{"User Confirmation (y/N)"}
+    
+    N -->|"Declined (N)"| O["Print 'Aborted.' & Exit 0"]
+    N -->|"Confirmed (Y)"| P["Phase 1: Preflight & Fresh Fingerprints"]
+    P --> Q["Phase 2: Atomic Batch Writer + Rollback Journal"]
+    Q -->|"Success"| R["Inject palee_id & SM-2 Defaults (Exit 0)"]
+    Q -->|"Write Error"| S["Rollback Journal Restoration (Exit 5)"]
+    C --> R
 ```
 
-Sources: [src/cli/adopt.ts#20-107](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L20-L107)[src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)[src/storage/atomic-write.ts#1-20](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L1-L20)
+Sources: [src/cli/adopt.ts#1-250](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L1-L250)[src/storage/pattern-matcher.ts#1-112](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L112)[src/types.ts#165-178](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L165-L178)
 
 ---
 
