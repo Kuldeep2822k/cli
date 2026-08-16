@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { matchesPattern, matchesTags, extractTags } from '../src/storage/pattern-matcher';
+import { matchesPattern, matchesTags, extractTags, validatePattern } from '../src/storage/pattern-matcher';
 
 describe('Pattern and Glob Matcher', () => {
   test('matches simple file basenames and wildcards', () => {
@@ -106,5 +106,11 @@ describe('Frontmatter Tag Matcher', () => {
     const tags = ['type/lab'];
     assert.strictEqual(matchesTags(tags, 'concept, deep-dive, lab'), true);
     assert.strictEqual(matchesTags(tags, 'rubric, template'), false);
+  });
+});
+
+describe('Pattern Validation', () => {
+  test('validatePattern accepts valid globs without throwing', () => {
+    assert.doesNotThrow(() => validatePattern('**/*.md, 01-*, [0-9]-*'));
   });
 });

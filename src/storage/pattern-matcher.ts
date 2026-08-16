@@ -243,3 +243,24 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
 
   return false;
 }
+
+/**
+ * Validates glob pattern strings and throws a friendly Error if syntax is invalid.
+ */
+export function validatePattern(patterns: string | string[]): void {
+  const patternList = Array.isArray(patterns)
+    ? patterns
+    : patterns.split(',').map((p) => p.trim()).filter(Boolean);
+
+  for (const pattern of patternList) {
+    const trimmed = pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!trimmed) continue;
+    try {
+      globToRegex(trimmed);
+    } catch (err: unknown) {
+      const e = err as Error;
+      throw new Error(`Invalid glob pattern "${pattern}": ${e.message}`);
+    }
+  }
+}
+

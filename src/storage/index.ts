@@ -24,7 +24,7 @@ import {
   MAX_HOT_WORDS,
 } from './memory';
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
-import { matchesPattern, matchesTags, extractTags } from './pattern-matcher';
+import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
 
 export {
   // Vault operations
@@ -34,6 +34,7 @@ export {
   matchesPattern,
   matchesTags,
   extractTags,
+  validatePattern,
 
   // Roadmap operations
   parseRoadmapContent,

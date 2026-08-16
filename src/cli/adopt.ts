@@ -5,18 +5,19 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
-import { matchesPattern, matchesTags } from '../storage/pattern-matcher';
+import { matchesPattern, matchesTags, validatePattern } from '../storage/pattern-matcher';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
 function generateTopicId(): string {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0]; // YYYYMMDDTHHMMSS
-  const random = Math.random().toString(36).substring(2, 6); // 4 char random
+  const random = crypto.randomBytes(4).toString('hex'); // 8 hex characters (32 bits of entropy)
   return `T-${timestamp}-${random}`;
 }
 
@@ -131,7 +132,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const vaultPath = config.vaultPath;
@@ -144,9 +146,32 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const validInputs = ['beginner', 'intermediate', 'advanced', '1', '2', '3', '4', '5'];
       if (!validInputs.includes(rawInput)) {
         console.error('Error: Invalid difficulty. Must be one of: beginner, intermediate, advanced');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       difficulty = normalizeDifficulty(options.difficulty);
+    }
+
+    // Validate include/exclude pattern syntax early
+    if (options.include) {
+      try {
+        validatePattern(options.include);
+      } catch (err: unknown) {
+        const e = err as Error;
+        console.error(`Error: ${e.message}`);
+        process.exitCode = 2;
+        return;
+      }
+    }
+    if (options.exclude) {
+      try {
+        validatePattern(options.exclude);
+      } catch (err: unknown) {
+        const e = err as Error;
+        console.error(`Error: ${e.message}`);
+        process.exitCode = 2;
+        return;
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -166,7 +191,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
         console.error(`Error: Path escapes vault: ${targetPath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const content = fs.readFileSync(absolutePath, 'utf8');
@@ -174,7 +200,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       if (frontmatter && frontmatter.palee_id) {
         console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const dependsOn = options.dependsOn
@@ -218,7 +245,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log(`  Dependencies: ${dependsOn.join(', ')}`);
       }
 
-      process.exit(0);
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -226,7 +253,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // ─────────────────────────────────────────────────────────────────
     if (!targetPath && !options.all) {
       console.error('Error: Specify a note path, a directory, or use --all to adopt notes across the vault.');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     let scanRoot = vaultPath;
@@ -234,16 +262,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const candidatePath = path.resolve(vaultPath, targetPath);
       if (!fs.existsSync(candidatePath)) {
         console.error(`Error: Target directory not found: ${targetPath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       const realCandidate = fs.realpathSync(candidatePath);
       if (!realCandidate.startsWith(resolvedVault + path.sep) && realCandidate !== resolvedVault) {
         console.error(`Error: Path escapes vault: ${targetPath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       if (!fs.statSync(candidatePath).isDirectory()) {
         console.error(`Error: Expected directory path for batch adoption: ${targetPath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       scanRoot = candidatePath;
     }
@@ -253,7 +284,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (allFiles.length === 0) {
       console.log('No markdown files found to adopt.');
-      process.exit(0);
+      return;
     }
 
     const toAdopt: StagedNote[] = [];
@@ -334,26 +365,27 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (options.dryRun) {
       console.log('\nDry-run complete. No files were modified.');
-      process.exit(0);
+      return;
     }
 
     if (toAdopt.length === 0) {
       console.log('\nNo new notes matched the criteria to adopt.');
-      process.exit(0);
+      return;
     }
 
     // Confirmation gate
     if (!options.yes) {
       if (!process.stdin.isTTY) {
         console.error('Error: Non-interactive environment. Use -y or --yes to confirm batch adoption.');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       console.log(`\nThis will initialize PALEE tracking for ${toAdopt.length} notes.`);
       const confirmed = await promptConfirmation('Proceed with adoption? (y/N): ');
       if (!confirmed) {
         console.log('Aborted.');
-        process.exit(0);
+        return;
       }
     }
 
@@ -424,17 +456,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
-      process.exit(0);
+      return;
     } catch (writeErr: unknown) {
       const err = writeErr as Error;
       console.error(`\nBatch adoption write error: ${err.message}`);
       await rollbackBatch(vaultPath, journal);
-      process.exit(5);
+      process.exitCode = 5;
+      return;
     }
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 
