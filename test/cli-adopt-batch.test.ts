@@ -60,7 +60,8 @@ describe('CLI Adopt Batch Integration Tests', () => {
 
   function runCLI(args: string[]): { status: number; stdout: string; stderr: string } {
     try {
-      const stdout = execSync(`npx tsx bin/palee.ts ${args.join(' ')}`, {
+      const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
+      const stdout = execSync(`npx tsx bin/palee.ts ${escapedArgs.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
         encoding: 'utf8',
