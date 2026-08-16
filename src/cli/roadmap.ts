@@ -5,20 +5,20 @@
 
 import fs from 'fs';
 import path from 'path';
-import yaml from 'yaml';
 import { loadConfig } from './config';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
+import { parseRoadmapContent } from '../storage/roadmap-parser';
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { detectCycle } from '../engine/dependency';
-import { RoadmapOptions, RoadmapFile, TopicNode } from '../types';
+import { RoadmapOptions, TopicNode } from '../types';
 import readline from 'readline';
 
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
     if (!options.from) {
       console.error('Error: Phase 1 only supports --from <file>');
-      console.error('Usage: palee roadmap --from <roadmap.yaml>');
+      console.error('Usage: palee roadmap --from <roadmap.yaml|roadmap.md>');
       process.exit(2);
     }
 
@@ -37,20 +37,15 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       process.exit(2);
     }
 
-    const yamlContent = fs.readFileSync(roadmapPath, 'utf8');
-    let roadmap: RoadmapFile;
-    try {
-      roadmap = yaml.parse(yamlContent) as RoadmapFile;
-    } catch (e: unknown) {
-      const parseErr = e as Error;
-      console.error(`Error: Invalid YAML: ${parseErr.message}`);
+    const rawContent = fs.readFileSync(roadmapPath, 'utf8');
+    const parseResult = parseRoadmapContent(rawContent, roadmapPath);
+
+    if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
+      console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
       process.exit(2);
     }
 
-    if (!roadmap.topics || !Array.isArray(roadmap.topics)) {
-      console.error('Error: Roadmap must have a "topics" array');
-      process.exit(2);
-    }
+    const roadmap = parseResult.roadmap;
 
     const errors: string[] = [];
     const seenIds = new Set<string>();

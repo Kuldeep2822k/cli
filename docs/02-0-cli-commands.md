@@ -37,9 +37,9 @@ The CLI functionality is divided into four main logical groups.
 
 ### Topic Management
 
-These commands handle the ingestion and lifecycle of Markdown notes as PALEE topics. `palee adopt` initializes a single note with required frontmatter, while `palee roadmap` allows for bulk imports from YAML definitions.
+These commands handle the ingestion and lifecycle of Markdown notes as PALEE topics. `palee adopt` initializes a single note with required frontmatter, while `palee roadmap` allows for bulk imports from Markdown (`.md`) and YAML (`.yaml`) definitions.
 
-- Key Files: `src/cli/adopt.ts`, `src/cli/roadmap.ts`, `src/cli/migrate.ts`.
+- Key Files: `src/cli/adopt.ts`, `src/cli/roadmap.ts`, `src/storage/roadmap-parser.ts`, `src/cli/migrate.ts`.
 - Details: For frontmatter injection, ID generation, and schema migration, see [Topic Management Commands](./02-1-topic-management-commands.md).
 
 ### Review and Scheduling

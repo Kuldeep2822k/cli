@@ -62,13 +62,59 @@ Sources: [src/cli/adopt.ts#20-107](https://github.com/Kuldeep2822k/cli/blob/main
 
 ## Roadmap Import (`palee roadmap`)
 
-The `roadmap` command allows for the bulk creation or update of topics based on an external YAML definition. This is used for importing structured learning paths while maintaining idempotency for existing vault data.
+The `roadmap` command allows for the bulk creation or update of topics based on an external Markdown (`.md`) or YAML (`.yaml`) definition. This is used for importing structured learning paths while maintaining idempotency for existing vault data.
+
+### Supported File Formats
+
+PALEE automatically detects and parses curriculum definitions from three formats:
+
+1. **Markdown Frontmatter (`.md`)**:
+   ```markdown
+   ---
+   title: 30-Day DevOps Crash Course
+   topics:
+     - id: T-linux-basics
+       title: Linux Process Management
+       path: MODULES/02-linux/01-processes.md
+       difficulty: beginner
+   ---
+
+   # Overview
+   Curriculum overview notes...
+   ```
+
+2. **Embedded YAML Code Blocks (`.md`)**:
+   ````markdown
+   # Kubernetes Study Roadmap
+
+   ```yaml
+   topics:
+     - id: T-docker-basics
+       title: Docker Fundamentals
+       path: DevOps/Docker.md
+       difficulty: beginner
+     - id: T-k8s-basics
+       title: Kubernetes Architecture
+       path: DevOps/K8s.md
+       difficulty: intermediate
+       depends_on: [T-docker-basics]
+   ```
+   ````
+
+3. **Pure Raw YAML (`.yaml` / `.yml`)**:
+   ```yaml
+   topics:
+     - id: T-docker-basics
+       title: Docker Fundamentals
+       path: DevOps/Docker.md
+       difficulty: beginner
+   ```
 
 ### Validation Engine
 
 Before any file system changes occur, the `roadmapCommand` performs a rigorous validation pass:
 
-- Schema Check: Validates the YAML structure against the `RoadmapFile` interface [src/cli/roadmap.ts#41-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L41-L53)
+- Schema Check: Validates the extracted structure against the `RoadmapFile` interface [src/cli/roadmap.ts#41-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L41-L53)
 - Path Safety: Rejects any topic paths that resolve outside the vault or utilize symlinks to escape the vault boundary [src/cli/roadmap.ts#171-191](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L171-L191)
 - Dependency Integrity: Verifies that all `depends_on` IDs exist either within the roadmap itself or within the existing vault [src/cli/roadmap.ts#106-113](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L106-L113)
 - Cycle Detection: Utilizes `detectCycle` from the dependency engine to ensure the curriculum is a Directed Acyclic Graph (DAG) [src/cli/roadmap.ts#115-118](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L115-L118)
@@ -93,7 +139,7 @@ flowchart TD
         V3["topicsMap check"]
     end
     subgraph subGraph0 ["Input Space"]
-        Y["roadmap.yaml"]
+        Y["roadmap.yaml | roadmap.md"]
     end
     Y --> V1
     V1 --> V2
@@ -104,7 +150,7 @@ flowchart TD
     I3 --> I4
 ```
 
-Sources: [src/cli/roadmap.ts#17-160](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L17-L160)[src/engine/dependency.ts#1-20](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L1-L20)[test/cli-commands.test.ts#74-142](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L74-L142)
+Sources: [src/cli/roadmap.ts#17-160](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L17-L160)[src/storage/roadmap-parser.ts#1-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts#L1-L80)[src/engine/dependency.ts#1-20](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L1-L20)[test/cli-commands.test.ts#74-142](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L74-L142)
 
 ---
 
@@ -117,21 +163,21 @@ The `migrate` command is responsible for upgrading topic metadata when the PALEE
 1. Vault Scan: Recursively walks the vault using `walkVault` to identify all files containing a `palee_id`[src/cli/migrate.ts#22-34](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L22-L34)
 2. Version Detection: Inspects the `palee_schema` field in the frontmatter [src/cli/migrate.ts#36](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L36-L36)
 3. Reporting:
+   - Migrated: Files where the schema was upgraded (none in Phase 1 as all notes are `schema: 1`).
+   - Skipped: Files already at the target schema version (`schema: 1`).
+   - Failed: Files where YAML parsing failed.
 
-- If a note is missing a schema version or has an unsupported version, it is flagged as "Unrecognized" [src/cli/migrate.ts#40-45](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L40-L45)
-- If all notes are at the current version, the command exits successfully [src/cli/migrate.ts#62-63](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L62-L63)
-
-Sources: [src/cli/migrate.ts#11-72](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L11-L72)[src/types.ts#49-59](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L49-L59)
+Sources: [src/cli/migrate.ts#14-63](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts#L14-L63)[src/types.ts#1-10](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L1-L10)
 
 ---
 
-## Summary of Commands
+## Command Reference Summary
 
-| Command | Key Function | Primary Goal |
-| --- | --- | --- |
-| `palee adopt <path>` | `adoptCommand` | Convert a single Markdown file into a PALEE topic. |
-| `palee roadmap --from <file>` | `roadmapCommand` | Bulk-import topics and dependencies from YAML. |
-| `palee migrate` | `migrateCommand` | Ensure all vault topics use the latest metadata schema. |
+| Command | Handler | Description |
+| :--- | :--- | :--- |
+| `palee adopt <path>` | `adoptCommand` | Onboard an existing note with PALEE tracking metadata. |
+| `palee roadmap --from <file>` | `roadmapCommand` | Bulk-import topics and dependencies from Markdown (`.md`) or YAML (`.yaml`). |
+| `palee migrate` | `migrateCommand` | Upgrade all notes in the vault to the latest metadata schema. |
 
 ### Technical Constants
 

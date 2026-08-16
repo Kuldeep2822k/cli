@@ -23,10 +23,14 @@ import {
   recoverDraft,
   MAX_HOT_WORDS,
 } from './memory';
+import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
 
 export {
   // Vault operations
   walkVault,
+
+  // Roadmap operations
+  parseRoadmapContent,
 
   // Frontmatter operations
   parseFrontmatter,
@@ -60,3 +64,5 @@ export {
   recoverDraft,
   MAX_HOT_WORDS,
 };
+
+export type { ParsedRoadmapResult };
