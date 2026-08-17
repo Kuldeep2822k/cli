@@ -5,11 +5,9 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows learning progress summary
  */
 
-import fs from 'fs';
-import path from 'path';
-import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
-import { Difficulty, normalizeDifficulty, ProgressOptions } from '../types';
+import { loadTopics } from '../storage/loader';
+import { Difficulty, ProgressOptions } from '../types';
+
 
 interface ProgressTopic {
   id: string;
@@ -30,27 +28,19 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const files = walkVault(vaultPath);
-    const topics: ProgressTopic[] = [];
+    const loaded = loadTopics(vaultPath);
+    const topics: ProgressTopic[] = loaded.map((t) => ({
+      id: t.palee_id,
+      title: t.title,
+      path: t.path,
+      mastery: t.topic_mastery,
+      repetition: t.repetition ?? 0,
+      lapses: t.lapses ?? 0,
+      assessed_at: t.assessed_at ?? null,
+      last_reviewed_at: t.last_reviewed_at ?? null,
+      difficulty: t.difficulty ?? 'intermediate',
+    }));
 
-    for (const filePath of files) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
-
-      if (!frontmatter || !frontmatter.palee_id) continue;
-
-      topics.push({
-        id: frontmatter.palee_id as string,
-        title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-        path: path.relative(vaultPath, filePath),
-        mastery: (frontmatter.topic_mastery as number) || 0,
-        repetition: (frontmatter.repetition as number) || 0,
-        lapses: (frontmatter.lapses as number) || 0,
-        assessed_at: (frontmatter.assessed_at as string) || null,
-        last_reviewed_at: (frontmatter.last_reviewed_at as string) || null,
-        difficulty: normalizeDifficulty(frontmatter.difficulty),
-      });
-    }
 
     if (topics.length === 0 && !options.topic) {
       if (jsonMode) {
