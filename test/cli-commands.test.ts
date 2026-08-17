@@ -223,6 +223,41 @@ topics:
     assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
 
+  test('progress --topic handles malformed date strings gracefully without throwing', () => {
+    const malformedNotePath = path.join(vaultDir, 'malformed-date.md');
+    try {
+      fs.writeFileSync(
+        malformedNotePath,
+        `---
+palee_id: T-malformed-date
+palee_schema: 1
+title: Malformed Date Topic
+difficulty: beginner
+depends_on: []
+topic_mastery: 0.5
+assessed_at: "garbage-invalid-date"
+last_reviewed_at: "not-a-real-date"
+---
+# Malformed Date Topic
+Body content.
+`,
+        'utf8'
+      );
+
+      const result = runCLI(['progress', '--topic', 'T-malformed-date']);
+      assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
+      assert.match(result.stdout, /Progress for: Malformed Date Topic/);
+      assert.match(result.stdout, /Last Assessed: garbage-invalid-date/);
+      assert.match(result.stdout, /Last Reviewed: not-a-real-date/);
+    } finally {
+      if (fs.existsSync(malformedNotePath)) {
+        fs.unlinkSync(malformedNotePath);
+      }
+    }
+  });
+
+
+
   test('dashboard command outputs formatted stats without NaN on populated vault', () => {
     const result = runCLI(['dashboard']);
     assert.strictEqual(result.status, 0);
