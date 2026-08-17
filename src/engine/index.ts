@@ -12,8 +12,10 @@ export const computeDueDate = sm2.computeDueDate;
 
 // Mastery exports
 export const computeTopicMastery = mastery.computeTopicMastery;
+export const normalizeScore = mastery.normalizeScore;
 
 // Dependency exports
+
 export const detectCycle = dependency.detectCycle;
 export const getReadyTopics = dependency.getReadyTopics;
 export const validateDependencyGraph = dependency.validateDependencyGraph;

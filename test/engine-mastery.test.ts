@@ -1,11 +1,27 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { computeTopicMastery } from '../src/engine/mastery';
+import { computeTopicMastery, normalizeScore } from '../src/engine/mastery';
 import { getReadyTopics } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
+
 describe('Mastery Engine', () => {
+  test('normalizeScore clamps, rounds, and parses string numbers', () => {
+    assert.strictEqual(normalizeScore('0.85'), 0.85);
+    assert.strictEqual(normalizeScore('  1.5  '), 1.0);
+    assert.strictEqual(normalizeScore('-0.5'), 0.0);
+    assert.strictEqual(normalizeScore('invalid'), 0.0);
+    assert.strictEqual(normalizeScore(undefined), 0.0);
+    assert.strictEqual(normalizeScore(null), 0.0);
+    assert.strictEqual(normalizeScore(0.333333), 0.3333);
+  });
+
+  test('computeTopicMastery accepts string inputs', () => {
+    assert.strictEqual(computeTopicMastery('0.8', '0.6', '0.4', '0.9'), 0.72);
+  });
+
   test('returns 0.0 for default or zero inputs', () => {
+
     assert.strictEqual(computeTopicMastery(), 0.0);
     assert.strictEqual(computeTopicMastery(0, 0, 0, 0), 0.0);
   });

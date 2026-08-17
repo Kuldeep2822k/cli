@@ -12,8 +12,11 @@ import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../stor
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { matchesPattern, matchesTags, validatePattern } from '../storage/pattern-matcher';
-import { computeTopicMastery } from '../engine/mastery';
+import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
+
+
+
 
 
 function generateTopicId(): string {
@@ -213,13 +216,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(content, absolutePath, frontmatter);
 
-      const conceptual = typeof frontmatter?.conceptual === 'number' ? frontmatter.conceptual : 0.0;
-      const practical = typeof frontmatter?.practical === 'number' ? frontmatter.practical : 0.0;
-      const debug = typeof frontmatter?.debug === 'number' ? frontmatter.debug : 0.0;
-      const feynman = typeof frontmatter?.feynman === 'number' ? frontmatter.feynman : 0.0;
-      const topicMastery = typeof frontmatter?.topic_mastery === 'number'
-        ? frontmatter.topic_mastery
-        : computeTopicMastery(conceptual, practical, debug, feynman);
+      const conceptual = normalizeScore(frontmatter?.conceptual);
+      const practical = normalizeScore(frontmatter?.practical);
+      const debug = normalizeScore(frontmatter?.debug);
+      const feynman = normalizeScore(frontmatter?.feynman);
+      const topicMastery =
+        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : computeTopicMastery(conceptual, practical, debug, feynman);
+
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
@@ -421,13 +426,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
-      const conceptual = typeof frontmatter?.conceptual === 'number' ? frontmatter.conceptual : 0.0;
-      const practical = typeof frontmatter?.practical === 'number' ? frontmatter.practical : 0.0;
-      const debug = typeof frontmatter?.debug === 'number' ? frontmatter.debug : 0.0;
-      const feynman = typeof frontmatter?.feynman === 'number' ? frontmatter.feynman : 0.0;
-      const topicMastery = typeof frontmatter?.topic_mastery === 'number'
-        ? frontmatter.topic_mastery
-        : computeTopicMastery(conceptual, practical, debug, feynman);
+      const conceptual = normalizeScore(frontmatter?.conceptual);
+      const practical = normalizeScore(frontmatter?.practical);
+      const debug = normalizeScore(frontmatter?.debug);
+      const feynman = normalizeScore(frontmatter?.feynman);
+      const topicMastery =
+        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : computeTopicMastery(conceptual, practical, debug, feynman);
+
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
