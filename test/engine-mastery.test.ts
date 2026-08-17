@@ -55,10 +55,11 @@ describe('Mastery Engine', () => {
   });
 
   test('rounds result to 4 decimal places', () => {
-    // (0.33 + 0.33 + 0.33 + 2 * 0.33) / 5 = 1.65 / 5 = 0.33
-    const mastery = computeTopicMastery(0.33333, 0.33333, 0.33333, 0.33333);
-    assert.strictEqual(mastery, 0.3333);
+    // (0.9999 + 0.9999 + 0.9999 + 2 * 0.6668) / 5 = 4.3333 / 5 = 0.86666... -> 0.8667
+    const mastery = computeTopicMastery(0.9999, 0.9999, 0.9999, 0.6668);
+    assert.strictEqual(mastery, 0.8667);
   });
+
 
   test('clamps out-of-range inputs between 0.0 and 1.0', () => {
     assert.strictEqual(computeTopicMastery(-0.5, -1, -2, -3), 0.0);
