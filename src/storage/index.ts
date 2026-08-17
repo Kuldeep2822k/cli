@@ -25,10 +25,12 @@ import {
 } from './memory';
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
+import { loadTopics, type LoadedTopic } from './loader';
 
 export {
   // Vault operations
   walkVault,
+  loadTopics,
 
   // Pattern and Tag Matching
   matchesPattern,
@@ -72,4 +74,5 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult };
+export type { ParsedRoadmapResult, LoadedTopic };
+

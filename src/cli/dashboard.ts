@@ -3,14 +3,13 @@
  * Interactive learning dashboard (Phase 1: text summary only)
  */
 
-import fs from 'fs';
-import path from 'path';
-import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
+import { loadTopics } from '../storage/loader';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { Difficulty, DashboardOptions, normalizeDifficulty } from '../types';
+import { Difficulty, DashboardOptions } from '../types';
+
 
 interface DashboardTopic {
   id: string;
@@ -29,34 +28,25 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const files = walkVault(vaultPath);
+    const loaded = loadTopics(vaultPath);
     const now = new Date();
 
-    // Load all topics sequentially
-    const topics: DashboardTopic[] = [];
-    for (const filePath of files) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const { frontmatter } = parseFrontmatter(content);
+    const topics: DashboardTopic[] = loaded.map((t) => {
+      let dueAt = t.due_at ? new Date(t.due_at) : null;
+      if (dueAt && Number.isNaN(dueAt.getTime())) {
+        dueAt = null;
+      }
+      return {
+        id: t.palee_id,
+        title: t.title,
+        mastery: t.topic_mastery,
+        repetition: t.repetition ?? 0,
+        lapses: t.lapses ?? 0,
+        difficulty: t.difficulty ?? 'intermediate',
+        due_at: dueAt,
+      };
+    });
 
-        if (frontmatter && frontmatter.palee_id) {
-          let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
-          if (dueAt && Number.isNaN(dueAt.getTime())) {
-            dueAt = null;
-          }
-
-          topics.push({
-            id: frontmatter.palee_id as string,
-            title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-            mastery: (frontmatter.topic_mastery as number) || 0,
-            repetition: (frontmatter.repetition as number) || 0,
-            lapses: (frontmatter.lapses as number) || 0,
-            difficulty: normalizeDifficulty(frontmatter.difficulty),
-            due_at: dueAt,
-          });
-        }
-      } catch {}
-    }
 
     if (topics.length === 0) {
       if (jsonMode) {

@@ -3,14 +3,13 @@
  * Validates vault integrity
  */
 
-import fs from 'fs';
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
-import path from 'path';
 import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
+import { loadTopics } from '../storage/loader';
 import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
+
 
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {
@@ -25,41 +24,34 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     }
 
     const files = walkVault(vaultPath);
+    const loaded = loadTopics(vaultPath, files);
     const topics = new Map<string, TopicNode & { path: string }>();
+
     const errors: ValidationError[] = [];
 
-    for (const filePath of files) {
-      const relativePath = path.relative(vaultPath, filePath);
-      const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
+    for (const t of loaded) {
+      if (topics.has(t.palee_id)) {
+        const existingError = errors.find((e) => e.type === 'duplicate_id' && e.id === t.palee_id);
 
-      if (!frontmatter || !frontmatter.palee_id) {
-        continue; // Not a PALEE topic
-      }
-
-      const topicId = frontmatter.palee_id as string;
-
-      if (topics.has(topicId)) {
-        const existingError = errors.find(e => e.type === 'duplicate_id' && e.id === topicId);
-        
         if (existingError && existingError.files) {
-          existingError.files.push(relativePath);
+          existingError.files.push(t.path);
         } else {
           errors.push({
             type: 'duplicate_id',
-            id: topicId,
-            files: [topics.get(topicId)!.path, relativePath],
+            id: t.palee_id,
+            files: [topics.get(t.palee_id)!.path, t.path],
           });
         }
       } else {
-        topics.set(topicId, {
-          palee_id: topicId,
-          depends_on: (frontmatter.depends_on as string[]) || [],
-          topic_mastery: (frontmatter.topic_mastery as number) || 0,
-          path: relativePath,
+        topics.set(t.palee_id, {
+          palee_id: t.palee_id,
+          depends_on: t.depends_on,
+          topic_mastery: t.topic_mastery,
+          path: t.path,
         });
       }
     }
+
 
     const graphValidation = validateDependencyGraph(topics);
     errors.push(...graphValidation.errors);

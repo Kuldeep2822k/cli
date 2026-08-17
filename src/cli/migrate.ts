@@ -1,12 +1,5 @@
 import { loadConfig } from './config';
-/**
- * Migrate Command Handler
- * Schema migration (Phase 1: stub only)
- */
-
-import fs from 'fs';
-import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
+import { loadTopics } from '../storage/loader';
 
 async function migrateCommand(): Promise<void> {
   try {
@@ -19,7 +12,7 @@ async function migrateCommand(): Promise<void> {
     }
 
     const vaultPath = config.vaultPath;
-    const files = walkVault(vaultPath);
+    const loaded = loadTopics(vaultPath);
 
     console.log('Scanning vault for PALEE schema versions...');
     console.log();
@@ -27,22 +20,18 @@ async function migrateCommand(): Promise<void> {
     let schemaV1 = 0;
     const unrecognized: string[] = [];
 
-    for (const filePath of files) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
-
-      if (!frontmatter || !frontmatter.palee_id) continue;
-
-      const schema = frontmatter.palee_schema;
+    for (const t of loaded) {
+      const schema = t.frontmatter.palee_schema;
 
       if (schema === 1) {
         schemaV1++;
       } else if (schema === undefined) {
-        unrecognized.push(filePath);
+        unrecognized.push(t.filePath);
       } else {
-        unrecognized.push(`${filePath} (schema: ${schema})`);
+        unrecognized.push(`${t.filePath} (schema: ${schema})`);
       }
     }
+
 
     console.log(`Schema v1: ${schemaV1} notes`);
     if (unrecognized.length > 0) {

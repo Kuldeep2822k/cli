@@ -5,11 +5,9 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows next topic(s) due for review
  */
 
-import fs from 'fs';
-import path from 'path';
-import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
-import { NextOptions } from '../types';
+import { loadTopics } from '../storage/loader';
+import { Difficulty, NextOptions } from '../types';
+
 
 interface DueTopic {
   id: string;
@@ -18,6 +16,7 @@ interface DueTopic {
   dueAt: Date | null;
   mastery: number;
   repetition: number;
+  difficulty?: Difficulty;
 }
 
 async function nextCommand(options: NextOptions = {}): Promise<void> {
@@ -27,19 +26,13 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const files = walkVault(vaultPath);
+    const topics = loadTopics(vaultPath);
+    const totalTopics = topics.length;
     const dueTopics: DueTopic[] = [];
-    let totalTopics = 0;
     const now = new Date();
 
-    for (const filePath of files) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
-
-      if (!frontmatter || !frontmatter.palee_id) continue;
-      totalTopics++;
-
-      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+    for (const t of topics) {
+      let dueAt = t.due_at ? new Date(t.due_at) : null;
       if (dueAt && Number.isNaN(dueAt.getTime())) {
         dueAt = null; // Treat invalid dates as null (due immediately)
       }
@@ -47,15 +40,17 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       // Topics without due_at (or with invalid dates) are new and always ready
       if (!dueAt || dueAt <= now) {
         dueTopics.push({
-          id: frontmatter.palee_id as string,
-          title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-          path: path.relative(vaultPath, filePath),
+          id: t.palee_id,
+          title: t.title,
+          path: t.path,
           dueAt: dueAt,
-          mastery: (frontmatter.topic_mastery as number) || 0,
-          repetition: (frontmatter.repetition as number) || 0,
+          mastery: t.topic_mastery,
+          repetition: t.repetition ?? 0,
+          difficulty: t.difficulty,
         });
       }
     }
+
 
     if (totalTopics === 0) {
       if (jsonMode) {
