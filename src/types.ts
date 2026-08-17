@@ -60,9 +60,11 @@ export interface Topic {
 
 export interface Progress {
   active_topic_count: number;
+  archived_topic_count?: number;
   global_mastery: number | null;
-  mastery_status: 'no_data' | 'active';
+  mastery_status: 'no_data' | 'learning' | 'mastered';
 }
+
 
 export interface Session {
   palee_schema: number;

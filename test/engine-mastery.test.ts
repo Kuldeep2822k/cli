@@ -1,12 +1,26 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { computeTopicMastery, MASTERY_THRESHOLD } from '../src/engine/mastery';
+import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../src/engine/mastery';
 import { getReadyTopics } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
 describe('Mastery Engine & Threshold', () => {
   test('exports canonical MASTERY_THRESHOLD of 0.70 (70%)', () => {
     assert.strictEqual(MASTERY_THRESHOLD, 0.7);
+  });
+
+  test('normalizeScore clamps, rounds, and parses string numbers', () => {
+    assert.strictEqual(normalizeScore('0.85'), 0.85);
+    assert.strictEqual(normalizeScore('  1.5  '), 1.0);
+    assert.strictEqual(normalizeScore('-0.5'), 0.0);
+    assert.strictEqual(normalizeScore('invalid'), 0.0);
+    assert.strictEqual(normalizeScore(undefined), 0.0);
+    assert.strictEqual(normalizeScore(null), 0.0);
+    assert.strictEqual(normalizeScore(0.333333), 0.3333);
+  });
+
+  test('computeTopicMastery accepts string inputs', () => {
+    assert.strictEqual(computeTopicMastery('0.8', '0.6', '0.4', '0.9'), 0.72);
   });
 
   test('returns 0.0 for default or zero inputs', () => {
@@ -43,9 +57,9 @@ describe('Mastery Engine & Threshold', () => {
   });
 
   test('rounds result to 4 decimal places', () => {
-    // (0.33 + 0.33 + 0.33 + 2 * 0.33) / 5 = 1.65 / 5 = 0.33
-    const mastery = computeTopicMastery(0.33333, 0.33333, 0.33333, 0.33333);
-    assert.strictEqual(mastery, 0.3333);
+    // (0.9999 + 0.9999 + 0.9999 + 2 * 0.6668) / 5 = 4.3333 / 5 = 0.86666... -> 0.8667
+    const mastery = computeTopicMastery(0.9999, 0.9999, 0.9999, 0.6668);
+    assert.strictEqual(mastery, 0.8667);
   });
 
   test('clamps out-of-range inputs between 0.0 and 1.0', () => {
@@ -53,7 +67,7 @@ describe('Mastery Engine & Threshold', () => {
     assert.strictEqual(computeTopicMastery(1.5, 2.0, 3.0, 4.0), 1.0);
   });
 
-  test('handles non-numeric and non-finite values gracefully', () => {
+  test('handles non-numeric and NaN values gracefully', () => {
     assert.strictEqual(computeTopicMastery(NaN, Number.POSITIVE_INFINITY, NaN, 0.5), 0.2);
   });
 
