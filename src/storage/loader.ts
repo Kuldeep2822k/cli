@@ -69,14 +69,9 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      continue;
-    }
-
+    const content = fs.readFileSync(filePath, 'utf8');
     const { frontmatter } = parseFrontmatter(content);
+
     if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {
       continue;
     }

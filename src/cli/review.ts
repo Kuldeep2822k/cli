@@ -8,7 +8,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
   try {
     if (!/^[0-5]$/.test(qualityStr)) {
       console.error('Error: Quality must be an integer from 0 to 5');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
     const quality = parseInt(qualityStr, 10);
 
@@ -16,7 +17,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const vaultPath = config.vaultPath;
@@ -30,7 +32,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
 
     if (candidates.length === 0) {
       console.error(`Error: No topic found matching "${topicQuery}"`);
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     if (candidates.length > 1) {
@@ -39,7 +42,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
         console.error(`  - ${c.palee_id}: ${c.title}`);
       }
       console.error('Please provide a more specific query.');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const topic = candidates[0];
@@ -81,13 +85,12 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
       console.log('  ⚠ Review failed - interval reset to 1 day');
     }
 
-    process.exit(0);
-
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
   }
+
 }
 
 export default reviewCommand;
