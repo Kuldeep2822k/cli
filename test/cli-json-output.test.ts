@@ -113,10 +113,14 @@ describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
       await progressCommand({ json: true });
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 0);
+      assert.strictEqual(data.active_topic_count, 0);
+      assert.strictEqual(data.global_mastery, null);
+      assert.strictEqual(data.mastery_status, 'no_data');
       assert.strictEqual(data.mastered, 0);
       assert.strictEqual(data.avg_mastery, 0);
       assert.strictEqual(data.by_difficulty.beginner.total, 0);
     });
+
 
     test('dashboard --json on empty vault produces valid JSON structure', async () => {
       await dashboardCommand({ json: true });
@@ -225,6 +229,9 @@ depends_on:
       await progressCommand({ json: true });
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 2);
+      assert.strictEqual(data.active_topic_count, 2);
+      assert.strictEqual(data.global_mastery, 0.5); // (0.8 + 0.2) / 2 = 0.5
+      assert.strictEqual(data.mastery_status, 'learning');
       assert.strictEqual(data.mastered, 1);
       assert.strictEqual(data.learning, 1);
       assert.strictEqual(data.new, 0);
@@ -250,6 +257,36 @@ depends_on:
       assert.ok(errData.error.includes('Topic not found'));
       assert.strictEqual(process.exitCode, 2);
     });
+
+    test('progress --json excludes archived topics from global_mastery and active_topic_count', async () => {
+      const archivedPath = path.join(tmpDir, 'archived.md');
+      fs.writeFileSync(
+        archivedPath,
+        `---
+palee_id: T-archived
+palee_schema: 1
+title: Archived Topic
+status: archived
+topic_mastery: 0.0
+difficulty: intermediate
+depends_on: []
+---
+# Archived Topic
+`,
+        'utf8'
+      );
+
+      await progressCommand({ json: true });
+      const data = getLastParsedJson();
+      assert.strictEqual(data.total_topics, 3);
+      assert.strictEqual(data.active_topic_count, 2);
+      assert.strictEqual(data.archived_topic_count, 1);
+      assert.strictEqual(data.global_mastery, 0.5); // Still (0.8 + 0.2) / 2 = 0.5, unaffected by archived 0.0
+
+      fs.unlinkSync(archivedPath);
+    });
+
+
 
     test('dashboard --json outputs complete dashboard metrics and next review', async () => {
       await dashboardCommand({ json: true });
