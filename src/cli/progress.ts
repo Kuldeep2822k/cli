@@ -58,9 +58,11 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       if (jsonMode) {
         console.log(JSON.stringify({
           active_topic_count: 0,
+          archived_topic_count: 0,
           global_mastery: null,
           mastery_status: 'no_data',
           total_topics: 0,
+
           mastered: 0,
           learning: 0,
           new: 0,
@@ -139,15 +141,20 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       const totalReps = activeTopics.reduce((sum, t) => sum + t.repetition, 0);
       const totalLapses = activeTopics.reduce((sum, t) => sum + t.lapses, 0);
 
-      const globalMastery = activeCount > 0
+      const rawMastery = activeCount > 0
         ? activeTopics.reduce((sum, t) => sum + t.mastery, 0) / activeCount
         : null;
+
+      const globalMastery = rawMastery === null
+        ? null
+        : Math.round(rawMastery * 10000) / 10000;
 
       const masteryStatus: 'no_data' | 'learning' | 'mastered' = globalMastery === null
         ? 'no_data'
         : globalMastery >= 0.7
           ? 'mastered'
           : 'learning';
+
 
       const byDifficulty: Record<string, ProgressTopic[]> = {
         beginner: activeTopics.filter(t => t.difficulty === 'beginner'),

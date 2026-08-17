@@ -114,12 +114,14 @@ describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 0);
       assert.strictEqual(data.active_topic_count, 0);
+      assert.strictEqual(data.archived_topic_count, 0);
       assert.strictEqual(data.global_mastery, null);
       assert.strictEqual(data.mastery_status, 'no_data');
       assert.strictEqual(data.mastered, 0);
       assert.strictEqual(data.avg_mastery, 0);
       assert.strictEqual(data.by_difficulty.beginner.total, 0);
     });
+
 
 
     test('dashboard --json on empty vault produces valid JSON structure', async () => {
