@@ -12,7 +12,12 @@ import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../stor
 import { atomicWrite } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { matchesPattern, matchesTags, validatePattern } from '../storage/pattern-matcher';
+import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
+
+
+
+
 
 function generateTopicId(): string {
   const now = new Date();
@@ -211,18 +216,28 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(content, absolutePath, frontmatter);
 
+      const conceptual = normalizeScore(frontmatter?.conceptual);
+      const practical = normalizeScore(frontmatter?.practical);
+      const debug = normalizeScore(frontmatter?.debug);
+      const feynman = normalizeScore(frontmatter?.feynman);
+      const topicMastery =
+        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : computeTopicMastery(conceptual, practical, debug, feynman);
+
+
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
         difficulty,
         depends_on: dependsOn,
-        topic_mastery: 0.0,
-        assessed_at: null,
-        conceptual: 0.0,
-        practical: 0.0,
-        debug: 0.0,
-        feynman: 0.0,
+        topic_mastery: topicMastery,
+        assessed_at: frontmatter?.assessed_at ? String(frontmatter.assessed_at) : null,
+        conceptual,
+        practical,
+        debug,
+        feynman,
         ease_factor: 2.5,
         interval_days: 1,
         repetition: 0,
@@ -231,6 +246,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
+
 
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
@@ -410,18 +426,28 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
+      const conceptual = normalizeScore(frontmatter?.conceptual);
+      const practical = normalizeScore(frontmatter?.practical);
+      const debug = normalizeScore(frontmatter?.debug);
+      const feynman = normalizeScore(frontmatter?.feynman);
+      const topicMastery =
+        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : computeTopicMastery(conceptual, practical, debug, feynman);
+
+
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
         difficulty,
         depends_on: [],
-        topic_mastery: 0.0,
-        assessed_at: null,
-        conceptual: 0.0,
-        practical: 0.0,
-        debug: 0.0,
-        feynman: 0.0,
+        topic_mastery: topicMastery,
+        assessed_at: frontmatter?.assessed_at ? String(frontmatter.assessed_at) : null,
+        conceptual,
+        practical,
+        debug,
+        feynman,
         ease_factor: 2.5,
         interval_days: 1,
         repetition: 0,
@@ -430,6 +456,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
+
 
       const updatedContent = updateFrontmatter(freshContent, paleeData);
       preparedBatch.push({
