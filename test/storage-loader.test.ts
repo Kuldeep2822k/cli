@@ -86,4 +86,36 @@ status: learning
     assert.strictEqual(t2.status, 'learning');
     assert.deepStrictEqual(t2.depends_on, ['T-topic-1']); // Normalized from dependencies alias
   });
+
+  test('loadTopics parses string scores and clamps out-of-range values', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic-scores.md'),
+      `---
+palee_schema: 1
+palee_id: T-topic-scores
+title: String Scores Topic
+difficulty: 2
+depends_on: []
+topic_mastery: "1.5"
+conceptual: "0.85"
+practical: -0.2
+debug: "invalid"
+feynman: 0.999999
+---
+# Scores
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.strictEqual(t.topic_mastery, 1.0); // Clamped from 1.5
+    assert.strictEqual(t.conceptual, 0.85); // Parsed from "0.85"
+    assert.strictEqual(t.practical, 0.0); // Clamped from -0.2
+    assert.strictEqual(t.debug, 0.0); // Fallback from "invalid"
+    assert.strictEqual(t.feynman, 1.0); // Rounded from 0.999999
+    assert.strictEqual(t.difficulty, 'intermediate'); // Coerced from numeric 2
+  });
 });
+

@@ -19,6 +19,23 @@ export interface LoadedTopic extends TopicNode {
 }
 
 
+function parseScore(val: unknown, fallback: number = 0.0): number {
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return fallback;
+    return Math.round(Math.max(0, Math.min(1, val)) * 10000) / 10000;
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) {
+        return Math.round(Math.max(0, Math.min(1, parsed)) * 10000) / 10000;
+      }
+    }
+  }
+  return fallback;
+}
+
 /**
  * Scans the vault and parses all Markdown files containing a valid palee_id.
  * Guarantees a single consistent parsing, normalization, and validation pipeline across all CLI commands.
@@ -52,9 +69,7 @@ export function loadTopics(vaultPath: string): LoadedTopic[] {
       : [];
 
     const difficulty = normalizeDifficulty(frontmatter.difficulty);
-    const topicMastery = typeof frontmatter.topic_mastery === 'number' && !Number.isNaN(frontmatter.topic_mastery)
-      ? frontmatter.topic_mastery
-      : 0.0;
+    const topicMastery = parseScore(frontmatter.topic_mastery, 0.0);
 
     const topic: LoadedTopic = {
       palee_id: paleeId,
@@ -68,10 +83,10 @@ export function loadTopics(vaultPath: string): LoadedTopic[] {
       depends_on: dependsOn,
       topic_mastery: topicMastery,
       status: typeof frontmatter.status === 'string' ? frontmatter.status.trim().toLowerCase() : 'not_started',
-      conceptual: typeof frontmatter.conceptual === 'number' ? frontmatter.conceptual : 0.0,
-      practical: typeof frontmatter.practical === 'number' ? frontmatter.practical : 0.0,
-      debug: typeof frontmatter.debug === 'number' ? frontmatter.debug : 0.0,
-      feynman: typeof frontmatter.feynman === 'number' ? frontmatter.feynman : 0.0,
+      conceptual: parseScore(frontmatter.conceptual, 0.0),
+      practical: parseScore(frontmatter.practical, 0.0),
+      debug: parseScore(frontmatter.debug, 0.0),
+      feynman: parseScore(frontmatter.feynman, 0.0),
       ease_factor: typeof frontmatter.ease_factor === 'number' ? frontmatter.ease_factor : 2.5,
       interval_days: typeof frontmatter.interval_days === 'number' ? frontmatter.interval_days : 1,
       repetition: typeof frontmatter.repetition === 'number' ? frontmatter.repetition : 0,
@@ -87,3 +102,4 @@ export function loadTopics(vaultPath: string): LoadedTopic[] {
 
   return topics;
 }
+
