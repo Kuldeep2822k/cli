@@ -7,7 +7,11 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
 
 import { loadTopics } from '../storage/loader';
 import { getReadyTopics } from '../engine/dependency';
+import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
+
+
+
 
 
 interface PlanTopic extends TopicNode {
@@ -77,7 +81,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
 
     // Get ready to learn (deps satisfied, not mastered)
-    const readyTopics = getReadyTopics(topics, 0.7) as PlanTopic[];
+    const readyTopics = getReadyTopics(topics, MASTERY_THRESHOLD) as PlanTopic[];
 
     const diffOrder: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
     const sortedDue = dueTopics.slice().sort((a, b) => {
@@ -90,9 +94,10 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
 
-    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= 0.7).length;
-    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < 0.7).length;
+    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
+    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
     const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
+
 
     if (jsonMode) {
       console.log(JSON.stringify({

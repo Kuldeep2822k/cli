@@ -1,11 +1,14 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { computeTopicMastery, normalizeScore } from '../src/engine/mastery';
+import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../src/engine/mastery';
 import { getReadyTopics } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
+describe('Mastery Engine & Threshold', () => {
+  test('exports canonical MASTERY_THRESHOLD of 0.70 (70%)', () => {
+    assert.strictEqual(MASTERY_THRESHOLD, 0.7);
+  });
 
-describe('Mastery Engine', () => {
   test('normalizeScore clamps, rounds, and parses string numbers', () => {
     assert.strictEqual(normalizeScore('0.85'), 0.85);
     assert.strictEqual(normalizeScore('  1.5  '), 1.0);
@@ -21,7 +24,6 @@ describe('Mastery Engine', () => {
   });
 
   test('returns 0.0 for default or zero inputs', () => {
-
     assert.strictEqual(computeTopicMastery(), 0.0);
     assert.strictEqual(computeTopicMastery(0, 0, 0, 0), 0.0);
   });
@@ -60,7 +62,6 @@ describe('Mastery Engine', () => {
     assert.strictEqual(mastery, 0.8667);
   });
 
-
   test('clamps out-of-range inputs between 0.0 and 1.0', () => {
     assert.strictEqual(computeTopicMastery(-0.5, -1, -2, -3), 0.0);
     assert.strictEqual(computeTopicMastery(1.5, 2.0, 3.0, 4.0), 1.0);
@@ -70,10 +71,7 @@ describe('Mastery Engine', () => {
     assert.strictEqual(computeTopicMastery(NaN, Number.POSITIVE_INFINITY, NaN, 0.5), 0.2);
   });
 
-  test('calculated mastery unlocks dependent topics in getReadyTopics', () => {
-    const prereqMastery = computeTopicMastery(0.7, 0.7, 0.7, 0.7); // 0.7 >= 0.7 threshold
-    assert.strictEqual(prereqMastery, 0.7);
-
+  test('getReadyTopics uses default MASTERY_THRESHOLD when threshold parameter omitted', () => {
     const topics = new Map<string, TopicNode>([
       [
         'T-prereq',
@@ -82,7 +80,7 @@ describe('Mastery Engine', () => {
           title: 'Prerequisite Topic',
           path: 'prereq.md',
           depends_on: [],
-          topic_mastery: prereqMastery,
+          topic_mastery: MASTERY_THRESHOLD, // exactly 0.7 >= 0.7
         },
       ],
       [
@@ -97,12 +95,8 @@ describe('Mastery Engine', () => {
       ],
     ]);
 
-
-    const readyTopics = getReadyTopics(topics, 0.7);
-    // T-prereq is already mastered (0.7 >= 0.7), so it is not in ready
-    // T-child has all dependencies satisfied (T-prereq >= 0.7) and mastery < 0.7, so it is unlocked and ready
+    const readyTopics = getReadyTopics(topics);
     assert.strictEqual(readyTopics.length, 1);
     assert.strictEqual(readyTopics[0].palee_id, 'T-child');
   });
 });
-

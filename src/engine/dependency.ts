@@ -4,6 +4,8 @@
  */
 
 import { TopicNode, ValidationError, ValidationResult } from '../types';
+import { MASTERY_THRESHOLD } from './mastery';
+
 
 
 
@@ -46,7 +48,7 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   return null;
 }
 
-function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNode>, threshold: number = 0.7): boolean {
+function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): boolean {
   const deps = topic.depends_on || [];
 
   for (const depId of deps) {
@@ -64,7 +66,8 @@ function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNod
   return true;
 }
 
-function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = 0.7): TopicNode[] {
+function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): TopicNode[] {
+
   const ready: TopicNode[] = [];
 
   for (const [, topic] of topics) {

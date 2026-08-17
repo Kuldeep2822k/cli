@@ -7,6 +7,12 @@
  * - Feynman (40% weight - double weighted)
  */
 
+/**
+ * Mastery Threshold (70% / 0.7)
+ * A topic is considered "mastered" when its weighted mastery score reaches or exceeds 0.70.
+ */
+export const MASTERY_THRESHOLD = 0.7;
+
 export interface AssessmentPillars {
   conceptual?: number | null;
   practical?: number | null;
@@ -59,4 +65,3 @@ export function computeTopicMastery(
 
   return Math.round(rawMastery * 10000) / 10000;
 }
-
