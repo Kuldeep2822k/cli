@@ -34,7 +34,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       id: t.palee_id,
       title: t.title,
       path: t.path,
-      status: t.status,
+      status: t.status ?? 'not_started',
       mastery: t.topic_mastery,
       repetition: t.repetition ?? 0,
       lapses: t.lapses ?? 0,
@@ -42,6 +42,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       last_reviewed_at: t.last_reviewed_at ?? null,
       difficulty: t.difficulty ?? 'intermediate',
     }));
+
 
 
     if (topics.length === 0 && !options.topic) {
