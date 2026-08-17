@@ -225,9 +225,10 @@ topics:
 
   test('progress --topic handles malformed date strings gracefully without throwing', () => {
     const malformedNotePath = path.join(vaultDir, 'malformed-date.md');
-    fs.writeFileSync(
-      malformedNotePath,
-      `---
+    try {
+      fs.writeFileSync(
+        malformedNotePath,
+        `---
 palee_id: T-malformed-date
 palee_schema: 1
 title: Malformed Date Topic
@@ -240,17 +241,21 @@ last_reviewed_at: "not-a-real-date"
 # Malformed Date Topic
 Body content.
 `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const result = runCLI(['progress', '--topic', 'T-malformed-date']);
-    assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
-    assert.match(result.stdout, /Progress for: Malformed Date Topic/);
-    assert.match(result.stdout, /Last Assessed: garbage-invalid-date/);
-    assert.match(result.stdout, /Last Reviewed: not-a-real-date/);
-
-    fs.unlinkSync(malformedNotePath);
+      const result = runCLI(['progress', '--topic', 'T-malformed-date']);
+      assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
+      assert.match(result.stdout, /Progress for: Malformed Date Topic/);
+      assert.match(result.stdout, /Last Assessed: garbage-invalid-date/);
+      assert.match(result.stdout, /Last Reviewed: not-a-real-date/);
+    } finally {
+      if (fs.existsSync(malformedNotePath)) {
+        fs.unlinkSync(malformedNotePath);
+      }
+    }
   });
+
 
 
   test('dashboard command outputs formatted stats without NaN on populated vault', () => {
