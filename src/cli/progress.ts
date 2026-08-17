@@ -9,7 +9,9 @@ import fs from 'fs';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
+import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, normalizeDifficulty, ProgressOptions } from '../types';
+
 
 interface ProgressTopic {
   id: string;
@@ -122,9 +124,10 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       }
     } else {
       const total = topics.length;
-      const mastered = topics.filter(t => t.mastery >= 0.7).length;
-      const learning = topics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
+      const mastered = topics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
+      const learning = topics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
       const newTopics = topics.filter(t => t.mastery === 0).length;
+
 
       const totalReps = topics.reduce((sum, t) => sum + t.repetition, 0);
       const totalLapses = topics.reduce((sum, t) => sum + t.lapses, 0);

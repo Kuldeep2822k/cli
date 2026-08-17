@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
+import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 import { Difficulty, DashboardOptions, normalizeDifficulty } from '../types';
@@ -87,8 +88,8 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
 
     // Stats
     const total = topics.length;
-    const mastered = topics.filter(t => t.mastery >= 0.7).length;
-    const learning = topics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
+    const mastered = topics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
+    const learning = topics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
     const newTopics = topics.filter(t => t.mastery === 0).length;
     const dueTopics = topics.filter(t => t.due_at && t.due_at <= now);
     const due = dueTopics.length;
@@ -126,15 +127,15 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
         by_difficulty: {
           beginner: {
             total: byDiff.beginner.length,
-            mastered: byDiff.beginner.filter(t => t.mastery >= 0.7).length,
+            mastered: byDiff.beginner.filter(t => t.mastery >= MASTERY_THRESHOLD).length,
           },
           intermediate: {
             total: byDiff.intermediate.length,
-            mastered: byDiff.intermediate.filter(t => t.mastery >= 0.7).length,
+            mastered: byDiff.intermediate.filter(t => t.mastery >= MASTERY_THRESHOLD).length,
           },
           advanced: {
             total: byDiff.advanced.length,
-            mastered: byDiff.advanced.filter(t => t.mastery >= 0.7).length,
+            mastered: byDiff.advanced.filter(t => t.mastery >= MASTERY_THRESHOLD).length,
           },
         },
         next_review: next ? {
@@ -164,7 +165,8 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     console.log('By Difficulty:');
     for (const [level, list] of Object.entries(byDiff)) {
       if (list.length > 0) {
-        const masteredInLevel = list.filter(t => t.mastery >= 0.7).length;
+        const masteredInLevel = list.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
+
         console.log(`  ${level.padEnd(15)}: ${list.length} topics (${masteredInLevel} mastered)`);
       }
     }
