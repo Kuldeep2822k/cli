@@ -9,7 +9,9 @@ import fs from 'fs';
 import path from 'path';
 import { walkVault } from '../storage/vault-walker';
 import { parseFrontmatter } from '../storage/frontmatter';
+import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, normalizeDifficulty, ProgressOptions } from '../types';
+
 
 interface ProgressTopic {
   id: string;
@@ -136,15 +138,14 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
           : match.last_reviewed_at;
         console.log(`Last Reviewed: ${formatted}`);
       }
-
     } else {
       const activeTopics = topics.filter(t => t.status !== 'archived');
       const archivedTopics = topics.filter(t => t.status === 'archived');
 
       const total = topics.length;
       const activeCount = activeTopics.length;
-      const mastered = activeTopics.filter(t => t.mastery >= 0.7).length;
-      const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
+      const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
+      const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
       const newTopics = activeTopics.filter(t => t.mastery === 0).length;
 
       const totalReps = activeTopics.reduce((sum, t) => sum + t.repetition, 0);
@@ -160,7 +161,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
       const masteryStatus: 'no_data' | 'learning' | 'mastered' = globalMastery === null
         ? 'no_data'
-        : globalMastery >= 0.7
+        : globalMastery >= MASTERY_THRESHOLD
           ? 'mastered'
           : 'learning';
 
