@@ -36,15 +36,39 @@ function parseScore(val: unknown, fallback: number = 0.0): number {
   return fallback;
 }
 
+function parseInteger(val: unknown, fallback: number = 0): number {
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return fallback;
+    return Math.floor(val);
+  }
+  if (typeof val === 'string') {
+    const parsed = Number(val.trim());
+    if (Number.isFinite(parsed)) return Math.floor(parsed);
+  }
+  return fallback;
+}
+
+function parseNumber(val: unknown, fallback: number = 0): number {
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return fallback;
+    return val;
+  }
+  if (typeof val === 'string') {
+    const parsed = Number(val.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
 /**
  * Scans the vault and parses all Markdown files containing a valid palee_id.
  * Guarantees a single consistent parsing, normalization, and validation pipeline across all CLI commands.
  */
-export function loadTopics(vaultPath: string): LoadedTopic[] {
-  const files = walkVault(vaultPath);
+export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
+  const scanFiles = files ?? walkVault(vaultPath);
   const topics: LoadedTopic[] = [];
 
-  for (const filePath of files) {
+  for (const filePath of scanFiles) {
     let content: string;
     try {
       content = fs.readFileSync(filePath, 'utf8');
@@ -87,11 +111,13 @@ export function loadTopics(vaultPath: string): LoadedTopic[] {
       practical: parseScore(frontmatter.practical, 0.0),
       debug: parseScore(frontmatter.debug, 0.0),
       feynman: parseScore(frontmatter.feynman, 0.0),
-      ease_factor: typeof frontmatter.ease_factor === 'number' ? frontmatter.ease_factor : 2.5,
-      interval_days: typeof frontmatter.interval_days === 'number' ? frontmatter.interval_days : 1,
-      repetition: typeof frontmatter.repetition === 'number' ? frontmatter.repetition : 0,
-      lapses: typeof frontmatter.lapses === 'number' ? frontmatter.lapses : 0,
-      last_quality: typeof frontmatter.last_quality === 'number' ? frontmatter.last_quality : null,
+      ease_factor: parseNumber(frontmatter.ease_factor, 2.5),
+      interval_days: parseInteger(frontmatter.interval_days, 1),
+      repetition: parseInteger(frontmatter.repetition, 0),
+      lapses: parseInteger(frontmatter.lapses, 0),
+      last_quality: typeof frontmatter.last_quality === 'number' && Number.isFinite(frontmatter.last_quality)
+        ? Math.floor(frontmatter.last_quality)
+        : null,
       assessed_at: frontmatter.assessed_at ? String(frontmatter.assessed_at) : null,
       last_reviewed_at: frontmatter.last_reviewed_at ? String(frontmatter.last_reviewed_at) : null,
       due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
@@ -102,4 +128,5 @@ export function loadTopics(vaultPath: string): LoadedTopic[] {
 
   return topics;
 }
+
 

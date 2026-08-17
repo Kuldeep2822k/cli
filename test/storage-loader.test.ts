@@ -117,5 +117,52 @@ feynman: 0.999999
     assert.strictEqual(t.feynman, 1.0); // Rounded from 0.999999
     assert.strictEqual(t.difficulty, 'intermediate'); // Coerced from numeric 2
   });
+
+  test('loadTopics falls back to canonical defaults when review counters are NaN or non-finite', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic-nan.md'),
+      `---
+palee_schema: 1
+palee_id: T-topic-nan
+title: NaN Counters Topic
+repetition: .nan
+lapses: .nan
+ease_factor: .nan
+interval_days: .nan
+last_quality: .nan
+---
+# NaN Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.strictEqual(t.repetition, 0);
+    assert.strictEqual(t.lapses, 0);
+    assert.strictEqual(t.ease_factor, 2.5);
+    assert.strictEqual(t.interval_days, 1);
+    assert.strictEqual(t.last_quality, null);
+  });
+
+  test('loadTopics accepts pre-scanned files array to avoid redundant directory walks', () => {
+    const file1 = path.join(tmpVault, 'prescan1.md');
+    fs.writeFileSync(
+      file1,
+      `---
+palee_schema: 1
+palee_id: T-prescan-1
+title: Prescan 1
+---
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault, [file1]);
+    assert.strictEqual(topics.length, 1);
+    assert.strictEqual(topics[0].palee_id, 'T-prescan-1');
+  });
 });
+
 

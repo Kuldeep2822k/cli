@@ -24,8 +24,9 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     }
 
     const files = walkVault(vaultPath);
-    const loaded = loadTopics(vaultPath);
+    const loaded = loadTopics(vaultPath, files);
     const topics = new Map<string, TopicNode & { path: string }>();
+
     const errors: ValidationError[] = [];
 
     for (const t of loaded) {

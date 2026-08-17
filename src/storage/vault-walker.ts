@@ -70,8 +70,8 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
         }
       }
 
-      // Skip hidden directories (starting with .)
-      if (isDir && entry.name.startsWith('.')) {
+      // Skip dot-files and dot-directories (.obsidian, .trash, .git, .hidden.md, etc.)
+      if (entry.name.startsWith('.')) {
         continue;
       }
 
@@ -88,8 +88,9 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
     }
   }
 
-  walk(vaultPath);
+  walk(resolvedVaultPath);
   return results;
+
 }
 
 export { walkVault };
