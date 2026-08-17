@@ -13,6 +13,7 @@ interface ProgressTopic {
   id: string;
   title: string;
   path: string;
+  status: string;
   mastery: number;
   repetition: number;
   lapses: number;
@@ -33,6 +34,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       id: t.palee_id,
       title: t.title,
       path: t.path,
+      status: t.status,
       mastery: t.topic_mastery,
       repetition: t.repetition ?? 0,
       lapses: t.lapses ?? 0,
@@ -45,7 +47,12 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     if (topics.length === 0 && !options.topic) {
       if (jsonMode) {
         console.log(JSON.stringify({
+          active_topic_count: 0,
+          archived_topic_count: 0,
+          global_mastery: null,
+          mastery_status: 'no_data',
           total_topics: 0,
+
           mastered: 0,
           learning: 0,
           new: 0,
@@ -64,6 +71,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       printEmptyVaultOnboarding();
       return;
     }
+
 
     if (options.topic) {
       const match = topics.find(t =>
@@ -105,36 +113,65 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       console.log(`Repetitions: ${match.repetition}`);
       console.log(`Lapses: ${match.lapses}`);
       if (match.assessed_at) {
-        console.log(`Last Assessed: ${new Date(match.assessed_at).toISOString().split('T')[0]}`);
+        const d = new Date(match.assessed_at);
+        const formatted = !Number.isNaN(d.getTime())
+          ? d.toISOString().split('T')[0]
+          : match.assessed_at;
+        console.log(`Last Assessed: ${formatted}`);
       }
       if (match.last_reviewed_at) {
-        console.log(`Last Reviewed: ${new Date(match.last_reviewed_at).toISOString().split('T')[0]}`);
+        const d = new Date(match.last_reviewed_at);
+        const formatted = !Number.isNaN(d.getTime())
+          ? d.toISOString().split('T')[0]
+          : match.last_reviewed_at;
+        console.log(`Last Reviewed: ${formatted}`);
       }
-    } else {
-      const total = topics.length;
-      const mastered = topics.filter(t => t.mastery >= 0.7).length;
-      const learning = topics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
-      const newTopics = topics.filter(t => t.mastery === 0).length;
 
-      const totalReps = topics.reduce((sum, t) => sum + t.repetition, 0);
-      const totalLapses = topics.reduce((sum, t) => sum + t.lapses, 0);
-      const avgMastery = total > 0
-        ? topics.reduce((sum, t) => sum + t.mastery, 0) / total
-        : 0;
+    } else {
+      const activeTopics = topics.filter(t => t.status !== 'archived');
+      const archivedTopics = topics.filter(t => t.status === 'archived');
+
+      const total = topics.length;
+      const activeCount = activeTopics.length;
+      const mastered = activeTopics.filter(t => t.mastery >= 0.7).length;
+      const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < 0.7).length;
+      const newTopics = activeTopics.filter(t => t.mastery === 0).length;
+
+      const totalReps = activeTopics.reduce((sum, t) => sum + t.repetition, 0);
+      const totalLapses = activeTopics.reduce((sum, t) => sum + t.lapses, 0);
+
+      const rawMastery = activeCount > 0
+        ? activeTopics.reduce((sum, t) => sum + t.mastery, 0) / activeCount
+        : null;
+
+      const globalMastery = rawMastery === null
+        ? null
+        : Math.round(rawMastery * 10000) / 10000;
+
+      const masteryStatus: 'no_data' | 'learning' | 'mastered' = globalMastery === null
+        ? 'no_data'
+        : globalMastery >= 0.7
+          ? 'mastered'
+          : 'learning';
+
 
       const byDifficulty: Record<string, ProgressTopic[]> = {
-        beginner: topics.filter(t => t.difficulty === 'beginner'),
-        intermediate: topics.filter(t => t.difficulty === 'intermediate'),
-        advanced: topics.filter(t => t.difficulty === 'advanced'),
+        beginner: activeTopics.filter(t => t.difficulty === 'beginner'),
+        intermediate: activeTopics.filter(t => t.difficulty === 'intermediate'),
+        advanced: activeTopics.filter(t => t.difficulty === 'advanced'),
       };
 
       if (jsonMode) {
         console.log(JSON.stringify({
+          active_topic_count: activeCount,
+          archived_topic_count: archivedTopics.length,
+          global_mastery: globalMastery,
+          mastery_status: masteryStatus,
           total_topics: total,
           mastered,
           learning,
           new: newTopics,
-          avg_mastery: avgMastery,
+          avg_mastery: globalMastery ?? 0,
           total_reviews: totalReps,
           total_lapses: totalLapses,
           by_difficulty: {
@@ -162,12 +199,16 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       }
 
       console.log('=== Learning Progress ===\n');
-      console.log(`Total Topics: ${total}`);
-      console.log(`  Mastered (≥70%): ${mastered} (${(total > 0 ? mastered / total * 100 : 0).toFixed(1)}%)`);
-      console.log(`  Learning: ${learning} (${(total > 0 ? learning / total * 100 : 0).toFixed(1)}%)`);
-      console.log(`  New: ${newTopics} (${(total > 0 ? newTopics / total * 100 : 0).toFixed(1)}%)`);
+      console.log(`Active Topics: ${activeCount}${archivedTopics.length > 0 ? ` (${archivedTopics.length} archived)` : ''}`);
+      console.log(`  Mastered (≥70%): ${mastered} (${(activeCount > 0 ? (mastered / activeCount) * 100 : 0).toFixed(1)}%)`);
+      console.log(`  Learning: ${learning} (${(activeCount > 0 ? (learning / activeCount) * 100 : 0).toFixed(1)}%)`);
+      console.log(`  New: ${newTopics} (${(activeCount > 0 ? (newTopics / activeCount) * 100 : 0).toFixed(1)}%)`);
       console.log();
-      console.log(`Average Mastery: ${(avgMastery * 100).toFixed(1)}%`);
+      if (globalMastery !== null) {
+        console.log(`Average Mastery: ${(globalMastery * 100).toFixed(1)}% (${masteryStatus})`);
+      } else {
+        console.log(`Average Mastery: No data (${masteryStatus})`);
+      }
       console.log(`Total Reviews: ${totalReps}`);
       console.log(`Total Lapses: ${totalLapses}`);
       console.log();
@@ -180,6 +221,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         }
       }
     }
+
 
     return;
 

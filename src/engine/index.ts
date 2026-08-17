@@ -5,11 +5,18 @@
 
 import * as sm2 from './sm2';
 import * as dependency from './dependency';
+import * as mastery from './mastery';
 
 export const processReview = sm2.processReview;
 export const computeDueDate = sm2.computeDueDate;
 
+// Mastery exports
+export const computeTopicMastery = mastery.computeTopicMastery;
+export const normalizeScore = mastery.normalizeScore;
+
 // Dependency exports
+
 export const detectCycle = dependency.detectCycle;
 export const getReadyTopics = dependency.getReadyTopics;
 export const validateDependencyGraph = dependency.validateDependencyGraph;
+
