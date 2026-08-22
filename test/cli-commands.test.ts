@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
+import { Lock } from '../src/storage/lock';
 
 describe('CLI Commands', () => {
   let tempDir: string;
@@ -466,6 +467,69 @@ Body content.
 
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);
+  });
+
+  test('review command exits with code 4 on concurrent lock conflict', async () => {
+    const lockNotePath = path.join(vaultDir, 'lock-conflict-review.md');
+    try {
+      fs.writeFileSync(
+        lockNotePath,
+        `---
+palee_id: T-lock-review
+palee_schema: 1
+title: Lock Conflict Review
+difficulty: beginner
+depends_on: []
+topic_mastery: 0.5
+---
+# Lock Conflict Review
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, lockNotePath);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['review', 'T-lock-review', '4']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(lockNotePath)) {
+        fs.unlinkSync(lockNotePath);
+      }
+    }
+  });
+
+  test('adopt command exits with code 4 on concurrent lock conflict', async () => {
+    const lockAdoptPath = path.join(vaultDir, 'lock-conflict-adopt.md');
+    try {
+      fs.writeFileSync(
+        lockAdoptPath,
+        `# Unadopted Note
+This note is undergoing concurrent modification.
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, lockAdoptPath);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['adopt', lockAdoptPath, '--yes']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(lockAdoptPath)) {
+        fs.unlinkSync(lockAdoptPath);
+      }
+    }
   });
 });
 

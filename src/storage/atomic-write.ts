@@ -13,6 +13,19 @@ const WINDOWS_RETRY_MULTIPLIER = 2;
 const WINDOWS_RETRY_JITTER = 0.25; // ±25%
 const WINDOWS_RETRY_MAX_DELAY = 300; // ms
 
+/**
+ * Returns true if the error is an OCC conflict or lock acquisition conflict
+ */
+export function isConflictError(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const err = e as { code?: string; message?: string };
+  if (err.code === 'ECONFLICT') return true;
+  if (typeof err.message === 'string') {
+    return err.message.includes('OCC conflict') || err.message.includes('Lock conflict');
+  }
+  return false;
+}
+
 function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
   const jitterAmount = baseDelay * jitter;
   const delay = baseDelay + (Math.random() * 2 - 1) * jitterAmount;
@@ -33,7 +46,9 @@ async function atomicWrite(vaultPath: string, targetPath: string, newContent: st
       const currentFingerprint = computeFingerprint(currentContent);
 
       if (currentFingerprint !== expectedFingerprint) {
-        throw new Error(`OCC conflict: ${targetPath} was modified by another process`);
+        const conflictErr = new Error(`OCC conflict: ${targetPath} was modified by another process`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
       }
     }
 

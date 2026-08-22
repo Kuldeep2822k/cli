@@ -17,6 +17,7 @@ import {
   generateDraftId,
   parseFrontmatter,
   recoverDraft,
+  isConflictError,
 } from '../storage';
 import { SessionOptions } from '../types';
 
@@ -245,7 +246,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = isConflictError(e) ? 4 : 5;
     return;
   }
 }

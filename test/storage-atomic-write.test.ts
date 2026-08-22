@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { atomicWrite } from '../src/storage/atomic-write';
+import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
 import { computeFingerprint } from '../src/storage/frontmatter';
 
 describe('Atomic Write', () => {
@@ -119,5 +119,33 @@ describe('Atomic Write', () => {
     assert.ok(final === content1 || final === content2);
   });
 
+  test('OCC conflict sets ECONFLICT error code', async () => {
+    const originalContent = '# OCC Code Check';
+    fs.writeFileSync(testFilePath, originalContent, 'utf8');
+    const fingerprint = computeFingerprint(originalContent);
 
+    // Modify file externally
+    fs.writeFileSync(testFilePath, '# OCC Modified Externally', 'utf8');
+
+    try {
+      await atomicWrite(testVaultPath, testFilePath, '# My Update', fingerprint);
+      assert.fail('Expected atomicWrite to throw on OCC conflict');
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      assert.strictEqual(err.code, 'ECONFLICT');
+      assert.match(err.message || '', /OCC conflict/);
+      assert.strictEqual(isConflictError(e), true);
+    }
+  });
+
+  test('isConflictError helper correctly classifies error objects', () => {
+    assert.strictEqual(isConflictError({ code: 'ECONFLICT' }), true);
+    assert.strictEqual(isConflictError(new Error('OCC conflict: target modified')), true);
+    assert.strictEqual(isConflictError(new Error('Lock conflict: target locked by PID 123')), true);
+    assert.strictEqual(isConflictError(new Error('Generic file read failure')), false);
+    assert.strictEqual(isConflictError(null), false);
+    assert.strictEqual(isConflictError(undefined), false);
+    assert.strictEqual(isConflictError('some string error'), false);
+    assert.strictEqual(isConflictError(123), false);
+  });
 });
