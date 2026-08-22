@@ -67,19 +67,16 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const debug = normalizeScore(frontmatter.debug);
     const feynman = normalizeScore(frontmatter.feynman);
 
-    const topicMastery =
-      frontmatter.topic_mastery !== undefined &&
-      frontmatter.topic_mastery !== null &&
-      conceptual === 0 &&
-      practical === 0 &&
-      debug === 0 &&
-      feynman === 0
-        ? normalizeScore(frontmatter.topic_mastery)
-        : computeTopicMastery(conceptual, practical, debug, feynman);
+    const hasPillarScores = conceptual > 0 || practical > 0 || debug > 0 || feynman > 0;
+
+    const topicMastery = hasPillarScores
+      ? computeTopicMastery(conceptual, practical, debug, feynman)
+      : (frontmatter.topic_mastery !== undefined && frontmatter.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : 0.0);
 
     const updates: Record<string, unknown> = {
       ...newState,
-      last_quality: quality,
       conceptual,
       practical,
       debug,
