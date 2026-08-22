@@ -265,6 +265,72 @@ Content.
     }
   });
 
+  test('review command recomputing mastery unlocks dependent topics in plan', () => {
+    const prereqPath = path.join(vaultDir, 'prereq-topic.md');
+    const depPath = path.join(vaultDir, 'dep-topic.md');
+    try {
+      fs.writeFileSync(
+        prereqPath,
+        `---
+palee_id: T-prereq-gate
+palee_schema: 1
+title: Prerequisite Gate Topic
+difficulty: intermediate
+depends_on: []
+conceptual: 0.9
+practical: 0.9
+debug: 0.9
+feynman: 0.9
+topic_mastery: 0.0
+---
+# Prerequisite
+`,
+        'utf8'
+      );
+
+      fs.writeFileSync(
+        depPath,
+        `---
+palee_id: T-dependent-gate
+palee_schema: 1
+title: Dependent Gate Topic
+difficulty: advanced
+depends_on:
+  - T-prereq-gate
+topic_mastery: 0.0
+---
+# Dependent
+`,
+        'utf8'
+      );
+
+      // Before review, T-dependent-gate should not be ready
+      const planBefore = runCLI(['plan', '--json']);
+      assert.strictEqual(planBefore.status, 0);
+      const parsedBefore = JSON.parse(planBefore.stdout);
+      const isDepReadyBefore = (parsedBefore.ready_topics || []).some(
+        (t: { id: string }) => t.id === 'T-dependent-gate'
+      );
+      assert.strictEqual(isDepReadyBefore, false, 'Dependent topic should not be ready before prerequisite is reviewed');
+
+      // Review prerequisite topic with quality 5
+      const reviewResult = runCLI(['review', 'T-prereq-gate', '5']);
+      assert.strictEqual(reviewResult.status, 0);
+
+      // After review, T-prereq-gate mastery should be >= 0.70 and T-dependent-gate should now be ready
+      const planAfter = runCLI(['plan', '--json']);
+      assert.strictEqual(planAfter.status, 0);
+      const parsedAfter = JSON.parse(planAfter.stdout);
+      const isDepReadyAfter = (parsedAfter.ready_topics || []).some(
+        (t: { id: string }) => t.id === 'T-dependent-gate'
+      );
+      assert.strictEqual(isDepReadyAfter, true, 'Dependent topic should be unlocked and ready after prerequisite mastery >= 0.70');
+    } finally {
+      if (fs.existsSync(prereqPath)) fs.unlinkSync(prereqPath);
+      if (fs.existsSync(depPath)) fs.unlinkSync(depPath);
+    }
+  });
+
   test('progress --topic handles malformed date strings gracefully without throwing', () => {
     const malformedNotePath = path.join(vaultDir, 'malformed-date.md');
     try {
