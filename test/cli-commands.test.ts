@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import { parseFrontmatter } from '../src/storage/frontmatter';
+import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 import { Lock } from '../src/storage/lock';
+import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
 
 describe('CLI Commands', () => {
   let tempDir: string;
@@ -560,6 +561,30 @@ This note is undergoing concurrent modification.
     } finally {
       if (fs.existsSync(roadmapFile)) fs.unlinkSync(roadmapFile);
       if (fs.existsSync(targetNote)) fs.unlinkSync(targetNote);
+    }
+  });
+
+  test('atomicWrite OCC conflict produces ECONFLICT error recognized by isConflictError', async () => {
+    const occNote = path.join(vaultDir, 'occ-conflict.md');
+    try {
+      const initial = '# Initial Content\n';
+      fs.writeFileSync(occNote, initial, 'utf8');
+      const fp = computeFingerprint(initial);
+
+      // Concurrent external write modifies the note
+      fs.writeFileSync(occNote, '# External modification\n', 'utf8');
+
+      try {
+        await atomicWrite(vaultDir, occNote, '# Overwrite attempt\n', fp);
+        assert.fail('Expected atomicWrite to throw on OCC conflict');
+      } catch (e: unknown) {
+        assert.strictEqual(isConflictError(e), true);
+        const err = e as { code?: string; message?: string };
+        assert.strictEqual(err.code, 'ECONFLICT');
+        assert.match(err.message || '', /OCC conflict/);
+      }
+    } finally {
+      if (fs.existsSync(occNote)) fs.unlinkSync(occNote);
     }
   });
 });
