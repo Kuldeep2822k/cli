@@ -160,10 +160,30 @@ export interface ValidationResult {
 
 export interface TopicNode {
   palee_id: string;
+  id?: string;
+  title?: string;
+  path?: string;
+  difficulty?: Difficulty;
   depends_on: string[];
   topic_mastery: number;
+
+  status?: string;
+  conceptual?: number;
+  practical?: number;
+  debug?: number;
+  feynman?: number;
+  ease_factor?: number;
+  interval_days?: number;
+  repetition?: number;
+  lapses?: number;
+  last_quality?: number | null;
+  assessed_at?: string | null;
+  last_reviewed_at?: string | null;
+  due_at?: string | Date | null;
   [key: string]: unknown;
 }
+
+
 
 // ─── CLI Options ────────────────────────────────────────────────────
 

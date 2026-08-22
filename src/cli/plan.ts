@@ -5,13 +5,11 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows learning plan for the day
  */
 
-import fs from 'fs';
-import path from 'path';
-import { walkVault } from '../storage/vault-walker';
-import { parseFrontmatter } from '../storage/frontmatter';
+import { loadTopics } from '../storage/loader';
 import { getReadyTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
-import { Difficulty, normalizeDifficulty, PlanOptions, TopicNode } from '../types';
+import { Difficulty, PlanOptions, TopicNode } from '../types';
+
 
 
 
@@ -31,33 +29,28 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const files = walkVault(vaultPath);
+    const loaded = loadTopics(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
 
-    for (const filePath of files) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
-
-      if (!frontmatter || !frontmatter.palee_id) continue;
-
-      const id = frontmatter.palee_id as string;
-      let dueAt = frontmatter.due_at ? new Date(frontmatter.due_at as string) : null;
+    for (const t of loaded) {
+      let dueAt = t.due_at ? new Date(t.due_at) : null;
       if (dueAt && Number.isNaN(dueAt.getTime())) {
         dueAt = null;
       }
 
-      topics.set(id, {
-        palee_id: id,
-        title: (frontmatter.title as string) || path.basename(filePath, '.md'),
-        path: path.relative(vaultPath, filePath),
-        topic_mastery: (frontmatter.topic_mastery as number) || 0,
-        depends_on: (frontmatter.depends_on as string[]) || [],
+      topics.set(t.palee_id, {
+        palee_id: t.palee_id,
+        title: t.title,
+        path: t.path,
+        topic_mastery: t.topic_mastery,
+        depends_on: t.depends_on,
         due_at: dueAt,
-        repetition: (frontmatter.repetition as number) || 0,
-        difficulty: normalizeDifficulty(frontmatter.difficulty),
+        repetition: t.repetition ?? 0,
+        difficulty: t.difficulty ?? 'intermediate',
       });
     }
+
 
     const dueTopics: PlanTopic[] = [];
     for (const topic of topics.values()) {
