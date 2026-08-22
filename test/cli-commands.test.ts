@@ -308,7 +308,7 @@ topic_mastery: 0.0
       const planBefore = runCLI(['plan', '--json']);
       assert.strictEqual(planBefore.status, 0);
       const parsedBefore = JSON.parse(planBefore.stdout);
-      const isDepReadyBefore = (parsedBefore.ready_topics || []).some(
+      const isDepReadyBefore = (parsedBefore.ready_to_learn || []).some(
         (t: { id: string }) => t.id === 'T-dependent-gate'
       );
       assert.strictEqual(isDepReadyBefore, false, 'Dependent topic should not be ready before prerequisite is reviewed');
@@ -321,7 +321,7 @@ topic_mastery: 0.0
       const planAfter = runCLI(['plan', '--json']);
       assert.strictEqual(planAfter.status, 0);
       const parsedAfter = JSON.parse(planAfter.stdout);
-      const isDepReadyAfter = (parsedAfter.ready_topics || []).some(
+      const isDepReadyAfter = (parsedAfter.ready_to_learn || []).some(
         (t: { id: string }) => t.id === 'T-dependent-gate'
       );
       assert.strictEqual(isDepReadyAfter, true, 'Dependent topic should be unlocked and ready after prerequisite mastery >= 0.70');
