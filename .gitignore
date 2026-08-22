@@ -7,3 +7,6 @@ coverage/
 *.tgz
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+.agents/
+skills-lock.json
+
