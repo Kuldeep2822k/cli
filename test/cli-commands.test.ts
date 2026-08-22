@@ -223,6 +223,48 @@ topics:
     assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
 
+  test('review command recomputes topic_mastery when assessment pillars are present', () => {
+    const pillarNotePath = path.join(vaultDir, 'pillar-topic.md');
+    try {
+      fs.writeFileSync(
+        pillarNotePath,
+        `---
+palee_id: T-pillar-review
+palee_schema: 1
+title: Pillar Review Topic
+difficulty: intermediate
+depends_on: []
+conceptual: 0.8
+practical: 0.8
+debug: 0.8
+feynman: 0.8
+topic_mastery: 0.0
+---
+# Pillar Review Topic
+Content.
+`,
+        'utf8'
+      );
+
+      const result = runCLI(['review', 'T-pillar-review', '5']);
+      assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
+
+      const content = fs.readFileSync(pillarNotePath, 'utf8');
+      const parsed = parseFrontmatter(content);
+
+      assert.strictEqual(parsed.frontmatter!.conceptual, 0.8);
+      assert.strictEqual(parsed.frontmatter!.practical, 0.8);
+      assert.strictEqual(parsed.frontmatter!.debug, 0.8);
+      assert.strictEqual(parsed.frontmatter!.feynman, 0.8);
+      assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8);
+      assert.strictEqual(parsed.frontmatter!.last_quality, 5);
+    } finally {
+      if (fs.existsSync(pillarNotePath)) {
+        fs.unlinkSync(pillarNotePath);
+      }
+    }
+  });
+
   test('progress --topic handles malformed date strings gracefully without throwing', () => {
     const malformedNotePath = path.join(vaultDir, 'malformed-date.md');
     try {
