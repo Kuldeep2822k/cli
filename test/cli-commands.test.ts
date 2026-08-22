@@ -223,6 +223,114 @@ topics:
     assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
 
+  test('review command recomputes topic_mastery when assessment pillars are present', () => {
+    const pillarNotePath = path.join(vaultDir, 'pillar-topic.md');
+    try {
+      fs.writeFileSync(
+        pillarNotePath,
+        `---
+palee_id: T-pillar-review
+palee_schema: 1
+title: Pillar Review Topic
+difficulty: intermediate
+depends_on: []
+conceptual: 0.8
+practical: 0.8
+debug: 0.8
+feynman: 0.8
+topic_mastery: 0.0
+---
+# Pillar Review Topic
+Content.
+`,
+        'utf8'
+      );
+
+      const result = runCLI(['review', 'T-pillar-review', '5']);
+      assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
+
+      const content = fs.readFileSync(pillarNotePath, 'utf8');
+      const parsed = parseFrontmatter(content);
+
+      assert.strictEqual(parsed.frontmatter!.conceptual, 0.8);
+      assert.strictEqual(parsed.frontmatter!.practical, 0.8);
+      assert.strictEqual(parsed.frontmatter!.debug, 0.8);
+      assert.strictEqual(parsed.frontmatter!.feynman, 0.8);
+      assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8);
+      assert.strictEqual(parsed.frontmatter!.last_quality, 5);
+    } finally {
+      if (fs.existsSync(pillarNotePath)) {
+        fs.unlinkSync(pillarNotePath);
+      }
+    }
+  });
+
+  test('review command recomputing mastery unlocks dependent topics in plan', () => {
+    const prereqPath = path.join(vaultDir, 'prereq-topic.md');
+    const depPath = path.join(vaultDir, 'dep-topic.md');
+    try {
+      fs.writeFileSync(
+        prereqPath,
+        `---
+palee_id: T-prereq-gate
+palee_schema: 1
+title: Prerequisite Gate Topic
+difficulty: intermediate
+depends_on: []
+conceptual: 0.9
+practical: 0.9
+debug: 0.9
+feynman: 0.9
+topic_mastery: 0.0
+---
+# Prerequisite
+`,
+        'utf8'
+      );
+
+      fs.writeFileSync(
+        depPath,
+        `---
+palee_id: T-dependent-gate
+palee_schema: 1
+title: Dependent Gate Topic
+difficulty: advanced
+depends_on:
+  - T-prereq-gate
+topic_mastery: 0.0
+---
+# Dependent
+`,
+        'utf8'
+      );
+
+      // Before review, T-dependent-gate should not be ready
+      const planBefore = runCLI(['plan', '--json']);
+      assert.strictEqual(planBefore.status, 0);
+      const parsedBefore = JSON.parse(planBefore.stdout);
+      const isDepReadyBefore = (parsedBefore.ready_to_learn || []).some(
+        (t: { id: string }) => t.id === 'T-dependent-gate'
+      );
+      assert.strictEqual(isDepReadyBefore, false, 'Dependent topic should not be ready before prerequisite is reviewed');
+
+      // Review prerequisite topic with quality 5
+      const reviewResult = runCLI(['review', 'T-prereq-gate', '5']);
+      assert.strictEqual(reviewResult.status, 0);
+
+      // After review, T-prereq-gate mastery should be >= 0.70 and T-dependent-gate should now be ready
+      const planAfter = runCLI(['plan', '--json']);
+      assert.strictEqual(planAfter.status, 0);
+      const parsedAfter = JSON.parse(planAfter.stdout);
+      const isDepReadyAfter = (parsedAfter.ready_to_learn || []).some(
+        (t: { id: string }) => t.id === 'T-dependent-gate'
+      );
+      assert.strictEqual(isDepReadyAfter, true, 'Dependent topic should be unlocked and ready after prerequisite mastery >= 0.70');
+    } finally {
+      if (fs.existsSync(prereqPath)) fs.unlinkSync(prereqPath);
+      if (fs.existsSync(depPath)) fs.unlinkSync(depPath);
+    }
+  });
+
   test('progress --topic handles malformed date strings gracefully without throwing', () => {
     const malformedNotePath = path.join(vaultDir, 'malformed-date.md');
     try {

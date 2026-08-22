@@ -3,6 +3,7 @@ import { loadTopics } from '../storage/loader';
 import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
+import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 
 async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
   try {
@@ -61,8 +62,26 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const reviewedAt = new Date();
     const dueDate = computeDueDate(reviewedAt, newState.interval_days!);
 
+    const conceptual = normalizeScore(frontmatter.conceptual);
+    const practical = normalizeScore(frontmatter.practical);
+    const debug = normalizeScore(frontmatter.debug);
+    const feynman = normalizeScore(frontmatter.feynman);
+
+    const hasPillarScores = conceptual > 0 || practical > 0 || debug > 0 || feynman > 0;
+
+    const topicMastery = hasPillarScores
+      ? computeTopicMastery(conceptual, practical, debug, feynman)
+      : (frontmatter.topic_mastery !== undefined && frontmatter.topic_mastery !== null
+          ? normalizeScore(frontmatter.topic_mastery)
+          : 0.0);
+
     const updates: Record<string, unknown> = {
       ...newState,
+      conceptual,
+      practical,
+      debug,
+      feynman,
+      topic_mastery: topicMastery,
       last_reviewed_at: formatLocalDateOnly(reviewedAt),
       due_at: formatLocalDateOnly(dueDate),
     };
