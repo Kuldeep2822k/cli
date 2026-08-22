@@ -531,5 +531,36 @@ This note is undergoing concurrent modification.
       }
     }
   });
+
+  test('roadmap command exits with code 4 on concurrent lock conflict', async () => {
+    const roadmapFile = path.join(tempDir, 'conflict-roadmap.yaml');
+    const targetNote = path.join(vaultDir, 'roadmap-conflict-target.md');
+    try {
+      fs.writeFileSync(
+        roadmapFile,
+        `topics:
+  - id: T-roadmap-lock
+    title: Roadmap Lock Test
+    path: roadmap-conflict-target.md
+    difficulty: beginner
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, targetNote);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['roadmap', '--from', roadmapFile, '--yes']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on roadmap lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(roadmapFile)) fs.unlinkSync(roadmapFile);
+      if (fs.existsSync(targetNote)) fs.unlinkSync(targetNote);
+    }
+  });
 });
 

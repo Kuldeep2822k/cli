@@ -233,6 +233,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         try {
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
         } catch (e) {
+          if (isConflictError(e)) {
+            throw e;
+          }
           console.error(`Error writing ${topic.path}: ${(e as Error).message}`);
           failed++;
           continue;
@@ -250,23 +253,27 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.error(`Failed to import ${failed} topics.`);
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       } else {
         console.log('✓ Roadmap imported successfully');
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exit(0);
+        process.exitCode = 0;
+        return;
       }
       } catch (err: unknown) {
         console.error(`Error during import: ${(err as Error).message}`);
-        process.exit(isConflictError(err) ? 4 : 5);
+        process.exitCode = isConflictError(err) ? 4 : 5;
+        return;
       }
     }
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(isConflictError(e) ? 4 : 5);
+    process.exitCode = isConflictError(e) ? 4 : 5;
+    return;
   }
 }
 
