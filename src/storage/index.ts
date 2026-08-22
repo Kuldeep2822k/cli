@@ -6,7 +6,7 @@
 import { walkVault } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from './lock';
-import { atomicWrite } from './atomic-write';
+import { atomicWrite, isConflictError } from './atomic-write';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
 import {
   generateSessionId,
@@ -53,6 +53,7 @@ export {
 
   // Atomic writes
   atomicWrite,
+  isConflictError,
 
   // Caching
   FileCache,

@@ -1,7 +1,7 @@
 import { loadConfig } from './config';
 import { loadTopics } from '../storage/loader';
 import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
-import { atomicWrite } from '../storage/atomic-write';
+import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 
@@ -107,7 +107,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = isConflictError(e) ? 4 : 5;
   }
 
 }

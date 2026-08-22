@@ -8,7 +8,7 @@ import path from 'path';
 import { loadConfig } from './config';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { parseRoadmapContent } from '../storage/roadmap-parser';
-import { atomicWrite } from '../storage/atomic-write';
+import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
@@ -259,14 +259,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
       } catch (err: unknown) {
         console.error(`Error during import: ${(err as Error).message}`);
-        process.exit(5);
+        process.exit(isConflictError(err) ? 4 : 5);
       }
     }
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exit(isConflictError(e) ? 4 : 5);
   }
 }
 
