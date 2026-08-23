@@ -1,13 +1,33 @@
 /**
- * SM-2 Spaced Repetition Algorithm
- * Implements the deterministic scheduling engine from palee_cli_spec.md
+ * SM-2 Spaced Repetition Scheduling Engine
+ *
+ * @remarks
+ * Implements SuperMemo-2 (SM-2) spaced repetition algorithm for scheduling topic reviews.
+ * Computes interval expansions, ease factor deltas, lapse counters, and due dates.
+ *
+ * @see {@link https://www.supermemo.com/en/archives1990-2015/english/ol/sm2} SuperMemo SM-2 Specification
  */
+
 import { Review } from '../types';
 
 /**
- * Calculate SM-2 ease factor delta
- * @param {number} quality - Quality rating (0-5)
- * @returns {number} Ease factor delta
+ * Calculates the delta adjustment to the ease factor based on review quality.
+ *
+ * @remarks
+ * Uses the canonical SM-2 formula:
+ * `ΔEF = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)`
+ *
+ * Quality ratings:
+ * - 5: Perfect response (+0.10)
+ * - 4: Correct response after a hesitation (+0.00)
+ * - 3: Correct response recalled with serious difficulty (-0.14)
+ * - 2: Incorrect response; where the correct one seemed easy to recall (-0.32)
+ * - 1: Incorrect response; the correct one remembered (-0.54)
+ * - 0: Complete blackout (-0.80)
+ *
+ * @param quality - Review quality rating (integer from 0 to 5)
+ * @returns Ease factor delta adjustment
+ * @throws {Error} If quality is not an integer between 0 and 5
  */
 function calculateEaseFactorDelta(quality: number): number {
   if (quality < 0 || quality > 5 || !Number.isInteger(quality)) {
@@ -17,10 +37,16 @@ function calculateEaseFactorDelta(quality: number): number {
 }
 
 /**
- * Round using positive decimal half-up rounding
- * @param {number} value
- * @param {number} decimals
- * @returns {number}
+ * Rounds a floating-point number using positive decimal half-up rounding (ties round towards +infinity).
+ *
+ * @param value - Numeric value to round
+ * @param decimals - Number of decimal places to preserve
+ * @returns Rounded numeric value
+ *
+ * @example
+ * ```typescript
+ * roundHalfUp(2.54567, 4); // 2.5457
+ * ```
  */
 function roundHalfUp(value: number, decimals: number): number {
   const multiplier = Math.pow(10, decimals);
@@ -28,10 +54,29 @@ function roundHalfUp(value: number, decimals: number): number {
 }
 
 /**
- * Process a review and compute next SM-2 state
- * @param {object} current - Current review state
- * @param {number} quality - Quality rating (0-5)
- * @returns {object} New review state
+ * Computes the next SM-2 spaced repetition state following a completed review.
+ *
+ * @remarks
+ * Scheduling behavior:
+ * - If `quality < 3` (review failure):
+ *   - `repetition` resets to `0`
+ *   - `interval_days` resets to `1`
+ *   - `lapses` increments by 1 (only if topic had prior repetitions)
+ * - If `quality >= 3` (successful review):
+ *   - `repetition` increments by 1
+ *   - `interval_days` becomes 1 for rep 1, 6 for rep 2, or `round(interval * ease_factor)` for rep > 2
+ * - `ease_factor` updates by `calculateEaseFactorDelta(quality)`, clamped to a minimum of 1.3
+ *
+ * @param current - Current review state (ease_factor, interval_days, repetition, lapses)
+ * @param quality - Review quality rating integer (0 - 5)
+ * @returns Updated Partial review state with new intervals, ease factor, and counters
+ * @throws {Error} If quality is out of bounds or current state fields are invalid
+ *
+ * @example
+ * ```typescript
+ * const next = processReview({ ease_factor: 2.5, interval_days: 1, repetition: 0 }, 5);
+ * // returns { ease_factor: 2.6, interval_days: 1, repetition: 1, lapses: 0, last_quality: 5 }
+ * ```
  */
 function processReview(current: Partial<Review>, quality: number): Partial<Review> {
   // Validate quality
@@ -101,9 +146,10 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
 }
 
 /**
- * Format Date to local date-only string (YYYY-MM-DD)
- * @param {Date} date
- * @returns {string}
+ * Formats a JavaScript Date object into a local date-only string (`YYYY-MM-DD`).
+ *
+ * @param date - Date to format
+ * @returns Formatted date string (e.g. `'2026-08-24'`)
  */
 function formatLocalDateOnly(date: Date): string {
   const year = date.getFullYear();
@@ -113,10 +159,19 @@ function formatLocalDateOnly(date: Date): string {
 }
 
 /**
- * Compute due date by adding calendar days
- * @param {Date} fromDate - Starting date
- * @param {number} days - Days to add
- * @returns {Date}
+ * Computes a target review due date by advancing calendar days in the local timezone.
+ *
+ * @remarks
+ * Performs calendar arithmetic in the local timezone to avoid daylight saving shift discrepancies.
+ *
+ * @param fromDate - Starting baseline date, ISO string, or timestamp
+ * @param days - Number of calendar days to advance
+ * @returns Resulting due Date object
+ *
+ * @example
+ * ```typescript
+ * const dueDate = computeDueDate('2026-08-20', 6);
+ * ```
  */
 function computeDueDate(fromDate: Date | string | number, days: number): Date {
   const due = new Date(fromDate);

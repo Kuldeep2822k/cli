@@ -1,16 +1,43 @@
+/**
+ * Vault Walker
+ *
+ * @remarks
+ * Recursively discovers Markdown files across an Obsidian vault directory hierarchy.
+ * Ignores hidden dot-directories (`.obsidian`, `.trash`, `.git`, `.palee`), `node_modules`,
+ * and dotfiles, with built-in protection against circular symlinks and unreadable subdirectories.
+ */
+
 import fs from 'fs';
 import path from 'path';
 import { WalkOptions } from '../types';
 
-/**
- * Vault Walker - Traverses Obsidian vault and collects markdown files
- * Excludes: .obsidian, .trash, .git, node_modules, dot-directories, symlinks
- */
-
+/** Specific top-level directory names permanently excluded from scanning */
 const EXCLUDED_DIRS = new Set([
   'node_modules',
 ]);
 
+/**
+ * Traverses an Obsidian vault directory and returns absolute paths to all discovered Markdown (`.md`) notes.
+ *
+ * @remarks
+ * Exclusion rules:
+ * - Dot-directories (e.g. `.obsidian`, `.trash`, `.git`, `.palee`) are skipped.
+ * - Dot-files (e.g. `.hidden.md`, `.DS_Store`) are skipped.
+ * - Non-markdown files are skipped.
+ * - `node_modules` directories are skipped.
+ * - Symbolic links are ignored by default unless `options.followSymlinks` is explicitly enabled.
+ *
+ * @param vaultPath - Path to the root Obsidian vault directory
+ * @param options - Traversal options (e.g., `followSymlinks`)
+ * @returns Array of absolute file paths to discovered `.md` files
+ * @throws {Error} If the vault path does not exist, is not a directory, or lacks read permissions
+ *
+ * @example
+ * ```typescript
+ * const markdownFiles = walkVault('/Users/alex/Documents/ObsidianVault');
+ * console.log(`Found ${markdownFiles.length} notes`);
+ * ```
+ */
 function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
   const { followSymlinks = false } = options;
   const results: string[] = [];

@@ -42,6 +42,7 @@ export default withMermaid(
         { text: 'Engine Core', link: '/03-0-engine-core' },
         { text: 'Storage Layer', link: '/04-0-storage-layer' },
         { text: 'Architecture', link: '/01-2-architecture-overview' },
+        { text: 'ADRs', link: '/adr/README' },
         { text: 'Glossary', link: '/09-glossary' },
         {
           text: 'v0.2.0',
@@ -120,6 +121,16 @@ export default withMermaid(
           items: [
             { text: 'Phase 1 Specification and Invariants', link: '/08-1-phase-1-specification-and-invariants' },
             { text: 'Future AI Module and Phase 2 Design', link: '/08-2-future-ai-module-and-phase-2-design' }
+          ]
+        },
+        {
+          text: 'Architectural Decision Records',
+          link: '/adr/README',
+          items: [
+            { text: 'ADR-0001: SM-2 Spaced Repetition', link: '/adr/0001-supermemo-sm2-algorithm' },
+            { text: 'ADR-0002: Atomic File Locking & OCC', link: '/adr/0002-atomic-file-locking-and-occ' },
+            { text: 'ADR-0003: Frontmatter via YAML CST', link: '/adr/0003-concrete-syntax-tree-yaml-frontmatter' },
+            { text: 'ADR-0004: Four-Pillar Pedagogical Model', link: '/adr/0004-four-pillar-pedagogical-mastery' }
           ]
         },
         {

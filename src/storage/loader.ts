@@ -1,6 +1,9 @@
 /**
  * Topic Loader
- * Centralized boundary for scanning, parsing, and loading PALEE topics from a vault.
+ *
+ * @remarks
+ * Centralized boundary for scanning, parsing, normalizing, and loading PALEE topics from an Obsidian vault.
+ * Guarantees uniform fallback values, score clamping, type coercion, and dependency parsing across all CLI commands.
  */
 
 import fs from 'fs';
@@ -9,16 +12,31 @@ import { walkVault } from './vault-walker';
 import { parseFrontmatter } from './frontmatter';
 import { TopicNode, normalizeDifficulty } from '../types';
 
+/**
+ * Fully materialized in-memory representation of a PALEE topic note loaded from disk.
+ */
 export interface LoadedTopic extends TopicNode {
+  /** Canonical topic ID (`palee_id`) */
   id: string;
+  /** Topic title */
   title: string;
+  /** Relative POSIX path from the vault root */
   path: string;
+  /** Absolute filesystem path to the Markdown note */
   filePath: string;
+  /** Full raw Markdown text content */
   content: string;
+  /** Parsed YAML frontmatter dictionary */
   frontmatter: Record<string, unknown>;
 }
 
-
+/**
+ * Parses and clamps a score value to `[0.0, 1.0]` with 4 decimal places.
+ *
+ * @param val - Score input
+ * @param fallback - Default fallback if invalid (default: 0.0)
+ * @returns Clamped numeric score
+ */
 function parseScore(val: unknown, fallback: number = 0.0): number {
   if (typeof val === 'number') {
     if (!Number.isFinite(val)) return fallback;
@@ -36,6 +54,13 @@ function parseScore(val: unknown, fallback: number = 0.0): number {
   return fallback;
 }
 
+/**
+ * Coerces and floors an input value into an integer.
+ *
+ * @param val - Numeric input
+ * @param fallback - Default fallback value (default: 0)
+ * @returns Integer value
+ */
 function parseInteger(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {
     if (!Number.isFinite(val)) return fallback;
@@ -48,6 +73,13 @@ function parseInteger(val: unknown, fallback: number = 0): number {
   return fallback;
 }
 
+/**
+ * Parses a floating-point number with fallback.
+ *
+ * @param val - Numeric input
+ * @param fallback - Default fallback value (default: 0)
+ * @returns Floating point number
+ */
 function parseNumber(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {
     if (!Number.isFinite(val)) return fallback;
@@ -61,8 +93,21 @@ function parseNumber(val: unknown, fallback: number = 0): number {
 }
 
 /**
- * Scans the vault and parses all Markdown files containing a valid palee_id.
- * Guarantees a single consistent parsing, normalization, and validation pipeline across all CLI commands.
+ * Scans the vault and parses all Markdown files containing a valid `palee_id`.
+ *
+ * @remarks
+ * Normalizes all frontmatter fields, sets default SM-2 values if omitted,
+ * and extracts prerequisite dependencies from `depends_on` or `dependencies` arrays.
+ *
+ * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param files - Optional pre-scanned array of absolute file paths (avoids duplicate vault walks)
+ * @returns Array of parsed and normalized {@link LoadedTopic} instances
+ *
+ * @example
+ * ```typescript
+ * const topics = loadTopics('/path/to/vault');
+ * console.log(`Loaded ${topics.length} topics`);
+ * ```
  */
 export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
   const scanFiles = files ?? walkVault(vaultPath);

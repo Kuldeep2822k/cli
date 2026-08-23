@@ -1,14 +1,32 @@
 /**
  * Dependency Graph Engine
- * Validates topic dependencies, detects cycles, computes learning order
+ *
+ * @remarks
+ * Analyzes topic prerequisite dependency graphs, executes depth-first cycle detection,
+ * verifies prerequisite satisfaction thresholds, and determines which topics are ready for study.
  */
 
 import { TopicNode, ValidationError, ValidationResult } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
-
-
-
+/**
+ * Detects cyclic dependencies within the topic graph using depth-first search (DFS) with a 3-color visiting state.
+ *
+ * @remarks
+ * Recursively explores prerequisites. If an active ancestor node on the current path stack
+ * is re-encountered, a cycle path is constructed and returned.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Array of topic IDs representing the cycle loop (e.g. `['A', 'B', 'C', 'A']`), or `null` if acyclic
+ *
+ * @example
+ * ```typescript
+ * const cycle = detectCycle(topicMap);
+ * if (cycle) {
+ *   console.error(`Dependency cycle: ${cycle.join(' -> ')}`);
+ * }
+ * ```
+ */
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const visiting = new Set<string>();
   const visited = new Set<string>();
@@ -48,7 +66,19 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   return null;
 }
 
-function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): boolean {
+/**
+ * Checks whether all prerequisite dependencies for a given topic exist and meet or exceed the mastery threshold.
+ *
+ * @param topic - The topic node whose dependencies are being evaluated
+ * @param topics - Map of all known topic nodes in the vault
+ * @param threshold - Minimum mastery score required (default: {@link MASTERY_THRESHOLD} = 0.70)
+ * @returns `true` if all prerequisite dependencies exist and have `topic_mastery >= threshold`, otherwise `false`
+ */
+function areDependenciesSatisfied(
+  topic: TopicNode,
+  topics: Map<string, TopicNode>,
+  threshold: number = MASTERY_THRESHOLD
+): boolean {
   const deps = topic.depends_on || [];
 
   for (const depId of deps) {
@@ -66,8 +96,28 @@ function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNod
   return true;
 }
 
-function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): TopicNode[] {
-
+/**
+ * Identifies unmastered topics whose prerequisite dependencies are fully satisfied and ready for study.
+ *
+ * @remarks
+ * Filters topics where:
+ * 1. `topic_mastery < threshold` (not yet mastered)
+ * 2. Every prerequisite dependency has `topic_mastery >= threshold`
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @param threshold - Mastery threshold score (default: {@link MASTERY_THRESHOLD} = 0.70)
+ * @returns Array of {@link TopicNode} objects ready for immediate learning
+ *
+ * @example
+ * ```typescript
+ * const ready = getReadyTopics(topicMap);
+ * console.log(`Ready to study: ${ready.map(t => t.title).join(', ')}`);
+ * ```
+ */
+function getReadyTopics(
+  topics: Map<string, TopicNode>,
+  threshold: number = MASTERY_THRESHOLD
+): TopicNode[] {
   const ready: TopicNode[] = [];
 
   for (const [, topic] of topics) {
@@ -85,6 +135,25 @@ function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = MAST
   return ready;
 }
 
+/**
+ * Validates the topological integrity of the complete dependency graph.
+ *
+ * @remarks
+ * Performs two verification checks:
+ * 1. Missing dependencies: Ensures all referenced `depends_on` IDs exist in the vault.
+ * 2. Cycles: Runs {@link detectCycle} to ensure the dependency graph is a Directed Acyclic Graph (DAG).
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns {@link ValidationResult} containing boolean status and any detected {@link ValidationError} items
+ *
+ * @example
+ * ```typescript
+ * const result = validateDependencyGraph(topicMap);
+ * if (!result.valid) {
+ *   console.error('Validation errors found:', result.errors);
+ * }
+ * ```
+ */
 function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResult {
   const errors: ValidationError[] = [];
 
@@ -121,6 +190,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 
 export {
   detectCycle,
+  areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
 };

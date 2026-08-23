@@ -1,19 +1,30 @@
+/**
+ * File Locking System with Heartbeat & Stale Lock Recovery
+ *
+ * @remarks
+ * Provides safe cross-process mutex synchronization for file mutations across POSIX and Windows.
+ *
+ * Design features:
+ * - **Atomic Directory Acquisition**: Uses `mkdir` atomic primitives to avoid Time-of-Check-to-Time-of-Use (TOCTOU) races.
+ * - **Session-Specific JSON Locks**: Records holder PID, timestamp, and hostname inside the lock directory.
+ * - **Liveness Heartbeat**: Updates lock file timestamps (`mtime`) every 15 seconds.
+ * - **Platform-Aware Stale Recovery**: Automatically quarantines and reclaims locks after 60s on Windows or 120s on other OSes.
+ */
+
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { LockData, NodeError } from '../types';
 
-/**
- * File locking with heartbeat and stale lock recovery
- * Platform-aware: 60s stale timeout on Windows, 120s elsewhere
- * Uses atomic directory creation + session-specific filenames to guarantee zero TOCTOU races.
- */
+/** Interval in milliseconds (15,000 ms) between periodic heartbeat mtime updates */
+const HEARTBEAT_INTERVAL = 15000;
+/** Stale lock expiration timeout in milliseconds for Windows environments (60,000 ms) */
+const STALE_TIMEOUT_WINDOWS = 60000;
+/** Stale lock expiration timeout in milliseconds for POSIX/macOS environments (120,000 ms) */
+const STALE_TIMEOUT_OTHER = 120000;
 
-const HEARTBEAT_INTERVAL = 15000; // 15 seconds
-const STALE_TIMEOUT_WINDOWS = 60000; // 60 seconds
-const STALE_TIMEOUT_OTHER = 120000; // 120 seconds
-
+/** Active stale lock threshold for current runtime platform */
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
 interface ParsedLock {
@@ -22,12 +33,24 @@ interface ParsedLock {
   mtime: number;
 }
 
+/**
+ * Generates a unique lock identifier string with timestamp and random entropy.
+ *
+ * @returns Lock ID in format `L-YYYYMMDDTHHMMSS-XXXX`
+ */
 function generateLockId(): string {
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
   const random = crypto.randomBytes(2).toString('hex');
   return `L-${timestamp}-${random}`;
 }
 
+/**
+ * Derives the canonical lock directory path in `.palee/locks/` corresponding to a target file.
+ *
+ * @param vaultPath - Absolute path to the vault root
+ * @param targetPath - Absolute or relative path to the file to lock
+ * @returns Path to the hashed `.lockdir` directory
+ */
 function getLockDir(vaultPath: string, targetPath: string): string {
   let resolvedTarget = targetPath;
   try {
@@ -53,12 +76,26 @@ function getLockDir(vaultPath: string, targetPath: string): string {
   return path.join(locksDir, `${hash}.lockdir`);
 }
 
+/**
+ * Checks whether an existing lock descriptor exceeds the platform's stale timeout threshold.
+ *
+ * @param lockInfo - Parsed lock record
+ * @returns `true` if lock has expired and is eligible for stale recovery, otherwise `false`
+ */
 function isLockStale(lockInfo: ParsedLock): boolean {
   if (lockInfo.mtime === 0) return true; // File disappeared mid-read
   const now = Date.now();
   return now - lockInfo.mtime > STALE_TIMEOUT;
 }
 
+/**
+ * Attempts atomic creation of the lock directory and writes the session lock data.
+ *
+ * @param lockDir - Target lock directory path
+ * @param targetPath - Absolute path to the protected file
+ * @returns {@link LockData} on successful acquisition
+ * @throws {NodeError} If lock is currently held by an active live process (`ECONFLICT`)
+ */
 function createLock(lockDir: string, targetPath: string): LockData {
   const lockId = generateLockId();
   const now = new Date().toISOString();
@@ -100,7 +137,6 @@ function createLock(lockDir: string, targetPath: string): LockData {
       }
 
       const activeFiles = files.filter(f => f.endsWith('.json'));
-
 
       // Check all active lock files (usually just 1)
       const parsedLocks: ParsedLock[] = activeFiles.map(f => {
@@ -184,6 +220,12 @@ function createLock(lockDir: string, targetPath: string): LockData {
   }
 }
 
+/**
+ * Updates the lock file modification timestamp to maintain liveness.
+ *
+ * @param lockDir - Lock directory path
+ * @param expectedLockId - Lock ID held by this process
+ */
 function updateHeartbeat(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   try {
@@ -196,6 +238,12 @@ function updateHeartbeat(lockDir: string, expectedLockId: string): void {
   }
 }
 
+/**
+ * Releases a held lock by removing its session file and attempting rmdir on the lock directory.
+ *
+ * @param lockDir - Lock directory path
+ * @param expectedLockId - Lock ID held by this process
+ */
 function releaseLock(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   try {
@@ -212,23 +260,52 @@ function releaseLock(lockDir: string, expectedLockId: string): void {
   } catch {}
 }
 
+/**
+ * Mutual exclusion lock controller managing lock acquisition, background heartbeat renewal, and release.
+ *
+ * @example
+ * ```typescript
+ * const lock = new Lock('/path/to/vault', '/path/to/vault/notes/topic.md');
+ * await lock.acquire();
+ * try {
+ *   // perform safe atomic writes
+ * } finally {
+ *   lock.release();
+ * }
+ * ```
+ */
 class Lock {
   private targetPath: string;
-  readonly lockPath: string; // This is a directory path
+  /** Directory path where the lock files reside */
+  readonly lockPath: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null;
   private lockData: LockData | null = null;
 
+  /**
+   * Initializes a Lock instance for a target file.
+   *
+   * @param vaultPath - Vault root path
+   * @param targetPath - File path to lock
+   */
   constructor(vaultPath: string, targetPath: string) {
     this.targetPath = targetPath;
     this.lockPath = getLockDir(vaultPath, targetPath);
     this.heartbeatTimer = null;
   }
 
+  /**
+   * Acquires the lock and starts the background heartbeat timer.
+   *
+   * @throws {NodeError} If the lock is held by another active process (`ECONFLICT`)
+   */
   async acquire(): Promise<void> {
     this.lockData = createLock(this.lockPath, this.targetPath);
     this.startHeartbeat();
   }
 
+  /**
+   * Initiates periodic heartbeat timer that touches the lock file mtime.
+   */
   startHeartbeat(): void {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
@@ -239,6 +316,9 @@ class Lock {
     this.heartbeatTimer.unref();
   }
 
+  /**
+   * Releases the acquired lock and terminates the background heartbeat timer.
+   */
   release(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);

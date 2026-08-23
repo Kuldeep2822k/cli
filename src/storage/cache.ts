@@ -1,22 +1,49 @@
+/**
+ * Memory-Resident File Cache with Unsettled Horizon
+ *
+ * @remarks
+ * Caches parsed frontmatter and AST structures in memory while guarding against stale reads:
+ * - **Unsettled Horizon (2,000 ms)**: If a file was modified within the last 2 seconds, re-computes its SHA-256 fingerprint on read to detect in-flight disk edits.
+ * - **Outside Unsettled Horizon**: Validates `mtime` and `size` for fast O(1) cache hits.
+ * - **Automatic Invalidation**: Purges cache entries on size mismatch or missing file states.
+ */
+
 import fs from 'fs';
 import { computeFingerprint } from './frontmatter';
 import { CacheEntry } from '../types';
 
-/**
- * File cache with unsettled horizon (2 seconds)
- * Prevents reusing stale cache during rapid edit cycles
- */
-
+/** Duration in milliseconds (2,000 ms) during which recent file modifications require full content SHA-256 hash re-verification */
 const UNSETTLED_HORIZON = 2000;
 const VERIFY_THROTTLE_MS = 0;
 
+/**
+ * Generic in-memory file cache keyed by filesystem path.
+ *
+ * @typeParam T - Type of cached payload (e.g. parsed topic AST, YAML document, or frontmatter dictionary)
+ *
+ * @example
+ * ```typescript
+ * const cache = new FileCache<LoadedTopic>();
+ * cache.set('/path/to/note.md', topicData, fingerprint);
+ * const cached = cache.get('/path/to/note.md');
+ * ```
+ */
 class FileCache<T = unknown> {
   private cache: Map<string, CacheEntry<T>>;
 
+  /**
+   * Initializes a new empty FileCache.
+   */
   constructor() {
     this.cache = new Map();
   }
 
+  /**
+   * Retrieves a cached entry for the given file path if the file has not been modified on disk.
+   *
+   * @param filePath - Absolute path to cached file
+   * @returns Cached data object if valid, or `null` on cache miss / invalidation
+   */
   get(filePath: string): T | null {
     const entry = this.cache.get(filePath);
     if (!entry) return null;
@@ -79,6 +106,13 @@ class FileCache<T = unknown> {
     }
   }
 
+  /**
+   * Stores a data object and its content fingerprint in the cache.
+   *
+   * @param filePath - Absolute path to cached file
+   * @param data - Parsed data payload to store
+   * @param fingerprint - Current SHA-256 content hash of the file
+   */
   set(filePath: string, data: T, fingerprint: string): void {
     try {
       const stats = fs.statSync(filePath);
@@ -94,10 +128,18 @@ class FileCache<T = unknown> {
     }
   }
 
+  /**
+   * Manually evicts a specific file entry from the cache.
+   *
+   * @param filePath - Path to invalidate
+   */
   invalidate(filePath: string): void {
     this.cache.delete(filePath);
   }
 
+  /**
+   * Clears all entries from the cache.
+   */
   clear(): void {
     this.cache.clear();
   }

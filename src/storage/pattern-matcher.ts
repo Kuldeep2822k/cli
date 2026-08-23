@@ -1,16 +1,35 @@
+/**
+ * Pattern & Tag Matcher
+ *
+ * @remarks
+ * Provides glob pattern compilation, path filtering, frontmatter tag extraction,
+ * and hierarchical tag matching for CLI filters (`--include`, `--exclude`, `--tag`).
+ */
+
 import path from 'path';
 
 /**
- * Converts a glob/wildcard pattern into a RegExp.
- * Supports:
- * - `*` (matches anything except path separator `/`)
- * - `**` (matches across directory boundaries)
- * - `**\/` prefix (matches root-level files and nested directories, e.g. `**\/*.md` matches `README.md` and `a/b/c.md`)
- * - `\/**\/` infix (matches zero or more intermediate directories, e.g. `a/**\/b.md` matches `a/b.md` and `a/x/y/b.md`)
- * - `\/**` suffix (matches directory descendants and self, e.g. `MODULES/**` matches `MODULES/a.md` and `MODULES/a/b.md`)
- * - `?` (matches a single character except `/`)
- * - `[0-9]`, `[a-z]`, `[abc]` (character classes)
- * - `[!0-9]` or `[^0-9]` (negated character classes)
+ * Converts a glob wildcard pattern into an equivalent RegExp.
+ *
+ * @remarks
+ * Supported glob constructs:
+ * - `*`: Matches any characters within a single path segment (excludes `/`).
+ * - `**`: Matches across directory boundaries.
+ * - `**\/` prefix: Matches root-level files and nested directory trees (e.g. `**\/*.md` matches `root.md` and `a/b/c.md`).
+ * - `\/**\/` infix: Matches zero or more intermediate directories (e.g. `a/**\/b.md`).
+ * - `\/**` suffix: Matches directory descendants and directory itself (e.g. `MODULES/**`).
+ * - `?`: Matches a single character except `/`.
+ * - `[0-9]`, `[a-z]`, `[abc]`: Character sets and ranges.
+ * - `[!0-9]` or `[^0-9]`: Negated character classes.
+ *
+ * @param glob - Raw glob pattern string
+ * @returns Compiled RegExp with case-insensitive flag (`i`)
+ *
+ * @example
+ * ```typescript
+ * const re = globToRegex('notes/**\/*.md');
+ * re.test('notes/math/linear-algebra.md'); // true
+ * ```
  */
 export function globToRegex(glob: string): RegExp {
   const trimmed = glob.trim().replace(/\\/g, '/');
@@ -115,8 +134,24 @@ export function globToRegex(glob: string): RegExp {
 }
 
 /**
- * Checks if a file path or its basename matches any of the given glob patterns.
- * Patterns can be an array of strings or a single comma-separated string.
+ * Evaluates whether a file path or its basename matches any provided glob patterns.
+ *
+ * @remarks
+ * Patterns can be passed as an array of strings or a comma-separated string (e.g. `"*.md, notes/**"`).
+ * Matching modes:
+ * 1. Full relative path matching.
+ * 2. Basename matching if pattern contains no `/`.
+ * 3. Exact segment and prefix matching for non-wildcard directory specifications.
+ *
+ * @param filePath - File path to test
+ * @param patterns - Glob pattern or array of glob patterns
+ * @returns `true` if matching at least one pattern, otherwise `false`
+ *
+ * @example
+ * ```typescript
+ * matchesPattern('src/utils/math.ts', '*.ts');             // true
+ * matchesPattern('notes/cs/algo.md', 'notes/**, docs/**');  // true
+ * ```
  */
 export function matchesPattern(filePath: string, patterns: string | string[]): boolean {
   const patternList = Array.isArray(patterns)
@@ -169,8 +204,16 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
 }
 
 /**
- * Normalizes frontmatter tags from a note into a clean string array.
- * Strips leading '#' and normalizes to lowercase.
+ * Normalizes frontmatter tags from arbitrary input formats into a clean lowercase string array without `#` prefixes.
+ *
+ * @param rawTags - Raw tags value (array of strings, comma/space-delimited string, or null/undefined)
+ * @returns Array of normalized tag strings
+ *
+ * @example
+ * ```typescript
+ * extractTags(['#react', '#web/ui']); // ['react', 'web/ui']
+ * extractTags('math, #algebra');       // ['math', 'algebra']
+ * ```
  */
 export function extractTags(rawTags: unknown): string[] {
   if (!rawTags) return [];
@@ -199,14 +242,23 @@ export function extractTags(rawTags: unknown): string[] {
 }
 
 /**
- * Checks if a note's frontmatter tags match any of the requested target tags.
- * Target tags can be comma-separated or an array.
- * Supports:
- * - Exact match: target "type/concept" matches "type/concept"
- * - Hierarchical prefix: target "type" matches "type/concept"
- * - Hierarchical suffix: target "concept" matches "type/concept"
- * - Hierarchical infix: target "security" matches "domain/security/crypto"
- * - '#' normalization on both note tags and target tags
+ * Tests whether note frontmatter tags match any requested target tags, supporting hierarchical nested namespaces.
+ *
+ * @remarks
+ * Hierarchical matching modes:
+ * - **Exact match**: Target `"category/math"` matches note tag `"category/math"`.
+ * - **Prefix match**: Target `"category"` matches note tag `"category/math"`.
+ * - **Suffix match**: Target `"math"` matches note tag `"category/math"`.
+ * - **Infix match**: Target `"security"` matches note tag `"domain/security/crypto"`.
+ *
+ * @param noteTags - Note's frontmatter tags field
+ * @param targetTags - Filter target tag(s) as array or comma-separated string
+ * @returns `true` if any note tag matches any target tag, otherwise `false`
+ *
+ * @example
+ * ```typescript
+ * matchesTags(['#domain/backend/auth'], 'auth'); // true
+ * ```
  */
 export function matchesTags(noteTags: unknown, targetTags: string | string[]): boolean {
   const normalize = (t: string): string =>
@@ -245,7 +297,10 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
 }
 
 /**
- * Validates glob pattern strings and throws a friendly Error if syntax is invalid.
+ * Validates glob pattern strings and throws a descriptive Error if a syntax issue is found.
+ *
+ * @param patterns - Pattern string or array of pattern strings to validate
+ * @throws {Error} If any pattern contains malformed syntax
  */
 export function validatePattern(patterns: string | string[]): void {
   const patternList = Array.isArray(patterns)
@@ -263,4 +318,5 @@ export function validatePattern(patterns: string | string[]): void {
     }
   }
 }
+
 

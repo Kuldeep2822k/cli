@@ -1,12 +1,32 @@
+/**
+ * Frontmatter Parser & Updater
+ *
+ * @remarks
+ * Uses `yaml` Concrete Syntax Tree (CST) document manipulation to parse and update YAML frontmatter
+ * in Markdown files while non-destructively preserving existing comments, property ordering, unknown keys,
+ * custom formatting, and block scalar structures.
+ */
+
 import { parseDocument } from 'yaml';
 import crypto from 'crypto';
 import { FrontmatterResult, NodeError } from '../types';
 
 /**
- * Frontmatter Parser & Updater using YAML CST
- * Preserves comments, ordering, unknown keys, block scalars
+ * Parses frontmatter YAML and body content from Markdown text.
+ *
+ * @remarks
+ * Looks for opening and closing `---` delimiters at the beginning of the text.
+ * If frontmatter is absent or malformed, gracefully returns body text with error diagnostics.
+ *
+ * @param content - Full text content of the Markdown file
+ * @returns {@link FrontmatterResult} object with parsed frontmatter JSON dictionary, raw YAML string, CST doc, and body
+ *
+ * @example
+ * ```typescript
+ * const { frontmatter, body } = parseFrontmatter('---\npalee_id: math-101\n---\n# Topic Notes');
+ * console.log(frontmatter?.palee_id); // 'math-101'
+ * ```
  */
-
 function parseFrontmatter(content: string): FrontmatterResult {
   const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
 
@@ -30,6 +50,27 @@ function parseFrontmatter(content: string): FrontmatterResult {
   }
 }
 
+/**
+ * Updates or creates frontmatter key-value pairs while non-destructively preserving comments and formatting.
+ *
+ * @remarks
+ * If frontmatter already exists, parses the raw YAML block into a CST `Document`, modifies only the specified keys,
+ * and stringifies the updated YAML without reformatting or erasing unmanaged keys or comments.
+ * If frontmatter does not exist, prefixes a new `---` YAML header block.
+ *
+ * @param content - Existing file content
+ * @param updates - Map of frontmatter key-value pairs to set or update
+ * @returns Modified file content with updated frontmatter
+ * @throws {Error} If existing frontmatter contains unparseable syntax errors
+ *
+ * @example
+ * ```typescript
+ * const updated = updateFrontmatter(existingContent, {
+ *   topic_mastery: 0.85,
+ *   last_reviewed_at: '2026-08-24T12:00:00Z'
+ * });
+ * ```
+ */
 function updateFrontmatter(content: string, updates: Record<string, unknown>): string {
   const parsed = parseFrontmatter(content);
   if (parsed.error) {
@@ -56,6 +97,15 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
   return `---\n${newYaml}---\n${parsed.body}`;
 }
 
+/**
+ * Computes a SHA-256 hexadecimal hash fingerprint of a string content.
+ *
+ * @remarks
+ * Used by Optimistic Concurrency Control (OCC) and caching layers to detect out-of-band modifications.
+ *
+ * @param content - Text content to fingerprint
+ * @returns 64-character hexadecimal SHA-256 hash string
+ */
 function computeFingerprint(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
