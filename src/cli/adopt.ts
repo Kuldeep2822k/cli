@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
-import { atomicWrite } from '../storage/atomic-write';
+import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
 import { matchesPattern, matchesTags, validatePattern } from '../storage/pattern-matcher';
 import { computeTopicMastery, normalizeScore } from '../engine/mastery';
@@ -488,13 +488,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const err = writeErr as Error;
       console.error(`\nBatch adoption write error: ${err.message}`);
       await rollbackBatch(vaultPath, journal);
-      process.exitCode = 5;
+      process.exitCode = isConflictError(writeErr) ? 4 : 5;
       return;
     }
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = isConflictError(e) ? 4 : 5;
     return;
   }
 }

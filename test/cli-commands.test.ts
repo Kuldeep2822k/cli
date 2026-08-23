@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import { parseFrontmatter } from '../src/storage/frontmatter';
+import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
+import { Lock } from '../src/storage/lock';
+import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
 
 describe('CLI Commands', () => {
   let tempDir: string;
@@ -466,6 +468,124 @@ Body content.
 
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);
+  });
+
+  test('review command exits with code 4 on concurrent lock conflict', async () => {
+    const lockNotePath = path.join(vaultDir, 'lock-conflict-review.md');
+    try {
+      fs.writeFileSync(
+        lockNotePath,
+        `---
+palee_id: T-lock-review
+palee_schema: 1
+title: Lock Conflict Review
+difficulty: beginner
+depends_on: []
+topic_mastery: 0.5
+---
+# Lock Conflict Review
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, lockNotePath);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['review', 'T-lock-review', '4']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(lockNotePath)) {
+        fs.unlinkSync(lockNotePath);
+      }
+    }
+  });
+
+  test('adopt command exits with code 4 on concurrent lock conflict', async () => {
+    const lockAdoptPath = path.join(vaultDir, 'lock-conflict-adopt.md');
+    try {
+      fs.writeFileSync(
+        lockAdoptPath,
+        `# Unadopted Note
+This note is undergoing concurrent modification.
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, lockAdoptPath);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['adopt', lockAdoptPath, '--yes']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(lockAdoptPath)) {
+        fs.unlinkSync(lockAdoptPath);
+      }
+    }
+  });
+
+  test('roadmap command exits with code 4 on concurrent lock conflict', async () => {
+    const roadmapFile = path.join(tempDir, 'conflict-roadmap.yaml');
+    const targetNote = path.join(vaultDir, 'roadmap-conflict-target.md');
+    try {
+      fs.writeFileSync(
+        roadmapFile,
+        `topics:
+  - id: T-roadmap-lock
+    title: Roadmap Lock Test
+    path: roadmap-conflict-target.md
+    difficulty: beginner
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, targetNote);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['roadmap', '--from', roadmapFile, '--yes']);
+        assert.strictEqual(result.status, 4, `Expected exit code 4 on roadmap lock conflict, got ${result.status}. Stderr: ${result.stderr}`);
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(roadmapFile)) fs.unlinkSync(roadmapFile);
+      if (fs.existsSync(targetNote)) fs.unlinkSync(targetNote);
+    }
+  });
+
+  test('atomicWrite OCC conflict produces ECONFLICT error recognized by isConflictError', async () => {
+    const occNote = path.join(vaultDir, 'occ-conflict.md');
+    try {
+      const initial = '# Initial Content\n';
+      fs.writeFileSync(occNote, initial, 'utf8');
+      const fp = computeFingerprint(initial);
+
+      // Concurrent external write modifies the note
+      fs.writeFileSync(occNote, '# External modification\n', 'utf8');
+
+      try {
+        await atomicWrite(vaultDir, occNote, '# Overwrite attempt\n', fp);
+        assert.fail('Expected atomicWrite to throw on OCC conflict');
+      } catch (e: unknown) {
+        assert.strictEqual(isConflictError(e), true);
+        const err = e as { code?: string; message?: string };
+        assert.strictEqual(err.code, 'ECONFLICT');
+        assert.match(err.message || '', /OCC conflict/);
+      }
+    } finally {
+      if (fs.existsSync(occNote)) fs.unlinkSync(occNote);
+    }
   });
 });
 
