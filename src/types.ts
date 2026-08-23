@@ -150,8 +150,8 @@ export interface Session {
   topic_id: string;
   /** ISO 8601 start timestamp */
   started_at: string;
-  /** ISO 8601 end timestamp */
-  ended_at: string;
+  /** ISO 8601 end timestamp, or null for in-progress draft sessions */
+  ended_at: string | null;
   /** Status indicating whether the session was finalized or saved as a draft */
   status: 'completed' | 'draft';
 }
@@ -189,8 +189,8 @@ export interface SessionRecord {
   topic_id: string;
   /** ISO 8601 timestamp when session started */
   started_at: string;
-  /** ISO 8601 timestamp when session ended */
-  ended_at: string;
+  /** ISO 8601 timestamp when session ended, or null for in-progress draft sessions */
+  ended_at: string | null;
   /** Completion status */
   status: 'completed' | 'draft';
 }

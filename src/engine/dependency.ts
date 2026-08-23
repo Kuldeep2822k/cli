@@ -10,6 +10,20 @@ import { TopicNode, ValidationError, ValidationResult } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
 /**
+ * Normalizes and extracts prerequisite dependency IDs from a topic node,
+ * transparently supporting both `depends_on` and `dependencies` aliases.
+ *
+ * @param topic - Topic node
+ * @returns Array of unique prerequisite topic ID strings
+ */
+function getTopicDependencies(topic: TopicNode): string[] {
+  const fromDependsOn = Array.isArray(topic.depends_on) ? topic.depends_on : [];
+  const fromDependencies = Array.isArray(topic.dependencies) ? topic.dependencies : [];
+  const combined = [...fromDependsOn, ...fromDependencies];
+  return Array.from(new Set(combined.map((d) => String(d).trim()).filter(Boolean)));
+}
+
+/**
  * Detects cyclic dependencies within the topic graph using depth-first search (DFS) with a 3-color visiting state.
  *
  * @remarks
@@ -46,7 +60,7 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
     visiting.add(id);
     pathStack.push(id);
 
-    const deps = topic.depends_on || [];
+    const deps = getTopicDependencies(topic);
     for (const depId of deps) {
       const cycle = visit(depId);
       if (cycle) return cycle;
@@ -79,7 +93,7 @@ function areDependenciesSatisfied(
   topics: Map<string, TopicNode>,
   threshold: number = MASTERY_THRESHOLD
 ): boolean {
-  const deps = topic.depends_on || [];
+  const deps = getTopicDependencies(topic);
 
   for (const depId of deps) {
     const depTopic = topics.get(depId);
@@ -159,7 +173,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 
   // Check for missing dependencies
   for (const [id, topic] of topics) {
-    const deps = topic.depends_on || [];
+    const deps = getTopicDependencies(topic);
     for (const depId of deps) {
       if (!topics.has(depId)) {
         errors.push({
@@ -178,7 +192,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
     errors.push({
       type: 'cycle',
       path: cycle,
-      message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
+      message: `Circular dependency detected: ${cycle.join(' -> ')}`,
     });
   }
 
@@ -193,4 +207,5 @@ export {
   areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
+  getTopicDependencies,
 };

@@ -28,6 +28,11 @@ export const normalizeScore = mastery.normalizeScore;
 export const detectCycle = dependency.detectCycle;
 /** Evaluates prerequisite satisfaction and returns ready topics */
 export const getReadyTopics = dependency.getReadyTopics;
+/** Checks whether all dependencies for a topic are satisfied */
+export const areDependenciesSatisfied = dependency.areDependenciesSatisfied;
+/** Normalizes and extracts dependencies from a topic node supporting aliases */
+export const getTopicDependencies = dependency.getTopicDependencies;
 /** Validates dependency graph integrity and absence of cycles */
 export const validateDependencyGraph = dependency.validateDependencyGraph;
+
 

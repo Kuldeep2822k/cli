@@ -229,7 +229,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               session_id: frontmatter.session_id as string,
               topic_id: (frontmatter.topic_id as string) || 'unknown',
               started_at: (frontmatter.started_at as string) || '',
-              ended_at: (frontmatter.ended_at as string) || '',
+              ended_at: typeof frontmatter.ended_at === 'string' ? frontmatter.ended_at : null,
               status: (frontmatter.status as 'completed' | 'draft') || 'completed',
             });
           }
