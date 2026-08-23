@@ -1,18 +1,43 @@
+/**
+ * Multi-Format Roadmap Parser
+ *
+ * @remarks
+ * Ingests external curriculum and roadmap definitions across multiple syntax representations:
+ * 1. YAML frontmatter inside a Markdown file (`--- \n topics: [...] \n ---`)
+ * 2. Embedded YAML code block inside a Markdown file (` ```yaml \n topics: [...] \n ``` `)
+ * 3. Pure raw YAML files
+ */
+
 import yaml from 'yaml';
 import { parseFrontmatter } from './frontmatter';
 import { RoadmapFile, RoadmapTopic } from '../types';
 
+/**
+ * Result object returned when parsing a roadmap source document.
+ */
 export interface ParsedRoadmapResult {
+  /** Parsed roadmap file payload, or null if unparseable / missing topics */
   roadmap: RoadmapFile | null;
+  /** Discovered roadmap source format representation */
   format?: 'yaml' | 'frontmatter' | 'codeblock';
+  /** Error diagnostic message if parsing failed */
   error?: string;
 }
 
 /**
- * Extracts and parses a Roadmap definition from multiple formats:
- * 1. YAML frontmatter in Markdown (--- \n topics: [...] \n ---)
- * 2. Embedded YAML code block in Markdown (```yaml \n topics: [...] \n ```)
- * 3. Pure raw YAML content
+ * Extracts and parses a curriculum roadmap definition from Markdown frontmatter, YAML codeblocks, or raw YAML.
+ *
+ * @param rawContent - Raw text content of the roadmap document
+ * @param filePath - Optional path to the file (used for format hints based on extension)
+ * @returns {@link ParsedRoadmapResult} with parsed topics array, format classification, or error details
+ *
+ * @example
+ * ```typescript
+ * const result = parseRoadmapContent(rawFileContent, 'curriculum.md');
+ * if (result.roadmap) {
+ *   console.log(`Discovered ${result.roadmap.topics.length} topics from ${result.format}`);
+ * }
+ * ```
  */
 export function parseRoadmapContent(rawContent: string, filePath?: string): ParsedRoadmapResult {
   const isMdFile = filePath ? /\.(md|markdown)$/i.test(filePath) : false;
@@ -77,3 +102,4 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
     error: 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]',
   };
 }
+

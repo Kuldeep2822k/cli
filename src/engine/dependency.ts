@@ -1,14 +1,46 @@
 /**
  * Dependency Graph Engine
- * Validates topic dependencies, detects cycles, computes learning order
+ *
+ * @remarks
+ * Analyzes topic prerequisite dependency graphs, executes depth-first cycle detection,
+ * verifies prerequisite satisfaction thresholds, and determines which topics are ready for study.
  */
 
 import { TopicNode, ValidationError, ValidationResult } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
+/**
+ * Normalizes and extracts prerequisite dependency IDs from a topic node,
+ * transparently supporting both `depends_on` and `dependencies` aliases.
+ *
+ * @param topic - Topic node
+ * @returns Array of unique prerequisite topic ID strings
+ */
+function getTopicDependencies(topic: TopicNode): string[] {
+  const fromDependsOn = Array.isArray(topic.depends_on) ? topic.depends_on : [];
+  const fromDependencies = Array.isArray(topic.dependencies) ? topic.dependencies : [];
+  const combined = [...fromDependsOn, ...fromDependencies];
+  return Array.from(new Set(combined.map((d) => String(d).trim()).filter(Boolean)));
+}
 
-
-
+/**
+ * Detects cyclic dependencies within the topic graph using depth-first search (DFS) with a 3-color visiting state.
+ *
+ * @remarks
+ * Recursively explores prerequisites. If an active ancestor node on the current path stack
+ * is re-encountered, a cycle path is constructed and returned.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Array of topic IDs representing the cycle loop (e.g. `['A', 'B', 'C', 'A']`), or `null` if acyclic
+ *
+ * @example
+ * ```typescript
+ * const cycle = detectCycle(topicMap);
+ * if (cycle) {
+ *   console.error(`Dependency cycle: ${cycle.join(' -> ')}`);
+ * }
+ * ```
+ */
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const visiting = new Set<string>();
   const visited = new Set<string>();
@@ -28,7 +60,7 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
     visiting.add(id);
     pathStack.push(id);
 
-    const deps = topic.depends_on || [];
+    const deps = getTopicDependencies(topic);
     for (const depId of deps) {
       const cycle = visit(depId);
       if (cycle) return cycle;
@@ -48,8 +80,20 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   return null;
 }
 
-function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): boolean {
-  const deps = topic.depends_on || [];
+/**
+ * Checks whether all prerequisite dependencies for a given topic exist and meet or exceed the mastery threshold.
+ *
+ * @param topic - The topic node whose dependencies are being evaluated
+ * @param topics - Map of all known topic nodes in the vault
+ * @param threshold - Minimum mastery score required (default: {@link MASTERY_THRESHOLD} = 0.70)
+ * @returns `true` if all prerequisite dependencies exist and have `topic_mastery >= threshold`, otherwise `false`
+ */
+function areDependenciesSatisfied(
+  topic: TopicNode,
+  topics: Map<string, TopicNode>,
+  threshold: number = MASTERY_THRESHOLD
+): boolean {
+  const deps = getTopicDependencies(topic);
 
   for (const depId of deps) {
     const depTopic = topics.get(depId);
@@ -66,8 +110,28 @@ function areDependenciesSatisfied(topic: TopicNode, topics: Map<string, TopicNod
   return true;
 }
 
-function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = MASTERY_THRESHOLD): TopicNode[] {
-
+/**
+ * Identifies unmastered topics whose prerequisite dependencies are fully satisfied and ready for study.
+ *
+ * @remarks
+ * Filters topics where:
+ * 1. `topic_mastery < threshold` (not yet mastered)
+ * 2. Every prerequisite dependency has `topic_mastery >= threshold`
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @param threshold - Mastery threshold score (default: {@link MASTERY_THRESHOLD} = 0.70)
+ * @returns Array of {@link TopicNode} objects ready for immediate learning
+ *
+ * @example
+ * ```typescript
+ * const ready = getReadyTopics(topicMap);
+ * console.log(`Ready to study: ${ready.map(t => t.title).join(', ')}`);
+ * ```
+ */
+function getReadyTopics(
+  topics: Map<string, TopicNode>,
+  threshold: number = MASTERY_THRESHOLD
+): TopicNode[] {
   const ready: TopicNode[] = [];
 
   for (const [, topic] of topics) {
@@ -85,12 +149,31 @@ function getReadyTopics(topics: Map<string, TopicNode>, threshold: number = MAST
   return ready;
 }
 
+/**
+ * Validates the topological integrity of the complete dependency graph.
+ *
+ * @remarks
+ * Performs two verification checks:
+ * 1. Missing dependencies: Ensures all referenced prerequisite IDs (supporting both `depends_on` and `dependencies` aliases) exist in the vault.
+ * 2. Cycles: Runs {@link detectCycle} to ensure the dependency graph is a Directed Acyclic Graph (DAG).
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns {@link ValidationResult} containing boolean status and any detected {@link ValidationError} items
+ *
+ * @example
+ * ```typescript
+ * const result = validateDependencyGraph(topicMap);
+ * if (!result.valid) {
+ *   console.error('Validation errors found:', result.errors);
+ * }
+ * ```
+ */
 function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResult {
   const errors: ValidationError[] = [];
 
   // Check for missing dependencies
   for (const [id, topic] of topics) {
-    const deps = topic.depends_on || [];
+    const deps = getTopicDependencies(topic);
     for (const depId of deps) {
       if (!topics.has(depId)) {
         errors.push({
@@ -109,7 +192,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
     errors.push({
       type: 'cycle',
       path: cycle,
-      message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
+      message: `Circular dependency detected: ${cycle.join(' -> ')}`,
     });
   }
 
@@ -121,6 +204,8 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 
 export {
   detectCycle,
+  areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
+  getTopicDependencies,
 };

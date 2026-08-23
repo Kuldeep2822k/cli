@@ -1,6 +1,15 @@
 /**
- * Storage Layer - Public API
- * Exports all storage components
+ * Storage Subsystem - Public API
+ *
+ * @remarks
+ * Bundles the core persistence capabilities of PALEE:
+ * - **Vault Traversal & Loading**: `walkVault`, `loadTopics`
+ * - **YAML CST & Markdown Frontmatter**: `parseFrontmatter`, `updateFrontmatter`, `computeFingerprint`
+ * - **Cross-Process File Locking**: `Lock`, `HEARTBEAT_INTERVAL`, `STALE_TIMEOUT`
+ * - **Atomic OCC Writes**: `atomicWrite`, `isConflictError`
+ * - **Unsettled Horizon Cache**: `FileCache`, `UNSETTLED_HORIZON`
+ * - **Session & Memory Persistence**: `writeSessionNote`, `updateHotMemory`, `regenerateIndex`, `rebuildHotAndIndex`, `recoverDraft`, etc.
+ * - **Pattern & Roadmap Parsers**: `matchesPattern`, `matchesTags`, `parseRoadmapContent`
  */
 
 import { walkVault } from './vault-walker';
@@ -76,4 +85,5 @@ export {
 };
 
 export type { ParsedRoadmapResult, LoadedTopic };
+
 

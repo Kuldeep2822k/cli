@@ -142,6 +142,11 @@ describe('Memory System', () => {
     }, 'In-progress draft checkpoint.');
 
     assert.ok(fs.existsSync(draftPath));
+    const content = fs.readFileSync(draftPath, 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.strictEqual(frontmatter!.ended_at, null);
+    assert.strictEqual(frontmatter!.status, 'draft');
+
     const drafts = getDrafts(testVaultPath);
     assert.ok(drafts.includes(draftPath));
   });

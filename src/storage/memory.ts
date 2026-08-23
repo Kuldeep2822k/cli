@@ -1,17 +1,33 @@
+/**
+ * PALEE Session Memory Storage Manager
+ *
+ * @remarks
+ * Manages study session persistence, hot working memory derivation, index cataloging,
+ * and draft crash recovery within the vault's `.palee/` directory.
+ *
+ * Subsystems:
+ * - **Canonical Sessions**: Saved under `.palee/sessions/S-*.md`.
+ * - **Working Memory**: `.palee/hot.md` (capped at 250 words of recent active context).
+ * - **Session Index**: `.palee/index.md` listing chronological study sessions.
+ * - **Draft Recovery**: Manages checkpoint files (`.palee/sessions/DRAFT-S-*.md`).
+ */
+
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { atomicWrite } from './atomic-write';
-import { HotMemoryData, SessionRecord, DraftRecoveryAction } from '../types';
+import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction } from '../types';
 
-/**
- * PALEE Session Memory Storage Manager
- * Implements canonical sessions, derived hot.md & index.md, and draft recovery.
- */
-
+/** Maximum number of words retained in the active working memory (`hot.md`) summary body */
 const MAX_HOT_WORDS = 250;
 
+/**
+ * Ensures and returns the `.palee` hidden directory inside the vault.
+ *
+ * @param vaultPath - Vault root path
+ * @returns Path to `.palee` directory
+ */
 function getPaleeDir(vaultPath: string): string {
   const dir = path.join(vaultPath, '.palee');
   if (!fs.existsSync(dir)) {
@@ -20,6 +36,12 @@ function getPaleeDir(vaultPath: string): string {
   return dir;
 }
 
+/**
+ * Ensures and returns the `.palee/sessions` directory inside the vault.
+ *
+ * @param vaultPath - Vault root path
+ * @returns Path to `.palee/sessions` directory
+ */
 function getSessionsDir(vaultPath: string): string {
   const dir = path.join(vaultPath, '.palee', 'sessions');
   if (!fs.existsSync(dir)) {
@@ -28,20 +50,45 @@ function getSessionsDir(vaultPath: string): string {
   return dir;
 }
 
+/**
+ * Generates a unique canonical session identifier with timestamp and random entropy.
+ *
+ * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXX`
+ *
+ * @example
+ * ```typescript
+ * const id = generateSessionId(); // "S-20260823T153000-a1b2"
+ * ```
+ */
 function generateSessionId(): string {
   const now = new Date();
-  const dateStr = now.toISOString().replace(/[-:]/g, '').split('.')[0]; // YYYYMMDDTHHMMSS
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const timestamp = `${year}${month}${day}T${hours}${minutes}${seconds}`;
   const random = crypto.randomBytes(2).toString('hex');
-  return `S-${dateStr}-${random}`;
+  return `S-${timestamp}-${random}`;
 }
 
+/**
+ * Generates a unique checkpoint identifier for in-progress draft sessions.
+ *
+ * @returns Draft ID string formatted as `DRAFT-S-XXXXXXXX`
+ */
 function generateDraftId(): string {
   const random = crypto.randomBytes(4).toString('hex');
   return `DRAFT-S-${random}`;
 }
 
 /**
- * Truncate text to max words
+ * Truncates text to a maximum word count, appending an ellipsis if trimmed.
+ *
+ * @param text - Input string to truncate
+ * @param maxWords - Upper bound on word count (e.g. 250)
+ * @returns Truncated string with trailing `...` if truncated
  */
 function truncateWords(text: string, maxWords: number): string {
   const words = text.trim().split(/\s+/);
@@ -52,7 +99,10 @@ function truncateWords(text: string, maxWords: number): string {
 }
 
 /**
- * Count words in a string
+ * Counts whitespace-delimited words in a string.
+ *
+ * @param text - Input text
+ * @returns Number of words
  */
 function countWords(text: string): number {
   if (!text.trim()) return 0;
@@ -60,24 +110,35 @@ function countWords(text: string): number {
 }
 
 /**
- * Format Date to YYYY-MM-DD (date only)
+ * Formats a Date object into an ISO-standard date string (`YYYY-MM-DD`).
+ *
+ * @param date - Date to format
+ * @returns Date string formatted as `YYYY-MM-DD`
  */
 function formatDateOnly(date: Date): string {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
- * Write a confirmed canonical session note to .palee/sessions/S-*.md
+ * Saves a completed study session note with frontmatter metadata to `.palee/sessions/S-*.md`.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param sessionData - Session metadata (ID, topic ID, timestamps)
+ * @param bodyContent - Markdown note body written during study
+ * @returns Absolute path to the saved session note
  */
 async function writeSessionNote(
   vaultPath: string,
-  sessionData: Omit<SessionRecord, 'palee_schema' | 'status'>,
+  sessionData: Omit<CompletedSessionRecord, 'palee_schema' | 'status'>,
   bodyContent: string
 ): Promise<string> {
   const sessionsDir = getSessionsDir(vaultPath);
   const filePath = path.join(sessionsDir, `${sessionData.session_id}.md`);
 
-  const fullData: SessionRecord = {
+  const fullData: CompletedSessionRecord = {
     palee_schema: 1,
     ...sessionData,
     status: 'completed',
@@ -103,7 +164,16 @@ async function writeSessionNote(
 }
 
 /**
- * Write or update .palee/hot.md derived view (body capped at 250 words, updated_at as YYYY-MM-DD)
+ * Writes or updates the active working memory file (`.palee/hot.md`).
+ *
+ * @remarks
+ * Summary body is capped at 250 words and frontmatter tracks `last_session`, `active_topic`, and `updated_at`.
+ *
+ * @param vaultPath - Vault root path
+ * @param lastSessionId - ID of latest completed session or null
+ * @param activeTopicId - ID of currently active topic or null
+ * @param summaryBody - Notes text to distill into hot memory
+ * @returns Absolute path to `hot.md`
  */
 async function updateHotMemory(
   vaultPath: string,
@@ -143,7 +213,10 @@ async function updateHotMemory(
 }
 
 /**
- * Rebuild .palee/index.md derived view listing all sessions
+ * Rebuilds `.palee/index.md` listing all confirmed study sessions in reverse chronological order.
+ *
+ * @param vaultPath - Vault root path
+ * @returns Absolute path to `index.md`
  */
 async function regenerateIndex(vaultPath: string): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
@@ -165,14 +238,26 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter } = parseFrontmatter(content);
           if (frontmatter && frontmatter.session_id) {
-            sessions.push({
-              palee_schema: (frontmatter.palee_schema as number) || 1,
-              session_id: frontmatter.session_id as string,
-              topic_id: (frontmatter.topic_id as string) || 'unknown',
-              started_at: (frontmatter.started_at as string) || '',
-              ended_at: (frontmatter.ended_at as string) || '',
-              status: (frontmatter.status as 'completed' | 'draft') || 'completed',
-            });
+            const status = (frontmatter.status as 'completed' | 'draft') || 'completed';
+            if (status === 'draft') {
+              sessions.push({
+                palee_schema: (frontmatter.palee_schema as number) || 1,
+                session_id: frontmatter.session_id as string,
+                topic_id: (frontmatter.topic_id as string) || 'unknown',
+                started_at: (frontmatter.started_at as string) || '',
+                ended_at: null,
+                status: 'draft',
+              });
+            } else {
+              sessions.push({
+                palee_schema: (frontmatter.palee_schema as number) || 1,
+                session_id: frontmatter.session_id as string,
+                topic_id: (frontmatter.topic_id as string) || 'unknown',
+                started_at: (frontmatter.started_at as string) || '',
+                ended_at: (frontmatter.ended_at as string) || '',
+                status: 'completed',
+              });
+            }
           }
         } catch (e: any) {
           if (e && !e.code) {
@@ -214,7 +299,9 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
 }
 
 /**
- * Rebuild hot.md and index.md from canonical sessions
+ * Re-scans all session files on disk and rebuilds both `hot.md` and `index.md`.
+ *
+ * @param vaultPath - Vault root path
  */
 async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   const sessionsDir = getSessionsDir(vaultPath);
@@ -262,7 +349,13 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
 }
 
 /**
- * Write a draft checkpoint for an active session (DRAFT-S-*.md)
+ * Writes an intermediate draft checkpoint for an in-progress study session (`.palee/sessions/DRAFT-S-*.md`).
+ *
+ * @param vaultPath - Vault root path
+ * @param draftId - Draft ID (`DRAFT-S-*`)
+ * @param sessionData - Session metadata
+ * @param bodyContent - Draft notes content
+ * @returns Absolute path to the written draft checkpoint file
  */
 async function writeDraftCheckpoint(
   vaultPath: string,
@@ -278,7 +371,7 @@ async function writeDraftCheckpoint(
     session_id: draftId,
     topic_id: sessionData.topic_id,
     started_at: sessionData.started_at,
-    ended_at: new Date().toISOString(),
+    ended_at: null,
     status: 'draft',
   };
 
@@ -293,7 +386,10 @@ async function writeDraftCheckpoint(
 }
 
 /**
- * List all active draft checkpoints in .palee/sessions/
+ * Discovers all active draft checkpoint files in `.palee/sessions/`.
+ *
+ * @param vaultPath - Vault root path
+ * @returns Array of absolute file paths to active draft notes
  */
 function getDrafts(vaultPath: string): string[] {
   const sessionsDir = getSessionsDir(vaultPath);
@@ -306,7 +402,11 @@ function getDrafts(vaultPath: string): string[] {
 }
 
 /**
- * Recover or handle a draft checkpoint
+ * Handles resolution of an unfinished session draft.
+ *
+ * @param vaultPath - Vault root path
+ * @param draftPath - Path to draft checkpoint note
+ * @param action - Action to take: `'save'`, `'discard'`, `'resume'`, or `'ignore'`
  */
 async function recoverDraft(
   vaultPath: string,
