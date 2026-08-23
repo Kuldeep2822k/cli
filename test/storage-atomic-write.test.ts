@@ -138,6 +138,19 @@ describe('Atomic Write', () => {
     }
   });
 
+  test('OCC conflict sets ECONFLICT when expectedFingerprint is provided for missing/deleted target', async () => {
+    const nonExistentPath = path.join(testVaultPath, 'nonexistent-deleted.md');
+    try {
+      await atomicWrite(testVaultPath, nonExistentPath, '# New Content', 'expected-sha256-hash');
+      assert.fail('Expected atomicWrite to throw ECONFLICT for missing expected file');
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      assert.strictEqual(err.code, 'ECONFLICT');
+      assert.match(err.message || '', /OCC conflict/);
+      assert.strictEqual(isConflictError(e), true);
+    }
+  });
+
   test('isConflictError helper correctly classifies error objects', () => {
     assert.strictEqual(isConflictError({ code: 'ECONFLICT' }), true);
     assert.strictEqual(isConflictError(new Error('OCC conflict: target modified')), true);

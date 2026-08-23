@@ -21,10 +21,10 @@ const EXCLUDED_DIRS = new Set([
  *
  * @remarks
  * Exclusion rules:
- * - Dot-directories (e.g. `.obsidian`, `.trash`, `.git`, `.palee`) are skipped.
+ * - Dot-directories (e.g. `.obsidian`, `.trash`, `.git`, `.palee`) matching directory entry names are skipped.
  * - Dot-files (e.g. `.hidden.md`, `.DS_Store`) are skipped.
  * - Non-markdown files are skipped.
- * - `node_modules` directories are skipped.
+ * - `node_modules` directory entries are skipped.
  * - Symbolic links are ignored by default unless `options.followSymlinks` is explicitly enabled.
  *
  * @param vaultPath - Path to the root Obsidian vault directory

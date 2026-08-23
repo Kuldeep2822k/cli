@@ -129,7 +129,7 @@ export default withMermaid(
           items: [
             { text: 'ADR-0001: SM-2 Spaced Repetition', link: '/adr/0001-supermemo-sm2-algorithm' },
             { text: 'ADR-0002: Atomic File Locking & OCC', link: '/adr/0002-atomic-file-locking-and-occ' },
-            { text: 'ADR-0003: Frontmatter via YAML CST', link: '/adr/0003-concrete-syntax-tree-yaml-frontmatter' },
+            { text: 'ADR-0003: Frontmatter via YAML Document API', link: '/adr/0003-concrete-syntax-tree-yaml-frontmatter' },
             { text: 'ADR-0004: Four-Pillar Pedagogical Model', link: '/adr/0004-four-pillar-pedagogical-mastery' }
           ]
         },

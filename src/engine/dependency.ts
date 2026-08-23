@@ -154,7 +154,7 @@ function getReadyTopics(
  *
  * @remarks
  * Performs two verification checks:
- * 1. Missing dependencies: Ensures all referenced `depends_on` IDs exist in the vault.
+ * 1. Missing dependencies: Ensures all referenced prerequisite IDs (supporting both `depends_on` and `dependencies` aliases) exist in the vault.
  * 2. Cycles: Runs {@link detectCycle} to ensure the dependency graph is a Directed Acyclic Graph (DAG).
  *
  * @param topics - Map of topic ID to {@link TopicNode}

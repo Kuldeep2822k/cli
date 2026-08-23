@@ -33,9 +33,13 @@ export interface LoadedTopic extends TopicNode {
 /**
  * Parses and clamps a score value to `[0.0, 1.0]` with 4 decimal places.
  *
+ * @remarks
+ * If `val` cannot be parsed into a finite number, the provided `fallback` value is returned
+ * unchanged without clamping.
+ *
  * @param val - Score input
  * @param fallback - Default fallback if invalid (default: 0.0)
- * @returns Clamped numeric score
+ * @returns Clamped numeric score or raw fallback
  */
 function parseScore(val: unknown, fallback: number = 0.0): number {
   if (typeof val === 'number') {
@@ -57,9 +61,13 @@ function parseScore(val: unknown, fallback: number = 0.0): number {
 /**
  * Coerces and floors an input value into an integer.
  *
+ * @remarks
+ * If `val` cannot be parsed into a finite integer, the provided `fallback` value is returned
+ * unchanged without integer flooring.
+ *
  * @param val - Numeric input
  * @param fallback - Default fallback value (default: 0)
- * @returns Integer value
+ * @returns Integer value or raw fallback
  */
 function parseInteger(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {

@@ -115,7 +115,7 @@ export interface Topic {
   /** Difficulty categorization */
   difficulty: Difficulty;
   /** Array of parent topic IDs required before this topic is ready */
-  dependencies: string[];
+  dependencies?: string[];
   /** Alias for `dependencies` matching topic graph terminology */
   depends_on?: string[];
   /** Four-pillar assessment breakdown */
@@ -138,23 +138,38 @@ export interface Progress {
   mastery_status: 'no_data' | 'learning' | 'mastered';
 }
 
-/**
- * Learning session state snapshot.
- */
-export interface Session {
+/** Base fields shared across all session states */
+export interface BaseSession {
   /** Schema version identifier */
   palee_schema: number;
-  /** Unique session ID (`S-YYYYMMDDTHHMMSS-XXXX`) */
+  /** Unique session ID (`S-YYYYMMDDTHHMMSS-XXXX` or `DRAFT-S-*`) */
   session_id: string;
   /** ID of the topic studied in this session */
   topic_id: string;
   /** ISO 8601 start timestamp */
   started_at: string;
-  /** ISO 8601 end timestamp, or null for in-progress draft sessions */
-  ended_at: string | null;
-  /** Status indicating whether the session was finalized or saved as a draft */
-  status: 'completed' | 'draft';
 }
+
+/** Completed learning session with a recorded end timestamp */
+export interface CompletedSession extends BaseSession {
+  /** Finalized session status */
+  status: 'completed';
+  /** ISO 8601 end timestamp when session was finished */
+  ended_at: string;
+}
+
+/** In-progress draft session without an end timestamp */
+export interface DraftSession extends BaseSession {
+  /** Draft session status */
+  status: 'draft';
+  /** End timestamp is null for in-progress draft checkpoints */
+  ended_at: null;
+}
+
+/**
+ * Learning session state snapshot (discriminated union by status).
+ */
+export type Session = CompletedSession | DraftSession;
 
 // ─── Memory & Sessions ───────────────────────────────────────────────
 
@@ -177,10 +192,8 @@ export interface HotMemoryData {
   updated_at: string;
 }
 
-/**
- * Stored session file frontmatter record (`.palee/sessions/S-*.md`).
- */
-export interface SessionRecord {
+/** Base stored session file frontmatter record */
+export interface BaseSessionRecord {
   /** PALEE session schema version */
   palee_schema: number;
   /** Unique session identifier */
@@ -189,11 +202,28 @@ export interface SessionRecord {
   topic_id: string;
   /** ISO 8601 timestamp when session started */
   started_at: string;
-  /** ISO 8601 timestamp when session ended, or null for in-progress draft sessions */
-  ended_at: string | null;
-  /** Completion status */
-  status: 'completed' | 'draft';
 }
+
+/** Completed session file frontmatter record */
+export interface CompletedSessionRecord extends BaseSessionRecord {
+  /** Completion status */
+  status: 'completed';
+  /** ISO 8601 timestamp when session ended */
+  ended_at: string;
+}
+
+/** In-progress draft session file frontmatter record */
+export interface DraftSessionRecord extends BaseSessionRecord {
+  /** Draft status */
+  status: 'draft';
+  /** End timestamp is null for in-progress drafts */
+  ended_at: null;
+}
+
+/**
+ * Stored session file frontmatter record (discriminated union by status).
+ */
+export type SessionRecord = CompletedSessionRecord | DraftSessionRecord;
 
 /**
  * User action choices when recovering or processing an unfinished draft session.
@@ -280,14 +310,7 @@ export interface FrontmatterResult {
  */
 export interface ValidationError {
   /** Error classification */
-  type:
-    | 'duplicate_id'
-    | 'missing_dependency'
-    | 'cycle'
-    | 'invalid_frontmatter'
-    | 'invalid_difficulty'
-    | 'invalid_score'
-    | 'invalid_id';
+  type: 'duplicate_id' | 'missing_dependency' | 'cycle';
   /** Topic identifier where the issue was detected */
   topic?: string;
   /** Missing dependent topic ID (for `missing_dependency`) */
@@ -329,7 +352,7 @@ export interface TopicNode {
   /** Difficulty categorization */
   difficulty?: Difficulty;
   /** List of prerequisite topic IDs */
-  depends_on: string[];
+  depends_on?: string[];
   /** Alias for `depends_on` matching serialized topic schema */
   dependencies?: string[];
   /** Computed overall mastery score (0.0 - 1.0) */

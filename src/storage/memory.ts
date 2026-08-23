@@ -17,7 +17,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { atomicWrite } from './atomic-write';
-import { HotMemoryData, SessionRecord, DraftRecoveryAction } from '../types';
+import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction } from '../types';
 
 /** Maximum number of words retained in the active working memory (`hot.md`) summary body */
 const MAX_HOT_WORDS = 250;
@@ -53,19 +53,30 @@ function getSessionsDir(vaultPath: string): string {
 /**
  * Generates a unique canonical session identifier with timestamp and random entropy.
  *
- * @returns Session ID string (e.g. `S-20260824T103000-a1b2`)
+ * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXX`
+ *
+ * @example
+ * ```typescript
+ * const id = generateSessionId(); // "S-20260823T153000-a1b2"
+ * ```
  */
 function generateSessionId(): string {
   const now = new Date();
-  const dateStr = now.toISOString().replace(/[-:]/g, '').split('.')[0]; // YYYYMMDDTHHMMSS
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const timestamp = `${year}${month}${day}T${hours}${minutes}${seconds}`;
   const random = crypto.randomBytes(2).toString('hex');
-  return `S-${dateStr}-${random}`;
+  return `S-${timestamp}-${random}`;
 }
 
 /**
- * Generates a unique draft checkpoint identifier.
+ * Generates a unique checkpoint identifier for in-progress draft sessions.
  *
- * @returns Draft ID string (e.g. `DRAFT-S-3f8a9c12`)
+ * @returns Draft ID string formatted as `DRAFT-S-XXXXXXXX`
  */
 function generateDraftId(): string {
   const random = crypto.randomBytes(4).toString('hex');
@@ -73,11 +84,11 @@ function generateDraftId(): string {
 }
 
 /**
- * Truncates text to a maximum number of whitespace-delimited words.
+ * Truncates text to a maximum word count, appending an ellipsis if trimmed.
  *
- * @param text - Text to truncate
- * @param maxWords - Maximum number of words allowed
- * @returns Truncated text with trailing ellipsis if shortened
+ * @param text - Input string to truncate
+ * @param maxWords - Upper bound on word count (e.g. 250)
+ * @returns Truncated string with trailing `...` if truncated
  */
 function truncateWords(text: string, maxWords: number): string {
   const words = text.trim().split(/\s+/);
@@ -99,32 +110,35 @@ function countWords(text: string): number {
 }
 
 /**
- * Formats a Date object into an ISO date-only string (`YYYY-MM-DD`).
+ * Formats a Date object into an ISO-standard date string (`YYYY-MM-DD`).
  *
  * @param date - Date to format
- * @returns Formatted date string
+ * @returns Date string formatted as `YYYY-MM-DD`
  */
 function formatDateOnly(date: Date): string {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
- * Writes a confirmed canonical session note to `.palee/sessions/S-*.md` with atomic OCC write.
+ * Saves a completed study session note with frontmatter metadata to `.palee/sessions/S-*.md`.
  *
- * @param vaultPath - Vault root directory path
+ * @param vaultPath - Absolute path to Obsidian vault root
  * @param sessionData - Session metadata (ID, topic ID, timestamps)
  * @param bodyContent - Markdown note body written during study
  * @returns Absolute path to the saved session note
  */
 async function writeSessionNote(
   vaultPath: string,
-  sessionData: Omit<SessionRecord, 'palee_schema' | 'status'>,
+  sessionData: Omit<CompletedSessionRecord, 'palee_schema' | 'status'>,
   bodyContent: string
 ): Promise<string> {
   const sessionsDir = getSessionsDir(vaultPath);
   const filePath = path.join(sessionsDir, `${sessionData.session_id}.md`);
 
-  const fullData: SessionRecord = {
+  const fullData: CompletedSessionRecord = {
     palee_schema: 1,
     ...sessionData,
     status: 'completed',
@@ -224,14 +238,26 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter } = parseFrontmatter(content);
           if (frontmatter && frontmatter.session_id) {
-            sessions.push({
-              palee_schema: (frontmatter.palee_schema as number) || 1,
-              session_id: frontmatter.session_id as string,
-              topic_id: (frontmatter.topic_id as string) || 'unknown',
-              started_at: (frontmatter.started_at as string) || '',
-              ended_at: typeof frontmatter.ended_at === 'string' ? frontmatter.ended_at : null,
-              status: (frontmatter.status as 'completed' | 'draft') || 'completed',
-            });
+            const status = (frontmatter.status as 'completed' | 'draft') || 'completed';
+            if (status === 'draft') {
+              sessions.push({
+                palee_schema: (frontmatter.palee_schema as number) || 1,
+                session_id: frontmatter.session_id as string,
+                topic_id: (frontmatter.topic_id as string) || 'unknown',
+                started_at: (frontmatter.started_at as string) || '',
+                ended_at: null,
+                status: 'draft',
+              });
+            } else {
+              sessions.push({
+                palee_schema: (frontmatter.palee_schema as number) || 1,
+                session_id: frontmatter.session_id as string,
+                topic_id: (frontmatter.topic_id as string) || 'unknown',
+                started_at: (frontmatter.started_at as string) || '',
+                ended_at: (frontmatter.ended_at as string) || '',
+                status: 'completed',
+              });
+            }
           }
         } catch (e: any) {
           if (e && !e.code) {

@@ -87,11 +87,28 @@ async function atomicWrite(
     await lock.acquire();
     lockAcquired = true;
 
-    // OCC: Check fingerprint if file exists
-    if (expectedFingerprint !== null && fs.existsSync(targetPath)) {
-      const currentContent = fs.readFileSync(targetPath, 'utf8');
-      const currentFingerprint = computeFingerprint(currentContent);
+    // OCC: Check fingerprint against disk state
+    if (expectedFingerprint !== null) {
+      if (!fs.existsSync(targetPath)) {
+        const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist (was deleted or missing)`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
+      }
 
+      let currentContent: string;
+      try {
+        currentContent = fs.readFileSync(targetPath, 'utf8');
+      } catch (e: unknown) {
+        const readErr = e as NodeError;
+        if (readErr.code === 'ENOENT') {
+          const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist`) as NodeError;
+          conflictErr.code = 'ECONFLICT';
+          throw conflictErr;
+        }
+        throw readErr;
+      }
+
+      const currentFingerprint = computeFingerprint(currentContent);
       if (currentFingerprint !== expectedFingerprint) {
         const conflictErr = new Error(`OCC conflict: ${targetPath} was modified by another process`) as NodeError;
         conflictErr.code = 'ECONFLICT';

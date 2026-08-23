@@ -1,4 +1,4 @@
-# ADR-0003: Non-Destructive Frontmatter Updates via YAML CST
+# ADR-0003: Non-Destructive Frontmatter Updates via YAML Document API
 
 ## Status
 Accepted
@@ -9,10 +9,10 @@ PALEE stores metadata (mastery scores, SM-2 parameters, topic IDs, dependencies)
 Standard YAML parsers (e.g. `JSON.parse`, basic string splitters, or naive YAML dumpers) reorder keys, strip comments, and format scalars destructively.
 
 ## Decision
-We utilize the `yaml` package's Concrete Syntax Tree (CST) document manipulation API in `src/storage/frontmatter.ts`.
+We utilize the `yaml` package's Document manipulation API in `src/storage/frontmatter.ts`.
 
 Key design choices:
-1. Parse the extracted frontmatter block into a CST `Document` using `parseDocument(raw)`.
+1. Parse the extracted frontmatter block into a YAML `Document` using `parseDocument(raw)`.
 2. Apply mutations only to explicit PALEE managed keys using `doc.set(key, value)`.
 3. Call `doc.toString()` to serialize the updated YAML header while preserving:
    - Existing comments and indentation.
@@ -24,4 +24,5 @@ Key design choices:
   - Guarantees 100% preservation of user-authored comments and custom frontmatter properties.
   - Seamless interoperability with Obsidian plugins, Dataview, and frontmatter schemas.
 - **Negative / Tradeoffs**:
-  - Slight CPU overhead parsing CST compared to regex replacement, mitigated by memory caching.
+  - Slight CPU overhead parsing YAML Documents compared to naive string matching, mitigated by memory caching.
+

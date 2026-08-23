@@ -22,6 +22,7 @@ We implemented a two-tier synchronization mechanism:
 - **Positive**:
   - Zero partial-write corruption even on sudden crash or process termination.
   - Robust cross-platform concurrency on both POSIX and Windows filesystem semantics.
-  - Prevents overwriting edits made externally by Obsidian or cloud sync.
+  - Detects concurrent modifications between fingerprint read and atomic write via SHA-256 OCC validation.
 - **Negative / Tradeoffs**:
   - Requires momentary temporary files during writes.
+  - `fs.renameSync` will atomically replace the target file; an external edit occurring after the fingerprint check could be replaced unless cooperating through PALEE locks or filesystem-level compare-and-replace.
