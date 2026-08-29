@@ -14,6 +14,15 @@ import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
 import readline from 'readline';
 
+/**
+ * CLI command handler for validating and importing learning roadmaps into the vault.
+ *
+ * @param options - Roadmap options including `--from` file path and `--yes` confirmation.
+ * @returns Promise resolving when roadmap validation and import complete.
+ * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
+ * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
+ * process.exitCode = 1 on partial import failure, and process.exitCode = 5 on unexpected runtime exceptions.
+ */
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
     if (!options.from) {

@@ -1,6 +1,13 @@
 import { loadConfig } from './config';
 import { loadTopics } from '../storage/loader';
 
+/**
+ * CLI command handler for validating note schema versions across the vault.
+ *
+ * @returns Promise resolving when the migration scan completes.
+ * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
+ * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
+ */
 async function migrateCommand(): Promise<void> {
   try {
     // Load config

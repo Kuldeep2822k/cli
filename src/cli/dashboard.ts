@@ -21,6 +21,14 @@ interface DashboardTopic {
   due_at: Date | null;
 }
 
+/**
+ * CLI command handler for displaying the learning dashboard summary.
+ *
+ * @param options - Dashboard display options including optional `--json` format.
+ * @returns Promise resolving when dashboard output finishes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   try {
     const config = loadConfig();

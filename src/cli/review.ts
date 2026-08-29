@@ -5,6 +5,15 @@ import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 
+/**
+ * CLI command handler for recording a spaced repetition (SM-2) review for a topic.
+ *
+ * @param topicQuery - The palee_id or title substring matching the target topic.
+ * @param qualityStr - The SM-2 recall quality rating as a string ('0' through '5').
+ * @returns Promise resolving when the review state is updated and saved.
+ * @remarks Sets process.exitCode = 2 on invalid quality, missing vault, or missing/ambiguous topic,
+ * process.exitCode = 4 on OCC lock conflicts, and process.exitCode = 5 on unexpected exceptions.
+ */
 async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
   try {
     if (!/^[0-5]$/.test(qualityStr)) {

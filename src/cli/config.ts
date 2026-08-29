@@ -8,6 +8,12 @@ import path from 'path';
 import os from 'os';
 import { PaleeConfig, NodeError } from '../types';
 
+/**
+ * Resolves the platform-specific path to the PALEE config JSON file.
+ *
+ * @returns The absolute file path to config.json.
+ * @throws {Error} If LOCALAPPDATA environment variable is missing on Windows.
+ */
 function getConfigPath(): string {
   if (process.env.PALEE_CONFIG_DIR) {
     return path.join(process.env.PALEE_CONFIG_DIR, 'config.json');
@@ -24,6 +30,11 @@ function getConfigPath(): string {
   }
 }
 
+/**
+ * Loads and parses the stored PALEE configuration from disk.
+ *
+ * @returns The parsed PaleeConfig object, or an empty object if no config file exists yet.
+ */
 function loadConfig(): PaleeConfig {
   const configPath = getConfigPath();
   try {
@@ -38,6 +49,11 @@ function loadConfig(): PaleeConfig {
   }
 }
 
+/**
+ * Persists the given PALEE configuration object to disk as JSON.
+ *
+ * @param config - The updated configuration object to write.
+ */
 function saveConfig(config: PaleeConfig): void {
   const configPath = getConfigPath();
   const dir = path.dirname(configPath);
@@ -49,6 +65,15 @@ function saveConfig(config: PaleeConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 }
 
+/**
+ * CLI command handler for managing configuration (show, set-vault, set-provider, set-model).
+ *
+ * @param action - Optional configuration action (show, set-vault, set-provider, set-model).
+ * @param value - Optional value to set for the given action.
+ * @returns Promise resolving when the command finishes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function configCommand(action?: string, value?: string): Promise<void> {
   try {
     if (!action || action === 'show') {

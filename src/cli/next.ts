@@ -19,6 +19,14 @@ interface DueTopic {
   difficulty?: Difficulty;
 }
 
+/**
+ * CLI command handler for showing the next due topics for review.
+ *
+ * @param options - Next command options including `--tag`, `--difficulty`, and `--json`.
+ * @returns Promise resolving when output is complete.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function nextCommand(options: NextOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
