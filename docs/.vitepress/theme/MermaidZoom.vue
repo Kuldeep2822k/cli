@@ -1,390 +1,296 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { onMounted, onUnmounted, nextTick } from 'vue'
 
-const isModalOpen = ref(false)
-const modalSvgContainer = ref<HTMLElement | null>(null)
-const modalScale = ref(1)
-const modalTranslateX = ref(0)
-const modalTranslateY = ref(0)
-const isDragging = ref(false)
-const dragStartX = ref(0)
-const dragStartY = ref(0)
+interface DiagramController {
+  card: HTMLElement
+  viewport: HTMLElement
+  svg: SVGSVGElement
+  scale: number
+  x: number
+  y: number
+  isDragging: boolean
+  lastPointerX: number
+  lastPointerY: number
+  activePointers: Map<number, { x: number; y: number }>
+  initialPinchDist: number
+  initialPinchScale: number
+  rafId: number | null
+  applyTransform: () => void
+  reset: () => void
+  zoom: (factor: number, originX?: number, originY?: number) => void
+  destroy: () => void
+}
 
-// Drag threshold tracking to distinguish click-to-dismiss from drag-to-pan
-let pointerDownPos = { x: 0, y: 0 }
-let pointerDownTime = 0
-let hasMovedSignificantDistance = false
+const activeCards: HTMLElement[] = []
 
-const zoomPercentDisplay = computed(() => {
-  return `${Math.round(modalScale.value * 100)}%`
-})
+function attachDiagramController(card: HTMLElement) {
+  if (card.dataset.panzoomAttached) return
+  card.dataset.panzoomAttached = 'true'
+  activeCards.push(card)
 
-// Safely scopes all IDs and references inside the cloned SVG to prevent duplicate IDs in the DOM
-function scopeSvgIds(svg: SVGSVGElement, prefix: string) {
-  const idMap = new Map<string, string>()
+  const svg = card.querySelector('svg')
+  if (!svg) return
 
-  if (svg.id) {
-    const newId = `${prefix}${svg.id}`
-    idMap.set(svg.id, newId)
-    svg.id = newId
+  card.classList.add('mermaid-diagram-card')
+
+  // Create inner viewport if not present
+  let viewport = card.querySelector('.mermaid-viewport') as HTMLElement
+  if (!viewport) {
+    viewport = document.createElement('div')
+    viewport.className = 'mermaid-viewport'
+    
+    // Move SVG into viewport
+    svg.parentNode?.insertBefore(viewport, svg)
+    viewport.appendChild(svg)
   }
 
-  const elementsWithId = svg.querySelectorAll('[id]')
-  elementsWithId.forEach((el) => {
-    const oldId = el.id
-    if (oldId && !oldId.startsWith(prefix)) {
-      const newId = `${prefix}${oldId}`
-      idMap.set(oldId, newId)
-      el.id = newId
-    }
-  })
+  // Create GitHub-style Toolbar
+  const toolbar = document.createElement('div')
+  toolbar.className = 'github-diagram-toolbar'
 
-  if (idMap.size === 0) return
+  // Zoom In button
+  const zoomInBtn = document.createElement('button')
+  zoomInBtn.className = 'gh-diag-btn'
+  zoomInBtn.title = 'Zoom In (+)'
+  zoomInBtn.setAttribute('aria-label', 'Zoom In')
+  zoomInBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`
 
-  const refAttributes = [
-    'href',
-    'xlink:href',
-    'clip-path',
-    'mask',
-    'filter',
-    'marker-start',
-    'marker-mid',
-    'marker-end',
-    'fill',
-    'stroke'
-  ]
+  // Zoom Out button
+  const zoomOutBtn = document.createElement('button')
+  zoomOutBtn.className = 'gh-diag-btn'
+  zoomOutBtn.title = 'Zoom Out (-)'
+  zoomOutBtn.setAttribute('aria-label', 'Zoom Out')
+  zoomOutBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`
 
-  const allElements = svg.querySelectorAll('*')
-  allElements.forEach((el) => {
-    refAttributes.forEach((attr) => {
-      const val = el.getAttribute(attr)
-      if (!val) return
+  // Reset button
+  const resetBtn = document.createElement('button')
+  resetBtn.className = 'gh-diag-btn'
+  resetBtn.title = 'Reset (100%)'
+  resetBtn.setAttribute('aria-label', 'Reset')
+  resetBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`
 
-      let newVal = val
-      idMap.forEach((newId, oldId) => {
-        if (newVal === `#${oldId}`) {
-          newVal = `#${newId}`
-        } else if (newVal.includes(`#${oldId}`)) {
-          const regex = new RegExp(`(#|url\\(['"]?#)${oldId}(['"]?\\))`, 'g')
-          newVal = newVal.replace(regex, `$1${newId}$2`)
-        }
+  // Fullscreen button
+  const fullscreenBtn = document.createElement('button')
+  fullscreenBtn.className = 'gh-diag-btn'
+  fullscreenBtn.title = 'Toggle Fullscreen (Esc to exit)'
+  fullscreenBtn.setAttribute('aria-label', 'Toggle Fullscreen')
+  fullscreenBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+
+  toolbar.appendChild(zoomInBtn)
+  toolbar.appendChild(zoomOutBtn)
+  toolbar.appendChild(resetBtn)
+  toolbar.appendChild(fullscreenBtn)
+  card.appendChild(toolbar)
+
+  // Initialize controller state
+  const state: DiagramController = {
+    card,
+    viewport,
+    svg,
+    scale: 1,
+    x: 0,
+    y: 0,
+    isDragging: false,
+    lastPointerX: 0,
+    lastPointerY: 0,
+    activePointers: new Map(),
+    initialPinchDist: 0,
+    initialPinchScale: 1,
+    rafId: null,
+    applyTransform() {
+      if (state.rafId) cancelAnimationFrame(state.rafId)
+      state.rafId = requestAnimationFrame(() => {
+        svg.style.transform = `translate3d(${state.x}px, ${state.y}px, 0px) scale(${state.scale})`
       })
+    },
+    reset() {
+      state.scale = 1
+      state.x = 0
+      state.y = 0
+      state.applyTransform()
+    },
+    zoom(factor, originX, originY) {
+      const oldScale = state.scale
+      const newScale = Math.min(Math.max(oldScale * factor, 0.25), 8)
+      if (Math.abs(newScale - oldScale) < 0.001) return
 
-      if (newVal !== val) {
-        el.setAttribute(attr, newVal)
+      if (originX !== undefined && originY !== undefined) {
+        const ratio = newScale / oldScale
+        state.x = originX - (originX - state.x) * ratio
+        state.y = originY - (originY - state.y) * ratio
       }
-    })
-  })
-
-  const styleTags = svg.querySelectorAll('style')
-  styleTags.forEach((styleTag) => {
-    let css = styleTag.textContent || ''
-    idMap.forEach((newId, oldId) => {
-      const selectorRegex = new RegExp(`#${oldId}\\b`, 'g')
-      css = css.replace(selectorRegex, `#${newId}`)
-    })
-    styleTag.textContent = css
-  })
-}
-
-function openModal(svgElement: SVGSVGElement) {
-  isModalOpen.value = true
-  modalScale.value = 1
-  modalTranslateX.value = 0
-  modalTranslateY.value = 0
-  hasMovedSignificantDistance = false
-
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = 'hidden'
+      state.scale = newScale
+      state.applyTransform()
+    },
+    destroy() {
+      if (state.rafId) cancelAnimationFrame(state.rafId)
+    }
   }
 
-  nextTick(() => {
-    if (modalSvgContainer.value) {
-      const clone = svgElement.cloneNode(true) as SVGSVGElement
-      const prefix = `modal-diag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-`
-      scopeSvgIds(clone, prefix)
-      
-      const viewBox = clone.getAttribute('viewBox')
-      if (viewBox) {
-        const parts = viewBox.split(/[\s,]+/).map(Number)
-        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
-          clone.setAttribute('width', `${parts[2]}`)
-          clone.setAttribute('height', `${parts[3]}`)
-        }
-      }
-      clone.style.maxWidth = '92vw'
-      clone.style.maxHeight = '82vh'
-      clone.style.display = 'block'
-      clone.style.margin = 'auto'
-      
-      modalSvgContainer.value.replaceChildren(clone)
+  // Toolbar events
+  zoomInBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const rect = viewport.getBoundingClientRect()
+    state.zoom(1.25, rect.width / 2, rect.height / 2)
+  })
+
+  zoomOutBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const rect = viewport.getBoundingClientRect()
+    state.zoom(1 / 1.25, rect.width / 2, rect.height / 2)
+  })
+
+  resetBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    state.reset()
+  })
+
+  function toggleFullscreen() {
+    if (card.classList.contains('is-fullscreen')) {
+      card.classList.remove('is-fullscreen')
+      fullscreenBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+      document.body.style.overflow = ''
+    } else {
+      card.classList.add('is-fullscreen')
+      fullscreenBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>`
+      document.body.style.overflow = 'hidden'
+    }
+    state.reset()
+  }
+
+  fullscreenBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    toggleFullscreen()
+  })
+
+  // Wheel zoom centered on mouse
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault()
+    const rect = viewport.getBoundingClientRect()
+    const originX = e.clientX - rect.left
+    const originY = e.clientY - rect.top
+    const factor = e.ctrlKey ? Math.exp(-e.deltaY * 0.01) : (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+    state.zoom(factor, originX, originY)
+  }, { passive: false })
+
+  // Double click to toggle 2x or reset
+  viewport.addEventListener('dblclick', (e) => {
+    e.preventDefault()
+    if (state.scale > 1.05 || state.scale < 0.95 || state.x !== 0 || state.y !== 0) {
+      state.reset()
+    } else {
+      const rect = viewport.getBoundingClientRect()
+      state.zoom(2, e.clientX - rect.left, e.clientY - rect.top)
     }
   })
+
+  // Pointer drag events with hardware acceleration
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    try {
+      viewport.setPointerCapture(e.pointerId)
+    } catch (_) {}
+    state.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (state.activePointers.size === 1) {
+      state.isDragging = true
+      state.lastPointerX = e.clientX
+      state.lastPointerY = e.clientY
+      viewport.classList.add('is-dragging')
+    } else if (state.activePointers.size === 2) {
+      state.isDragging = false
+      const pts = Array.from(state.activePointers.values())
+      state.initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      state.initialPinchScale = state.scale
+    }
+  })
+
+  viewport.addEventListener('pointermove', (e) => {
+    if (!state.activePointers.has(e.pointerId)) return
+    state.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (state.activePointers.size === 1 && state.isDragging) {
+      const dx = e.clientX - state.lastPointerX
+      const dy = e.clientY - state.lastPointerY
+      state.lastPointerX = e.clientX
+      state.lastPointerY = e.clientY
+      state.x += dx
+      state.y += dy
+      state.applyTransform()
+    } else if (state.activePointers.size === 2 && state.initialPinchDist > 0) {
+      const pts = Array.from(state.activePointers.values())
+      const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      const factor = currentDist / state.initialPinchDist
+      state.scale = Math.min(Math.max(state.initialPinchScale * factor, 0.25), 8)
+      state.applyTransform()
+    }
+  })
+
+  const endDrag = (e: PointerEvent) => {
+    state.activePointers.delete(e.pointerId)
+    try {
+      viewport.releasePointerCapture(e.pointerId)
+    } catch (_) {}
+    if (state.activePointers.size === 0) {
+      state.isDragging = false
+      viewport.classList.remove('is-dragging')
+    } else if (state.activePointers.size === 1) {
+      const remaining = Array.from(state.activePointers.values())[0]
+      state.isDragging = true
+      state.lastPointerX = remaining.x
+      state.lastPointerY = remaining.y
+    }
+  }
+
+  viewport.addEventListener('pointerup', endDrag)
+  viewport.addEventListener('pointercancel', endDrag)
 }
 
-function closeModal() {
-  isModalOpen.value = false
-  isDragging.value = false
-  hasMovedSignificantDistance = false
-  activePointers.clear()
-  if (modalSvgContainer.value) {
-    modalSvgContainer.value.replaceChildren()
-  }
-  if (typeof document !== 'undefined') {
+function handleGlobalKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    activeCards.forEach((card) => {
+      if (card.classList.contains('is-fullscreen')) {
+        card.classList.remove('is-fullscreen')
+        const fullscreenBtn = card.querySelector('.gh-diag-btn[title*="Fullscreen"]')
+        if (fullscreenBtn) {
+          fullscreenBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+        }
+      }
+    })
     document.body.style.overflow = ''
   }
 }
 
-const activePointers = new Map<number, { x: number; y: number }>()
-let initialPinchDistance = 0
-let initialPinchScale = 1
-let initialPinchCenter = { x: 0, y: 0 }
-let initialTranslate = { x: 0, y: 0 }
-
-function getDistance(p1: { x: number; y: number }, p2: { x: number; y: number }) {
-  return Math.hypot(p1.x - p2.x, p1.y - p2.y)
-}
-
-function getCenter(p1: { x: number; y: number }, p2: { x: number; y: number }) {
-  return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
-}
-
-function zoomIn() {
-  modalScale.value = Math.min(Math.round(modalScale.value * 1.25 * 100) / 100, 8)
-}
-
-function zoomOut() {
-  modalScale.value = Math.max(Math.round((modalScale.value / 1.25) * 100) / 100, 0.2)
-}
-
-function resetZoom() {
-  modalScale.value = 1
-  modalTranslateX.value = 0
-  modalTranslateY.value = 0
-}
-
-function handleWheel(e: WheelEvent) {
-  e.preventDefault()
-  
-  const zoomMultiplier = e.ctrlKey
-    ? Math.exp(-e.deltaY * 0.01)
-    : (e.deltaY < 0 ? 1.15 : 1 / 1.15)
-  
-  const oldScale = modalScale.value
-  const newScale = Math.min(Math.max(oldScale * zoomMultiplier, 0.2), 8)
-  if (Math.abs(newScale - oldScale) < 0.001) return
-
-  const viewport = e.currentTarget as HTMLElement
-  if (viewport) {
-    const rect = viewport.getBoundingClientRect()
-    const mouseX = e.clientX - (rect.left + rect.width / 2)
-    const mouseY = e.clientY - (rect.top + rect.height / 2)
-
-    const scaleRatio = newScale / oldScale
-    modalTranslateX.value = mouseX - (mouseX - modalTranslateX.value) * scaleRatio
-    modalTranslateY.value = mouseY - (mouseY - modalTranslateY.value) * scaleRatio
-  }
-  modalScale.value = newScale
-}
-
-function handlePointerDown(e: PointerEvent) {
-  if (e.button !== 0 && e.pointerType === 'mouse') return
-  
-  pointerDownTime = Date.now()
-  pointerDownPos = { x: e.clientX, y: e.clientY }
-  hasMovedSignificantDistance = false
-
-  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-  const target = e.currentTarget as HTMLElement
-  if (target?.setPointerCapture) {
-    try {
-      target.setPointerCapture(e.pointerId)
-    } catch (_) {}
-  }
-
-  if (activePointers.size === 1) {
-    isDragging.value = true
-    dragStartX.value = e.clientX - modalTranslateX.value
-    dragStartY.value = e.clientY - modalTranslateY.value
-  } else if (activePointers.size === 2) {
-    isDragging.value = false
-    const pts = Array.from(activePointers.values())
-    initialPinchDistance = getDistance(pts[0], pts[1])
-    initialPinchScale = modalScale.value
-    initialPinchCenter = getCenter(pts[0], pts[1])
-    initialTranslate = { x: modalTranslateX.value, y: modalTranslateY.value }
-  }
-}
-
-function handlePointerMove(e: PointerEvent) {
-  if (!activePointers.has(e.pointerId)) return
-  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-
-  const distanceMoved = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y)
-  if (distanceMoved > 4) {
-    hasMovedSignificantDistance = true
-  }
-
-  if (activePointers.size === 1 && isDragging.value) {
-    modalTranslateX.value = e.clientX - dragStartX.value
-    modalTranslateY.value = e.clientY - dragStartY.value
-  } else if (activePointers.size === 2 && initialPinchDistance > 0) {
-    const pts = Array.from(activePointers.values())
-    const currentDistance = getDistance(pts[0], pts[1])
-    const currentCenter = getCenter(pts[0], pts[1])
-    
-    const scaleMultiplier = currentDistance / initialPinchDistance
-    const newScale = Math.min(Math.max(initialPinchScale * scaleMultiplier, 0.2), 8)
-    modalScale.value = newScale
-
-    modalTranslateX.value = initialTranslate.x + (currentCenter.x - initialPinchCenter.x)
-    modalTranslateY.value = initialTranslate.y + (currentCenter.y - initialPinchCenter.y)
-  }
-}
-
-function handlePointerUp(e: PointerEvent) {
-  activePointers.delete(e.pointerId)
-  const target = e.currentTarget as HTMLElement
-  if (target?.releasePointerCapture) {
-    try {
-      target.releasePointerCapture(e.pointerId)
-    } catch (_) {}
-  }
-
-  if (activePointers.size === 1) {
-    const remaining = Array.from(activePointers.values())[0]
-    isDragging.value = true
-    dragStartX.value = remaining.x - modalTranslateX.value
-    dragStartY.value = remaining.y - modalTranslateY.value
-  } else if (activePointers.size === 0) {
-    isDragging.value = false
-    initialPinchDistance = 0
-  }
-}
-
-function handleViewportClick(e: MouseEvent) {
-  // If the user was dragging or holding to pan, do not close the modal!
-  if (hasMovedSignificantDistance) {
-    e.stopPropagation()
-    return
-  }
-  
-  // Only close if it's a direct, static click on the backdrop itself
-  const target = e.target as HTMLElement
-  if (target.classList.contains('modal-canvas-viewport') || target.classList.contains('modal-backdrop')) {
-    closeModal()
-  }
-}
-
-function handleDoubleClick(e: MouseEvent) {
-  e.preventDefault()
-  if (modalScale.value > 1.05 || modalScale.value < 0.95 || modalTranslateX.value !== 0 || modalTranslateY.value !== 0) {
-    resetZoom()
-  } else {
-    // Zoom in 2x centered on double click location
-    const viewport = e.currentTarget as HTMLElement
-    if (viewport) {
-      const rect = viewport.getBoundingClientRect()
-      const mouseX = e.clientX - (rect.left + rect.width / 2)
-      const mouseY = e.clientY - (rect.top + rect.height / 2)
-      const newScale = 2
-      const scaleRatio = newScale / modalScale.value
-      modalTranslateX.value = mouseX - (mouseX - modalTranslateX.value) * scaleRatio
-      modalTranslateY.value = mouseY - (mouseY - modalTranslateY.value) * scaleRatio
-      modalScale.value = newScale
-    }
-  }
-}
-
-function handleKeyDown(e: KeyboardEvent) {
-  if (!isModalOpen.value) return
-  
-  if (e.key === 'Escape') {
-    closeModal()
-  } else if (e.key === '+' || e.key === '=') {
-    zoomIn()
-  } else if (e.key === '-' || e.key === '_') {
-    zoomOut()
-  } else if (e.key === '0') {
-    resetZoom()
-  } else if (e.key === 'ArrowLeft') {
-    modalTranslateX.value += 50
-  } else if (e.key === 'ArrowRight') {
-    modalTranslateX.value -= 50
-  } else if (e.key === 'ArrowUp') {
-    modalTranslateY.value += 50
-  } else if (e.key === 'ArrowDown') {
-    modalTranslateY.value -= 50
-  }
-}
-
-function setupDiagramToolbars() {
+function scanAndAttach() {
   if (typeof document === 'undefined') return
-  
   const contentArea = document.querySelector('.VPContent') || document.body
   const diagrams = contentArea.querySelectorAll('.mermaid, [data-mermaid], .vp-mermaid')
-  
-  diagrams.forEach((container) => {
-    const el = container as HTMLElement
-    if (el.dataset.toolbarAttached) return
-    el.dataset.toolbarAttached = 'true'
-
-    el.classList.add('mermaid-diagram-card')
-
-    const toolbar = document.createElement('div')
-    toolbar.className = 'diagram-card-toolbar'
-
-    const expandBtn = document.createElement('button')
-    expandBtn.className = 'diagram-toolbar-btn'
-    expandBtn.title = 'Open Fullscreen Zoom & Pan'
-    expandBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg><span>Inspect</span>`
-
-    expandBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const svg = el.querySelector('svg')
-      if (svg) {
-        openModal(svg)
-      }
-    })
-
-    toolbar.appendChild(expandBtn)
-    el.appendChild(toolbar)
-
-    el.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement
-      if (target.closest('.diagram-card-toolbar')) return
-      const svg = el.querySelector('svg')
-      if (svg) {
-        openModal(svg)
-      }
-    })
+  diagrams.forEach((diagram) => {
+    attachDiagramController(diagram as HTMLElement)
   })
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-function debouncedSetup() {
+function debouncedScan() {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     nextTick(() => {
-      setupDiagramToolbars()
+      scanAndAttach()
     })
-  }, 150)
+  }, 100)
 }
 
 let observer: MutationObserver | null = null
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
-    window.addEventListener('keydown', handleKeyDown)
-    setupDiagramToolbars()
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    scanAndAttach()
 
     const target = document.querySelector('.VPContent') || document.body
-    observer = new MutationObserver((mutations) => {
-      const hasNewElements = mutations.some((m) => m.addedNodes && m.addedNodes.length > 0)
-      if (hasNewElements) {
-        debouncedSetup()
-      }
+    observer = new MutationObserver(() => {
+      debouncedScan()
     })
 
     observer.observe(target, {
@@ -396,7 +302,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (typeof window !== 'undefined') {
-    window.removeEventListener('keydown', handleKeyDown)
+    window.removeEventListener('keydown', handleGlobalKeyDown)
   }
   if (debounceTimer) clearTimeout(debounceTimer)
   if (observer) observer.disconnect()
@@ -404,190 +310,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="isModalOpen" class="diagram-fullscreen-modal">
-    <!-- Modal Backdrop -->
-    <div class="modal-backdrop" @click="closeModal"></div>
-
-    <!-- Modal Header Toolbar -->
-    <div class="modal-header-toolbar">
-      <div class="modal-actions-group">
-        <button class="modal-tool-btn" @click="zoomIn" title="Zoom In (+)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-        </button>
-        <button class="modal-tool-btn" @click="zoomOut" title="Zoom Out (-)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-        </button>
-        <button class="modal-zoom-badge" @click="resetZoom" title="Click to Reset (100%)">
-          {{ zoomPercentDisplay }}
-        </button>
-        <button class="modal-tool-btn" @click="resetZoom" title="Reset (100% / Key 0)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-        </button>
-        <div class="modal-divider"></div>
-        <button class="modal-tool-btn close-btn" @click="closeModal" title="Close (Esc)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- Modal Viewport Canvas with drag-safe pointer events -->
-    <div
-      class="modal-canvas-viewport"
-      @click="handleViewportClick"
-      @dblclick="handleDoubleClick"
-      @wheel="handleWheel"
-      @pointerdown="handlePointerDown"
-      @pointermove="handlePointerMove"
-      @pointerup="handlePointerUp"
-      @pointercancel="handlePointerUp"
-    >
-      <div
-        ref="modalSvgContainer"
-        class="modal-svg-stage"
-        :class="{ 'is-panning': isDragging }"
-        :style="{
-          transform: `translate(${modalTranslateX}px, ${modalTranslateY}px) scale(${modalScale})`
-        }"
-      ></div>
-    </div>
-  </div>
+  <div class="mermaid-panzoom-runtime"></div>
 </template>
 
 <style scoped>
-.diagram-fullscreen-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  display: flex;
-  flex-direction: column;
-  user-select: none;
-}
-
-.modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(5, 7, 10, 0.94);
-  backdrop-filter: blur(12px);
-  cursor: pointer;
-}
-
-.modal-header-toolbar {
-  position: absolute;
-  top: 18px;
-  right: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  z-index: 100000;
-  pointer-events: none;
-}
-
-@media (max-width: 640px) {
-  .modal-header-toolbar {
-    top: 12px;
-    right: 12px;
-  }
-}
-
-.modal-actions-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #0e1117;
-  border: 1px solid #21262d;
-  border-radius: 10px;
-  padding: 5px 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-  pointer-events: auto;
-}
-
-.modal-tool-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #c9d1d9;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.modal-tool-btn:hover {
-  background: #161b22;
-  border-color: #30363d;
-  color: #ffffff;
-}
-
-.modal-zoom-badge {
-  font-family: var(--vp-font-family-mono, monospace);
-  font-size: 11px;
-  font-weight: 600;
-  color: #58a6ff;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.modal-zoom-badge:hover {
-  background: #21262d;
-  border-color: #58a6ff;
-}
-
-.modal-tool-btn.close-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
-  color: #ef4444;
-}
-
-.modal-divider {
-  width: 1px;
-  height: 18px;
-  background: #21262d;
-  margin: 0 4px;
-}
-
-.modal-canvas-viewport {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  touch-action: none;
-  z-index: 99999;
-  cursor: grab;
-}
-
-.modal-canvas-viewport:active {
-  cursor: grabbing;
-}
-
-.modal-svg-stage {
-  transform-origin: center center;
-  transition: transform 0.05s ease-out;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  pointer-events: auto;
-  cursor: grab;
-}
-
-.modal-svg-stage.is-panning {
-  cursor: grabbing;
-  transition: none; /* Instant tracking while dragging */
-}
-
-.modal-svg-stage :deep(svg) {
-  filter: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.8));
-  user-select: none;
-  pointer-events: none; /* Let pointer events bubble cleanly to stage/viewport */
+.mermaid-panzoom-runtime {
+  display: none;
 }
 </style>
