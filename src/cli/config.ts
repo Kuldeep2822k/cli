@@ -8,6 +8,12 @@ import path from 'path';
 import os from 'os';
 import { PaleeConfig, NodeError } from '../types';
 
+/**
+ * Resolves the platform-specific path to the PALEE config JSON file.
+ *
+ * @returns The absolute file path to config.json.
+ * @throws {Error} If LOCALAPPDATA environment variable is missing on Windows.
+ */
 function getConfigPath(): string {
   if (process.env.PALEE_CONFIG_DIR) {
     return path.join(process.env.PALEE_CONFIG_DIR, 'config.json');
@@ -24,6 +30,11 @@ function getConfigPath(): string {
   }
 }
 
+/**
+ * Loads and parses the stored PALEE configuration from disk.
+ *
+ * @returns The parsed PaleeConfig object, or an empty object if no config file exists yet.
+ */
 function loadConfig(): PaleeConfig {
   const configPath = getConfigPath();
   try {
@@ -38,6 +49,11 @@ function loadConfig(): PaleeConfig {
   }
 }
 
+/**
+ * Persists the given PALEE configuration object to disk as JSON.
+ *
+ * @param config - The updated configuration object to write.
+ */
 function saveConfig(config: PaleeConfig): void {
   const configPath = getConfigPath();
   const dir = path.dirname(configPath);
@@ -49,6 +65,15 @@ function saveConfig(config: PaleeConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 }
 
+/**
+ * CLI command handler for managing configuration (show, set-vault, set-provider, set-model).
+ *
+ * @param action - Optional configuration action (show, set-vault, set-provider, set-model).
+ * @param value - Optional value to set for the given action.
+ * @returns Promise resolving when the command finishes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function configCommand(action?: string, value?: string): Promise<void> {
   try {
     if (!action || action === 'show') {
@@ -57,66 +82,73 @@ async function configCommand(action?: string, value?: string): Promise<void> {
       console.log(`  Vault Path: ${config.vaultPath || '(not set)'}`);
       console.log(`  AI Provider: ${config.aiProvider || '(not set)'}`);
       console.log(`  Model: ${config.model || '(not set)'}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-vault') {
       if (!value) {
         console.error('Error: vault path required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const absolutePath = path.resolve(value);
       if (!fs.existsSync(absolutePath)) {
         console.error(`Error: vault path does not exist: ${absolutePath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       if (!fs.statSync(absolutePath).isDirectory()) {
         console.error(`Error: vault path is not a directory: ${absolutePath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.vaultPath = absolutePath;
       saveConfig(config);
       console.log(`Vault path set to: ${absolutePath}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-provider') {
       if (!value) {
         console.error('Error: provider name required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.aiProvider = value;
       saveConfig(config);
       console.log(`AI provider set to: ${value}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-model') {
       if (!value) {
         console.error('Error: model name required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.model = value;
       saveConfig(config);
       console.log(`Model set to: ${value}`);
-      process.exit(0);
+      return;
     }
 
     console.error(`Error: unknown action '${action}'`);
     console.error('Valid actions: show, set-vault, set-provider, set-model');
-    process.exit(2);
+    process.exitCode = 2;
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

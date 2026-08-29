@@ -22,6 +22,14 @@ interface PlanTopic extends TopicNode {
   difficulty: Difficulty;
 }
 
+/**
+ * CLI command handler for displaying the daily learning plan.
+ *
+ * @param options - Plan command options including `--ready`, `--all`, `--limit`, `--tag`, `--difficulty`, and `--json`.
+ * @returns Promise resolving when plan output finishes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path or invalid options,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
@@ -173,7 +181,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

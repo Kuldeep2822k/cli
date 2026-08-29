@@ -123,11 +123,11 @@ program
 // Show help if no command provided
 if (!process.argv.slice(2).length) {
   program.outputHelp();
-  process.exit(0);
+  process.exitCode = 0;
 }
 
 // Parse and execute
 program.parseAsync(process.argv).catch((err) => {
   console.error(err);
-  process.exit(1);
+  process.exit(5);
 });

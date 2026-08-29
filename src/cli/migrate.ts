@@ -1,6 +1,13 @@
 import { loadConfig } from './config';
 import { loadTopics } from '../storage/loader';
 
+/**
+ * CLI command handler for validating note schema versions across the vault.
+ *
+ * @returns Promise resolving when the migration scan completes.
+ * @remarks Sets process.exitCode = 2 if the vault path is unconfigured,
+ * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
+ */
 async function migrateCommand(): Promise<void> {
   try {
     // Load config
@@ -8,7 +15,8 @@ async function migrateCommand(): Promise<void> {
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const vaultPath = config.vaultPath;
@@ -44,17 +52,19 @@ async function migrateCommand(): Promise<void> {
       }
       console.log();
       console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
-      process.exit(3);
+      process.exitCode = 3;
+      return;
     }
 
     console.log();
     console.log('✓ All notes are schema v1 - no migration needed');
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

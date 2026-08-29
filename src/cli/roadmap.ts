@@ -14,19 +14,30 @@ import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
 import readline from 'readline';
 
+/**
+ * CLI command handler for validating and importing learning roadmaps into the vault.
+ *
+ * @param options - Roadmap options including `--from` file path and `--yes` confirmation.
+ * @returns Promise resolving when roadmap validation and import complete.
+ * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
+ * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
+ * process.exitCode = 1 on partial import failure, and process.exitCode = 5 on unexpected runtime exceptions.
+ */
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
     if (!options.from) {
       console.error('Error: Phase 1 only supports --from <file>');
       console.error('Usage: palee roadmap --from <roadmap.yaml|roadmap.md>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const config = loadConfig();
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const vaultPath = config.vaultPath;
@@ -34,7 +45,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!fs.existsSync(roadmapPath)) {
       console.error(`Error: Roadmap file not found: ${roadmapPath}`);
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const rawContent = fs.readFileSync(roadmapPath, 'utf8');
@@ -42,7 +54,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
       console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const roadmap = parseResult.roadmap;
@@ -117,7 +130,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       for (const err of errors) {
         console.error(`  • ${err}`);
       }
-      process.exit(3);
+      process.exitCode = 3;
+      return;
     }
 
     console.log('Roadmap validated successfully.');
@@ -131,7 +145,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     console.log();
     if (!options.yes && !process.stdin.isTTY) {
       console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     if (options.yes) {
@@ -148,7 +163,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       rl.close();
       if (answer.trim().toLowerCase() !== 'y') {
         console.log('Aborted.');
-        process.exit(0);
+        return;
       }
       await doImport();
     }

@@ -11,6 +11,15 @@ import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
 
 
+/**
+ * CLI command handler for validating vault integrity, schema compliance, and dependency cycles.
+ *
+ * @param options - Validate options including `--json` and `--fix`.
+ * @returns Promise resolving when validation completes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
+ * process.exitCode = 3 if validation errors are found in the vault,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
@@ -102,7 +111,8 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

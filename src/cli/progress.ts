@@ -24,6 +24,14 @@ interface ProgressTopic {
   difficulty: Difficulty;
 }
 
+/**
+ * CLI command handler for displaying learning progress metrics and mastery.
+ *
+ * @param options - Progress options including `--tag`, `--difficulty`, and `--json`.
+ * @returns Promise resolving when progress summary finishes.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
+ * and process.exitCode = 5 on unexpected exceptions.
+ */
 async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
@@ -230,7 +238,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 
