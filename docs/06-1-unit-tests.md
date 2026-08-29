@@ -103,7 +103,7 @@ Tests in `test/storage-frontmatter.test.ts` (11 tests) exercise the YAML Documen
 Tests in `test/storage-loader.test.ts` (5 tests) verify batch vault loading:
 
 - **Extraction & Normalization**: Parses frontmatter blocks, converts numeric strings, and clamps invalid values.
-- **Fallback Title Hierarchy**: Verifies title resolution order: frontmatter `title` $\rightarrow$ first Markdown H1 heading (`# Title`) $\rightarrow$ base filename.
+- **Fallback Title Hierarchy**: Verifies title resolution order in `loadTopics`: frontmatter `title` &rarr; base filename.
 - **Pre-Scanned Performance**: Confirms that providing a pre-scanned file list bypasses redundant filesystem scans.
 
 ### Working Memory & Session Recovery (`test/storage-memory.test.ts`)
@@ -152,7 +152,7 @@ Tests in `test/storage-cache.test.ts` (9 tests) verify caching and invalidation 
 
 Tests in `test/types-difficulty.test.ts` (9 tests) enforce type contracts:
 
-- **Difficulty Coercion**: Verifies `normalizeDifficulty` coerces case-insensitive strings ("BEGINNER", "  Advanced  ") and numeric 1–5 ratings (1 $\rightarrow$ `beginner`, 2–3 $\rightarrow$ `intermediate`, 4–5 $\rightarrow$ `advanced`), defaulting invalid inputs to `intermediate`.
+- **Difficulty Coercion**: Verifies `normalizeDifficulty` coerces case-insensitive strings ("BEGINNER", "  Advanced  ") and numeric thresholds (values &le; 1 &rarr; `beginner`, values &le; 3 &rarr; `intermediate`, and values &gt; 3 &rarr; `advanced`, including numbers like 0 or 6), safely defaulting unrecognized strings to `intermediate`.
 - **Discriminated Union Session Types**: Verifies type discrimination between `CompletedSession` and `DraftSession` based on session state and properties.
 
 ---

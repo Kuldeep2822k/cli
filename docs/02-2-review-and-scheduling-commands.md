@@ -60,10 +60,12 @@ When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kulde
 1. **Fuzzy Topic Resolution**: Discovers candidate notes by checking exact ID matches, ID substring matches, and case-insensitive title substring matches. If multiple notes match, it lists all candidates and exits with code `2` to prevent ambiguous writes.
 2. **SM-2 State Calculation**:
    - **Ease Factor Delta**:
+
      ```text
      ΔEF = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
      EF_new = Math.max(1.30, roundHalfUp(EF_prev + ΔEF, 4))
      ```
+
    - **Interval Progression**:
      - Repetition 1: `I(1) = 1` day
      - Repetition 2: `I(2) = 6` days

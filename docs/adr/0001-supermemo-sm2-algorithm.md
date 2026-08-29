@@ -36,7 +36,7 @@ Key design choices:
 ## Alternatives Considered
 
 1. **FSRS-4.5 / FSRS-5 (Free Spaced Repetition Scheduler)**:
-   - *Description*: A modern 17-parameter DSR (Difficulty, Stability, Retrievability) model that optimizes review intervals with machine learning techniques.
+   - *Description*: A modern DSR (Difficulty, Stability, Retrievability) model (17 parameters for FSRS-4.5, 19 parameters for FSRS-5) that optimizes review intervals with machine learning techniques.
    - *Pros*: Higher long-term retention efficiency and lower review count overhead on very large flashcard decks.
    - *Why Rejected*: Requires dozens to hundreds of historical reviews per user to fit parameters effectively; significantly higher mathematical and storage overhead (storing floating-point stability and retrievability vectors in frontmatter). SM-2 provides deterministic, zero-configuration scheduling with standard 4-state parameters (`repetition`, `interval_days`, `ease_factor`, `lapses`).
 

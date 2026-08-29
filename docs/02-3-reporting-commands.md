@@ -113,9 +113,11 @@ palee progress [flags]
 Aggregates all active topics across the vault [src/cli/progress.ts#140-233](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L140-L233):
 - **Archived Topic Exclusion**: Notes with `status: archived` in frontmatter are tracked separately and excluded from `global_mastery` and `active_topic_count`.
 - **Global Average Mastery**: Calculates the true mathematical mean of mastery across all active topics:
+
   ```text
   global_mastery = sum(active_topics.mastery) / active_topic_count
   ```
+
 - **Mastery Status**: Classifies vault overall state as `'no_data'` (`active_count === 0`), `'learning'` (`< 0.70`), or `'mastered'` (`>= 0.70`).
 - **Total Repetitions & Lapses**: Aggregates lifetime review repetitions and memory lapses across all active topics.
 

@@ -34,7 +34,7 @@ A topic is considered **mastered** and satisfies downstream dependencies when it
 1. **Unweighted Equal Average (25% per Pillar)**:
    - *Description*: $\text{mastery} = (c + p + d + f) / 4$.
    - *Pros*: Simpler conceptual formulation.
-   - *Why Rejected*: Pedagogical research and Richard Feynman's learning heuristics demonstrate that the ability to articulate and explain a concept simply without jargon is the single strongest indicator of deep understanding. Double-weighting the Feynman dimension (40%) penalizes superficial rote knowledge.
+   - *Why Rejected*: In accordance with Richard Feynman's learning heuristics, the ability to articulate and explain a concept simply without jargon serves as a primary indicator of genuine comprehension. PALEE deliberately double-weights the Feynman dimension (40%) as an architectural design decision to penalize superficial rote memorization and prioritize clear technical articulation.
 
 2. **1-Dimensional Traditional Recall Score (0.0 to 1.0)**:
    - *Description*: Single scalar score representing overall familiarity.
