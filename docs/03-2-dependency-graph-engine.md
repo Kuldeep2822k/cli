@@ -105,12 +105,16 @@ A learning curriculum cannot be sequenced if circular dependencies exist (e.g., 
 ### 3-Color Visiting States
 
 ```mermaid
-stateDiagram-v2
-    [*] --> White: Graph Node Initialized
-    White --> Gray: visit(id) / visiting.add(id) & pathStack.push(id)
-    Gray --> Gray: Re-encountered! (Back-edge cycle detected)
-    Gray --> Black: All children explored / pathStack.pop() & visited.add(id)
-    Black --> [*]: Settled (Acyclic subtree pruned)
+flowchart TD
+    Start(["Start Node Traversal"]) --> White["White (Unvisited)"]
+    White -->|"visit(id)<br/>visiting.add(id)<br/>pathStack.push(id)"| Gray["Gray (Active on Recursion Stack)"]
+    
+    Gray --> CheckEdge{"Inspect Prerequisite<br/>Dependencies"}
+    CheckEdge -- "Referenced node is Gray<br/>(In visiting Set)" --> Cycle["🚨 Cycle Detected<br/>Extract pathStack loop slice"]
+    CheckEdge -- "All children explored<br/>(No cycles found)" --> Pop["pathStack.pop()<br/>visiting.delete(id)<br/>visited.add(id)"]
+    
+    Pop --> Black["Black (Fully Settled / Acyclic)"]
+    Black --> Done(["Subtree Pruned in O(1)"])
 ```
 
 1. **White (Unvisited)**:

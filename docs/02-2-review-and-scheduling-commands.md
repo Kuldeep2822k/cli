@@ -39,14 +39,14 @@ palee review <topic> <quality>
 
 PALEE implements the standard 6-point SuperMemo recall grading scale [src/cli/review.ts#20-25](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L20-L25):
 
-| Quality ($q$) | Recall Classification | Effect on SM-2 Interval | Effect on Ease Factor ($EF$) |
+| Quality (`q`) | Recall Classification | Effect on SM-2 Interval | Effect on Ease Factor (`EF`) |
 | :---: | :--- | :--- | :--- |
-| **0** | **Complete Blackout** | Resets interval to `1` day, increments `lapses`. | Decreases $EF$ substantially. |
-| **1** | **Incorrect (Familiar)** | Resets interval to `1` day, increments `lapses`. | Decreases $EF$. |
-| **2** | **Incorrect (Easily Recalled)** | Resets interval to `1` day, increments `lapses`. | Decreases $EF$ slightly. |
-| **3** | **Correct (Serious Difficulty)** | Advances repetition count; interval multiplied by $EF$. | Decreases $EF$ moderately. |
-| **4** | **Correct (Hesitation)** | Advances repetition count; interval multiplied by $EF$. | Keeps $EF$ approximately stable. |
-| **5** | **Perfect Recall** | Advances repetition count; interval multiplied by $EF$. | Increases $EF$ by $+0.10$. |
+| **0** | **Complete Blackout** | Resets interval to `1` day, increments `lapses`. | Decreases `EF` substantially (-0.80). |
+| **1** | **Incorrect (Familiar)** | Resets interval to `1` day, increments `lapses`. | Decreases `EF` (-0.54). |
+| **2** | **Incorrect (Easily Recalled)** | Resets interval to `1` day, increments `lapses`. | Decreases `EF` slightly (-0.32). |
+| **3** | **Correct (Serious Difficulty)** | Advances repetition count; interval multiplied by `EF`. | Decreases `EF` moderately (-0.14). |
+| **4** | **Correct (Hesitation)** | Advances repetition count; interval multiplied by `EF`. | Keeps `EF` approximately stable (0.00). |
+| **5** | **Perfect Recall** | Advances repetition count; interval multiplied by `EF`. | Increases `EF` by `+0.10`. |
 
 ---
 
@@ -56,13 +56,16 @@ When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kulde
 
 1. **Fuzzy Topic Resolution**: Discovers candidate notes by checking exact ID matches, ID substring matches, and case-insensitive title substring matches. If multiple notes match, it lists all candidates and exits with code `2` to prevent ambiguous writes.
 2. **SM-2 State Calculation**:
-   - Computes Ease Factor delta: $\Delta EF = 0.1 - (5 - q) \times (0.08 + (5 - q) \times 0.02)$
-   - Clamps Ease Factor to minimum $EF \ge 1.30$.
-   - Computes interval:
-     - Repetition 1: $I(1) = 1$ day
-     - Repetition 2: $I(2) = 6$ days
-     - Repetition $n \ge 3$: $I(n) = \text{roundHalfUp}(I(n-1) \times EF)$
-   - If $q < 3$ (failed recall): resets interval to $1$ day and increments `lapses`.
+   - **Ease Factor Delta**:
+     ```text
+     ΔEF = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
+     EF_new = Math.max(1.30, roundHalfUp(EF_prev + ΔEF, 4))
+     ```
+   - **Interval Progression**:
+     - Repetition 1: `I(1) = 1` day
+     - Repetition 2: `I(2) = 6` days
+     - Repetition `n >= 3`: `I(n) = Math.max(1, Math.round(I(n-1) * EF))`
+   - If `q < 3` (failed recall): resets interval to `1` day and increments `lapses`.
 3. **Mastery & Pillar Score Sync**: Normalizes conceptual, practical, debug, and Feynman pillar scores, recomputing `topic_mastery` via the 4-pillar mastery formula.
 4. **Local Date Calculation**: Computes `due_at` by adding `interval_days` calendar days to current local date (`YYYY-MM-DD`).
 5. **OCC-Protected Atomic Write**: Re-checks the note's SHA-256 fingerprint before writing to guarantee atomic consistency [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts).

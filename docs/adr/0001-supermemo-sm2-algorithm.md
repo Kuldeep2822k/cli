@@ -19,7 +19,7 @@ Key design choices:
 2. **Interval Progression**:
    - Repetition 1: 1 day.
    - Repetition 2: 6 days.
-   - Repetition $n > 2$: $\text{round}(\text{interval}_{n-1} \times EF)$.
+   - Repetition $n > 2$: `round(interval_{n-1} * EF)`.
 3. **Lapse Handling**:
    - Ratings $q < 3$ trigger a lapse: repetition resets to `0`, interval resets to `1`, and the lapse counter increments if the topic had prior repetitions.
 4. **Calendar Due Dates**:

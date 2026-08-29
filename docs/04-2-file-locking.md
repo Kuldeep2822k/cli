@@ -72,17 +72,23 @@ Lock Acquisition Data Flow
 sequenceDiagram
     participant P as Process
     participant FS as Filesystem
-    participant LD as .palee/locks/{hash}.lockdir/
+    participant LD as Lock Directory (.lockdir)
+
     P->>FS: mkdirSync(lockDir)
-    P->>LD: writeFileSync(sessionID.json | LockData)
-    Note over P: Lock Acquired
-    P->>LD: readdirSync()
-    P->>LD: statSync() each .json file
-    P->>LD: renameSync(file | file.quarantine)
-    P->>LD: unlinkSync(quarantine)
-    P->>FS: rmdirSync(lockDir)
-    Note over P: Restart Acquisition Loop
-    Note over P: Throw ECONFLICT
+    alt Acquisition Succeeded
+        P->>LD: writeFileSync(sessionID.json, LockData)
+        Note over P: Lock Acquired (Heartbeat Active)
+    else Collision / EEXIST (Contended)
+        P->>LD: readdirSync() &rarr; check stale mtime
+        alt Lock is Stale (Windows &gt;60s / POSIX &gt;120s)
+            P->>LD: renameSync(file, file.quarantine)
+            P->>LD: unlinkSync(quarantine)
+            P->>FS: rmdirSync(lockDir)
+            Note over P: Stale Reclaimed &rarr; Retry
+        else Lock is Active
+            Note over P: Throw ECONFLICT (Exit Code 4)
+        end
+    end
 ```
 
 Sources:[src/storage/lock.ts#75-184](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L75-L184)

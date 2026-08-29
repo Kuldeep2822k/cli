@@ -48,26 +48,27 @@ The core transformation is encapsulated in `processReview(current, quality)`:
 
 #### 1. Ease Factor Adjustment
 
-The Ease Factor ($EF$) reflects topic difficulty (default: $2.50$). After every review with rating $q$, the engine computes:
+The Ease Factor (`EF`) reflects topic difficulty (default: `2.50`). After every review with rating `q` (0 to 5), the engine computes:
 
-$$\Delta EF = 0.1 - (5 - q) \times (0.08 + (5 - q) \times 0.02)$$
+```text
+ΔEF = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
+EF_new = Math.max(1.30, roundHalfUp(EF_prev + ΔEF, 4))
+```
 
-$$EF_{new} = \max(1.30, EF_{prev} + \Delta EF)$$
-
-- **EF Floor**: The Ease Factor is strictly bounded by a minimum floor of $1.30$ to prevent exponential scheduling collapse on difficult topics.
-- **Precision**: The resulting $EF$ is rounded to 4 decimal places using half-up positive rounding (`roundHalfUp(val, 4)`).
+- **EF Floor**: The Ease Factor is strictly bounded by a minimum floor of `1.30` to prevent exponential scheduling collapse on difficult topics.
+- **Precision**: The resulting `EF` is rounded to 4 decimal places using half-up positive rounding (`roundHalfUp(val, 4)`).
 
 #### 2. Interval Progression Rules
 
-For successful reviews ($q \ge 3$), the next interval ($I$, in calendar days) scales with the repetition count:
+For successful reviews (`q >= 3`), the next interval (`I`, in calendar days) scales with the repetition count:
 
-$$I_n = \begin{cases} 
-1\text{ day} & \text{for } n = 1 \text{ (first successful review)} \\
-6\text{ days} & \text{for } n = 2 \text{ (second successful review)} \\
-\text{round}(I_{n-1} \times EF) & \text{for } n \ge 3 \text{ (subsequent reviews)}
-\end{cases}$$
+```text
+Repetition 1: I(1) = 1 day
+Repetition 2: I(2) = 6 days
+Repetition n >= 3: I(n) = Math.max(1, Math.round(I(n-1) * EF))
+```
 
-Every calculated interval is enforced to be at least $1$ day (`Math.max(1, newInterval)`).
+Every calculated interval is enforced to be at least 1 day (`Math.max(1, newInterval)`).
 
 #### 3. Lapse Handling
 
