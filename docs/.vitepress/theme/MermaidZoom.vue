@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 
 const isModalOpen = ref(false)
 const modalSvgContainer = ref<HTMLElement | null>(null)
@@ -9,6 +9,15 @@ const modalTranslateY = ref(0)
 const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartY = ref(0)
+
+// Drag threshold tracking to distinguish click-to-dismiss from drag-to-pan
+let pointerDownPos = { x: 0, y: 0 }
+let pointerDownTime = 0
+let hasMovedSignificantDistance = false
+
+const zoomPercentDisplay = computed(() => {
+  return `${Math.round(modalScale.value * 100)}%`
+})
 
 // Safely scopes all IDs and references inside the cloned SVG to prevent duplicate IDs in the DOM
 function scopeSvgIds(svg: SVGSVGElement, prefix: string) {
@@ -83,6 +92,7 @@ function openModal(svgElement: SVGSVGElement) {
   modalScale.value = 1
   modalTranslateX.value = 0
   modalTranslateY.value = 0
+  hasMovedSignificantDistance = false
 
   if (typeof document !== 'undefined') {
     document.body.style.overflow = 'hidden'
@@ -114,6 +124,9 @@ function openModal(svgElement: SVGSVGElement) {
 
 function closeModal() {
   isModalOpen.value = false
+  isDragging.value = false
+  hasMovedSignificantDistance = false
+  activePointers.clear()
   if (modalSvgContainer.value) {
     modalSvgContainer.value.replaceChildren()
   }
@@ -137,11 +150,11 @@ function getCenter(p1: { x: number; y: number }, p2: { x: number; y: number }) {
 }
 
 function zoomIn() {
-  modalScale.value = Math.min(modalScale.value * 1.25, 6)
+  modalScale.value = Math.min(Math.round(modalScale.value * 1.25 * 100) / 100, 8)
 }
 
 function zoomOut() {
-  modalScale.value = Math.max(modalScale.value / 1.25, 0.25)
+  modalScale.value = Math.max(Math.round((modalScale.value / 1.25) * 100) / 100, 0.2)
 }
 
 function resetZoom() {
@@ -152,23 +165,35 @@ function resetZoom() {
 
 function handleWheel(e: WheelEvent) {
   e.preventDefault()
-  if (e.ctrlKey) {
-    // Trackpad pinch-to-zoom gesture
-    const zoomFactor = Math.exp(-e.deltaY * 0.01)
-    modalScale.value = Math.min(Math.max(modalScale.value * zoomFactor, 0.25), 6)
-  } else {
-    // Mouse wheel or discrete scroll
-    if (e.deltaY < 0) {
-      zoomIn()
-    } else {
-      zoomOut()
-    }
+  
+  const zoomMultiplier = e.ctrlKey
+    ? Math.exp(-e.deltaY * 0.01)
+    : (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+  
+  const oldScale = modalScale.value
+  const newScale = Math.min(Math.max(oldScale * zoomMultiplier, 0.2), 8)
+  if (Math.abs(newScale - oldScale) < 0.001) return
+
+  const viewport = e.currentTarget as HTMLElement
+  if (viewport) {
+    const rect = viewport.getBoundingClientRect()
+    const mouseX = e.clientX - (rect.left + rect.width / 2)
+    const mouseY = e.clientY - (rect.top + rect.height / 2)
+
+    const scaleRatio = newScale / oldScale
+    modalTranslateX.value = mouseX - (mouseX - modalTranslateX.value) * scaleRatio
+    modalTranslateY.value = mouseY - (mouseY - modalTranslateY.value) * scaleRatio
   }
+  modalScale.value = newScale
 }
 
 function handlePointerDown(e: PointerEvent) {
   if (e.button !== 0 && e.pointerType === 'mouse') return
   
+  pointerDownTime = Date.now()
+  pointerDownPos = { x: e.clientX, y: e.clientY }
+  hasMovedSignificantDistance = false
+
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
   const target = e.currentTarget as HTMLElement
   if (target?.setPointerCapture) {
@@ -195,6 +220,11 @@ function handlePointerMove(e: PointerEvent) {
   if (!activePointers.has(e.pointerId)) return
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
+  const distanceMoved = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y)
+  if (distanceMoved > 4) {
+    hasMovedSignificantDistance = true
+  }
+
   if (activePointers.size === 1 && isDragging.value) {
     modalTranslateX.value = e.clientX - dragStartX.value
     modalTranslateY.value = e.clientY - dragStartY.value
@@ -204,7 +234,7 @@ function handlePointerMove(e: PointerEvent) {
     const currentCenter = getCenter(pts[0], pts[1])
     
     const scaleMultiplier = currentDistance / initialPinchDistance
-    const newScale = Math.min(Math.max(initialPinchScale * scaleMultiplier, 0.25), 6)
+    const newScale = Math.min(Math.max(initialPinchScale * scaleMultiplier, 0.2), 8)
     modalScale.value = newScale
 
     modalTranslateX.value = initialTranslate.x + (currentCenter.x - initialPinchCenter.x)
@@ -233,14 +263,58 @@ function handlePointerUp(e: PointerEvent) {
 }
 
 function handleViewportClick(e: MouseEvent) {
-  if (e.target === e.currentTarget || (modalSvgContainer.value && !modalSvgContainer.value.contains(e.target as Node))) {
+  // If the user was dragging or holding to pan, do not close the modal!
+  if (hasMovedSignificantDistance) {
+    e.stopPropagation()
+    return
+  }
+  
+  // Only close if it's a direct, static click on the backdrop itself
+  const target = e.target as HTMLElement
+  if (target.classList.contains('modal-canvas-viewport') || target.classList.contains('modal-backdrop')) {
     closeModal()
   }
 }
 
+function handleDoubleClick(e: MouseEvent) {
+  e.preventDefault()
+  if (modalScale.value > 1.05 || modalScale.value < 0.95 || modalTranslateX.value !== 0 || modalTranslateY.value !== 0) {
+    resetZoom()
+  } else {
+    // Zoom in 2x centered on double click location
+    const viewport = e.currentTarget as HTMLElement
+    if (viewport) {
+      const rect = viewport.getBoundingClientRect()
+      const mouseX = e.clientX - (rect.left + rect.width / 2)
+      const mouseY = e.clientY - (rect.top + rect.height / 2)
+      const newScale = 2
+      const scaleRatio = newScale / modalScale.value
+      modalTranslateX.value = mouseX - (mouseX - modalTranslateX.value) * scaleRatio
+      modalTranslateY.value = mouseY - (mouseY - modalTranslateY.value) * scaleRatio
+      modalScale.value = newScale
+    }
+  }
+}
+
 function handleKeyDown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && isModalOpen.value) {
+  if (!isModalOpen.value) return
+  
+  if (e.key === 'Escape') {
     closeModal()
+  } else if (e.key === '+' || e.key === '=') {
+    zoomIn()
+  } else if (e.key === '-' || e.key === '_') {
+    zoomOut()
+  } else if (e.key === '0') {
+    resetZoom()
+  } else if (e.key === 'ArrowLeft') {
+    modalTranslateX.value += 50
+  } else if (e.key === 'ArrowRight') {
+    modalTranslateX.value -= 50
+  } else if (e.key === 'ArrowUp') {
+    modalTranslateY.value += 50
+  } else if (e.key === 'ArrowDown') {
+    modalTranslateY.value -= 50
   }
 }
 
@@ -263,7 +337,7 @@ function setupDiagramToolbars() {
     const expandBtn = document.createElement('button')
     expandBtn.className = 'diagram-toolbar-btn'
     expandBtn.title = 'Open Fullscreen Zoom & Pan'
-    expandBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg><span>Inspect</span>`
+    expandBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg><span>Inspect</span>`
 
     expandBtn.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -343,7 +417,10 @@ onUnmounted(() => {
         <button class="modal-tool-btn" @click="zoomOut" title="Zoom Out (-)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
         </button>
-        <button class="modal-tool-btn" @click="resetZoom" title="Reset (100%)">
+        <button class="modal-zoom-badge" @click="resetZoom" title="Click to Reset (100%)">
+          {{ zoomPercentDisplay }}
+        </button>
+        <button class="modal-tool-btn" @click="resetZoom" title="Reset (100% / Key 0)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         </button>
         <div class="modal-divider"></div>
@@ -353,10 +430,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Modal Viewport Canvas with direct backdrop click dismiss -->
+    <!-- Modal Viewport Canvas with drag-safe pointer events -->
     <div
       class="modal-canvas-viewport"
       @click="handleViewportClick"
+      @dblclick="handleDoubleClick"
       @wheel="handleWheel"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"
@@ -366,9 +444,9 @@ onUnmounted(() => {
       <div
         ref="modalSvgContainer"
         class="modal-svg-stage"
+        :class="{ 'is-panning': isDragging }"
         :style="{
-          transform: `translate(${modalTranslateX}px, ${modalTranslateY}px) scale(${modalScale})`,
-          cursor: isDragging ? 'grabbing' : 'grab'
+          transform: `translate(${modalTranslateX}px, ${modalTranslateY}px) scale(${modalScale})`
         }"
       ></div>
     </div>
@@ -443,6 +521,25 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
+.modal-zoom-badge {
+  font-family: var(--vp-font-family-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  color: #58a6ff;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.modal-zoom-badge:hover {
+  background: #21262d;
+  border-color: #58a6ff;
+}
+
 .modal-tool-btn.close-btn:hover {
   background: rgba(239, 68, 68, 0.15);
   border-color: #ef4444;
@@ -465,19 +562,32 @@ onUnmounted(() => {
   overflow: hidden;
   touch-action: none;
   z-index: 99999;
+  cursor: grab;
+}
+
+.modal-canvas-viewport:active {
+  cursor: grabbing;
 }
 
 .modal-svg-stage {
   transform-origin: center center;
-  transition: transform 0.04s ease-out;
+  transition: transform 0.05s ease-out;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 40px;
   pointer-events: auto;
+  cursor: grab;
+}
+
+.modal-svg-stage.is-panning {
+  cursor: grabbing;
+  transition: none; /* Instant tracking while dragging */
 }
 
 .modal-svg-stage :deep(svg) {
   filter: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.8));
+  user-select: none;
+  pointer-events: none; /* Let pointer events bubble cleanly to stage/viewport */
 }
 </style>
