@@ -14,7 +14,10 @@ We implemented a four-pillar pedagogical assessment model in `src/engine/mastery
 - **Feynman** ($40\%$ weight - double weighted): Ability to articulate and explain concepts simply without jargon.
 
 Mastery calculation formula:
-$$\text{topic\_mastery} = \text{round}\left(\frac{\text{conceptual} + \text{practical} + \text{debug} + (2 \times \text{feynman})}{5}, 4\right)$$
+
+```text
+topic_mastery = round((conceptual + practical + debug + 2 * feynman) / 5, 4)
+```
 
 A topic is considered **mastered** and satisfies downstream dependencies when its weighted score reaches or exceeds `0.70` (70%).
 

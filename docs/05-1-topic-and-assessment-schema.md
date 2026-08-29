@@ -56,9 +56,9 @@ Sources:[src/types.ts#49-59](https://github.com/Kuldeep2822k/cli/blob/main/src/t
 
 ## 2. Four-Pillar Assessment Model
 
-The `Assessment` object measures mastery across four distinct pedagogical dimensions. This data is used to calculate `topic_mastery` via a weighted average formula:
-
-$$\text{topic\_mastery} = \operatorname{round}\left(\frac{\text{conceptual} + \text{practical} + \text{debug} + (2 \times \text{feynman})}{5}, 4\right)$$
+```text
+topic_mastery = round((conceptual + practical + debug + 2 * feynman) / 5, 4)
+```
 
 Feynman technique evaluation carries double weighting (40%) to prioritize true conceptual articulation.
 

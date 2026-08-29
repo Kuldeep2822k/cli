@@ -60,9 +60,9 @@ Tests in `test/engine-dependency.test.ts` (8 tests) exercise graph validation an
 
 Tests in `test/engine-mastery.test.ts` (11 tests) verify the multi-dimensional mastery engine:
 
-- **Formula Invariant**: Confirms $\text{mastery} = \text{round}\left(\frac{c + p + d + 2f}{5}, 4\right)$ with 40% Feynman weighting.
+- **Formula Invariant**: Confirms `mastery = round((c + p + d + 2f) / 5, 4)` with 40% Feynman weighting.
 - **Mastery Threshold**: Asserts that `MASTERY_THRESHOLD = 0.70` serves as the authoritative threshold for dependency satisfaction.
-- **Score Normalization & Clamping**: Verifies that out-of-range scores ($< 0.0$ or $> 1.0$), `NaN`, `null`, or undefined inputs are safely clamped within $[0.0, 1.0]$.
+- **Score Normalization & Clamping**: Verifies that out-of-range scores (`< 0.0` or `> 1.0`), `NaN`, `null`, or undefined inputs are safely clamped within `[0.0, 1.0]`.
 - **Archive Topic Exclusion**: Ensures archived topics (`archived: true`) are excluded from active readiness calculations.
 
 ---

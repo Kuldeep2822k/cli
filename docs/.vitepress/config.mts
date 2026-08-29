@@ -8,6 +8,9 @@ export default withMermaid(
     description: 'Personal Active Learning & Evaluation Engine — Smart, AI-powered study tracker for Obsidian vaults.',
     lastUpdated: true,
     cleanUrls: true,
+    markdown: {
+      math: true
+    },
 
     head: [
       ['link', { rel: 'icon', type: 'image/png', href: '/cli/favicon.png' }],

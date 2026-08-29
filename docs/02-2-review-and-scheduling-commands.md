@@ -110,7 +110,7 @@ palee next [flags]
 `palee next` walks the vault, parses topic frontmatter, and sorts candidates using a strict priority order [src/cli/next.ts#89-95](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/next.ts#L89-L95):
 
 1. **Unreviewed Topics**: Notes with `due_at: null` or invalid dates are ranked first (highest urgency).
-2. **Overdue Topics**: Topics with `due_at \le \text{now}` are sorted chronologically by oldest `due_at` date first.
+2. **Overdue Topics**: Topics with `due_at <= now` are sorted chronologically by oldest `due_at` date first.
 3. **Future Topics**: Topics whose review date is in the future are excluded from the queue.
 
 ### Example Outputs
@@ -182,8 +182,8 @@ palee plan [flags]
 Unlike `palee next` (which checks SRS review timestamps), `palee plan` leverages the DAG Dependency Graph Engine via `getReadyTopics()` [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83).
 
 A topic is categorized as **"Ready to Learn"** if and only if:
-1. **Unmastered**: The topic's current `topic_mastery` is strictly below the mastery threshold ($< 0.70$).
-2. **Prerequisites Satisfied**: Every topic listed in its `depends_on` frontmatter array exists in the vault and has achieved $\text{mastery} \ge 0.70$.
+1. **Unmastered**: The topic's current `topic_mastery` is strictly below the mastery threshold (`< 0.70`).
+2. **Prerequisites Satisfied**: Every topic listed in its `depends_on` frontmatter array exists in the vault and has achieved `mastery >= 0.70`.
 
 ### 3-Tier Plan Structure
 

@@ -35,9 +35,9 @@ palee dashboard [flags]
 
 `dashboardCommand` scans all topic files in the vault and classifies notes using the 4-pillar mastery threshold ($M = 0.70$) [src/cli/dashboard.ts#88-114](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L88-L114):
 
-- **Mastered**: Topics with $\text{topic\_mastery} \ge 0.70$.
-- **Learning**: Topics actively in progress ($0.0 < \text{topic\_mastery} < 0.70$).
-- **New**: Unreviewed topics with $\text{topic\_mastery} = 0.0$.
+- **Mastered**: Topics with `topic_mastery >= 0.70`.
+- **Learning**: Topics actively in progress (`0.0 < topic_mastery < 0.70`).
+- **New**: Unreviewed topics with `topic_mastery === 0.0`.
 - **Reviews Due**: Topics where `due_at` is in the past or equal to the current system time.
 - **Difficulty Tiers**: Aggregated counts and mastered subtotals across `beginner`, `intermediate`, and `advanced` tiers.
 

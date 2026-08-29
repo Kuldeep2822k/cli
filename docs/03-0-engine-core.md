@@ -119,8 +119,10 @@ Rather than reducing topic comprehension to a single 1-dimensional recall score,
 4. **Feynman Technique Articulation ($f$, 40%)**: Ability to explain the concept simply in plain language without jargon (double-weighted).
 
 - **Canonical Formula**:
-  $$\text{Topic Mastery} = \text{round}\left(\frac{c + p + d + 2f}{5}, 4\right)$$
-- **Score Normalization**: Inputs are sanitized via `normalizeScore`, clamping values to $[0.0, 1.0]$ and rounding to 4 decimal places.
+  ```text
+  topic_mastery = round((c + p + d + 2 * f) / 5, 4)
+  ```
+- **Score Normalization**: Inputs are sanitized via `normalizeScore`, clamping values to `[0.0, 1.0]` and rounding to 4 decimal places.
 - **Mastery Threshold**: Standardized constant `MASTERY_THRESHOLD = 0.70` (70%). Topics meeting or exceeding `0.70` are designated as mastered and unblock downstream prerequisites.
 - **Archive Exclusion**: Aggregate vault metrics in `palee progress` strictly exclude archived topics (`status === 'archived'`) from active mastery averages and readiness queues.
 

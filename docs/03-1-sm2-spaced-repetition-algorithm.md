@@ -173,23 +173,28 @@ The four assessment pillars are:
 
 The canonical formula for topic mastery is:
 
-$$\text{Topic Mastery} = \text{round}\left(\frac{c + p + d + 2f}{5}, 4\right)$$
+```text
+topic_mastery = round((c + p + d + 2 * f) / 5, 4)
+```
 
 Where:
-- $c = \text{normalizeScore}(\text{conceptual})$
-- $p = \text{normalizeScore}(\text{practical})$
-- $d = \text{normalizeScore}(\text{debug})$
-- $f = \text{normalizeScore}(\text{feynman})$
+- `c = normalizeScore(conceptual)` (20% weight)
+- `p = normalizeScore(practical)` (20% weight)
+- `d = normalizeScore(debug)` (20% weight)
+- `f = normalizeScore(feynman)` (40% weight — double weighted)
 
-#### Weight Distribution Proof
+#### Weight Distribution
 
-$$\text{Weight}_c = \frac{1}{5} = 20\%, \quad \text{Weight}_p = \frac{1}{5} = 20\%, \quad \text{Weight}_d = \frac{1}{5} = 20\%, \quad \text{Weight}_f = \frac{2}{5} = 40\%$$
+- **Conceptual ($c$)**: 20% ($1/5$)
+- **Practical ($p$)**: 20% ($1/5$)
+- **Debug ($d$)**: 20% ($1/5$)
+- **Feynman ($f$)**: 40% ($2/5$)
+- **Total**: 100%
 
-$$\sum \text{Weights} = 20\% + 20\% + 20\% + 40\% = 100\%$$
-
-For perfect scores across all pillars ($c=1.0, p=1.0, d=1.0, f=1.0$):
-
-$$\text{Topic Mastery} = \frac{1.0 + 1.0 + 1.0 + 2(1.0)}{5} = \frac{5.0}{5} = 1.0000$$
+For example, with perfect scores across all pillars ($c=1.0, p=1.0, d=1.0, f=1.0$):
+```text
+topic_mastery = (1.0 + 1.0 + 1.0 + 2 * 1.0) / 5 = 5.0 / 5 = 1.0000
+```
 
 ---
 
@@ -227,9 +232,9 @@ export const MASTERY_THRESHOLD = 0.7; // 70%
 
 Topics are categorized based on their computed `topic_mastery`:
 
-- **Mastered (`mastered`)**: $\text{topic\_mastery} \ge 0.70$. The topic is considered fully understood.
-- **Learning (`learning`)**: $0.0 < \text{topic\_mastery} < 0.70$. Active study in progress.
-- **New (`new`)**: $\text{topic\_mastery} == 0.0$. Unassessed topic.
+- **Mastered (`mastered`)**: `topic_mastery >= 0.70`. The topic is considered fully understood.
+- **Learning (`learning`)**: `0.0 < topic_mastery < 0.70`. Active study in progress.
+- **New (`new`)**: `topic_mastery === 0.0`. Unassessed topic.
 
 #### Downstream Prerequisite Unblocking
 
@@ -252,11 +257,12 @@ const archivedTopics = topics.filter(t => t.status === 'archived');
 1. **Active Topic Count**: `active_topic_count = activeTopics.length`.
 2. **Archived Topic Count**: `archived_topic_count = archivedTopics.length` is tracked separately.
 3. **Global Mastery Average**: Computed strictly across active topics:
-   $$\text{global\_mastery} = \begin{cases}
-   \text{round}\left(\frac{\sum_{t \in \text{activeTopics}} t.\text{mastery}}{\text{active\_topic\_count}}, 4\right) & \text{if } \text{active\_topic\_count} > 0 \\
-   \text{null} & \text{if } \text{active\_topic\_count} = 0
-   \end{cases}$$
-4. **Mastery Status**: If `global_mastery === null`, status is `'no_data'`. Otherwise `'mastered'` ($\ge 0.70$) or `'learning'` ($< 0.70$).
+   ```text
+   global_mastery = active_topic_count > 0 
+     ? round(sum(activeTopics.map(t => t.mastery)) / active_topic_count, 4) 
+     : null
+   ```
+4. **Mastery Status**: If `global_mastery === null`, status is `'no_data'`. Otherwise `'mastered'` (`>= 0.70`) or `'learning'` (`< 0.70`).
 5. **Difficulty Breakdowns**: Beginner, Intermediate, and Advanced averages strictly evaluate `activeTopics`.
 
 ---
