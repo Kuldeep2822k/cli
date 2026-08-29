@@ -123,15 +123,17 @@ Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.
 
 All Phase 1 gates have been verified as of August 2026.
 
-### Resolved Issues
+### Resolved Issues & Implemented Features
 
-- JSON Support: Implemented across all reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`) [planning/PHASE_1_ISSUES.md#7-13](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L7-L13)
+- JSON Support: Implemented across all reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`) [planning/PHASE_1_ISSUES.md#7-13](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L7-L13)
+- Batch Adoption: Fully implemented in `palee adopt` with `--all`, `--include`, `--exclude`, `--tag`, and `--dry-run` [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
+- Markdown Roadmap Import: Supports importing from `.md` files containing YAML frontmatter or YAML code fences [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts)
 - Difficulty Normalization: A runtime helper now maps numeric (1-5) and string inputs to the `Difficulty` enum [planning/PHASE_1_ISSUES.md#39-44](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L39-L44)
 - Empty States: Actionable onboarding guidance replaces empty terminal dumps [planning/PHASE_1_ISSUES.md#24-29](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L24-L29)
 
 ### Known Gaps (Phase 2)
 
 - AI Integration: `test` and `tutor` commands remain stubs until Phase 2 AI module implementation [planning/PHASE_2_GAPS.md#112-128](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L128)
-- Batch Adopt: Currently, notes must be adopted individually; `--all` support is pending [planning/PHASE_2_GAPS.md#65-89](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L65-L89)
+- Transactional Auto-Fix: `validate --fix` remains a future enhancement [planning/PHASE_1_ISSUES.md#64-67](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L64-L67)
 
 Sources: [planning/PHASE_1_CHECKLIST.md#114-123](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1#L114-L123)[planning/PHASE_1_ISSUES.md#71-83](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L71-L83)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)

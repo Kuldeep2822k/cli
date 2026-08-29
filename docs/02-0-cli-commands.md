@@ -24,10 +24,11 @@ The CLI is built using the `commander` library. Each command follows a consisten
 PALEE uses standardized exit codes to indicate the result of command execution:
 
 - `0`: Success.
-- `1`: General failure (e.g., roadmap import failures) [test/cli-commands.test.ts#102](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L102-L102)
-- `2`: Configuration or Argument error (e.g., invalid vault path, invalid quality rating) [src/cli/onboarding.ts#33](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L33-L33)[src/cli/review.ts#26](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L26-L26)
-- `3`: Validation or Schema error (e.g., dependency cycles, missing dependencies, duplicate IDs) [src/cli/validate.ts#76](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L76-L76)[src/cli/roadmap.ts#125](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L125-L125)
-- `5`: Runtime / Storage error (e.g., file system permissions, atomic write failures) [src/cli/review.ts#111](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L111-L111)
+- `1`: Partial import failure (e.g., partial roadmap import failures) [test/cli-commands.test.ts#102](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L102-L102)
+- `2`: Configuration or Argument error (e.g., missing/invalid vault path, invalid quality rating) [src/cli/onboarding.ts#33](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L33-L33)[src/cli/review.ts#26](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L26-L26)
+- `3`: Validation or Schema error (e.g., dependency cycles, missing dependencies, duplicate IDs, unrecognized schemas) [src/cli/validate.ts#76](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L76-L76)[src/cli/roadmap.ts#125](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L125-L125)
+- `4`: Optimistic Concurrency Control (OCC) or Lock conflict (e.g., concurrent modifications, lock contention) [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)
+- `5`: Unexpected runtime exception (e.g., unhandled errors, corrupt configuration files) [bin/palee.ts#132](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts#L132)
 
 Sources:[bin/palee.ts#24-127](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts#L24-L127)[src/cli/onboarding.ts#26-67](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L26-L67)[src/cli/review.ts#22-113](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L22-L113)
 
