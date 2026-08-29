@@ -3,116 +3,200 @@ Relevant source files
 
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
+- [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
+- [test/engine-mastery.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-mastery.test.ts)
 - [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 
-The Engine Core is a pure-function layer responsible for the mathematical and logical operations that drive PALEE's scheduling and curriculum management. It is designed to be deterministic and decoupled from the file system or CLI state, ensuring that the same inputs (topic state and review quality) always yield the same outputs (next due date and dependency readiness).
+The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition scheduling, pedagogical mastery evaluation, and curriculum dependency sequencing. Operating without file system I/O or CLI dependencies, every engine calculation is deterministic: identical inputs (review quality, assessment pillar scores, topic graph topology) always yield identical outputs (next review due date, weighted mastery score, ready topic queue).
 
-The core is divided into two primary subsystems: the SM-2 Spaced Repetition Algorithm for individual topic scheduling and the Dependency Graph Engine for curriculum sequencing.
+The engine is structured into three dedicated subsystems:
+
+1. **SM-2 Spaced Repetition Engine** (`src/engine/sm2.ts`): Schedules individual topic review intervals, computes Ease Factor deltas, tracks retention lapses, and executes DST-safe calendar date math.
+2. **4-Pillar Pedagogical Mastery Engine** (`src/engine/mastery.ts`): Evaluates holistic learner competency across Conceptual, Practical, Debugging, and Feynman dimensions with double-weighted communication scoring and score clamping.
+3. **Dependency Graph Engine** (`src/engine/dependency.ts`): Manages prerequisite graphs as a Directed Acyclic Graph (DAG), validates graph integrity, detects circular references via 3-color Depth-First Search (DFS), and calculates prerequisite readiness against the `0.70` mastery threshold.
+
+---
 
 ### Engine Architecture
 
-The engine acts as the "brain" between the Storage Layer (which provides raw data) and the CLI Layer (which handles user interaction).
+The engine functions as the computational core between the Storage Layer (which provides persisted Markdown frontmatter and cached topic maps) and the CLI Layer (which handles user command execution and terminal rendering).
 
 #### Code Entity Mapping
 
 ```mermaid
-flowchart LR
-    subgraph subGraph2 ["Graph Logic #91;src/engine/dependency.ts#93;"]
-        DEP_CYCLE["detectCycle (DFS)"]
-        DEP_READY["getReadyTopics"]
-        DEP_VAL["validateDependencyGraph"]
+flowchart TD
+    subgraph Storage ["Storage Layer"]
+        TopicStore["Topic Notes Frontmatter<br/>(Markdown Vault)"]
     end
-    subgraph subGraph1 ["Scheduling Logic #91;src/engine/sm2.ts#93;"]
-        SM2_EF["calculateEaseFactorDelta"]
-        SM2_PROC["processReview"]
-        SM2_DATE["computeDueDate"]
+
+    subgraph API ["Public Engine API (src/engine/index.ts)"]
+        ExpSM2["processReview / computeDueDate"]
+        ExpMastery["computeTopicMastery / normalizeScore / MASTERY_THRESHOLD"]
+        ExpDep["getReadyTopics / areDependenciesSatisfied / detectCycle / validateDependencyGraph"]
     end
-    subgraph subGraph0 ["Engine API #91;src/engine/index.ts#93;"]
-        API_SM2["processReview / computeDueDate"]
-        API_DEP["detectCycle / getReadyTopics"]
+
+    subgraph SM2Sub ["1. Spaced Repetition Subsystem (src/engine/sm2.ts)"]
+        SM2_PROC["processReview()"]
+        SM2_EF["calculateEaseFactorDelta()"]
+        SM2_DATE["computeDueDate()"]
+        SM2_ROUND["roundHalfUp()"]
     end
-    API_SM2 --> SM2_PROC
-    API_SM2 --> SM2_DATE
-    API_DEP --> DEP_CYCLE
-    API_DEP --> DEP_READY
+
+    subgraph MasterySub ["2. Pedagogical Mastery Subsystem (src/engine/mastery.ts)"]
+        MAST_COMP["computeTopicMastery()"]
+        MAST_NORM["normalizeScore()"]
+        MAST_THRESH["MASTERY_THRESHOLD = 0.70"]
+    end
+
+    subgraph DepSub ["3. Dependency Graph Subsystem (src/engine/dependency.ts)"]
+        DEP_READY["getReadyTopics()"]
+        DEP_SAT["areDependenciesSatisfied()"]
+        DEP_CYCLE["detectCycle() (3-Color DFS)"]
+        DEP_VAL["validateDependencyGraph()"]
+        DEP_EXT["getTopicDependencies()"]
+    end
+
+    subgraph CLI ["CLI Command Layer"]
+        CmdReview["palee review"]
+        CmdAssess["palee assess / progress"]
+        CmdPlan["palee plan / next / roadmap"]
+        CmdVal["palee validate"]
+    end
+
+    TopicStore --> CLI
+    CmdReview --> ExpSM2
+    CmdAssess --> ExpMastery
+    CmdPlan --> ExpDep
+    CmdVal --> ExpDep
+
+    ExpSM2 --> SM2_PROC
+    ExpSM2 --> SM2_DATE
     SM2_PROC -.-> SM2_EF
-    DEP_READY -.-> DEP_VAL
+    SM2_PROC -.-> SM2_ROUND
+
+    ExpMastery --> MAST_COMP
+    ExpMastery --> MAST_NORM
+    ExpMastery --> MAST_THRESH
+    MAST_COMP -.-> MAST_NORM
+
+    ExpDep --> DEP_READY
+    ExpDep --> DEP_SAT
+    ExpDep --> DEP_CYCLE
+    ExpDep --> DEP_VAL
+    DEP_READY -.-> DEP_SAT
+    DEP_SAT -.-> MAST_THRESH
+    DEP_VAL -.-> DEP_CYCLE
+    DEP_VAL -.-> DEP_EXT
 ```
 
-Sources:[src/engine/index.ts#1-16](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts#L1-L16)[src/engine/sm2.ts#1-134](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L1-L134)[src/engine/dependency.ts#1-123](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L1-L123)
-
 ---
 
-### SM-2 Spaced Repetition Algorithm
+### Subsystem Overview
 
-The scheduling engine implements a modified version of the SM-2 algorithm to calculate optimal review intervals. It processes a `Review` state and a user-provided quality rating (0–5) to produce an updated state containing a new `ease_factor`, `interval_days`, and `repetition` count.
+#### 1. SM-2 Spaced Repetition Engine
 
-Key characteristics include:
+The scheduling engine implements a mathematically formal SuperMemo-2 (SM-2) algorithm adapted for local Markdown vault persistence. Given a topic's current `Review` state and a learner's recall quality rating ($0 \le q \le 5$), `processReview` computes the next scheduling state:
 
-- Deterministic State Transitions: The `processReview` function is a pure transformation of the `Review` interface [src/engine/sm2.ts#36-101](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L36-L101)
-- Interval Progression: Successful reviews follow a specific sequence: 1 day for the first repetition, 6 days for the second, and `round(previous_interval * ease_factor)` for subsequent reviews [src/engine/sm2.ts#76-81](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L76-L81)
-- Lapse Handling: Ratings below 3 trigger a lapse, resetting the interval to 1 day and the repetition count to 0 [src/engine/sm2.ts#65-71](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L65-L71)
-- DST-Safe Scheduling: Date arithmetic is performed using calendar days via `computeDueDate` to avoid bugs related to Daylight Savings Time shifts [src/engine/sm2.ts#121-126](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L121-L126)
+- **Ease Factor (EF) Adjustment**: $\Delta EF = 0.1 - (5 - q) \times (0.08 + (5 - q) \times 0.02)$, floored at $EF \ge 1.30$ and rounded half-up to 4 decimal places.
+- **Interval Expansion**:
+  - Repetition 1: $I_1 = 1\text{ day}$
+  - Repetition 2: $I_2 = 6\text{ days}$
+  - Repetition $n \ge 3$: $I_n = \text{round}(I_{n-1} \times EF)$
+- **Lapse Handling**: If quality $q < 3$, `repetition` resets to `0`, `interval_days` resets to `1`, and `lapses` increments by `1` (if the topic was previously learned).
+- **DST-Safe Scheduling**: `computeDueDate` uses local calendar arithmetic (`Date.setDate`) to avoid 23/25-hour Daylight Saving Time drift bugs.
 
-For a deep dive into the math and rounding rules, see [SM-2 Spaced Repetition Algorithm](./03-1-sm2-spaced-repetition-algorithm.md).
+For detailed formulas and state machine rules, see [SM-2 Spaced Repetition Algorithm](./03-1-sm2-spaced-repetition-algorithm.md).
 
-Sources:[src/engine/sm2.ts#12-17](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L12-L17)[src/engine/sm2.ts#36-101](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L36-L101)[src/engine/sm2.ts#121-126](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L121-L126)
+#### 2. 4-Pillar Pedagogical Mastery Engine
 
----
+Rather than reducing topic comprehension to a single 1-dimensional recall score, PALEE implements a multi-dimensional assessment model inspired by Bloom's Revised Taxonomy and the Feynman Technique. Topic mastery is evaluated across four core pillars:
 
-### Dependency Graph Engine
+1. **Conceptual Understanding ($c$, 20%)**: Theoretical comprehension of underlying principles.
+2. **Practical Application ($p$, 20%)**: Hands-on ability to build, code, or apply the concept.
+3. **Debugging & Troubleshooting ($d$, 20%)**: Diagnosing failure modes, tracing edge cases, and resolving errors.
+4. **Feynman Technique Articulation ($f$, 40%)**: Ability to explain the concept simply in plain language without jargon (double-weighted).
 
-The Dependency Graph Engine manages the relationships between topics, ensuring that users learn foundational concepts before advanced ones. It treats the vault as a Directed Acyclic Graph (DAG) where nodes are `TopicNode` entities.
+- **Canonical Formula**:
+  $$\text{Topic Mastery} = \text{round}\left(\frac{c + p + d + 2f}{5}, 4\right)$$
+- **Score Normalization**: Inputs are sanitized via `normalizeScore`, clamping values to $[0.0, 1.0]$ and rounding to 4 decimal places.
+- **Mastery Threshold**: Standardized constant `MASTERY_THRESHOLD = 0.70` (70%). Topics meeting or exceeding `0.70` are designated as mastered and unblock downstream prerequisites.
+- **Archive Exclusion**: Aggregate vault metrics in `palee progress` strictly exclude archived topics (`status === 'archived'`) from active mastery averages and readiness queues.
 
-The engine provides three critical capabilities:
+#### 3. Dependency Graph Engine
 
-1. Cycle Detection: Uses a Depth-First Search (DFS) with a recursion stack to identify circular dependencies that would prevent curriculum progression [src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L47)
-2. Mastery Filtering: The `getReadyTopics` function filters the vault to find topics that are not yet mastered but whose dependencies have met the mastery threshold (default 0.7) [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83)
-3. Integrity Validation: The `validateDependencyGraph` function checks for both logical cycles and "dangling" dependencies (references to IDs that do not exist in the vault) [src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L85-L117)
+The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts.
 
-For details on the graph traversal and threshold logic, see [Dependency Graph Engine](./03-2-dependency-graph-engine.md).
+- **3-Color DFS Cycle Detection**: Traverses prerequisites using White (unvisited), Gray (visiting / recursion stack), and Black (visited / fully settled) node states. Re-encountering a Gray node detects a cyclic back-edge, returning the exact cycle path slice from `pathStack`.
+- **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in `depends_on` or `dependencies` exist in the vault and possess `topic_mastery >= 0.70`.
+- **Ready Topic Queuing**: `getReadyTopics` scans the vault, filtering for unmastered topics (`topic_mastery < 0.70`) whose prerequisites are fully satisfied.
+- **Topological Integrity Validation**: `validateDependencyGraph` inspects the entire graph, detecting dangling prerequisites (`missing_dependency`) and circular loops (`cycle`).
 
-Sources:[src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L47)[src/engine/dependency.ts#49-65](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L49-L65)[src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L85-L117)
+For detailed graph traversal rules and cycle slice reconstruction, see [Dependency Graph Engine](./03-2-dependency-graph-engine.md).
 
 ---
 
 ### Core Data Flow
 
-The following diagram illustrates how the engine transforms raw topic data into actionable scheduling and readiness information.
+The following diagram illustrates how raw topic inputs flow through the three engine subsystems to generate scheduling, mastery, and curriculum progression outputs.
 
-#### Logic Flow: Data Space to Code Space
+#### Logic Flow: Data Space to Engine Outputs
 
 ```mermaid
-flowchart LR
-    subgraph subGraph2 ["Output Results"]
-        O_NEXT["computeDueDate() -> Date"]
-        O_READY["getReadyTopics() -> TopicNode#91;#93;"]
+flowchart TD
+    subgraph Inputs ["Input Data Space (Markdown Frontmatter)"]
+        InReview["SRS State:<br/>- ease_factor (default: 2.5)<br/>- interval_days (default: 1)<br/>- repetition (default: 0)<br/>- lapses (default: 0)<br/>+ Review Quality: q &isin; {0,1,2,3,4,5}"]
+        InPillars["4 Assessment Pillars:<br/>- conceptual &isin; [0.0, 1.0]<br/>- practical &isin; [0.0, 1.0]<br/>- debug &isin; [0.0, 1.0]<br/>- feynman &isin; [0.0, 1.0]"]
+        InGraph["Graph Topology:<br/>- palee_id<br/>- depends_on / dependencies<br/>- topic_mastery &isin; [0.0, 1.0]"]
     end
-    subgraph subGraph1 ["Engine Processing"]
-        P_SM2["processReview()"]
-        P_DEP["areDependenciesSatisfied()"]
+
+    subgraph Processing ["Engine Core Processing (Pure Functions)"]
+        ProcSM2["processReview(current, quality)<br/>computeDueDate(now, newInterval)"]
+        ProcMastery["computeTopicMastery(c, p, d, f)<br/>normalizeScore(pillar)"]
+        ProcDep["areDependenciesSatisfied(topic, topics, 0.70)<br/>getReadyTopics(topics, 0.70)<br/>detectCycle(topics)"]
     end
-    subgraph subGraph0 ["Input Data (Topic State)"]
-        T_ID["palee_id"]
-        T_SRS["ease_factor, interval_days"]
-        T_DEPS["depends_on"]
+
+    subgraph Outputs ["Output Results (Deterministic Data)"]
+        OutSM2["Updated Review State:<br/>- ease_factor &ge; 1.30<br/>- interval_days<br/>- repetition<br/>- lapses<br/>- due_at (Date)"]
+        OutMastery["Topic Mastery Score:<br/>- topic_mastery &isin; [0.0, 1.0]<br/>- is_mastered = (score &ge; 0.70)"]
+        OutDep["Curriculum Queue & Health:<br/>- Ready Topics (TopicNode[])<br/>- ValidationResult (valid, errors[])"]
     end
-    T_SRS --> P_SM2
-    T_DEPS --> P_DEP
-    P_SM2 --> O_NEXT
-    P_DEP --> O_READY
+
+    InReview --> ProcSM2
+    ProcSM2 --> OutSM2
+
+    InPillars --> ProcMastery
+    ProcMastery --> OutMastery
+
+    InGraph --> ProcDep
+    OutMastery -.->|"mastery feeds prerequisite checks"| ProcDep
+    ProcDep --> OutDep
 ```
 
-Sources:[src/engine/index.ts#9-15](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts#L9-L15)[src/engine/sm2.ts#36-46](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L36-L46)[src/engine/dependency.ts#49-65](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L49-L65)
+---
 
-### Validation and Constraints
+### Validation Rules and Invariants
 
-The engine enforces strict invariants to maintain the integrity of the learning system:
+The engine enforces strict mathematical and architectural invariants across all three subsystems:
 
-- Ease Factor Floor: The `ease_factor` is never allowed to drop below 1.3 [src/engine/sm2.ts#91](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L91-L91)
-- Quality Bounds: Quality ratings must be integers between 0 and 5 [src/engine/sm2.ts#13-15](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L13-L15)
-- Rounding Consistency: Ease factors are rounded to 4 decimal places using a half-up method to ensure cross-platform consistency [src/engine/sm2.ts#25-28](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L25-L28)[src/engine/sm2.ts#92](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L92-L92)
+| Subsystem | Invariant | Rule / Implementation |
+|---|---|---|
+| **SM-2** | Ease Factor Floor | `ease_factor` $\ge 1.30$ (`Math.max(1.3, newEaseFactor)`) |
+| **SM-2** | Quality Bounds | Quality rating must be an integer $q \in \{0, 1, 2, 3, 4, 5\}$ |
+| **SM-2** | Minimum Interval | `interval_days` $\ge 1$ (`Math.max(1, newInterval)`) |
+| **SM-2** | Repetition Reset | If $q < 3$, `repetition` = 0 and `interval_days` = 1 |
+| **SM-2** | Half-Up Rounding | EF and intervals rounded half-up with epsilon `+ 1e-10` to avoid floating-point drift |
+| **Mastery** | Score Clamping | All pillar scores clamped to $[0.0, 1.0]$ via `normalizeScore` |
+| **Mastery** | 4-Decimal Precision | Mastery calculations rounded via `Math.round(raw * 10000) / 10000` |
+| **Mastery** | Mastery Threshold | Prerequisite satisfaction requires `topic_mastery` $\ge 0.70$ |
+| **Mastery** | Archive Exclusion | Archived topics (`status === 'archived'`) excluded from active averages and ready queues |
+| **Dependency** | Directed Acyclic Graph | Vault prerequisite graph must be acyclic (`detectCycle === null`) |
+| **Dependency** | Alias Support | Dependencies normalized from both `depends_on` and `dependencies` arrays |
 
-Sources:[src/engine/sm2.ts#13-17](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L13-L17)[src/engine/sm2.ts#91-92](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L91-L92)[test/engine-sm2.test.ts#6-19](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L6-L19)
+Sources:
+- SM-2 Engine: [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
+- Mastery Engine: [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
+- Dependency Graph Engine: [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
+- Engine API: [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
+- Progress Analytics: [src/cli/progress.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts)

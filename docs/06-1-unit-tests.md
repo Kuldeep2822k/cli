@@ -4,115 +4,170 @@ Relevant source files
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
+- [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
-- [src/storage/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/index.ts)
+- [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)
+- [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
+- [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
+- [src/storage/loader.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/loader.ts)
 - [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
+- [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
+- [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
+- [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts)
+- [src/storage/walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/walker.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
+- [test/engine-mastery.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-mastery.test.ts)
 - [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 - [test/storage-atomic-write.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts)
 - [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
 - [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)
+- [test/storage-loader.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-loader.test.ts)
 - [test/storage-lock.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts)
+- [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
+- [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
+- [test/storage-roadmap-parser.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-roadmap-parser.test.ts)
+- [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
-The PALEE unit test suite ensures the integrity of core algorithms, storage safety protocols, and utility functions. Tests are executed using the native Node.js test runner and `tsx` for TypeScript execution. The suite focuses on verifying deterministic logic in the engine and defensive I/O patterns in the storage layer.
-
-## Engine Core Tests
-
-Engine tests verify the scheduling logic and dependency graph integrity. These tests operate on pure data structures, ensuring the logic remains decoupled from the file system.
-
-### SM-2 Algorithm
-
-Tests in `test/engine-sm2.test.ts` verify the `processReview` function [src/engine/sm2.ts#36-101](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L36-L101) ensuring it adheres to the SM-2 specification:
-
-- State Transitions: Validates that quality ratings < 3 reset `repetition` to 0 and `interval_days` to 1 [test/engine-sm2.test.ts#42-49](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L42-L49)
-- Interval Progression: Verifies the sequence of intervals (1 day for first review, 6 days for second, and $interval \times EF$ thereafter) [test/engine-sm2.test.ts#51-76](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L51-L76)
-- Clamping and Rounding: Ensures `ease_factor` never drops below 1.3 [test/engine-sm2.test.ts#78-85](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L78-L85) and is rounded to 4 decimal places [test/engine-sm2.test.ts#87-94](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L87-L94)
-- Date Arithmetic: Validates `computeDueDate`[src/engine/sm2.ts#121-126](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L121-L126) handles calendar days correctly [test/engine-sm2.test.ts#129-134](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L129-L134)
-
-### Dependency Graph
-
-Tests in `test/engine-dependency.test.ts` exercise the `Dependency Graph Engine`[src/engine/dependency.ts#2-4](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L2-L4):
-
-- Cycle Detection: Verifies that `detectCycle`[src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L47) correctly identifies simple (A->B->A) and complex (A->B->C->A) circular dependencies [test/engine-dependency.test.ts#13-35](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts#L13-L35)
-- Readiness Filtering: Validates `getReadyTopics`[src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83) only returns topics whose dependencies meet the mastery threshold (default 0.7) [test/engine-dependency.test.ts#50-63](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts#L50-L63)
-- Validation Errors: Ensures `validateDependencyGraph`[src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L85-L117) reports `missing_dependency` when a `palee_id` referenced in `depends_on` does not exist in the vault [test/engine-dependency.test.ts#65-75](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts#L65-L75)
-
-Logic Flow: Dependency Validation
-
-Sources:[src/engine/sm2.ts#36-135](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L36-L135)[src/engine/dependency.ts#10-123](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L123)[test/engine-sm2.test.ts#5-135](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts#L5-L135)[test/engine-dependency.test.ts#10-100](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts#L10-L100)
+The PALEE unit test suite ensures the mathematical correctness of core algorithms, defensive file-safety protocols in the storage layer, and strict domain model typing. Unit tests are executed directly from TypeScript source using `tsx` and the native Node.js test runner (`node:test`), ensuring high speed and complete test isolation.
 
 ---
 
-## Storage Utility Tests
+## 1. Engine Core Tests
 
-Storage tests verify the "File-Safety Contract," focusing on concurrency control and data integrity during vault modifications.
+Engine tests verify spaced repetition scheduling, graph algorithms, and pedagogical mastery computation on pure in-memory data structures decoupled from the filesystem.
 
-### File Locking and Recovery
+### SuperMemo SM-2 Spaced Repetition (`test/engine-sm2.test.ts`)
 
-The `Lock` class [src/storage/lock.ts#8-11](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L11) is tested in `test/storage-lock.test.ts` to ensure exclusive access to vault resources:
+Tests in `test/engine-sm2.test.ts` (15 tests) verify the `processReview` function and scheduling arithmetic:
 
-- Atomic Acquisition: Confirms that `mkdirSync` provides mutual exclusion [src/storage/lock.ts#77-88](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L77-L88) and that concurrent attempts result in an `ECONFLICT` error [test/storage-lock.test.ts#145-164](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts#L145-L164)
-- Stale Recovery: Simulates a crashed process by manually aging a lock's `mtime`. Tests verify that a new process can take over a stale lock after the platform-specific timeout (60s Windows / 120s Other) [test/storage-lock.test.ts#101-126](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts#L101-L126)
-- Heartbeat: Validates that `updateHeartbeat`[src/storage/lock.ts#187-197](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L187-L197) refreshes the file `mtime` using `utimesSync` to prevent the lock from becoming stale during long operations [test/storage-lock.test.ts#79-99](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts#L79-L99)
+- **State Transitions**: Validates that quality ratings $q < 3$ trigger a lapse, resetting `repetition` to 0, `interval_days` to 1, and incrementing `lapses`.
+- **Interval Progression**: Verifies the expanding interval progression (Repetition 1 $\rightarrow$ 1 day, Repetition 2 $\rightarrow$ 6 days, Repetition $n > 2 \rightarrow \text{round}(I_{n-1} \times EF)$).
+- **Ease Factor Clamping**: Confirms that `ease_factor` is adjusted via $\Delta EF = 0.1 - (5 - q) \times (0.08 + (5 - q) \times 0.02)$, is strictly clamped to $\ge 1.30$, and is rounded to 4 decimal places.
+- **Calendar Due Dates**: Validates `computeDueDate` calculation in the local timezone across month and year boundaries.
 
-### Atomic Writes and OCC
+### Dependency Graph & Cycle Detection (`test/engine-dependency.test.ts`)
 
-Tests in `test/storage-atomic-write.test.ts` verify the `atomicWrite` function [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts):
+Tests in `test/engine-dependency.test.ts` (8 tests) exercise graph validation and traversal:
 
-- Optimistic Concurrency Control (OCC): Verifies that providing a stale `fingerprint` (SHA-256 of the original content) causes the write to fail, preventing overwriting external changes [test/storage-atomic-write.test.ts#32-49](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts#L32-L49)
-- Atomicity: Ensures that failures (like OCC conflicts) leave the target file untouched and clean up temporary `.tmp` files [test/storage-atomic-write.test.ts#63-99](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts#L63-L99)
+- **3-Color DFS Cycle Detection**: Verifies that `detectCycle` correctly flags simple circular dependencies ($A \rightarrow B \rightarrow A$) as well as complex multi-node cycles ($A \rightarrow B \rightarrow C \rightarrow A$).
+- **Frontier Readiness Filtering**: Validates `getReadyTopics`, confirming that topics are only marked ready when all declared prerequisites reach or exceed `MASTERY_THRESHOLD` (0.70).
+- **Missing Dependency Diagnostics**: Ensures `validateDependencyGraph` emits structured error descriptors containing missing topic IDs when unadopted notes are referenced in `depends_on`.
+- **Alias Support**: Verifies seamless normalization between `depends_on` and `dependencies` frontmatter keys.
 
-System Interaction: Lock and Write
+### Four-Pillar Pedagogical Mastery (`test/engine-mastery.test.ts`)
 
-```mermaid
-sequenceDiagram
-    participant CLI as "adoptCommand()"
-    participant Lock as "Lock Class"
-    participant FS as "File System"
-    participant Atomic as "atomicWrite()"
-    CLI->>Lock: acquire()
-    Lock->>FS: mkdirSync(hash.lockdir)
-    Lock->>FS: writeFileSync(lockId.json)
-    Note over Lock,FS: Heartbeat starts (15s)
-    CLI->>Atomic: atomicWrite(content | fingerprint)
-    Atomic->>FS: computeFingerprint(current)
-    Atomic-->>CLI: Error: OCC conflict
-    Atomic->>FS: write(tempFile)
-    Atomic->>FS: rename(tempFile | target)
-    CLI->>Lock: release()
-    Lock->>FS: unlink(lockId.json)
-    Lock->>FS: rmdir(hash.lockdir)
-```
+Tests in `test/engine-mastery.test.ts` (11 tests) verify the multi-dimensional mastery engine:
 
-Sources:[src/storage/lock.ts#13-203](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L13-L203)[src/storage/atomic-write.ts#1-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L1-L50)[test/storage-lock.test.ts#40-192](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts#L40-L192)[test/storage-atomic-write.test.ts#23-120](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts#L23-L120)
+- **Formula Invariant**: Confirms $\text{mastery} = \text{round}\left(\frac{c + p + d + 2f}{5}, 4\right)$ with 40% Feynman weighting.
+- **Mastery Threshold**: Asserts that `MASTERY_THRESHOLD = 0.70` serves as the authoritative threshold for dependency satisfaction.
+- **Score Normalization & Clamping**: Verifies that out-of-range scores ($< 0.0$ or $> 1.0$), `NaN`, `null`, or undefined inputs are safely clamped within $[0.0, 1.0]$.
+- **Archive Topic Exclusion**: Ensures archived topics (`archived: true`) are excluded from active readiness calculations.
 
 ---
 
-## Type and Utility Tests
+## 2. Storage Layer & Safety Tests
 
-### Difficulty Normalization
+Storage tests enforce PALEE's "File-Safety Contract," guaranteeing non-destructive updates, concurrency control, and crash tolerance across local vaults.
 
-The `normalizeDifficulty` function [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47) is critical for ensuring consistent data in frontmatter regardless of user input format. Tests in `test/types-difficulty.test.ts` cover:
+### File Locking & Mutex (`test/storage-lock.test.ts`)
 
-- String Mapping: Normalizes "BEGINNER", "  Advanced  ", and "intermediate" to their canonical lowercase forms [test/types-difficulty.test.ts#14-24](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L14-L24)
-- Numeric Coercion: Maps 1-5 scales (often used in CLI flags) to the three-tier enum: 1 $\rightarrow$ `beginner`, 2-3 $\rightarrow$ `intermediate`, 4-5 $\rightarrow$ `advanced`[test/types-difficulty.test.ts#26-41](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L26-L41)
-- Fallbacks: Ensures invalid types (null, empty strings, unknown words) safely default to `intermediate`[test/types-difficulty.test.ts#43-50](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L43-L50)
+Tests in `test/storage-lock.test.ts` (11 tests) verify the cross-process lock directory mutex:
 
-### Cache Unsettled Horizon
+- **Atomic Acquisition**: Confirms `mkdirSync` on `.palee/locks/<hash>.lockdir` provides mutual exclusion, throwing `ECONFLICT` on concurrent collision.
+- **Descriptor & Heartbeat**: Validates that lock descriptors record PID, hostname, and timestamp, refreshed every 15 seconds via `utimesSync`.
+- **Stale Lock Quarantine Takeover**: Simulates abandoned locks by artificially aging `mtime`, verifying automatic takeover after 60s on Windows or 120s on POSIX systems.
+- **Symlink Canonicalization**: Ensures symbolic links resolve to their canonical physical paths prior to lock hash computation.
 
-Tests for `FileCache`[src/storage/cache.ts#10](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L10-L10) (referenced in `test/storage-cache.test.ts`) verify the `UNSETTLED_HORIZON`. This mechanism prevents caching files that were modified within the last 2 seconds, ensuring that rapid-fire CLI commands do not read stale data while the OS file system buffers are still flushing.
+### Atomic Writes & OCC (`test/storage-atomic-write.test.ts`)
 
-Code Entity Association
+Tests in `test/storage-atomic-write.test.ts` (10 tests) verify safe filesystem writes:
 
-| System Component | Code Entity | Test File |
-| --- | --- | --- |
-| SM-2 Algorithm | `processReview` | `test/engine-sm2.test.ts` |
-| Cycle Detection | `detectCycle` | `test/engine-dependency.test.ts` |
-| Locking | `Lock` class | `test/storage-lock.test.ts` |
-| Atomic Write | `atomicWrite` | `test/storage-atomic-write.test.ts` |
-| Difficulty Logic | `normalizeDifficulty` | `test/types-difficulty.test.ts` |
-| Frontmatter | `parseFrontmatter` | `test/storage-frontmatter.test.ts` |
+- **Optimistic Concurrency Control (OCC)**: Verifies that passing a stale SHA-256 fingerprint triggers an `ECONFLICT` error, preventing lost updates from external editors.
+- **Atomic Swap & Temp Cleanup**: Confirms writes flush to unique `.tmp.*` files and execute atomic `renameSync`. If write failure occurs, temporary files are cleanly unlinked.
 
-Sources:[src/types.ts#21-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L21-L47)[src/cli/adopt.ts#53-62](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L53-L62)[test/types-difficulty.test.ts#5-80](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L5-L80)[src/storage/index.ts#10-46](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/index.ts#L10-L46)
+### Frontmatter Preservation via CST (`test/storage-frontmatter.test.ts`)
+
+Tests in `test/storage-frontmatter.test.ts` (11 tests) exercise the YAML Document API:
+
+- **Comment & Custom Key Preservation**: Verifies that updating PALEE keys (`palee_id`, `topic_mastery`, `due_at`) preserves user-authored YAML comments, custom tags, and Obsidian properties.
+- **Byte-for-Byte Body Integrity**: Asserts that the Markdown document body remains identical byte-for-byte after frontmatter modifications.
+- **Fingerprinting**: Verifies SHA-256 content hashing for OCC synchronization.
+
+### Vault Topic Loader (`test/storage-loader.test.ts`)
+
+Tests in `test/storage-loader.test.ts` (5 tests) verify batch vault loading:
+
+- **Extraction & Normalization**: Parses frontmatter blocks, converts numeric strings, and clamps invalid values.
+- **Fallback Title Hierarchy**: Verifies title resolution order: frontmatter `title` $\rightarrow$ first Markdown H1 heading (`# Title`) $\rightarrow$ base filename.
+- **Pre-Scanned Performance**: Confirms that providing a pre-scanned file list bypasses redundant filesystem scans.
+
+### Working Memory & Session Recovery (`test/storage-memory.test.ts`)
+
+Tests in `test/storage-memory.test.ts` (10 tests) verify the active study context system:
+
+- **Session Identification**: Verifies session ID generation format `S-YYYYMMDDTHHMMSS-xxxx` and draft checkpoints `DRAFT-S-xxxxxxxx`.
+- **Hot Context Truncation**: Validates that `.palee/hot.md` truncates note text to `MAX_HOT_WORDS = 250` words to preserve context efficiency.
+- **Catalog Regeneration**: Ensures `.palee/index.md` accurately regenerates topic lists, recent sessions, and draft links.
+
+### Pattern & Glob Matching (`test/storage-pattern-matcher.test.ts`)
+
+Tests in `test/storage-pattern-matcher.test.ts` (14 tests) verify pattern matching utilities:
+
+- **Glob Support**: Validates single `*`, recursive `**/*.md`, character class `[...]`, and wildcard `?` matching.
+- **Cross-Platform Path Normalization**: Automatically normalizes Windows `\` backslashes to canonical `/` slashes.
+- **Obsidian Tag Matching**: Extracts and matches exact `#tag` and nested `#category/subcategory` tag hierarchies.
+
+### Multi-Format Roadmap Parser (`test/storage-roadmap-parser.test.ts`)
+
+Tests in `test/storage-roadmap-parser.test.ts` (8 tests) exercise curriculum ingestion:
+
+- **Format Flexibility**: Parses roadmaps from pure `.yaml`/`.yml` files, Markdown frontmatter headers, and embedded ```` ```yaml ```` codeblocks.
+- **Syntax & Schema Diagnostics**: Validates topic node requirements and provides clear error diagnostics on missing required fields.
+
+### Vault Traversal (`test/storage-walker.test.ts`)
+
+Tests in `test/storage-walker.test.ts` (11 tests) verify recursive file discovery:
+
+- **Markdown Discovery**: Recursively traverses nested vault folders to locate `.md` files.
+- **Exclusion Filters**: Automatically ignores `.obsidian`, `.trash`, `.git`, `node_modules`, and hidden dot-directories.
+- **Symlink Safety**: Skips circular symlinks to prevent infinite directory recursion.
+
+### In-Memory File Cache (`test/storage-cache.test.ts`)
+
+Tests in `test/storage-cache.test.ts` (9 tests) verify caching and invalidation logic:
+
+- **Unsettled Horizon (2000ms)**: Mitigates filesystem buffer lag by using SHA-256 content hashes within the 2-second edit window, falling back to fast `mtime` checks outside the window.
+- **Cache Invalidation**: Invalidates cache entries on size mismatch or explicit deletion.
+
+---
+
+## 3. Data Model & Domain Type Tests
+
+### Difficulty Coercion & Types (`test/types-difficulty.test.ts`)
+
+Tests in `test/types-difficulty.test.ts` (9 tests) enforce type contracts:
+
+- **Difficulty Coercion**: Verifies `normalizeDifficulty` coerces case-insensitive strings ("BEGINNER", "  Advanced  ") and numeric 1–5 ratings (1 $\rightarrow$ `beginner`, 2–3 $\rightarrow$ `intermediate`, 4–5 $\rightarrow$ `advanced`), defaulting invalid inputs to `intermediate`.
+- **Discriminated Union Session Types**: Verifies type discrimination between `CompletedSession` and `DraftSession` based on session state and properties.
+
+---
+
+## Code Entity Association Matrix
+
+| System Component | Primary Functions / Classes | Test File | Test Count |
+|---|---|---|:---:|
+| Spaced Repetition | `processReview`, `computeDueDate` | `test/engine-sm2.test.ts` | 15 |
+| Dependency Graph | `detectCycle`, `getReadyTopics`, `validateDependencyGraph` | `test/engine-dependency.test.ts` | 8 |
+| Pedagogical Mastery | `computeTopicMastery`, `MASTERY_THRESHOLD` | `test/engine-mastery.test.ts` | 11 |
+| File Locking | `Lock` class, `acquireLock`, `releaseLock` | `test/storage-lock.test.ts` | 11 |
+| Atomic Writes | `atomicWrite`, `isConflictError` | `test/storage-atomic-write.test.ts` | 10 |
+| Frontmatter CST | `parseFrontmatter`, `updateFrontmatter`, `computeFingerprint` | `test/storage-frontmatter.test.ts` | 11 |
+| Vault Loader | `loadTopics` | `test/storage-loader.test.ts` | 5 |
+| Working Memory | `startSession`, `saveDraft`, `endSession` | `test/storage-memory.test.ts` | 10 |
+| Pattern Matcher | `matchesGlob`, `matchesTag` | `test/storage-pattern-matcher.test.ts` | 14 |
+| Roadmap Parser | `parseRoadmap` | `test/storage-roadmap-parser.test.ts` | 8 |
+| Vault Walker | `walkVault` | `test/storage-walker.test.ts` | 11 |
+| File Cache | `FileCache`, `UNSETTLED_HORIZON` | `test/storage-cache.test.ts` | 9 |
+| Domain Types | `normalizeDifficulty`, `Difficulty`, `Session` | `test/types-difficulty.test.ts` | 9 |

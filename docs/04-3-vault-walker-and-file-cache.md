@@ -74,62 +74,74 @@ Sources: [src/storage/vault-walker.ts#14-93](https://github.com/Kuldeep2822k/cli
 
 ## File Cache
 
-The `FileCache` class in `src/storage/cache.ts` provides an in-memory store for parsed file data (such as `FrontmatterResult`). It is designed to minimize expensive I/O and SHA-256 fingerprinting operations while remaining safe against external file modifications.
+The `FileCache` class in `src/storage/cache.ts` provides an in-memory store for parsed file data (such as `FrontmatterResult`). It is designed to minimize expensive disk I/O and SHA-256 fingerprinting operations while remaining safe against external file modifications.
 
-### The Unsettled Horizon
+### The Unsettled Horizon & SHA-256 Fallback
 
-A key feature of the cache is the `UNSETTLED_HORIZON`, set to 2000ms (2 seconds) [src/storage/cache.ts#10](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L10-L10) This constant addresses the "rapid-edit cycle" problem where a file might be modified multiple times in quick succession.
+A central feature of the cache is the `UNSETTLED_HORIZON`, set to 2,000 ms (2 seconds) [src/storage/cache.ts#16](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L16-L16). This constant addresses the "rapid-edit cycle" and filesystem timestamp granularity issues where files might be modified multiple times in quick succession.
 
-- Inside Horizon (< 2s since mtime): The cache does not trust the file's `mtime`. It forces a re-read of the file and re-computes the SHA-256 fingerprint to verify if the content has actually changed [src/storage/cache.ts#37-47](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L37-L47)
-- Outside Horizon (> 2s since mtime): If the `mtime` matches the cached value, it is considered a "stable hit" and the data is returned immediately without further I/O [src/storage/cache.ts#56-59](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L56-L59)
+- **Inside Horizon (`< 2,000 ms` since `mtime`)**: The cache treats recent `mtime` values as volatile. It bypasses timestamp trust and forces a file re-read and SHA-256 hash recomputation (`computeFingerprint(content)`). If the digest matches `entry.fingerprint`, `entry.mtime` and `entry.lastVerified` are updated and cached data is returned; otherwise, the entry is evicted and `null` is returned.
+- **Outside Horizon (`>= 2,000 ms` since `mtime`)**:
+  - **`mtime` Match**: If `stat.mtimeMs === entry.mtime`, the file is settled and unchanged. PALEE executes a fast $O(1)$ cache hit, updating `entry.lastVerified` and returning `entry.data` without reading file contents.
+  - **`mtime` Mismatch (SHA-256 Fallback)**: If `mtime` has changed outside the horizon (for example, when a file's timestamp is updated by a `touch` command, backup tool, or cloud sync without modifying note contents), `FileCache` initiates a SHA-256 fallback check. It re-reads the file and hashes its content:
+    - If the SHA-256 hash matches `entry.fingerprint`, the content is confirmed identical. The cache updates `entry.mtime = stat.mtimeMs` and `entry.lastVerified = now`, preserving the cache entry and returning `entry.data`.
+    - If the SHA-256 hash differs, the content has genuinely changed. The stale entry is deleted from the cache and `null` is returned.
 
 ### Cache Validation Logic
 
 When `FileCache.get(filePath)` is called, the following validation sequence occurs:
 
-1. Size Check: If `fs.statSync(filePath).size` differs from the cached size, the entry is immediately invalidated [src/storage/cache.ts#30-33](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L30-L33)
-2. Horizon Check: Determines if the file is "freshly modified" or "settled" [src/storage/cache.ts#37](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L37-L37)
-3. Fingerprint Check: Uses `computeFingerprint` from `src/storage/frontmatter.ts` to detect content-level changes if `mtime` is unreliable [src/storage/cache.ts#42](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L42-L42)[src/storage/cache.ts#63](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L63-L63)
+1. **Existence & Size Verification**: If the file is not in the cache or `fs.statSync(filePath).size` differs from `entry.size`, the entry is immediately evicted (`this.cache.delete(filePath)`) and `null` is returned [src/storage/cache.ts#56-60](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L56-L60).
+2. **Horizon Check**: Evaluates whether `(Date.now() - mtime) < UNSETTLED_HORIZON` [src/storage/cache.ts#63-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L63-L80).
+3. **Fingerprint Verification**: Uses `computeFingerprint` from `src/storage/frontmatter.ts` for mandatory verification inside the horizon and as a fallback on `mtime` shifts outside the horizon [src/storage/cache.ts#69-74](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L69-L74)[src/storage/cache.ts#89-95](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L89-L95).
 
 ### Cache Validation Flowchart
 
-The diagram below maps the `FileCache` logic across internal validation steps, the 2-second unsettled horizon, and filesystem checks.
+The diagram below maps the `FileCache.get()` logic across internal validation steps, the 2-second unsettled horizon, and the SHA-256 fallback mechanism.
 
 ```mermaid
 flowchart TD
-    Start(["get(filePath)"]) --> CheckEntry{"Entry in Cache?"}
+    Start(["FileCache.get(filePath)"]) --> CheckEntry{"Entry in Map?"}
     
-    CheckEntry -- "No" --> CacheMiss["Cache Miss"]
-    CheckEntry -- "Yes" --> CheckSize{"File Size Matches?"}
+    CheckEntry -- "No" --> CacheMiss["Cache Miss (return null)"]
+    CheckEntry -- "Yes" --> Stat["fs.statSync(filePath)"]
     
-    CheckSize -- "Mismatch" --> Invalidate["Invalidate Entry"]
-    CheckSize -- "Match" --> CheckHorizon{"File Age &lt; 2s?<br/>(Unsettled Horizon)"}
+    Stat --> CheckSize{"Size Matches<br/>entry.size == stat.size?"}
+    CheckSize -- "Mismatch" --> Invalidate["Delete Entry & Return null"]
     
-    CheckHorizon -- "Yes (&lt; 2s)" --> CheckHash{"Hash Matches?"}
-    CheckHash -- "Match" --> CacheHit["Cache Hit"]
-    CheckHash -- "Mismatch" --> Invalidate
+    CheckSize -- "Match" --> CheckHorizon{"File Age &lt; 2,000 ms?<br/>(Inside Unsettled Horizon)"}
     
-    CheckHorizon -- "No (&ge; 2s)" --> CheckMtime{"mtime Matches?"}
-    CheckMtime -- "Match" --> CacheHit
-    CheckMtime -- "Mismatch" --> Invalidate
+    %% Inside Horizon Branch
+    CheckHorizon -- "Yes (&lt; 2s)" --> ReadHash1["Read file & compute SHA-256"]
+    ReadHash1 --> VerifyHash1{"SHA-256 matches<br/>entry.fingerprint?"}
+    VerifyHash1 -- "Mismatch (Modified)" --> Invalidate
+    VerifyHash1 -- "Match (Unchanged)" --> UpdateMtime1["Update entry.mtime & lastVerified"]
+    UpdateMtime1 --> CacheHit["Cache Hit (return entry.data)"]
     
-    Invalidate --> CacheMiss
-    CacheHit --> ReturnHit(["Return Cached Data"])
-    CacheMiss --> ReturnNull(["Return null"])
+    %% Outside Horizon Branch
+    CheckHorizon -- "No (&ge; 2s)" --> CheckMtime{"mtime Matches<br/>entry.mtime == stat.mtimeMs?"}
+    CheckMtime -- "Match" --> UpdateVerified["Update entry.lastVerified"]
+    UpdateVerified --> CacheHit
+    
+    CheckMtime -- "Mismatch (Timestamp shifted)" --> ReadHash2["SHA-256 Fallback:<br/>Read file & compute hash"]
+    ReadHash2 --> VerifyHash2{"SHA-256 matches<br/>entry.fingerprint?"}
+    VerifyHash2 -- "Mismatch (Content changed)" --> Invalidate
+    VerifyHash2 -- "Match (Content unchanged, e.g. touch)" --> UpdateMtime2["Update entry.mtime & lastVerified"]
+    UpdateMtime2 --> CacheHit
 ```
 
-Sources: [src/storage/cache.ts#13-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L13-L80)[test/storage-cache.test.ts#44-88](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts#L44-L88)
+Sources: [src/storage/cache.ts#16-107](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L16-L107)[test/storage-cache.test.ts#24-88](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts#L24-L88)
 
 ### Key Methods
 
-| Method | Description |
-| --- | --- |
-| `get(filePath)` | Retrieves data if valid; performs size, mtime, and fingerprint checks [src/storage/cache.ts#20-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L20-L80) |
-| `set(filePath, data, fingerprint)` | Stores data alongside filesystem stats (`mtime`, `size`) [src/storage/cache.ts#82-95](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L82-L95) |
-| `invalidate(filePath)` | Manually removes a specific file from the cache [src/storage/cache.ts#97-99](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L97-L99) |
-| `clear()` | Flushes all entries from the cache [src/storage/cache.ts#101-103](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L101-L103) |
+| Method | Description | Source |
+| --- | --- | --- |
+| `get(filePath)` | Retrieves data if valid; performs size, horizon, mtime, and SHA-256 fallback checks | [src/storage/cache.ts#47-107](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L47-L107) |
+| `set(filePath, data, fingerprint)` | Stores parsed data alongside filesystem stats (`mtime`, `size`, `lastVerified`) | [src/storage/cache.ts#116-129](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L116-L129) |
+| `invalidate(filePath)` | Manually evicts a specific file entry from the cache | [src/storage/cache.ts#136-138](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L136-L138) |
+| `clear()` | Flushes all entries from the in-memory cache | [src/storage/cache.ts#143-145](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L143-L145) |
 
-Sources: [src/storage/cache.ts#13-104](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L13-L104)
+Sources: [src/storage/cache.ts#1-149](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L1-L149)
 
 ---
 

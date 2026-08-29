@@ -46,7 +46,7 @@ flowchart LR
     E --> G
 ```
 
-Sources: [src/types.ts#3-164](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L164)
+Sources: [src/types.ts#17-389](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L389)
 
 ---
 
@@ -54,13 +54,14 @@ Sources: [src/types.ts#3-164](https://github.com/Kuldeep2822k/cli/blob/main/src/
 
 The learning model is centered around the `Topic` interface, which represents the state of a single note within the Obsidian vault.
 
-- Topic: The primary unit of learning, containing metadata, mastery status, and scheduling data [src/types.ts#49-59](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L49-L59).
-- Assessment: A four-pillar model (Conceptual, Practical, Debug, Feynman) used to track mastery levels [src/types.ts#3-9](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L9).
-- Review: Contains the Spaced Repetition System (SRS) state, including ease factor and next due date [src/types.ts#11-19](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L11-L19).
+- **`Topic`**: The primary unit of learning, containing metadata, mastery status, and scheduling data [src/types.ts#104-125](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L125).
+- **`Assessment`**: A four-pillar model (Conceptual, Practical, Debug, Feynman) used to track mastery levels [src/types.ts#17-28](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L28).
+- **`Review`**: Contains the Spaced Repetition System (SRS) state, including ease factor, repetition count, lapses, and next due date [src/types.ts#38-53](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L38-L53).
+- **`Difficulty`**: Union type `'beginner' | 'intermediate' | 'advanced'` [src/types.ts#58](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L58).
 
 For details on how these fields are used in the SRS algorithm and frontmatter, see [Topic and Assessment Schema](./05-1-topic-and-assessment-schema.md).
 
-Sources: [src/types.ts#3-59](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L59)
+Sources: [src/types.ts#17-125](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L125)
 
 ---
 
@@ -82,13 +83,72 @@ Sources: [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/
 
 ### Session and Memory Types
 
-Session management tracks active learning periods and persists "hot" working memory to bridge sessions.
+Session management tracks active learning periods, maintains crash-resilient session draft checkpoints, and persists hot working memory to bridge study sessions.
 
-- SessionRecord: Records the lifecycle of a learning session (start, end, status) [src/types.ts#86-93](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L86-L93).
-- HotMemoryData: Represents the state stored in `.palee/hot.md`, tracking the current `active_topic` and `last_session` [src/types.ts#78-84](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L78-L84).
-- LockData: Used by the locking mechanism to prevent concurrent vault modifications, tracking `pid` and `hostname` [src/types.ts#112-118](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L112-L118).
+#### Discriminated Union Session Types
 
-Sources: [src/types.ts#78-118](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L78-L118)
+In PALEE, learning sessions exist in two distinct lifecycle states represented as TypeScript discriminated unions in `src/types.ts`:
+
+1. **Runtime Snapshot (`Session = CompletedSession | DraftSession`)**:
+   - `CompletedSession`: Represents a concluded study session with recorded duration and timestamps.
+   - `DraftSession`: Represents an active, in-progress checkpoint before the user finishes or saves their study session.
+2. **Persistent Storage Record (`SessionRecord = CompletedSessionRecord | DraftSessionRecord`)**:
+   - `CompletedSessionRecord`: Frontmatter schema serialized into permanent session notes (`.palee/sessions/S-*.md`).
+   - `DraftSessionRecord`: Frontmatter schema serialized into temporary session draft files (`.palee/sessions/DRAFT-*.md`).
+
+```typescript
+// Base shared metadata
+export interface BaseSession {
+  palee_schema: number;
+  session_id: string;   // e.g. 'S-20260830T012000-A1B2' or 'DRAFT-S-*'
+  topic_id: string;     // target topic palee_id
+  started_at: string;   // ISO 8601 timestamp
+}
+
+// Completed session: ended_at is a non-null ISO 8601 string
+export interface CompletedSession extends BaseSession {
+  status: 'completed';
+  ended_at: string;
+}
+
+// Draft session: ended_at is strictly null
+export interface DraftSession extends BaseSession {
+  status: 'draft';
+  ended_at: null;
+}
+
+export type Session = CompletedSession | DraftSession;
+```
+
+#### Discriminator & Typing Contract
+
+| Type Interface | Discriminator (`status`) | `ended_at` Contract | `session_id` Pattern | Purpose |
+| --- | --- | --- | --- | --- |
+| `CompletedSession` / `CompletedSessionRecord` | `'completed'` | `string` (ISO 8601 timestamp) | `S-YYYYMMDDTHHMMSS-XXXX` | Persisted, finalized learning session record |
+| `DraftSession` / `DraftSessionRecord` | `'draft'` | `null` (strictly null) | `DRAFT-S-YYYYMMDDTHHMMSS-XXXX` | Live checkpoint for recovery during interrupted CLI sessions |
+
+#### Type Narrowing Invariant
+
+Because `status` acts as the discriminant field, TypeScript automatically narrows the type of `ended_at` and associated properties:
+
+```typescript
+function formatSessionSummary(session: Session): string {
+  if (session.status === 'completed') {
+    // TypeScript knows session is CompletedSession: ended_at is string
+    return `Session ${session.session_id} finished at ${session.ended_at}`;
+  }
+  // TypeScript knows session is DraftSession: ended_at is null
+  return `Draft ${session.session_id} in progress (started ${session.started_at})`;
+}
+```
+
+#### Memory and Synchronization Types
+
+- **`DraftRecoveryAction`**: Union of user choices when resuming or processing an unfinished draft session (`'resume' | 'save' | 'discard' | 'ignore'`) [src/types.ts#231](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L231).
+- **`HotMemoryData`**: Represents the runtime state stored in `.palee/hot.md`, caching `memory_id`, `active_topic`, `last_session`, and `updated_at` [src/types.ts#182-193](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L182-L193).
+- **`LockData`**: Payload written into `.palee/locks/<hash>.lockdir/<lock_id>.json` containing `lock_id`, `target`, `pid`, `hostname`, and `created_at` [src/types.ts#255-266](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L255-L266).
+
+Sources: [src/types.ts#141-231](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L141-L231)[src/storage/memory.ts#1-214](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L1-L214)
 
 ---
 
@@ -96,14 +156,15 @@ Sources: [src/types.ts#78-118](https://github.com/Kuldeep2822k/cli/blob/main/src
 
 These types support the internal workings of the storage layer and the command-line interface.
 
-- PaleeConfig: Defines the user's local environment settings, such as `vaultPath` and AI preferences [src/types.ts#104-108](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L108).
-- CacheEntry: The schema for the file system cache, including `mtime` and `fingerprint` for validation [src/types.ts#122-128](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L122-L128).
-- ValidationResult: The output of vault integrity checks, listing `ValidationError` types like `cycle` or `missing_dependency` [src/types.ts#142-155](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L142-L155).
-- CLI Options: Specific interfaces for command arguments, such as `AdoptOptions`, `NextOptions`, and `PlanOptions` [src/types.ts#168-206](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L168-L206).
+- **`PaleeConfig`**: Defines user environment settings in `~/.palee/config.json`, including `vaultPath`, `aiProvider`, and `model` [src/types.ts#238-245](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L238-L245).
+- **`CacheEntry<T>`**: Generic schema for in-memory file cache entries tracking `mtime`, `size`, `fingerprint`, `data`, and `lastVerified` [src/types.ts#275-286](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L275-L286).
+- **`FrontmatterResult`**: Result object from CST parsing holding `frontmatter`, `body`, `raw`, `doc`, and optional `error` [src/types.ts#293-305](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L293-L305).
+- **`ValidationError` & `ValidationResult`**: Vault integrity error representations (`duplicate_id`, `missing_dependency`, `cycle`) and aggregated validation status [src/types.ts#311-336](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L311-L336).
+- **CLI Options**: Specific argument interfaces including `AdoptOptions`, `NextOptions`, `PlanOptions`, `DashboardOptions`, `ProgressOptions`, `ValidateOptions`, `SessionOptions`, and `RoadmapOptions` [src/types.ts#396-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L396-L484).
 
 For details on configuration paths and CLI flags, see [Configuration and CLI Option Types](./05-2-configuration-and-cli-option-types.md).
 
-Sources: [src/types.ts#104-206](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L206)
+Sources: [src/types.ts#234-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L234-L484)
 
 ---
 
@@ -121,7 +182,7 @@ flowchart LR
     subgraph subGraph1 ["Engine (src/engine/dependency.ts)"]
         TN["TopicNode"]
         TN_ID["palee_id"]
-        TN_DEP["depends_on"]
+        TN_DEP["depends_on / dependencies"]
         TN_MST["topic_mastery"]
     end
     subgraph subGraph0 ["Storage (Markdown)"]
@@ -129,7 +190,6 @@ flowchart LR
     end
     FM --> TN
     TN --> VE
-    TN --> VE
 ```
 
-Sources: [src/types.ts#142-164](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L142-L164)
+Sources: [src/types.ts#343-389](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L343-L389)

@@ -4,145 +4,232 @@ Relevant source files
 - [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
-- [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
+- [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
+- [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
-- [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 
-The Dependency Graph Engine is a core component of the PALEE engine layer responsible for modeling and validating the relationships between learning topics. It treats the curriculum as a Directed Acyclic Graph (DAG) where nodes represent topics and edges represent prerequisite requirements.
-
-## TopicNode Model
-
-The engine represents the vault's structure using the `TopicNode` interface. This model abstracts the file system details into a pure data structure suitable for graph traversal and logic application.
-
-| Property | Type | Description |
-| --- | --- | --- |
-| `palee_id` | `string` | Unique identifier for the topic. |
-| `depends_on` | `string[]` | List of `palee_id`s that must be mastered before this topic. |
-| `topic_mastery` | `number` | A value from 0.0 to 1.0 representing current knowledge level. |
-
-Sources:
-
-- `TopicNode` definition: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L6-L6))
-- Usage in graph: [src/engine/dependency.ts#10](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L10)
+The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts. It provides cycle detection using a formal 3-color Depth-First Search (DFS), prerequisite satisfaction evaluation against the `0.70` mastery threshold, and graph integrity validation.
 
 ---
 
-## Mastery Threshold and Readiness
+## TopicNode Model & Dependency Extraction
 
-The engine uses a Mastery Threshold (defaulting to `0.7` or 70%) to determine if a prerequisite is satisfied. A topic is considered "Ready" for learning only if all its dependencies meet or exceed this threshold.
+The graph engine abstracts Markdown vault notes into `TopicNode` entities:
 
-### `areDependenciesSatisfied`
+| Property | Type | Description |
+|---|---|---|
+| `palee_id` | `string` | Unique immutable identifier for the topic note. |
+| `title` | `string` (optional) | Human-readable topic title. |
+| `path` | `string` (optional) | Relative file path within the Obsidian vault. |
+| `depends_on` | `string[]` (optional) | List of prerequisite `palee_id` references that must be mastered first. |
+| `dependencies` | `string[]` (optional) | Alias array for `depends_on`, providing backward compatibility. |
+| `topic_mastery` | `number` (optional) | Floating-point mastery score in the interval $[0.0, 1.0]$. |
 
-This function evaluates a specific `TopicNode` against the global map of topics. It returns `false` if:
+### Prerequisite Alias Normalization
 
-1. A dependency ID is missing from the graph (broken link) [src/engine/dependency.ts#54-56](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L54-L56)
-2. A dependency's `topic_mastery` is below the `threshold`[src/engine/dependency.ts#58-61](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L58-L61)
+To ensure robust interoperability across legacy frontmatter and third-party note formats, `getTopicDependencies` normalizes prerequisite declarations across both `depends_on` and `dependencies` fields:
 
-### `getReadyTopics`
+```typescript
+// src/engine/dependency.ts
+function getTopicDependencies(topic: TopicNode): string[] {
+  const fromDependsOn = Array.isArray(topic.depends_on) ? topic.depends_on : [];
+  const fromDependencies = Array.isArray(topic.dependencies) ? topic.dependencies : [];
+  const combined = [...fromDependsOn, ...fromDependencies];
+  return Array.from(new Set(combined.map((d) => String(d).trim()).filter(Boolean)));
+}
+```
 
-This function filters the entire vault to find topics suitable for the next learning session. It excludes topics that are already mastered (>= threshold) and those with unsatisfied dependencies [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83)
+---
 
-### Data Flow: Natural Language to Code Entities
+## Mastery Threshold and Readiness Evaluation
 
-The following diagram illustrates how user concepts like "Prerequisites" and "Ready to Learn" map to the internal engine functions and data structures.
+PALEE enforces a standard threshold (`MASTERY_THRESHOLD = 0.70` or 70%) to evaluate whether prerequisites are satisfied. A topic is considered ready for immediate study only when every prerequisite topic in its dependency chain meets or exceeds this threshold.
 
-"Natural Language to Code Space: Readiness"
+### `areDependenciesSatisfied(topic, topics, threshold = 0.70)`
+
+Evaluates whether all prerequisite dependencies for a given topic are satisfied:
+
+1. **Extracts Prerequisite IDs**: Resolves unique IDs using `getTopicDependencies(topic)`.
+2. **Missing Prerequisite Check**: If any referenced `depId` does not exist in `topics`, returns `false`.
+3. **Mastery Threshold Verification**: For each prerequisite `depTopic`, if `depTopic.topic_mastery < threshold`, returns `false`.
+4. Returns `true` if and only if all prerequisites exist and have `topic_mastery >= threshold`.
+
+### `getReadyTopics(topics, threshold = 0.70)`
+
+Determines the queue of unmastered topics whose prerequisites are fully satisfied:
+
+1. Iterates over all topics in `topics.values()`.
+2. **Mastery Check**: If `topic.topic_mastery >= threshold`, skips the topic (already mastered).
+3. **Dependency Check**: Calls `areDependenciesSatisfied(topic, topics, threshold)`.
+4. If satisfied, appends `topic` to the ready list.
+
+### Readiness Evaluation Flowchart
 
 ```mermaid
 flowchart TD
-    Output["Learning Plan"]
-    subgraph subGraph1 ["Code Entity Space (src/engine/dependency.ts)"]
-        NodeA["TopicNode (React)"]
-        NodeB["TopicNode (HTML)"]
-        NodeC["TopicNode (CSS)"]
-        Check["areDependenciesSatisfied()"]
-        Filter["getReadyTopics()"]
+    subgraph CLI ["CLI Command (palee plan / palee next)"]
+        PlanReq["User requests Ready Topics"]
     end
-    subgraph subGraph0 ["Natural Language Space"]
-        A["'I want to learn React'"]
-        B["'I haven't learned HTML yet'"]
-        C["'I am 80% done with CSS'"]
+
+    subgraph Engine ["Dependency Engine (src/engine/dependency.ts)"]
+        GetReady["getReadyTopics(topics, threshold = 0.70)"]
+        Iterate["For each topic in vault"]
+        MasteryCheck{"topic_mastery &ge; 0.70?<br/>(Already Mastered)"}
+        DepCheck["areDependenciesSatisfied(topic, topics, threshold)"]
+        CheckPrereqs{"All prerequisites exist<br/>and have mastery &ge; 0.70?"}
+        AddToReady["Add topic to Ready List"]
+        Skip["Skip topic"]
     end
-    NodeA --> NodeB
-    NodeA --> NodeC
-    A -.-> NodeA
-    B -.-> NodeB
-    C -.-> NodeC
-    NodeB --> Check
-    NodeC --> Check
-    Check --> Filter
-    Filter --> Output
+
+    subgraph Out ["Output"]
+        ReadyList["Return TopicNode[] (Ready for Study)"]
+    end
+
+    PlanReq --> GetReady
+    GetReady --> Iterate
+    Iterate --> MasteryCheck
+    MasteryCheck -- "Yes" --> Skip
+    MasteryCheck -- "No" --> DepCheck
+    DepCheck --> CheckPrereqs
+    CheckPrereqs -- "Yes (Satisfied)" --> AddToReady
+    CheckPrereqs -- "No (Blocked/Missing)" --> Skip
+    AddToReady --> ReadyList
 ```
-
-Sources:
-
-- Logic implementation: [src/engine/dependency.ts#49-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L49-L83)
 
 ---
 
-## Cycle Detection and Validation
+## 3-Color DFS Cycle Detection Algorithm
 
-To maintain a valid Directed Acyclic Graph (DAG), the engine must ensure there are no circular dependencies (e.g., A depends on B, and B depends on A).
+A learning curriculum cannot be sequenced if circular dependencies exist (e.g., $A \to B \to C \to A$). PALEE detects circular dependencies using a formal **3-color Depth-First Search (DFS)** algorithm:
 
-### DFS-based Cycle Detection
-
-The `detectCycle` function implements a Depth-First Search (DFS) algorithm using three distinct states to track traversal:
-
-1. `visiting` Set: Tracks nodes in the current recursion stack. If a node already in this set is encountered, a cycle exists [src/engine/dependency.ts#16-20](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L16-L20)
-2. `visited` Set: Tracks nodes that have been fully processed to avoid redundant work [src/engine/dependency.ts#21](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L21-L21)
-3. `pathStack`: An array used to reconstruct the exact path of the cycle for error reporting [src/engine/dependency.ts#13](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L13-L13)
-
-### `validateDependencyGraph`
-
-This is the primary entry point for vault integrity checks. It aggregates two types of `ValidationError`:
-
-- `missing_dependency`: Triggered when a `palee_id` listed in `depends_on` does not exist in the vault [src/engine/dependency.ts#92-101](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L92-L101)
-- `cycle`: Triggered if `detectCycle` returns a non-null path [src/engine/dependency.ts#104-111](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L104-L111)
-
-### Data Flow: Validation Pipeline
-
-This diagram shows how the `validate` command interacts with the engine to produce error reports.
-
-"Code Entity Space: Validation Pipeline"
+### 3-Color Visiting States
 
 ```mermaid
-flowchart LR
-    MD["missing_dependency check"]
-    subgraph subGraph1 ["Engine Layer (src/engine/dependency.ts)"]
-        VDG["validateDependencyGraph()"]
-        DC["detectCycle()"]
-    end
-    subgraph subGraph0 ["CLI Layer (src/cli/validate.ts)"]
-        VC["validateCommand()"]
-        Map["Map"]
-    end
-    VC --> Map
-    Map --> VDG
-    VDG --> MD
-    VDG --> DC
-    DC --> VDG
-    VDG --> VC
+stateDiagram-v2
+    [*] --> White: Graph Node Initialized
+    White --> Gray: visit(id) / visiting.add(id) & pathStack.push(id)
+    Gray --> Gray: Re-encountered! (Back-edge cycle detected)
+    Gray --> Black: All children explored / pathStack.pop() & visited.add(id)
+    Black --> [*]: Settled (Acyclic subtree pruned)
 ```
 
-Sources:
+1. **White (Unvisited)**:
+   - The node has not yet been encountered during traversal.
+   - Identified by: `!visiting.has(id) && !visited.has(id)`.
+2. **Gray (Visiting / Active Recursion Stack)**:
+   - The node is currently on the active DFS recursion stack. Its descendant prerequisite subtrees are actively being explored.
+   - Maintained in: `visiting = new Set<string>()` and `pathStack = string[]`.
+   - **Cycle Invariant**: If DFS encounters an edge pointing to a node already in `visiting`, a **cyclic back-edge** is discovered.
+3. **Black (Visited / Settled)**:
+   - The node and all of its prerequisite descendant subtrees have been fully explored with no cyclic back-edges.
+   - Maintained in: `visited = new Set<string>()`.
+   - The node is popped from `pathStack` and deleted from `visiting`.
+   - Any subsequent traversal reaching a Black node returns `null` immediately, pruning redundant work in $O(1)$ time.
 
-- Cycle detection logic: [src/engine/dependency.ts#10-47](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L10-L47)
-- Validation logic: [src/engine/dependency.ts#85-117](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L85-L117)
-- CLI integration: [src/cli/validate.ts#64-65](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L64-L65)
+### Cyclic Back-Edge Extraction via `pathStack`
+
+When a back-edge to an active Gray node is detected, `detectCycle` extracts the exact loop path slice from `pathStack`:
+
+```typescript
+// src/engine/dependency.ts
+function detectCycle(topics: Map<string, TopicNode>): string[] | null {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const pathStack: string[] = [];
+
+  function visit(id: string): string[] | null {
+    if (visiting.has(id)) {
+      // Found back-edge to active ancestor (Gray node)
+      const cycleStart = pathStack.indexOf(id);
+      return pathStack.slice(cycleStart).concat(id);
+    }
+    if (visited.has(id)) return null;
+
+    const topic = topics.get(id);
+    if (!topic) return null;
+
+    visiting.add(id);
+    pathStack.push(id);
+
+    const deps = getTopicDependencies(topic);
+    for (const depId of deps) {
+      const cycle = visit(depId);
+      if (cycle) return cycle;
+    }
+
+    pathStack.pop();
+    visiting.delete(id);
+    visited.add(id);
+    return null;
+  }
+
+  for (const id of topics.keys()) {
+    const cycle = visit(id);
+    if (cycle) return cycle;
+  }
+
+  return null;
+}
+```
+
+For example, if `pathStack` contains `['T-intro', 'T-react', 'T-hooks']` and `T-hooks` depends on `T-react`, `cycleStart = pathStack.indexOf('T-react')` (index 1), producing the exact cycle array:
+`['T-react', 'T-hooks', 'T-react']`.
 
 ---
 
-## Error Reporting
+## Graph Integrity Validation
 
-When the engine detects issues, it returns a `ValidationResult` containing `ValidationError` objects. The CLI formats these for the user:
+The `validateDependencyGraph` function is the primary entry point for curriculum integrity audits (`palee validate`).
 
-| Error Type | Key Data Provided | CLI Output Example |
-| --- | --- | --- |
-| `duplicate_id` | `id`, `files[]` | `Duplicate ID: T-123. Files: path/a.md, path/b.md` |
-| `missing_dependency` | `topic`, `missing` | `Missing dependency: Topic A depends on Topic B` |
-| `cycle` | `path[]` | `Dependency cycle: A → B → C → A` |
+### Validation Pipeline Diagram
+
+```mermaid
+flowchart TD
+    subgraph CLI ["CLI Layer (src/cli/validate.ts)"]
+        VC["validateCommand()"]
+        Load["loadTopics(vaultPath) &rarr; Map&lt;string, TopicNode&gt;"]
+    end
+
+    subgraph Engine ["Engine Layer (src/engine/dependency.ts)"]
+        VDG["validateDependencyGraph(topics)"]
+        CheckDangling["1. Prerequisite Existence Check<br/>(Find dangling depends_on / dependencies)"]
+        RunDFS["2. detectCycle(topics)<br/>(3-Color DFS Traversal)"]
+        CollectErrors["Aggregate ValidationError[]<br/>- missing_dependency<br/>- cycle"]
+    end
+
+    subgraph Result ["Validation Result"]
+        VResult["ValidationResult: { valid: boolean, errors: ValidationError[] }"]
+    end
+
+    VC --> Load
+    Load --> VDG
+    VDG --> CheckDangling
+    CheckDangling --> RunDFS
+    RunDFS --> CollectErrors
+    CollectErrors --> VResult
+    VResult --> VC
+```
+
+### Validation Error Catalog
+
+| Error Type | Fields | Trigger Condition | Exit Code | Example Error Message |
+|---|---|---|:---:|---|
+| `missing_dependency` | `topic`, `missing` | A prerequisite ID listed in `depends_on` does not exist in the vault. | `3` | `Topic T-react depends on missing topic T-html` |
+| `cycle` | `path` | Circular prerequisite reference detected by 3-color DFS. | `3` | `Circular dependency detected: T-a -> T-b -> T-c -> T-a` |
+
+---
+
+## Invariants and Guarantees
+
+| Invariant | Implementation Guarantee |
+|---|---|
+| **Acyclicity** | Curriculum must form a strict Directed Acyclic Graph (DAG). `detectCycle` returns `null`. |
+| **Prerequisite Gating** | Downstream topics are locked until all direct prerequisites achieve $\ge 0.70$ mastery. |
+| **Alias Equivalence** | `depends_on` and `dependencies` are treated identically with deduplicated IDs. |
+| **Deterministic Traversal** | 3-color DFS guarantees linear time $O(V + E)$ cycle detection without infinite recursion. |
 
 Sources:
-
-- Error types: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts) (referenced in [src/engine/dependency.ts#6](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L6-L6))
-- CLI formatting: [src/cli/validate.ts#90-100](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L90-L100)
+- Dependency Graph Engine: [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
+- Validation CLI Command: [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
+- Domain Types: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- Graph Test Suite: [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)

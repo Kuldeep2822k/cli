@@ -25,3 +25,25 @@ A topic is considered **mastered** and satisfies downstream dependencies when it
   - Clean floating point normalization clamped to $[0.0, 1.0]$.
 - **Negative / Tradeoffs**:
   - Requires evaluating topics across 4 dimensions rather than a single metric.
+
+## Alternatives Considered
+
+1. **Unweighted Equal Average (25% per Pillar)**:
+   - *Description*: $\text{mastery} = (c + p + d + f) / 4$.
+   - *Pros*: Simpler conceptual formulation.
+   - *Why Rejected*: Pedagogical research and Richard Feynman's learning heuristics demonstrate that the ability to articulate and explain a concept simply without jargon is the single strongest indicator of deep understanding. Double-weighting the Feynman dimension (40%) penalizes superficial rote knowledge.
+
+2. **1-Dimensional Traditional Recall Score (0.0 to 1.0)**:
+   - *Description*: Single scalar score representing overall familiarity.
+   - *Pros*: Low cognitive friction when recording a review.
+   - *Why Rejected*: Conflates theoretical memorization with practical execution. A developer might memorize a concept's definition but fail to debug a production outage or implement it in code.
+
+3. **Bloom's Revised Taxonomy 6-Tier Scoring Hierarchy**:
+   - *Description*: Evaluating Remember, Understand, Apply, Analyze, Evaluate, Create independently.
+   - *Pros*: Academically comprehensive educational framework.
+   - *Why Rejected*: 6 distinct evaluation dimensions impose excessive cognitive overhead on everyday study workflows. Four targeted dimensions (Conceptual, Practical, Debug, Feynman) capture software engineering workflows cleanly.
+
+4. **Time-Decayed Dynamic Mastery**:
+   - *Description*: Continuously decreasing mastery scores as time passes since the last review.
+   - *Why Rejected*: Conflates retrieval scheduling with fundamental competence. Temporal decay is already handled by SM-2 `due_at` and `ease_factor` intervals; modifying the underlying mastery score creates dual-decay instability in dependency graph prerequisites.
+

@@ -1,150 +1,263 @@
 # Reporting Commands
-Relevant source files
+
+Relevant source files:
 
 - [src/cli/dashboard.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts)
 - [src/cli/progress.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts)
 - [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
+- [src/storage/loader.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/loader.ts)
+- [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
+- [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
+- [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 
-Reporting commands provide visibility into the state of the learning vault. They aggregate data from Markdown frontmatter to generate mastery statistics, difficulty breakdowns, and identify structural integrity issues within the dependency graph.
+Reporting commands provide deep visibility into the educational health of your Obsidian vault. They scan topic frontmatter to calculate global mastery metrics, report difficulty distributions, track spaced repetition statistics, and detect structural integrity violations across the prerequisite graph.
 
-## Dashboard Command (`palee dashboard`)
+---
 
-The `dashboard` command provides a high-level summary of the vault's learning state. It calculates mastery percentages and identifies the next due item in the SRS (Spaced Repetition System) queue.
+## 1. Dashboard Command (`palee dashboard`)
 
-### Data Aggregation
+The `palee dashboard` command provides a high-level executive summary of your vault's learning state. It aggregates overall topic mastery percentages, tallies review queues, breaks down progress by difficulty tiers, and surfaces the single most urgent upcoming review.
 
-The command performs a sequential scan of the vault using `walkVault`[src/cli/dashboard.ts#31](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L31-L31) It filters for files containing a `palee_id` in their frontmatter [src/cli/dashboard.ts#41](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L41-L41)
+### Syntax & Options
 
-Key statistics are calculated based on the `topic_mastery` field:
+```bash
+palee dashboard [flags]
+```
 
-- Mastered: Topics with mastery $\ge 0.7$ [src/cli/dashboard.ts#90](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L90-L90)
-- Learning: Topics with $0 < \text{mastery} < 0.7$ [src/cli/dashboard.ts#91](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L91-L91)
-- New: Topics with mastery exactly $0$ [src/cli/dashboard.ts#92](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L92-L92)
+| Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `--json` | `boolean` | `false` | Output dashboard metrics as structured JSON (auto-activated in non-TTY environments). | `palee dashboard --json` |
 
-### Implementation Detail: Next Review Selection
+---
 
-The dashboard identifies the "Next Review" by filtering topics where `due_at` is less than or equal to the current system time [src/cli/dashboard.ts#93](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L93-L93) These are sorted by date to surface the most overdue topic [src/cli/dashboard.ts#108-113](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L108-L113)
+### Data Aggregation & Metric Calculations
 
-### Dashboard Logic Flow
+`dashboardCommand` scans all topic files in the vault and classifies notes using the 4-pillar mastery threshold ($M = 0.70$) [src/cli/dashboard.ts#88-114](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L88-L114):
 
-The following diagram illustrates how raw file data is transformed into dashboard metrics.
-
-Dashboard Data Transformation
+- **Mastered**: Topics with $\text{topic\_mastery} \ge 0.70$.
+- **Learning**: Topics actively in progress ($0.0 < \text{topic\_mastery} < 0.70$).
+- **New**: Unreviewed topics with $\text{topic\_mastery} = 0.0$.
+- **Reviews Due**: Topics where `due_at` is in the past or equal to the current system time.
+- **Difficulty Tiers**: Aggregated counts and mastered subtotals across `beginner`, `intermediate`, and `advanced` tiers.
 
 ```mermaid
 flowchart TD
-    subgraph subGraph2 ["Output Layer"]
-        O["Terminal Table / JSON"]
-    end
-    subgraph subGraph1 ["Aggregation Logic (dashboardCommand)"]
-        T["DashboardTopic Object"]
-        S["Stats Calculation"]
-        M["Mastery Pct"]
-        D["Difficulty Breakdown"]
-        NR["Next Review (Sort by due_at)"]
-    end
-    subgraph subGraph0 ["Storage Layer"]
-        V["walkVault()"]
-        F["File Contents"]
-        P["parseFrontmatter()"]
-    end
-    V --> F
-    F --> P
-    P --> T
-    T --> S
-    S --> M
-    S --> D
-    S --> NR
-    M --> O
-    D --> O
-    NR --> O
+    ScanVault["Scan Vault Notes (loadTopics)"] --> FilterTopics["Extract Topics with palee_id"]
+    FilterTopics --> MetricCalc["Calculate Aggregate Metrics"]
+    
+    MetricCalc --> Mastered["Mastered: topic_mastery &gt;= 0.70"]
+    MetricCalc --> Learning["Learning: 0.0 &lt; topic_mastery &lt; 0.70"]
+    MetricCalc --> New["New: topic_mastery == 0.0"]
+    MetricCalc --> Due["Reviews Due: due_at &lt;= now"]
+    MetricCalc --> DiffBreak["Difficulty Breakdown: Beginner / Inter / Adv"]
+    
+    Mastered & Learning & New & Due & DiffBreak --> FormatCheck{"isJsonOutput() ?"}
+    FormatCheck -->|"TTY (Console)"| RenderTable["Render Styled ASCII Boxed Dashboard"]
+    FormatCheck -->|"Non-TTY / --json"| RenderJSON["Emit Structured JSON to stdout"]
 ```
 
-Sources: [src/cli/dashboard.ts#24-58](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L24-L58)[src/cli/dashboard.ts#89-114](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L89-L114)
+### Example Human-Readable Output
+
+```bash
+$ palee dashboard
+╔════════════════════════════════════════════════════════════╗
+║              PALEE Learning Dashboard                     ║
+╚════════════════════════════════════════════════════════════╝
+
+Total Topics:      15
+Mastered (≥70%):   6 (40.0%)
+Learning:          7 (46.7%)
+New:               2 (13.3%)
+Due for Review:    3
+
+By Difficulty:
+  beginner       : 5 topics (4 mastered)
+  intermediate   : 7 topics (2 mastered)
+  advanced       : 3 topics (0 mastered)
+
+Next Review:
+  Memory Ownership (T-20260814T120100-efgh)
+  Mastery: 45.0% | Reps: 2
+
+─────────────────────────────────────────────────────────────
+Run "palee next" to start reviewing
+Run "palee plan" to see today's learning plan
+```
 
 ---
 
-## Progress Command (`palee progress`)
+## 2. Progress Command (`palee progress`)
 
-The `progress` command offers a more granular view of learning history compared to the dashboard. It supports both vault-wide summaries and specific topic lookups.
+The `palee progress` command offers granular analytics into learning retention, historical repetitions, lapse counts, and topic-specific mastery scores.
 
-### Topic-Specific Reporting
+### Syntax & Options
 
-When invoked with the `--topic` flag, the command searches for a match by ID or title [src/cli/progress.ts#79-82](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L79-L82) It displays detailed metadata including:
+```bash
+palee progress [flags]
+```
 
-- `repetition` and `lapses` counts [src/cli/progress.ts#115-116](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L115-L116)
-- `assessed_at` and `last_reviewed_at` timestamps [src/cli/progress.ts#117-122](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L117-L122)
-
-### Average Mastery Calculation
-
-Unlike the dashboard which counts topics by status, `progress` calculates the `avgMastery` across the entire vault or specific difficulty tiers [src/cli/progress.ts#131-133](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L131-L133)
-
-Sources: [src/cli/progress.ts#26-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L26-L53)[src/cli/progress.ts#78-122](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L78-L122)
+| Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `--topic <id>` | `string` | `undefined` | Inspect a specific topic by ID (e.g. `T-20260814T120000-abcd`) or unique title substring. | `palee progress --topic "Recursion"` |
+| `--json` | `boolean` | `false` | Output progress metrics as structured JSON (auto-activated in non-TTY environments). | `palee progress --json` |
 
 ---
 
-## Validate Command (`palee validate`)
+### Vault-Wide vs Topic-Specific Modes
 
-The `validate` command ensures the structural integrity of the Obsidian vault. It checks for three primary error types:
+#### 1. Vault-Wide Mode (Default)
+Aggregates all active topics across the vault [src/cli/progress.ts#140-233](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L140-L233):
+- **Archived Topic Exclusion**: Notes with `status: archived` in frontmatter are tracked separately and excluded from `global_mastery` and `active_topic_count`.
+- **Global Average Mastery**: Calculates the true mathematical mean of mastery across all active topics:
+  $$\text{Global Mastery} = \frac{1}{N_{\text{active}}} \sum_{i=1}^{N_{\text{active}}} \text{mastery}_i$$
+- **Mastery Status**: Classifies vault overall state as `'no_data'` ($N = 0$), `'learning'` ($< 0.70$), or `'mastered'` ($\ge 0.70$).
+- **Total Repetitions & Lapses**: Aggregates lifetime review repetitions and memory lapses across all active topics.
 
-1. Duplicate IDs: Multiple files sharing the same `palee_id`[src/cli/validate.ts#42-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L42-L53)
-2. Missing Dependencies: A topic referencing a `palee_id` that does not exist in the vault [src/cli/validate.ts#94-95](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L94-L95)
-3. Dependency Cycles: Circular references (e.g., A depends on B, B depends on A) which would break the scheduling engine [src/cli/validate.ts#96-97](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L96-L97)
+#### 2. Topic-Specific Mode (`--topic <id>`)
+Surfaces comprehensive SRS metadata for an individual topic note:
+- `topic_mastery` percentage
+- `difficulty` tier
+- `repetition` count and `lapses` count
+- `assessed_at` and `last_reviewed_at` timestamps
 
-### Validation Implementation
+### Example Outputs
 
-The command maps every valid topic into a `TopicNode`[src/cli/validate.ts#55-61](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L55-L61) This map is then passed to the `validateDependencyGraph` function in the engine core [src/cli/validate.ts#64](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L64-L64)
+#### Vault-Wide Human-Readable Summary
+```bash
+$ palee progress
+=== Learning Progress ===
 
-Validation Entity Mapping
+Active Topics: 14 (1 archived)
+  Mastered (≥70%): 6 (42.9%)
+  Learning: 6 (42.9%)
+  New: 2 (14.3%)
+
+Average Mastery: 54.3% (learning)
+Total Reviews: 28
+Total Lapses: 3
+
+By Difficulty:
+  beginner: 5 topics, avg mastery 78.0%
+  intermediate: 6 topics, avg mastery 48.3%
+  advanced: 3 topics, avg mastery 26.7%
+```
+
+#### Topic Lookup
+```bash
+$ palee progress --topic "Recursion"
+Progress for: Recursion and Backtracking
+ID: T-20260814T120000-abcd
+Path: DSA/Recursion.md
+
+Mastery: 80.0%
+Difficulty: advanced
+Repetitions: 5
+Lapses: 0
+Last Assessed: 2026-08-25
+Last Reviewed: 2026-08-25
+```
+
+---
+
+## 3. Validate Command (`palee validate`)
+
+The `palee validate` command performs static analysis on the entire Obsidian vault to verify data model integrity and prerequisite graph acyclicity.
+
+### Syntax & Options
+
+```bash
+palee validate [flags]
+```
+
+| Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `--fix` | `boolean` | `false` | Attempt automated repairs for detected validation errors (Phase 1 diagnostic flag). | `palee validate --fix` |
+| `--json` | `boolean` | `false` | Output validation diagnostics as structured JSON (auto-activated in non-TTY environments). | `palee validate --json` |
+
+---
+
+### Vault Structural Integrity Rules
+
+`validateCommand` constructs an in-memory graph of all topics and checks for three critical integrity errors [src/cli/validate.ts#35-109](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L35-L109):
+
+1. **Duplicate Topic IDs (`duplicate_id`)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
+2. **Missing Dependencies (`missing_dependency`)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault.
+3. **Dependency Cycles (`cycle`)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected using 3-color DFS graph traversal in the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts).
 
 ```mermaid
 flowchart LR
-    subgraph subGraph1 ["Natural Language Space"]
-        ID["Unique Identifier"]
-        DEP["Dependency List"]
-        GR["Graph Node"]
-        CYC["Cycle Detection"]
-        ERR["Integrity Violation"]
+    subgraph Storage ["Vault Storage (.md Files)"]
+        FM1["Note 1 Frontmatter"]
+        FM2["Note 2 Frontmatter"]
     end
-    subgraph subGraph0 ["Code Entity Space"]
-        FM["frontmatter.palee_id"]
-        DO["frontmatter.depends_on"]
-        TN["TopicNode (Interface)"]
-        VDG["validateDependencyGraph()"]
-        VE["ValidationError"]
+    
+    subgraph Analyzer ["Validation Engine (validateCommand)"]
+        DupCheck{"Duplicate palee_id ?"}
+        MapBuild["Build TopicNode Map"]
+        GraphCheck{"validateDependencyGraph()"}
     end
-    FM --> ID
-    DO --> DEP
-    TN --> GR
-    VDG --> CYC
-    VE --> ERR
-    ID --> GR
-    DEP --> GR
-    GR --> CYC
-    CYC --> ERR
+    
+    subgraph Errors ["Diagnostic Errors (Exit 3)"]
+        ErrDup["duplicate_id: [fileA, fileB]"]
+        ErrMiss["missing_dependency: topic -> target"]
+        ErrCyc["cycle: [A -> B -> C -> A]"]
+    end
+    
+    Storage --> DupCheck
+    DupCheck -->|"Duplicate Found"| ErrDup
+    DupCheck -->|"Unique IDs"| MapBuild
+    MapBuild --> GraphCheck
+    GraphCheck -->|"Missing Prerequisite"| ErrMiss
+    GraphCheck -->|"Cycle Detected"| ErrCyc
+    GraphCheck -->|"All Passed"| Success["✓ 0 Errors Found (Exit 0)"]
 ```
 
-Sources: [src/cli/validate.ts#28-65](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L28-L65)[src/engine/dependency.ts#12](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L12-L12)
+### Example Human-Readable Output (Failures Detected)
+
+```bash
+$ palee validate
+Validating vault: /Users/dev/ObsidianVault
+
+Found 18 PALEE topics in 24 files
+
+✗ Found 2 validation error(s):
+
+  • Missing dependency: T-cloud-native depends on T-docker-missing
+
+  • Dependency cycle: T-topic-a → T-topic-b → T-topic-a
+```
 
 ---
 
-## Machine-Readable Output (--json)
+## 4. Machine-Readable Output & Non-TTY Detection
 
-All reporting commands support a `--json` flag for integration with external tools or IDE plugins.
+All reporting commands support the PALEE automated JSON streaming contract (`isJsonOutput()`):
 
-### Standardized Error Handling
+```bash
+# Direct JSON piping to jq for CI/CD checks
+$ palee validate | jq .valid
+true
 
-In JSON mode, errors (such as an unconfigured vault) are emitted as structured JSON to `stderr` with a specific exit code [test/cli-json-output.test.ts#68-75](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L68-L75)
+# Extract total reviews due from dashboard
+$ palee dashboard | jq .reviews_due
+3
+```
 
-### JSON Schema Patterns
+### Structured Error Handling
 
-The output structure is designed to be deterministic. For example, `palee validate --json` returns an object containing `valid` (boolean), `topic_count`, and an `errors` array [src/cli/validate.ts#68-74](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L68-L74) If the vault is empty, the commands return a valid JSON object with zeroed fields rather than an error [test/cli-json-output.test.ts#87-128](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L87-L128)
+When an error occurs (such as an unconfigured vault or a missing topic query in `--topic`), PALEE emits a structured error JSON object on `stderr` and exits with code `2`:
 
-| Command | Key JSON Fields | Exit Code (Error) |
-| --- | --- | --- |
-| `dashboard` | `total_topics`, `mastered_pct`, `next_review` | 5 (Runtime) |
-| `progress` | `avg_mastery`, `total_reviews`, `by_difficulty` | 2 (Not Found) |
-| `validate` | `valid`, `error_count`, `errors[]` | 3 (Validation Fail) |
+```json
+{"error": "Topic not found: NonExistentTopic"}
+```
 
-Sources: [src/cli/dashboard.ts#117-147](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L117-L147)[src/cli/progress.ts#142-171](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L142-L171)[src/cli/validate.ts#67-79](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L67-L79)[test/cli-json-output.test.ts#14-40](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L14-L40)
+---
+
+## 5. Exit Codes for Reporting Commands
+
+| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `palee dashboard` | Successfully displayed dashboard metrics or empty vault onboarding. | N/A | Vault path not configured or directory does not exist. | N/A | N/A | Unexpected runtime exception or calculation failure. |
+| `palee progress` | Successfully displayed vault progress summary, topic detail (`--topic`), or empty vault state. | N/A | Vault path unconfigured, or topic query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
+| `palee validate` | Vault validation passed with 0 structural errors. | N/A | Vault path not configured or invalid directory. | Validation errors found (duplicate `palee_id`, missing dependency, or cycle). | N/A | Unexpected runtime exception or directory walk failure. |

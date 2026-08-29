@@ -41,11 +41,10 @@ export default withMermaid(
         { text: 'CLI Commands', link: '/02-0-cli-commands' },
         { text: 'Engine Core', link: '/03-0-engine-core' },
         { text: 'Storage Layer', link: '/04-0-storage-layer' },
-        { text: 'Architecture', link: '/01-2-architecture-overview' },
         { text: 'ADRs', link: '/adr/README' },
         { text: 'Glossary', link: '/09-glossary' },
         {
-          text: 'v0.2.0',
+          text: 'v0.3.1',
           items: [
             { text: 'Changelog', link: 'https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md' },
             { text: 'GitHub Releases', link: 'https://github.com/Kuldeep2822k/cli/releases' },
