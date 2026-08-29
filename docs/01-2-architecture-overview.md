@@ -1,5 +1,6 @@
 # Architecture Overview
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
@@ -8,6 +9,8 @@ Relevant source files
 - [planning/TRIGGER_TRACKER.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/TRIGGER_TRACKER.md?plain=1)
 - [planning/VALIDATION_FRAMEWORK_VERDICT.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/VALIDATION_FRAMEWORK_VERDICT.md?plain=1)
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
+
+</details>
 
 PALEE (Personal Active Learning & Evaluation Engine) is structured as a three-layer system designed to bridge deterministic learning algorithms with flexible AI-powered tutoring. The architecture prioritizes the Obsidian vault as the single source of truth, ensuring that all learning data remains human-readable, versionable, and portable [planning/palee_cli_spec.md#20-31](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L20-L31)
 

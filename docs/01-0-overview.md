@@ -1,11 +1,14 @@
 # Overview
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [bin/palee.ts](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts)
 - [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/index.ts)
+
+</details>
 
 The Personal Active Learning & Evaluation Engine (PALEE) is a smart, AI-powered study tracker designed to optimize learning through a deterministic core of spaced repetition and dependency-aware recommendations. It integrates natively with Obsidian vaults, treating Markdown files as the canonical source of truth for both learning content and progress metadata.
 

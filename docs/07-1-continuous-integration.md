@@ -1,5 +1,6 @@
 # Continuous Integration
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [.c8rc.json](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json)
 - [.github/PULL_REQUEST_TEMPLATE.md](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1)
@@ -13,6 +14,8 @@ Relevant source files
 - [.github/workflows/sync-labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml)
 - [LICENSE](https://github.com/Kuldeep2822k/cli/blob/main/LICENSE)
 - [eslint.config.mjs](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs)
+
+</details>
 
 The PALEE Continuous Integration (CI) infrastructure ensures code quality, cross-platform compatibility, and security through automated workflows. The pipeline validates every commit and Pull Request (PR) against strict linting rules, type checks, unit tests, and smoke tests across Linux, Windows, and macOS.
 
@@ -107,6 +110,36 @@ Sources:[.github/workflows/pr-sanitizer.yml#1-36](https://github.com/Kuldeep2822
 
 ## Security and Invariants
 
+### Supply-Chain Security & 40-Character Commit SHA Pinning
+
+To safeguard against supply-chain poisoning and mutable tag hijacking (where a compromised repository tag like `@v4` or `@v7` delivers malicious payloads), all PALEE GitHub Actions workflows strictly enforce **full 40-character commit SHA pinning** with descriptive inline semantic version comments.
+
+#### Master Workflow Pinning Audit
+
+| Workflow File | Action Name | Pinned Commit SHA (40-char) | Comment Tag | Purpose |
+|---|---|---|---|---|
+| `.github/workflows/ci.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Hermetic code checkout |
+| `.github/workflows/ci.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Node.js runtime initialization |
+| `.github/workflows/deploy-docs.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Docs source checkout |
+| `.github/workflows/deploy-docs.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Docs build Node setup |
+| `.github/workflows/deploy-docs.yml` | `actions/configure-pages` | `983d7736d9b0ae728b81ab479565c72886d7745b` | `# v5.0.0` | GitHub Pages configuration |
+| `.github/workflows/deploy-docs.yml` | `actions/upload-pages-artifact` | `fc324d3547104276b827a68afc52ff2a11cc49c9` | `# v5.0.0` | VitePress HTML artifact upload |
+| `.github/workflows/deploy-docs.yml` | `actions/deploy-pages` | `d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` | `# v4.0.5` | Pages deployment |
+| `.github/workflows/release.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Release checkout |
+| `.github/workflows/release.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | NPM pack & publish Node setup |
+| `.github/workflows/release.yml` | `actions/upload-artifact` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | `# v7.0.1` | Stash release tarball |
+| `.github/workflows/release.yml` | `actions/download-artifact` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | `# v8.0.1` | Fetch verified tarball |
+| `.github/workflows/release.yml` | `softprops/action-gh-release` | `3d0d9888cb7fd7b750713d6e236d1fcb99157228` | `# v3.0.2` | Publish GitHub release & assets |
+| `.github/workflows/security.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Security scanner checkout |
+| `.github/workflows/security.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Security scanner Node setup |
+| `.github/workflows/pr-labeler.yml` | `actions/labeler` | `8558be74a3edee8416ec1b285b0266ef6101c13d` | `# v5.0.0` | PR categorization |
+| `.github/workflows/sync-labels.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Label sync checkout |
+| `.github/workflows/sync-labels.yml` | `crazy-max/ghaction-github-labeler` | `de749f56396740be8be9ec88cb7ef31e405a3064` | `# v5.2.0` | Sync labels from YAML |
+
+#### Dependabot Automated Maintenance
+
+As configured in `.github/dependabot.yml` (`package-ecosystem: "github-actions"`), Dependabot automatically scans for new action releases weekly. When an upstream action publishes an update, Dependabot generates a Pull Request updating the 40-character commit SHA while preserving the human-readable `# vX.Y.Z` inline version comment.
+
 ### Native Module Guardrail
 
 A critical security invariant in PALEE is the exclusion of native binaries from the production dependency tree to ensure cross-platform portability and reduce attack surface. The `security.yml` workflow enforces this via a custom script [.github/workflows/security.yml#46-101](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/security.yml#L46-L101)
@@ -153,7 +186,7 @@ classDiagram
     }
     class NPM_Scripts {
         +check: eslint + tsc
-        +build: tsup
+        +build: tsc
         +test:coverage: c8 + node:test
     }
     class Source_Code

@@ -1,136 +1,174 @@
 # Session Management Command
-Relevant source files
 
-- [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
-- [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
+<details>
+<summary><b>Relevant Source Files</b></summary>
+
 - [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
-- [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+- [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
+- [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
+- [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
+- [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
+- [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+- [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
 
-The `palee session` command suite manages the active learning state and persistence of session notes. It bridges the gap between the static vault content and the user's current learning focus, utilizing a "working memory" file (`hot.md`) and a structured session history in `.palee/sessions/`.
+</details>
 
-## Session Lifecycle
+The `palee session` command suite manages the real-time learning lifecycle, active focus tracking, and persistence of study session records. It maintains a short-term "working memory" file (`.palee/hot.md`), a chronological session index (`.palee/index.md`), and durable session notes in `.palee/sessions/`.
 
-A session represents a focused period of learning on a specific topic. The lifecycle involves transitioning from a draft state (unconfirmed) to a confirmed session record.
+---
 
-### 1. Topic Resolution
+## 1. Session Lifecycle & Architecture
 
-When starting or ending a session, the system must identify the `active_topic`. The resolution follows a strict hierarchy:
+A session represents an active period of study focused on a single PALEE topic. The lifecycle encompasses topic resolution, working memory synchronization, interim draft checkpoints, and final session confirmation.
 
-1. CLI Flag: Explicitly provided via `--topic <id>`[src/cli/session.ts#24-30](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L24-L30)
-2. Working Memory: The `active_topic` field in the frontmatter of `.palee/hot.md`[src/cli/session.ts#33-46](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L33-L46)
-3. Fallback: If neither is found or the value is `(none)`, the command fails for actions requiring a topic [src/cli/session.ts#52-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L52-L53)
+### Topic Resolution Hierarchy
 
-### 2. Working Memory (`hot.md`)
+When running commands that require an active study target (`draft`, `end`), PALEE resolves the target topic using a strict three-tier hierarchy via `resolveSessionTopic()` [src/cli/session.ts#24-54](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L24-L54):
 
-The `hot.md` file serves as the system's "working memory." It is automatically rebuilt or updated during session operations to reflect the current state of the vault and the active topic [src/cli/session.ts#98-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L98-L115)
+1. **CLI Flag Override**: Explicitly specified via `--topic <id>` (e.g. `--topic "T-rust-ownership"`).
+2. **Working Memory Inspection**: Extracted from the `active_topic` frontmatter property of `.palee/hot.md`.
+3. **Missing Topic Error**: If neither is present or the value is `(none)`, the command terminates with exit code `2`.
 
-### 3. Draft Recovery
+---
 
-If the CLI detects unconfirmed files (prefixed with `DRAFT-S-`) in the session directory, it triggers a recovery flow [src/cli/session.ts#63-95](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L63-L95) In interactive mode, users can:
+### Working Memory (`hot.md`) & Index (`index.md`)
 
-- Resume: Continue the session.
-- Save: Convert the draft into a confirmed session note.
-- Discard: Delete the draft file.
-- Ignore: Leave the draft as-is.
+- **`.palee/hot.md` (Working Memory)**: Automatically generated and refreshed by `rebuildHotAndIndex()` [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts). Contains metadata on the current active topic, timestamp of last update, and a truncated 250-word working memory excerpt of the note body for quick context recovery.
+- **`.palee/index.md` (Session Index)**: Chronological index of completed learning sessions, cross-referenced with topic IDs.
 
-Session Data Flow
+---
+
+### Draft Recovery Protocol
+
+If an unexpected interruption occurs (such as terminal closure or system reboot), PALEE leaves an unconfirmed draft note (`DRAFT-S-<hex>.md`) in `.palee/sessions/`.
+
+When `palee session start` is executed:
+- **Non-Interactive Mode**: Alerts the user that unconfirmed drafts exist and suggests running `palee session start --interactive`.
+- **Interactive Mode (`-i, --interactive`)**: Prompts the user with four recovery options for each orphaned draft [src/cli/session.ts#83-95](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L83-L95):
+  - `[R]esume`: Continues the previous session, retaining the draft.
+  - `[S]ave`: Immediately finalizes and converts the draft into a confirmed session note (`S-*.md`).
+  - `[D]iscard`: Permanently deletes the orphaned draft checkpoint.
+  - `[I]gnore`: Leaves the draft file untouched on disk.
 
 ```mermaid
-flowchart LR
-    subgraph subGraph2 ["Storage: .palee/"]
-        HOT_MD["hot.md (Frontmatter)"]
-        SESS_DIR[".palee/sessions/"]
-        DRAFT_FILE["DRAFT-S-*.md"]
-        SESS_FILE["S-*.md"]
-    end
-    subgraph subGraph1 ["Logic: sessionCommand"]
-        RES["resolveSessionTopic()"]
-        REC["recoverDraft()"]
-        HOT["rebuildHotAndIndex()"]
-    end
-    subgraph subGraph0 ["CLI Space"]
-        START["palee session start"]
-        DRAFT["palee session draft"]
-        END["palee session end"]
-    end
-    START --> RES
-    RES -.-> HOT_MD
-    START --> REC
-    REC --> DRAFT_FILE
-    DRAFT --> DRAFT_FILE
-    END --> SESS_FILE
-    END --> DRAFT_FILE
-    END --> HOT
-    HOT --> HOT_MD
+flowchart TD
+    StartCmd["palee session start [-i]"] --> ScanDrafts["Scan .palee/sessions/ for DRAFT-S-*.md"]
+    
+    ScanDrafts --> HasDrafts{"Unconfirmed Drafts Found?"}
+    HasDrafts -->|"No"| SyncHot["Verify & Sync Working Memory (.palee/hot.md)"]
+    
+    HasDrafts -->|"Yes"| InterCheck{"Interactive Mode (-i)?"}
+    InterCheck -->|"No"| WarnDraft["Print Draft Warning & Guidance"]
+    InterCheck -->|"Yes"| PromptRecovery["Prompt User: [R]esume / [S]ave / [D]iscard / [I]gnore"]
+    
+    PromptRecovery --> ExecuteAction["recoverDraft() Action Executed"]
+    ExecuteAction --> SyncHot
+    WarnDraft --> SyncHot
+    
+    SyncHot --> PrintHot["Display Active Topic & Working Memory Excerpt"]
 ```
 
-Sources:[src/cli/session.ts#23-189](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L23-L189)[src/storage/memory.ts#1-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L1-L50)
+---
+
+## 2. Command Subactions
+
+The `palee session` command accepts four distinct action arguments:
+
+### 1. `palee session start`
+Initializes the study environment:
+- Scans `.palee/sessions/` for unconfirmed draft checkpoints.
+- Rebuilds `hot.md` if missing or corrupted (schema invalid).
+- Prints the active topic ID, last session timestamp, and the working memory body excerpt from `hot.md`.
+
+```bash
+# Start study session in interactive recovery mode
+palee session start --interactive
+```
+
+### 2. `palee session draft`
+Captures an interim checkpoint during an ongoing study session without closing the session:
+- Generates a unique draft identifier (`DRAFT-S-<random_hex>`).
+- Persists a draft markdown file in `.palee/sessions/` containing `topic_id` and `started_at` in frontmatter.
+
+```bash
+# Capture a checkpoint for the active topic
+palee session draft
+
+# Capture a checkpoint for an explicit topic
+palee session draft --topic "T-20260814T120000-abcd"
+```
+
+### 3. `palee session end`
+Concludes the study period and formalizes the session:
+- Resolves the target topic ID (via `--topic` or `hot.md`).
+- Generates a confirmed session ID (`S-YYYYMMDDTHHMMSS-<hex>.md`) and writes the permanent session note.
+- Automatically cleans up any pending `DRAFT-S-` files associated with the topic.
+- Executes `rebuildHotAndIndex()` to refresh `hot.md` and `index.md`.
+
+```bash
+# Finalize the current study session
+palee session end --topic "T-20260814T120000-abcd"
+```
+
+### 4. `palee session list`
+Displays session history and pending drafts:
+- Lists the most recent 10 confirmed sessions in chronological order.
+- Lists all active draft checkpoints awaiting resolution.
+- Supports `--json` for machine-readable integrations.
+
+```bash
+# List sessions in terminal
+palee session list
+
+# Output structured session JSON
+palee session list --json
+```
 
 ---
 
-## Command Details
+## 3. Options Reference for `palee session`
 
-### `palee session start`
+The following table lists all supported arguments and options for `palee session` [src/types.ts#464-474](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L464-L474):
 
-Initializes the learning environment.
-
-- Draft Check: Scans `.palee/sessions/` for `DRAFT-S-` files [src/cli/session.ts#63-67](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L63-L67)
-- Memory Validation: Validates `hot.md`. If corrupt (missing `palee_schema`), it triggers a full rebuild using `rebuildHotAndIndex`[src/cli/session.ts#107-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L107-L115)
-- Display: Prints the current `active_topic`, `last_session` timestamp, and the body content of `hot.md`[src/cli/session.ts#121-131](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L121-L131)
-
-### `palee session draft`
-
-Captures an intermediate state without ending the session.
-
-- ID Generation: Creates a unique ID using `generateDraftId()`[src/cli/session.ts#143](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L143-L143)
-- Persistence: Writes a Markdown file with `topic_id` and `started_at` in the frontmatter via `writeDraftCheckpoint()`[src/cli/session.ts#144-147](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L144-L147)
-
-### `palee session end`
-
-Finalizes the learning period.
-
-- Record Creation: Generates a confirmed session ID (e.g., `S-20231027T103000-abcd`) and writes the final note [src/cli/session.ts#162-169](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L162-L169)
-- Cleanup: Automatically deletes any `DRAFT-S-` files associated with the current `topic_id`[src/cli/session.ts#172-180](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L172-L180)
-- Index Update: Triggers `rebuildHotAndIndex()` to ensure `index.md` and `hot.md` reflect the newly completed session [src/cli/session.ts#183](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L183-L183)
-
-### `palee session list`
-
-Provides a summary of session history.
-
-- JSON Mode: If `--json` is passed, returns a structured object containing lists of `confirmed` and `draft` sessions [src/cli/session.ts#194-202](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L194-L202)
-- Human Readable: Lists confirmed sessions and highlights pending drafts [src/cli/session.ts#204-219](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L204-L219)
-
-Sources:[src/cli/session.ts#55-220](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L55-L220)[src/storage/memory.ts#55-120](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L55-L120)
+| Parameter / Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `<action>` | `string` | **Required** | Session action to perform: `start`, `draft`, `end`, or `list`. | `palee session start` |
+| `-i, --interactive` | `boolean` | `false` | Enable interactive prompt mode for draft recovery during `palee session start`. | `palee session start -i` |
+| `--topic <id>` | `string` | `undefined` | Target topic ID. Overrides the `active_topic` defined in `.palee/hot.md`. | `palee session end --topic "T-01"` |
+| `--json` | `boolean` | `false` | Output results as structured JSON (supported for `palee session list`). | `palee session list --json` |
 
 ---
 
-## Implementation and Data Synchronization
+## 4. Physical Storage Layout
 
-The session management relies on the `src/storage/memory.ts` module to handle the physical file layout within the `.palee/` directory.
+All session metadata is isolated within the `.palee/` directory at the vault root:
 
-- Confirmed: `S-<TIMESTAMP>-<RANDOM_HEX>.md` [src/storage/memory.ts#31-36](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L31-L36)
-- Draft: `DRAFT-S-<RANDOM_HEX>.md` [src/storage/memory.ts#38-41](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L38-L41)
+```
+<vaultPath>/
+├── .palee/
+│   ├── hot.md                     # Active working memory & topic context
+│   ├── index.md                   # Chronological session index
+│   └── sessions/
+│       ├── S-20260814T120000-abcd.md       # Confirmed session record
+│       ├── S-20260814T153000-efgh.md       # Confirmed session record
+│       └── DRAFT-S-98765432.md             # Unconfirmed draft checkpoint
+└── Topics/
+    └── Topic-Note.md
+```
 
-### Memory Synchronization Logic
+### File Naming Specifications
 
-The function `rebuildHotAndIndex` is the core synchronization mechanism. It performs a "Join" between the Topic files and the Session records.
+| File Type | Path Pattern | Frontmatter Key Fields |
+| :--- | :--- | :--- |
+| **Working Memory** | `.palee/hot.md` | `palee_schema: 1`, `active_topic: string`, `last_session: string`, `updated_at: string` |
+| **Confirmed Session** | `.palee/sessions/S-<TIMESTAMP>-<HEX>.md` | `session_id: string`, `topic_id: string`, `started_at: string`, `ended_at: string` |
+| **Draft Checkpoint** | `.palee/sessions/DRAFT-S-<HEX>.md` | `topic_id: string`, `started_at: string` |
 
-Logic: rebuildHotAndIndex
+---
 
-1. Walk Vault: Finds all Markdown files with a `palee_id`[src/storage/vault-walker.ts#38-43](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L38-L43)
-2. Collect Sessions: Reads all `.md` files in `.palee/sessions/`[src/cli/session.ts#192-200](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L192-L200)
-3. Determine Active: Looks for the most recent session or draft to set the `active_topic`[src/cli/session.ts#32-46](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L32-L46)
-4. Update hot.md: Writes the frontmatter and truncates the body of the active topic to a 250-word "Working Memory" snippet [src/storage/memory.ts#230-250](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L230-L250)
+## 5. Exit Codes for Session Management
 
-Code Entity Bridge: Storage to Memory
-
-| Concept | Code Entity | File Reference |
-| --- | --- | --- |
-| Draft Recovery | `recoverDraft()` | [src/storage/memory.ts#19-20](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L19-L20) |
-| Hot Memory Update | `updateHotMemory()` | [src/storage/memory.ts#13-15](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L13-L15) |
-| Session Writing | `writeSessionNote()` | [src/storage/memory.ts#14-16](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L14-L16) |
-| Frontmatter Parsing | `parseFrontmatter()` | [src/storage/frontmatter.ts#18-20](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L18-L20) |
-| Topic Resolution | `resolveSessionTopic()` | [src/cli/session.ts#23-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L23-L53) |
-
-Sources:[src/cli/session.ts#23-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L23-L53)[src/storage/memory.ts#1-250](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L1-L250)[src/storage/frontmatter.ts#10-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L50)
+| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `palee session` | Session action (`start`, `draft`, `end`, `list`) completed successfully. | N/A | Vault path not configured, missing `--topic` for `draft`/`end` when no active topic exists, or unknown action specified. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or file system write failure. |

@@ -9,4 +9,8 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 .agents/
 skills-lock.json
+PRE_AI_ISSUE_EXECUTION_PLAN.md
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
 

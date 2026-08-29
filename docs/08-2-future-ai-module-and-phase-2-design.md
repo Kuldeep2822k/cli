@@ -1,11 +1,14 @@
 # Future: AI Module and Phase 2 Design
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [agent.md](https://github.com/Kuldeep2822k/cli/blob/main/agent.md?plain=1)
 - [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
 - [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
+
+</details>
 
 This page outlines the planned evolution of PALEE (Personal Active Learning & Evaluation Engine) beyond its core deterministic features. It details the AI tutoring architecture, the transition to guided learning flows, and the resolution of architectural gaps identified during Phase 1.
 

@@ -1,5 +1,6 @@
 # Storage Layer
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
 - [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)
@@ -11,16 +12,18 @@ Relevant source files
 - [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 
+</details>
+
 The Storage Layer is responsible for managing the Obsidian vault as the canonical source of truth[planning/storage_design.md#3-5](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L3-L5) It ensures that all modifications to Markdown notes are safe, non-destructive, and conflict-aware. By treating the vault as a filesystem-based database, PALEE allows users to use their own editors (like Obsidian) while providing a robust interface for the engine core.
 
 ### The File-Safety Contract
 
 PALEE operates under a strict file-safety contract to prevent data loss or corruption in a multi-process environment:
 
-1. CST-Preserving Updates: Modifications only touch PALEE-owned frontmatter keys, preserving user comments, ordering, and unknown plugin metadata [planning/storage_design.md#7-19](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L7-L19)
-2. Optimistic Concurrency Control (OCC): Before writing, PALEE verifies a SHA-256 fingerprint of the file to ensure it hasn't changed since it was last read [src/storage/atomic-write.ts#31-38](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L31-L38)
-3. Atomic Replacement: Files are written to a temporary location and then renamed to the target path to prevent partial writes [src/storage/atomic-write.ts#40-56](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L40-L56)
-4. Exclusive Locking: A directory-based locking mechanism prevents PALEE-to-PALEE race conditions [src/storage/atomic-write.ts#23-28](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L23-L28)
+1. **CST-Preserving Updates**: Modifications only touch PALEE-owned frontmatter keys, preserving user comments, ordering, and unknown plugin metadata byte-for-byte [planning/storage_design.md#7-19](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L7-L19).
+2. **Optimistic Concurrency Control (OCC)**: Before modifying a note, PALEE validates the SHA-256 content fingerprint against disk state (`computeFingerprint(currentContent)`). Any mismatch aborts the write with `ECONFLICT` (mapped to CLI exit code `4`), preventing the overwriting of external changes made in Obsidian or sync daemons [src/storage/atomic-write.ts#81-117](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L81-L117).
+3. **Atomic Replacement**: Files are written to an isolated temporary file (`<target>.tmp.<pid>`), flushed to non-volatile media with `fsyncSync`, and atomically renamed over the target path to prevent torn or partial writes [src/storage/atomic-write.ts#119-152](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L119-L152).
+4. **Exclusive Locking**: A directory-based mutex locking mechanism (`.palee/locks/<hash>.lockdir`) prevents PALEE-to-PALEE race conditions across POSIX and Windows [src/storage/lock.ts#8-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L50).
 
 ### Code Entity Space Mapping
 
@@ -50,17 +53,17 @@ flowchart LR
     CH --> Note
 ```
 
-Sources:[src/storage/vault-walker.ts#6-8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L6-L8)[src/storage/frontmatter.ts#6-7](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L6-L7)[src/storage/atomic-write.ts#7-23](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L7-L23)[src/storage/lock.ts#3](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L3-L3)[src/storage/cache.ts#6-8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L6-L8)
+Sources:[src/storage/vault-walker.ts#6-8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L6-L8)[src/storage/frontmatter.ts#6-7](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L6-L7)[src/storage/atomic-write.ts#14-17](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L14-L17)[src/storage/lock.ts#8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L8)[src/storage/cache.ts#11-13](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L11-L13)
 
 ---
 
 ### 4.1 Frontmatter Parser and Atomic Writes
 
-This component handles the low-level manipulation of Markdown files. It uses a YAML Concrete Syntax Tree (CST) parser to ensure that updating learning statistics doesn't destroy user formatting or third-party plugin data. The atomic write process includes a specialized retry loop for Windows to handle `EPERM` or `EBUSY` errors common in synced folders (e.g., Dropbox, iCloud).
+This component handles the low-level manipulation of Markdown files. It uses a YAML Concrete Syntax Tree (CST) parser to ensure that updating learning statistics doesn't destroy user formatting or third-party plugin data. The atomic write process includes an OCC fingerprint verification check (raising `ECONFLICT` on mismatch, mapped to exit code 4) and a specialized retry loop for Windows to handle `EPERM` or `EBUSY` errors common in synced folders (e.g., Dropbox, iCloud).
 
 For details, see [Frontmatter Parser and Atomic Writes](./04-1-frontmatter-parser-and-atomic-writes.md).
 
-Sources:[src/storage/frontmatter.ts#10-57](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L57)[src/storage/atomic-write.ts#42-73](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L42-L73)
+Sources:[src/storage/frontmatter.ts#10-61](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L61)[src/storage/atomic-write.ts#47-159](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L47-L159)
 
 ### 4.2 File Locking
 
@@ -68,15 +71,15 @@ PALEE implements a cooperative locking mechanism using directory creation (`mkdi
 
 For details, see [File Locking](./04-2-file-locking.md).
 
-Sources:[src/storage/lock.ts#23-27](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L23-L27)[planning/storage_design.md#56-71](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L56-L71)
+Sources:[src/storage/lock.ts#8-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L50)[planning/storage_design.md#56-71](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L56-L71)
 
 ### 4.3 Vault Walker and File Cache
 
-The `walkVault` function recursively discovers Markdown files while strictly ignoring internal directories like `.git`, `node_modules`, and Obsidian's internal `.obsidian` folder. To improve performance, a `FileCache` tracks file metadata, utilizing a "2-second unsettled horizon" to force re-validation of files that were modified very recently.
+The `walkVault` function recursively discovers Markdown files while strictly ignoring internal directories like `.git`, `node_modules`, and Obsidian's internal `.obsidian` folder. To optimize performance, a `FileCache` tracks file metadata, utilizing a 2-second unsettled horizon (`UNSETTLED_HORIZON = 2000`) to force SHA-256 fingerprint re-validation of recently modified files, and a SHA-256 fallback mechanism to preserve cache entries when `mtime` shifts without content changes.
 
 For details, see [Vault Walker and File Cache](./04-3-vault-walker-and-file-cache.md).
 
-Sources:[src/storage/vault-walker.ts#10-12](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L10-L12)[src/storage/vault-walker.ts#73-85](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L73-L85)[src/storage/cache.ts#10-13](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L10-L13)[src/storage/cache.ts#36-53](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L36-L53)
+Sources:[src/storage/vault-walker.ts#14-93](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L93)[src/storage/cache.ts#16-107](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L16-L107)
 
 ### 4.4 Session Memory Storage
 
@@ -114,4 +117,4 @@ sequenceDiagram
     AW-->>CLI: Success
 ```
 
-Sources:[src/storage/vault-walker.ts#14-93](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L93)[src/storage/cache.ts#20-80](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L20-L80)[src/storage/frontmatter.ts#10-31](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L31)[src/storage/atomic-write.ts#22-82](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L22-L82)
+Sources:[src/storage/vault-walker.ts#14-93](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L93)[src/storage/cache.ts#47-107](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L47-L107)[src/storage/frontmatter.ts#10-61](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L61)[src/storage/atomic-write.ts#47-159](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L47-L159)

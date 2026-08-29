@@ -21,8 +21,8 @@
 [data-mermaid],
 .vp-mermaid {
   position: relative;
-  background: #000000 !important;
-  border: 1px solid #1e2430;
+  background: var(--vp-c-bg-soft) !important;
+  border: 1px solid var(--vp-c-divider);
   border-radius: 10px;
   padding: 24px 20px 20px 20px;
   margin: 20px 0;
@@ -35,6 +35,23 @@
 .mermaid:hover,
 [data-mermaid]:hover,
 .vp-mermaid:hover {
+  border-color: var(--vp-c-brand-1, #3b82f6);
+  box-shadow: 0 4px 24px var(--vp-c-brand-soft, rgba(59, 130, 246, 0.12));
+}
+
+/* Dark Mode Scoping for Diagram Cards */
+.dark .mermaid-diagram-card,
+.dark .mermaid,
+.dark [data-mermaid],
+.dark .vp-mermaid {
+  background: #090a0f !important;
+  border: 1px solid #1e2430;
+}
+
+.dark .mermaid-diagram-card:hover,
+.dark .mermaid:hover,
+.dark [data-mermaid]:hover,
+.dark .vp-mermaid:hover {
   border-color: #3b82f6;
   box-shadow: 0 4px 24px rgba(59, 130, 246, 0.12);
 }
@@ -63,9 +80,9 @@
   gap: 5px;
   font-size: 11px;
   font-weight: 500;
-  color: #94a3b8;
-  background: #0e1117;
-  border: 1px solid #21262d;
+  color: var(--vp-c-text-2, #64748b);
+  background: var(--vp-c-bg-elv, #ffffff);
+  border: 1px solid var(--vp-c-divider, #e2e8f0);
   border-radius: 6px;
   padding: 3px 8px;
   cursor: pointer;
@@ -73,6 +90,18 @@
 }
 
 .diagram-toolbar-btn:hover {
+  background: var(--vp-c-bg-alt, #f1f5f9);
+  border-color: var(--vp-c-brand-1, #3b82f6);
+  color: var(--vp-c-brand-1, #3b82f6);
+}
+
+.dark .diagram-toolbar-btn {
+  color: #94a3b8;
+  background: #0e1117;
+  border-color: #21262d;
+}
+
+.dark .diagram-toolbar-btn:hover {
   background: #161b22;
   border-color: #3b82f6;
   color: #60a5fa;
@@ -134,9 +163,9 @@
   font-family: var(--vp-font-family-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: 0.82em;
   font-weight: 500;
-  color: #58a6ff !important;
-  background: #161b22;
-  border: 1px solid #30363d;
+  color: var(--vp-c-brand-1, #2563eb) !important;
+  background: var(--vp-c-bg-soft, #f1f5f9);
+  border: 1px solid var(--vp-c-divider, #e2e8f0);
   border-radius: 6px;
   padding: 1px 7px;
   margin: 1px 3px;
@@ -152,7 +181,7 @@
   display: inline-block;
   width: 13px;
   height: 13px;
-  background-color: #8b949e;
+  background-color: var(--vp-c-text-2, #64748b);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z'/%3E%3C/svg%3E") no-repeat center / contain;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z'/%3E%3C/svg%3E") no-repeat center / contain;
   flex-shrink: 0;
@@ -161,13 +190,38 @@
 
 .vp-doc a[href*="github.com/"][href*="/blob/"]:hover,
 .vp-doc a[href*="github.com/"][href*="/tree/"]:hover {
+  background: var(--vp-c-bg-alt, #e2e8f0);
+  border-color: var(--vp-c-brand-1, #3b82f6);
+  color: var(--vp-c-brand-2, #1d4ed8) !important;
+  box-shadow: 0 0 10px var(--vp-c-brand-soft, rgba(56, 139, 253, 0.18));
+}
+
+.vp-doc a[href*="github.com/"][href*="/blob/"]:hover::before,
+.vp-doc a[href*="github.com/"][href*="/tree/"]:hover::before {
+  background-color: var(--vp-c-brand-1, #3b82f6);
+}
+
+.dark .vp-doc a[href*="github.com/"][href*="/blob/"],
+.dark .vp-doc a[href*="github.com/"][href*="/tree/"] {
+  color: #58a6ff !important;
+  background: #161b22;
+  border: 1px solid #30363d;
+}
+
+.dark .vp-doc a[href*="github.com/"][href*="/blob/"]::before,
+.dark .vp-doc a[href*="github.com/"][href*="/tree/"]::before {
+  background-color: #8b949e;
+}
+
+.dark .vp-doc a[href*="github.com/"][href*="/blob/"]:hover,
+.dark .vp-doc a[href*="github.com/"][href*="/tree/"]:hover {
   background: #1f242c;
   border-color: #388bfd;
   color: #79c0ff !important;
   box-shadow: 0 0 10px rgba(56, 139, 253, 0.18);
 }
 
-.vp-doc a[href*="github.com/"][href*="/blob/"]:hover::before,
-.vp-doc a[href*="github.com/"][href*="/tree/"]:hover::before {
+.dark .vp-doc a[href*="github.com/"][href*="/blob/"]:hover::before,
+.dark .vp-doc a[href*="github.com/"][href*="/tree/"]:hover::before {
   background-color: #79c0ff;
 }

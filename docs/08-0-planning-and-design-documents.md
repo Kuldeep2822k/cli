@@ -1,5 +1,6 @@
 # 8. Planning and Design Documents
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [planning/PHASE_1_CHECKLIST.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1)
 - [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
@@ -14,6 +15,8 @@ Relevant source files
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
 - [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
+
+</details>
 
 This section serves as a central index for the `planning/` directory, containing the foundational specifications, design proposals, and roadmaps that guide the PALEE codebase. These documents capture the architectural decisions, system invariants, and the multi-phase execution strategy used to build the engine.
 

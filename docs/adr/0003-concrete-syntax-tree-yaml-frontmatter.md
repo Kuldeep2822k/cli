@@ -26,3 +26,21 @@ Key design choices:
 - **Negative / Tradeoffs**:
   - Slight CPU overhead parsing YAML Documents compared to naive string matching, mitigated by memory caching.
 
+## Alternatives Considered
+
+1. **`gray-matter` / `js-yaml` Full Serialization**:
+   - *Description*: Popular YAML frontmatter parser returning plain JavaScript objects and reserializing via `js-yaml.dump()`.
+   - *Pros*: Ubiquitous in JavaScript static site generators.
+   - *Why Rejected*: Deserializes frontmatter into a plain JS object and reserializes via `js-yaml.dump()`. This strips user-authored YAML comments, reformats multi-line strings destructively, reorders properties, and modifies whitespace in the Markdown body.
+
+2. **Regular Expression / Naive Substring Replacement**:
+   - *Description*: Finding and replacing specific keys like `topic_mastery: 0.8` using regex substitution.
+   - *Pros*: Minimal CPU overhead.
+   - *Why Rejected*: Extremely brittle when handling multi-line lists (e.g. `depends_on: [A, B]`), nested YAML objects, inline comments, or escaped characters.
+
+3. **Sidecar JSON Metadata Files (`.palee/metadata/<id>.json`)**:
+   - *Description*: Keeping notes 100% pure markdown and storing all PALEE metadata in sidecar files.
+   - *Pros*: Zero frontmatter modifications to user notes.
+   - *Why Rejected*: Breaks user visibility and interoperability with Obsidian plugins (Dataview, Breadcrumbs, Properties view) that rely on standard note frontmatter.
+
+

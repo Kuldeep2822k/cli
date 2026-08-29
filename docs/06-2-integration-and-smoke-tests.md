@@ -1,129 +1,154 @@
 # Integration and Smoke Tests
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
+- [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
+- [src/cli/dashboard.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts)
+- [src/cli/next.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/next.ts)
+- [src/cli/plan.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/plan.ts)
+- [src/cli/progress.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts)
 - [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
+- [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts)
+- [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
+- [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/index.ts)
+- [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- [test/cli-adopt-batch.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-adopt-batch.test.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+- [test/cli-exit-codes.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-exit-codes.test.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
+- [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/smoke.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts)
 
-Integration and smoke tests in PALEE ensure that the CLI commands, storage layer, and engine core function correctly as a unified system. These tests exercise full command pipelines against temporary file system fixtures, verifying end-to-end behavior, data persistence, and machine-readable output contracts.
+</details>
 
-## Integration Test Infrastructure
+Integration and smoke tests in PALEE ensure that the CLI commands, storage layer, engine algorithms, and process contracts function seamlessly as an integrated system. The suite is partitioned into **Subprocess Integration Tests** (executing the compiled or `tsx`-bootstrapped binary against isolated vault fixtures), **In-Process Stream Mocking Tests** (verifying exit codes and JSON contracts under intercepted standard I/O), and **Package Smoke Tests** (verifying distribution bundle exports).
 
-Integration tests use the native Node.js test runner and `tsx` to execute the CLI entry point (`bin/palee.ts`) in a controlled environment. Isolation is achieved by overriding the `PALEE_CONFIG_DIR` environment variable, which redirects configuration and vault discovery to a temporary directory.
+---
 
-### Test Fixture Lifecycle
+## 1. CLI Subprocess Integration Tests
 
-The `test/cli-commands.test.ts` suite implements a standard setup and teardown pattern to ensure test hermeticity:
+Subprocess integration tests spawn real child processes executing `bin/palee.ts` in isolated OS temporary directories. They verify end-to-end command execution, flag handling, environment variable redirection, and disk mutation.
 
-1. Setup (`before`): Creates a unique temporary directory using `fs.mkdtempSync` and initializes a `vault` subdirectory within it [test/cli-commands.test.ts#13-17](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L13-L17)
-2. Execution (`runCLI`): A helper function wraps `execSync` to invoke the CLI. It passes `PALEE_CONFIG_DIR` in the environment to prevent the tests from affecting the developer's actual PALEE configuration [test/cli-commands.test.ts#23-35](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L23-L35)
-3. Teardown (`after`): Recursively removes the temporary directory and all generated artifacts [test/cli-commands.test.ts#19-21](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L19-L21)
+### Command Pipeline Suite (`test/cli-commands.test.ts`)
 
-### Data Flow: CLI Integration
+Tests in `test/cli-commands.test.ts` (19 tests) exercise complete multi-command workflows:
 
-The following diagram illustrates how the integration tests bridge the gap between high-level command execution and the underlying storage entities.
+- **Configuration Management**: Verifies `palee config set-vault <path>` creates `.palee/config.json` and updates the active vault path.
+- **Topic Adoption & State Preservation**: Confirms `palee adopt` initializes note frontmatter (`palee_id`, `topic_mastery`, `due_at`, `repetition`), and subsequent `palee roadmap` imports never overwrite existing progress.
+- **Review Progression**: Validates that `palee review <id> <score>` calculates new SM-2 intervals, advances due dates, updates mastery scores, and logs session history.
+- **Vault Boundary Security**: Enforces sandbox isolation by verifying that attempting to access notes outside the vault via `../` path traversal exits with code 2.
+- **Concurrency & OCC Conflicts**: Simulates concurrent modification collisions and asserts that mismatched fingerprints abort with exit code 4.
 
-CLI Command Integration Flow
+### Batch Adoption Suite (`test/cli-adopt-batch.test.ts`)
+
+Tests in `test/cli-adopt-batch.test.ts` (9 tests) verify multi-note batch onboarding:
+
+- **Directory Scoping & Recursive Discovery**: Verifies adopting entire directories (`palee adopt src/notes/`) or vaults (`palee adopt --all`).
+- **Dry-Run Mode**: Asserts that `palee adopt --dry-run` reports planned adoptions without modifying any files on disk.
+- **Safety Prompts & Non-Interactive Invariance**: Confirms that running batch adoption without `-y` / `--yes` in non-interactive environments aborts cleanly with exit code 2.
+- **Pattern & Tag Filtering**: Validates `--tag <tag>`, `--include <glob>`, and `--exclude <glob>` filtering options.
+- **Title Fallback Resolution**: Verifies title extraction hierarchy (frontmatter `title` $\rightarrow$ H1 header $\rightarrow$ filename).
+- **Idempotency**: Asserts that already-adopted notes are detected and skipped without error or duplicate ID generation.
 
 ```mermaid
 flowchart TD
-    subgraph subGraph2 ["Storage Space (Temp Vault)"]
-        CFG["config.json"]
-        NOTE["topic.md (Frontmatter)"]
-        ATOMIC["atomicWrite()"]
+    subgraph Subprocess ["Subprocess Integration Flow"]
+        TestFile["test/cli-commands.test.ts<br/>test/cli-adopt-batch.test.ts"]
+        Helper["runCLI() Helper"]
+        ChildProc["Child Process (bin/palee.ts)"]
+        TempVault["Isolated Temp Vault (PALEE_CONFIG_DIR)"]
+        Frontmatter["YAML Frontmatter on Disk"]
     end
-    subgraph subGraph1 ["CLI Entry Space"]
-        BIN["bin/palee.ts"]
-        CMD["Command Handlers (e.g., reviewCommand)"]
-    end
-    subgraph subGraph0 ["Test Execution Space"]
-        TEST["test/cli-commands.test.ts"]
-        RUN["runCLI() helper"]
-    end
-    TEST --> RUN
-    RUN --> BIN
-    BIN --> CMD
-    CMD --> CFG
-    CMD --> NOTE
-    CMD --> ATOMIC
-    ATOMIC --> NOTE
+
+    TestFile --> Helper
+    Helper -->|spawn with env| ChildProc
+    ChildProc -->|read/write| TempVault
+    TempVault -->|persist| Frontmatter
+    ChildProc -->|exit code + stdout/stderr| Helper
+    Helper -->|assertions| TestFile
 ```
 
-Sources:[test/cli-commands.test.ts#23-35](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L23-L35)[src/cli/review.ts#90-93](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L90-L93)[src/cli/config.ts#12-25](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L12-L25)
-
 ---
 
-## Command Pipeline Verification
+## 2. In-Process CLI & Stream Mocking Tests
 
-Integration tests verify specific business logic invariants across multiple command calls.
+In-process tests import command handlers directly (`adoptCommand`, `reviewCommand`, `nextCommand`, `sessionCommand`, etc.) and intercept `console.log`, `console.error`, and `process.exitCode`. This approach enables rapid, deterministic verification of output schemas, error channels, and exit code contracts.
 
-### Topic Lifecycle and State Preservation
+### Deterministic Exit Code Matrix (`test/cli-exit-codes.test.ts`)
 
-Tests verify that `palee adopt` correctly initializes frontmatter and that subsequent `palee roadmap` imports do not overwrite user-generated progress data (e.g., mastery scores or SM-2 intervals) [test/cli-commands.test.ts#51-64](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L51-L64)[test/cli-commands.test.ts#136-142](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L136-L142)
+Tests in `test/cli-exit-codes.test.ts` (32 tests) systematically verify the 0–5 exit code contract across all commands:
 
-### Security and Path Validation
+| Exit Code | Classification | Trigger Scenarios Tested |
+|:---:|---|---|
+| **0** | Success | Command executed successfully and desired state achieved. |
+| **2** | Usage / Validation Error | Missing required arguments, invalid flag combinations, batch adoption without `-y` in non-interactive shell, path traversal outside vault. |
+| **3** | Schema / Graph Error | Unparseable YAML frontmatter, malformed roadmap files, circular dependency cycles detected in topic graph. |
+| **4** | Concurrency Conflict | Optimistic Concurrency Control (OCC) fingerprint mismatch, active file lock collision. |
+| **5** | Internal Runtime Error | Unexpected runtime exceptions, I/O filesystem permission errors. |
 
-Integration tests enforce the "Vault Safety Contract" by attempting to access files outside the vault boundaries. For example, `palee adopt` and `palee roadmap` are tested to ensure they reject paths that escape the vault via `../` traversal [test/cli-commands.test.ts#66-72](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L66-L72)[test/cli-commands.test.ts#101-104](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L101-L104)
+### Machine-Readable JSON Output (`test/cli-json-output.test.ts`)
 
-### SM-2 Update Logic
+Tests in `test/cli-json-output.test.ts` (22 tests) enforce Invariant #45 across all 11 CLI commands:
 
-The `review` command is tested to ensure that providing a quality score (0-5) correctly updates the `due_at` and `ease_factor` fields in the Markdown frontmatter while leaving assessment pillars (conceptual, practical, etc.) untouched [test/cli-commands.test.ts#144-164](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L144-L164)
+- **Schema Stability**: Verifies that every command supporting `--json` emits valid, parseable JSON conforming to documented TypeScript interfaces.
+- **Empty State Resilience**: Ensures that uninitialized or empty vaults return structured JSON (with `null` fields or `[]` arrays) rather than crashing.
+- **Error JSON Formatting**: Validates that errors under `--json` emit a structured payload `{ "error": "description" }` to stderr with appropriate exit codes.
+- **Non-TTY Auto-JSON Detection**: Simulates piped environments (`process.stdout.isTTY = false`) and confirms that PALEE automatically activates JSON streaming without requiring the explicit `--json` flag.
 
-| Test Case | Command | Input | Expected Outcome |
-| --- | --- | --- | --- |
-| Vault Setup | `config set-vault` | Valid Dir | Exit 0, `config.json` updated |
-| Vault Security | `adopt` | `../secret.md` | Exit 2, Stderr "escapes vault" |
-| Review Logic | `review` | `ID 4` | `due_at` updated, `repetition` incremented |
-| Empty State | `dashboard` | Empty Vault | Onboarding guidance displayed |
+### In-Process Session CLI Dispatch (`test/session-cli.test.ts`)
 
-Sources:[test/cli-commands.test.ts#37-41](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L37-L41)[test/cli-commands.test.ts#69-72](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L69-L72)[test/cli-commands.test.ts#146-164](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L146-L164)[test/cli-commands.test.ts#180-186](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L180-L186)
+Tests in `test/session-cli.test.ts` (8 tests) exercise the active session command layer:
 
----
-
-## Machine-Readable Output Tests
-
-The `test/cli-json-output.test.ts` suite ensures that all commands supporting the `--json` flag adhere to a stable schema. This is critical for external integrations (e.g., Obsidian plugins or shell scripts).
-
-### Mocking Console Output
-
-Unlike the main integration tests that use `execSync`, the JSON tests import command handlers directly and mock `console.log` and `console.error` to capture and parse the output buffer [test/cli-json-output.test.ts#31-38](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L31-L38)
-
-### JSON Schema Invariants
-
-- Empty Vaults: Commands like `next --json` or `plan --json` must return valid JSON structures with nulls or empty arrays rather than failing [test/cli-json-output.test.ts#87-110](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L87-L110)
-- Error Handling: If a vault is not configured, the command must emit a JSON object containing an `error` key and exit with code 2 [test/cli-json-output.test.ts#69-75](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L69-L75)
-- Data Integrity: Fields like `topic_mastery` are verified to be numbers (not strings) and dates are verified to be ISO strings [test/cli-json-output.test.ts#191-199](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L191-L199)
-
-Sources:[test/cli-json-output.test.ts#56-66](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L56-L66)[test/cli-json-output.test.ts#87-93](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts#L87-L93)
-
----
-
-## Smoke Tests
-
-Smoke tests in `test/smoke.test.ts` provide a lightweight verification that the project's build artifacts are valid and the package structure is correct.
-
-Build Artifact Verification
+- **Topic Resolution Fallback**: Tests `resolveSessionTopic` resolution hierarchy: explicit CLI argument $\rightarrow$ `.palee/hot.md` active topic frontmatter $\rightarrow$ clean exit code 2 on failure.
+- **Session Lifecycle**: Verifies `start`, `draft`, `end`, and `list` subcommands.
+- **Unknown Action Handling**: Asserts that unmapped session actions set `process.exitCode = 2` with informative diagnostic messages.
 
 ```mermaid
-flowchart LR
-    subgraph subGraph1 ["Smoke Test Space"]
-        SMOKE["test/smoke.test.ts"]
-        VER["palee.version check"]
+flowchart TD
+    subgraph InProcess ["In-Process Stream & Exit Code Interception"]
+        InProcTest["test/cli-exit-codes.test.ts<br/>test/cli-json-output.test.ts<br/>test/session-cli.test.ts"]
+        ConsoleLog["console.log Interceptor"]
+        ConsoleErr["console.error Interceptor"]
+        ExitCode["process.exitCode Tracker"]
+        Handler["Command Handler (e.g. nextCommand)"]
     end
-    subgraph subGraph0 ["Package Space"]
-        PK["package.json"]
-        IDX["src/index.ts"]
-    end
-    IDX --> SMOKE
-    PK --> SMOKE
-    SMOKE --> VER
+
+    InProcTest -->|mock streams| ConsoleLog
+    InProcTest -->|mock streams| ConsoleErr
+    InProcTest -->|invoke handler| Handler
+    Handler -->|structured json| ConsoleLog
+    Handler -->|error payload| ConsoleErr
+    Handler -->|set exit code (0-5)| ExitCode
+    ConsoleLog -->|parse JSON| InProcTest
+    ExitCode -->|assert code| InProcTest
 ```
 
-### Key Verifications
+---
 
-- Module Loading: Ensures that the `palee` module can be imported without syntax errors [test/smoke.test.ts#7-8](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts#L7-L8)
-- Version Consistency: Verifies that the exported `version` string from the source code matches the version defined in `package.json`[test/smoke.test.ts#13-16](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts#L13-L16)
+## 3. Package Smoke Tests
 
-Sources:[test/smoke.test.ts#7-11](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts#L7-L11)[test/smoke.test.ts#13-16](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts#L13-L16)
+### Build & Export Parity (`test/smoke.test.ts`)
+
+Tests in `test/smoke.test.ts` (2 tests) provide lightweight sanity verification for package artifacts:
+
+- **Module Loading**: Confirms that the top-level package export (`src/index.ts`) loads cleanly without syntax or import errors.
+- **Version Parity**: Asserts that the exported `version` constant strictly matches the `version` field defined in `package.json`.
+
+---
+
+## Master Command Integration Matrix
+
+| Command | Subprocess Tests (`cli-commands`, `cli-adopt-batch`) | In-Process Exit Codes (`cli-exit-codes`) | JSON Contract Tests (`cli-json-output`) |
+|---|:---:|:---:|:---:|
+| `palee config` | ✅ | ✅ (Codes 0, 2) | ✅ (`config --json`) |
+| `palee adopt` | ✅ | ✅ (Codes 0, 2, 4) | ✅ (`adopt --json`) |
+| `palee roadmap` | ✅ | ✅ (Codes 0, 2, 3, 4) | ✅ (`roadmap --json`) |
+| `palee review` | ✅ | ✅ (Codes 0, 2, 4) | ✅ (`review --json`) |
+| `palee next` | ✅ | ✅ (Codes 0, 2) | ✅ (`next --json`) |
+| `palee plan` | ✅ | ✅ (Codes 0, 2) | ✅ (`plan --json`) |
+| `palee progress`| ✅ | ✅ (Codes 0, 2) | ✅ (`progress --json`) |
+| `palee dashboard`| ✅ | ✅ (Codes 0, 2) | ✅ (`dashboard --json`) |
+| `palee session` | ✅ | ✅ (Codes 0, 2) | ✅ (`session --json`) |
+| `palee verify`  | ✅ | ✅ (Codes 0, 2, 3) | ✅ (`verify --json`) |
+| `palee doctor`  | ✅ | ✅ (Codes 0, 2) | ✅ (`doctor --json`) |

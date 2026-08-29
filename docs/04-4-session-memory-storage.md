@@ -1,5 +1,6 @@
 # Session Memory Storage
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
 - [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
@@ -7,6 +8,8 @@ Relevant source files
 - [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
+
+</details>
 
 The Session Memory Storage system manages the persistence of learning sessions, working memory, and draft recovery within the `.palee/` directory of an Obsidian vault. It ensures learning continuity by providing the AI with a concise "hot" context while maintaining a durable, human-readable history of all sessions.
 

@@ -19,7 +19,7 @@ Key design choices:
 2. **Interval Progression**:
    - Repetition 1: 1 day.
    - Repetition 2: 6 days.
-   - Repetition $n > 2$: $\text{round}(\text{interval}_{n-1} \times EF)$.
+   - Repetition $n > 2$: `round(interval_{n-1} * EF)`.
 3. **Lapse Handling**:
    - Ratings $q < 3$ trigger a lapse: repetition resets to `0`, interval resets to `1`, and the lapse counter increments if the topic had prior repetitions.
 4. **Calendar Due Dates**:
@@ -32,3 +32,25 @@ Key design choices:
   - Clean mathematical boundary that can easily be extended to FSRS or SM-18 in future phases.
 - **Negative / Tradeoffs**:
   - Requires active recall ratings (0-5) from the user.
+
+## Alternatives Considered
+
+1. **FSRS-4.5 / FSRS-5 (Free Spaced Repetition Scheduler)**:
+   - *Description*: A modern DSR (Difficulty, Stability, Retrievability) model (17 parameters for FSRS-4.5, 19 parameters for FSRS-5) that optimizes review intervals with machine learning techniques.
+   - *Pros*: Higher long-term retention efficiency and lower review count overhead on very large flashcard decks.
+   - *Why Rejected*: Requires dozens to hundreds of historical reviews per user to fit parameters effectively; significantly higher mathematical and storage overhead (storing floating-point stability and retrievability vectors in frontmatter). SM-2 provides deterministic, zero-configuration scheduling with standard 4-state parameters (`repetition`, `interval_days`, `ease_factor`, `lapses`).
+
+2. **Leitner Box System**:
+   - *Description*: Fixed integer interval buckets (1, 2, 4, 8, 16 days) with box-shifting mechanics.
+   - *Pros*: Extremely simple to conceptualize and test.
+   - *Why Rejected*: Lacks difficulty-based interval adaptation; treats challenging and simple topics identically once promoted, leading to premature forgetting of complex architectural material.
+
+3. **Anki-Modified SM-2 with Sub-Day Learning Steps**:
+   - *Description*: SM-2 with intra-day learning steps (e.g. 1min, 10min) and graduating intervals.
+   - *Pros*: Excellent for rapid memorization of vocabulary cards.
+   - *Why Rejected*: PALEE tracks comprehensive learning notes and technical topics where daily review cadence is appropriate; sub-day review steps introduce unnecessary timer complexity to a CLI tool.
+
+4. **Half-Life Regression (Duolingo HLR)**:
+   - *Description*: Statistical regression modeling exponential forgetting curves based on user feature vectors.
+   - *Why Rejected*: Violates the zero-dependency, local-first offline CLI invariant by requiring ML runtime weights or training infrastructure.
+
