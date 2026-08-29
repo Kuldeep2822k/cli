@@ -129,5 +129,5 @@ if (!process.argv.slice(2).length) {
 // Parse and execute
 program.parseAsync(process.argv).catch((err) => {
   console.error(err);
-  process.exitCode = 5;
+  process.exit(5);
 });

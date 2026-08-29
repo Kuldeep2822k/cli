@@ -11,6 +11,7 @@ import nextCommand from '../src/cli/next';
 import planCommand from '../src/cli/plan';
 import progressCommand from '../src/cli/progress';
 import validateCommand from '../src/cli/validate';
+import { RoadmapOptions } from '../src/types';
 
 describe('CLI Command In-Process Exit Codes & Coverage', () => {
   let tempDir: string;
@@ -132,13 +133,13 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
 
   describe('roadmapCommand', () => {
     test('without --from sets exitCode 2', async () => {
-      await roadmapCommand({} as any);
+      await roadmapCommand({} as unknown as RoadmapOptions);
       assert.strictEqual(process.exitCode, 2);
     });
 
     test('with non-existent --from file sets exitCode 2', async () => {
       saveConfig({ vaultPath: vaultDir });
-      await roadmapCommand({ from: path.join(tempDir, 'missing.yaml') } as any);
+      await roadmapCommand({ from: path.join(tempDir, 'missing.yaml') });
       assert.strictEqual(process.exitCode, 2);
     });
 
@@ -146,7 +147,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       saveConfig({ vaultPath: vaultDir });
       const invalidRoadmap = path.join(tempDir, 'invalid-roadmap.yaml');
       fs.writeFileSync(invalidRoadmap, 'title: Invalid without topics\n');
-      await roadmapCommand({ from: invalidRoadmap } as any);
+      await roadmapCommand({ from: invalidRoadmap });
       assert.strictEqual(process.exitCode, 2);
     });
 
@@ -157,7 +158,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
         cycleRoadmap,
         'topics:\n  - id: T-cycle-a\n    title: Cycle A\n    path: a.md\n    depends_on: [T-cycle-b]\n  - id: T-cycle-b\n    title: Cycle B\n    path: b.md\n    depends_on: [T-cycle-a]\n'
       );
-      await roadmapCommand({ from: cycleRoadmap } as any);
+      await roadmapCommand({ from: cycleRoadmap });
       assert.strictEqual(process.exitCode, 3);
     });
 
@@ -165,7 +166,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       saveConfig({});
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');
       fs.writeFileSync(validRoadmap, 'topics:\n  - id: T-1\n    title: T1\n    path: t1.md\n');
-      await roadmapCommand({ from: validRoadmap } as any);
+      await roadmapCommand({ from: validRoadmap });
       assert.strictEqual(process.exitCode, 2);
     });
 
@@ -173,7 +174,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       saveConfig({ vaultPath: vaultDir });
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');
       fs.writeFileSync(validRoadmap, 'topics:\n  - id: T-1\n    title: T1\n    path: t1.md\n');
-      await roadmapCommand({ from: validRoadmap, yes: false } as any);
+      await roadmapCommand({ from: validRoadmap, yes: false });
       assert.strictEqual(process.exitCode, 2);
     });
 
@@ -184,7 +185,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
         validRoadmap,
         'topics:\n  - id: T-roadmap-item\n    title: Roadmap Item\n    path: roadmap-item.md\n'
       );
-      await roadmapCommand({ from: validRoadmap, yes: true } as any);
+      await roadmapCommand({ from: validRoadmap, yes: true });
       assert.strictEqual(process.exitCode, 0);
     });
   });
@@ -278,7 +279,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
 
     test('roadmapCommand catch sets exitCode 5', async () => {
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');
-      await roadmapCommand({ from: validRoadmap } as any);
+      await roadmapCommand({ from: validRoadmap });
       assert.strictEqual(process.exitCode, 5);
     });
   });
