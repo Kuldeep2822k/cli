@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://kuldeep2822k.github.io/cli/"><img src="https://img.shields.io/badge/docs-kuldeep2822k.github.io%2Fcli-blue?style=flat-square&logo=gitbook&logoColor=white" alt="Documentation" /></a>
   <a href="https://www.npmjs.com/package/@kuldeep2822k/palee"><img src="https://img.shields.io/npm/v/@kuldeep2822k/palee?style=flat-square&color=blue" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@kuldeep2822k/palee"><img src="https://img.shields.io/npm/dm/@kuldeep2822k/palee?style=flat-square&color=blue" alt="npm monthly downloads" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT" /></a>
 </p>
 
