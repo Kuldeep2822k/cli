@@ -8,6 +8,7 @@ import path from 'path';
 import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
@@ -134,15 +135,10 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
 async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
+    const vaultPath = validateVaultPath(config.vaultPath);
+    if (!vaultPath) return;
 
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exitCode = 2;
-      return;
-    }
-
-    const vaultPath = config.vaultPath;
-    const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
+    const resolvedVault = fs.realpathSync(vaultPath);
 
     // Validate difficulty if provided
     let difficulty: Difficulty = 'intermediate';

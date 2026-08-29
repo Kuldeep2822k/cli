@@ -1,25 +1,19 @@
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 import { loadTopics } from '../storage/loader';
 
 /**
  * CLI command handler for validating note schema versions across the vault.
  *
  * @returns Promise resolving when the migration scan completes.
- * @remarks Sets process.exitCode = 2 if the vault path is unconfigured,
+ * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
  * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
  */
 async function migrateCommand(): Promise<void> {
   try {
-    // Load config
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exitCode = 2;
-      return;
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
+    if (!vaultPath) return;
     const loaded = loadTopics(vaultPath);
 
     console.log('Scanning vault for PALEE schema versions...');
