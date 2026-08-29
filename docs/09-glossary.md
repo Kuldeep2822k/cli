@@ -1,5 +1,6 @@
 # Glossary
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
 - [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
@@ -14,6 +15,8 @@ Relevant source files
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/storage-lock.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 This page defines the codebase-specific terms, abbreviations, and domain concepts used throughout the PALEE system. It serves as a technical reference for engineers to map conceptual terminology to specific implementation details in the source code.
 

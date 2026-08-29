@@ -1,5 +1,6 @@
 # Configuration and CLI Option Types
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
@@ -7,6 +8,8 @@ Relevant source files
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 This page details the technical implementation of the PALEE configuration system and the TypeScript interfaces governing CLI command options. The configuration system manages persistent settings such as the vault location and AI preferences, while the CLI option types ensure type-safe interaction between the command-line interface and the engine core.
 

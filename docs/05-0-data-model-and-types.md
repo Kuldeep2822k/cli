@@ -1,10 +1,13 @@
 # Data Model and Types
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/index.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types are defined in [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
 

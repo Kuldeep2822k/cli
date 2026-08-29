@@ -1,8 +1,11 @@
 # File Locking
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
 - [test/storage-lock.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts)
+
+</details>
 
 The `palee` CLI implements a robust file locking mechanism to prevent race conditions during concurrent vault access. It utilizes atomic directory creation and a heartbeat system to ensure that only one process can modify a specific resource at a time, while providing mechanisms to recover from crashed processes.
 

@@ -1,5 +1,6 @@
 # Testing
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
@@ -37,6 +38,8 @@ Relevant source files
 - [test/storage-roadmap-parser.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-roadmap-parser.test.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The test suite spans 19 active TypeScript test files containing 230 passing test assertions across 31 test suites.
 

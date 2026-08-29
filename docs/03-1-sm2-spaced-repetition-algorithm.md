@@ -1,5 +1,6 @@
 # SM-2 Spaced Repetition and 4-Pillar Mastery Engine
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
@@ -9,6 +10,8 @@ Relevant source files
 - [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 - [docs/adr/0001-supermemo-sm2-algorithm.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0001-supermemo-sm2-algorithm.md)
 - [docs/adr/0004-four-pillar-pedagogical-mastery.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0004-four-pillar-pedagogical-mastery.md)
+
+</details>
 
 PALEE combines two complementary learning engines to power personalized, adaptive knowledge acquisition:
 

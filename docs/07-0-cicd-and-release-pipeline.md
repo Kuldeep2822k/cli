@@ -1,5 +1,6 @@
 # CI/CD and Release Pipeline
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [.c8rc.json](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json)
 - [.github/labeler.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml)
@@ -13,6 +14,8 @@ Relevant source files
 - [.github/workflows/sync-labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml)
 - [LICENSE](https://github.com/Kuldeep2822k/cli/blob/main/LICENSE)
 - [eslint.config.mjs](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs)
+
+</details>
 
 This section provides a high-level overview of the automated workflows that govern the PALEE codebase. The project utilizes GitHub Actions to enforce code quality, manage repository organization, ensure security invariants, and orchestrate multi-platform releases to the NPM registry.
 

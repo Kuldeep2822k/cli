@@ -1,5 +1,6 @@
 # Topic and Assessment Schema
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)
 - [examples/Docker Networking.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Networking.md?plain=1)
@@ -10,6 +11,8 @@ Relevant source files
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 The PALEE system utilizes a structured data model to track learning progress, mastery levels, and spaced-repetition schedules for individual topics within a Markdown-based vault. This data is primarily stored as YAML frontmatter within each topic's Markdown file.
 

@@ -1,5 +1,6 @@
 # Integration and Smoke Tests
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
@@ -18,6 +19,8 @@ Relevant source files
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/smoke.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts)
+
+</details>
 
 Integration and smoke tests in PALEE ensure that the CLI commands, storage layer, engine algorithms, and process contracts function seamlessly as an integrated system. The suite is partitioned into **Subprocess Integration Tests** (executing the compiled or `tsx`-bootstrapped binary against isolated vault fixtures), **In-Process Stream Mocking Tests** (verifying exit codes and JSON contracts under intercepted standard I/O), and **Package Smoke Tests** (verifying distribution bundle exports).
 

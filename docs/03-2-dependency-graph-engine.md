@@ -1,5 +1,6 @@
 # Dependency Graph Engine
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
@@ -7,6 +8,8 @@ Relevant source files
 - [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
+
+</details>
 
 The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts. It provides cycle detection using a formal 3-color Depth-First Search (DFS), prerequisite satisfaction evaluation against the `0.70` mastery threshold, and graph integrity validation.
 

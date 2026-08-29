@@ -1,5 +1,6 @@
 # Getting Started
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [planning/example_workflows.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/example_workflows.md?plain=1)
@@ -7,6 +8,8 @@ Relevant source files
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
 - [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+
+</details>
 
 This page provides a technical guide for installing and configuring PALEE (Personal Active Learning & Evaluation Engine). It covers the global installation process, vault connection, and the configuration of AI providers.
 

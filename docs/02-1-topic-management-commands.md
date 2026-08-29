@@ -1,6 +1,7 @@
 # Topic Management Commands
 
-Relevant source files:
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts)
@@ -14,6 +15,8 @@ Relevant source files:
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 Topic management commands handle the ingestion, configuration, and structural lifecycle of learning material within an Obsidian vault. These commands allow you to adopt existing Markdown notes as tracked PALEE topics, batch-import structured curricula via YAML roadmaps, and verify metadata schema consistency across your vault.
 

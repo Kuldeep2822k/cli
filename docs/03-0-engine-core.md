@@ -1,5 +1,6 @@
 # Engine Core
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
@@ -8,6 +9,8 @@ Relevant source files
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
 - [test/engine-mastery.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-mastery.test.ts)
 - [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
+
+</details>
 
 The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition scheduling, pedagogical mastery evaluation, and curriculum dependency sequencing. Operating without file system I/O or CLI dependencies, every engine calculation is deterministic: identical inputs (review quality, assessment pillar scores, topic graph topology) always yield identical outputs (next review due date, weighted mastery score, ready topic queue).
 

@@ -1,10 +1,13 @@
 # Release Workflow and NPM Publishing
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)
 - [.npmignore](https://github.com/Kuldeep2822k/cli/blob/main/.npmignore)
 - [package-lock.json](https://github.com/Kuldeep2822k/cli/blob/main/package-lock.json)
 - [scripts/verify-tarball.js](https://github.com/Kuldeep2822k/cli/blob/main/scripts/verify-tarball.js)
+
+</details>
 
 The PALEE release pipeline is a highly automated, multi-stage workflow designed to ensure that every version published to the NPM registry is verified, consistent, and functional across platforms. The process is primarily driven by GitHub Actions and triggered by versioned Git tags.
 

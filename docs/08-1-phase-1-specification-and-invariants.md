@@ -1,5 +1,6 @@
 # Phase 1 Specification and Invariants
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [planning/PHASE_1_CHECKLIST.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1)
@@ -7,6 +8,8 @@ Relevant source files
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
+
+</details>
 
 This page summarizes the foundational specifications, architectural requirements, and safety invariants established for Phase 1 of the PALEE (Personal Active Learning & Evaluation Engine) CLI. Phase 1 focuses on a deterministic, AI-free core that handles storage, spaced repetition, and dependency management with high reliability.
 

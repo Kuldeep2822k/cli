@@ -1,5 +1,6 @@
 # Unit Tests
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
@@ -29,6 +30,8 @@ Relevant source files
 - [test/storage-roadmap-parser.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-roadmap-parser.test.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
+
+</details>
 
 The PALEE unit test suite ensures the mathematical correctness of core algorithms, defensive file-safety protocols in the storage layer, and strict domain model typing. Unit tests are executed directly from TypeScript source using `tsx` and the native Node.js test runner (`node:test`), ensuring high speed and complete test isolation.
 

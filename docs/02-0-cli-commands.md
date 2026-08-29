@@ -1,6 +1,7 @@
 # CLI Commands
 
-Relevant source files:
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [bin/palee.ts](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
@@ -18,6 +19,8 @@ Relevant source files:
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/cli-exit-codes.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-exit-codes.test.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
+
+</details>
 
 The `palee` CLI is the primary developer interface for interacting with the PALEE learning engine. It provides a comprehensive suite of terminal commands for managing learning topics, scheduling spaced repetition reviews via SuperMemo SM-2, tracking mastery and difficulty analytics, ingesting curriculum roadmaps, and executing focused study sessions with working memory synchronization.
 

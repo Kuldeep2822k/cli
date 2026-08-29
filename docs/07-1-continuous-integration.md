@@ -1,5 +1,6 @@
 # Continuous Integration
-Relevant source files
+<details>
+<summary><b>Relevant Source Files</b></summary>
 
 - [.c8rc.json](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json)
 - [.github/PULL_REQUEST_TEMPLATE.md](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1)
@@ -13,6 +14,8 @@ Relevant source files
 - [.github/workflows/sync-labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml)
 - [LICENSE](https://github.com/Kuldeep2822k/cli/blob/main/LICENSE)
 - [eslint.config.mjs](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs)
+
+</details>
 
 The PALEE Continuous Integration (CI) infrastructure ensures code quality, cross-platform compatibility, and security through automated workflows. The pipeline validates every commit and Pull Request (PR) against strict linting rules, type checks, unit tests, and smoke tests across Linux, Windows, and macOS.
 
