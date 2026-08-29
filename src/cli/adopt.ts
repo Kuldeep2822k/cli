@@ -138,7 +138,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const vaultPath = validateVaultPath(config.vaultPath);
     if (!vaultPath) return;
 
-    const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
+    const resolvedVault = fs.realpathSync(vaultPath);
 
     // Validate difficulty if provided
     let difficulty: Difficulty = 'intermediate';

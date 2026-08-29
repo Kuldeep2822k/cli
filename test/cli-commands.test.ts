@@ -417,11 +417,25 @@ Body content.
     runCLI(['config', 'set-vault', missingVault]);
     fs.rmSync(missingVault, { recursive: true, force: true });
 
-    for (const cmd of ['dashboard', 'plan', 'progress', 'next']) {
+    for (const cmd of ['dashboard', 'plan', 'progress', 'next', 'migrate']) {
       const result = runCLI([cmd]);
       assert.strictEqual(result.status, 2, `${cmd} should exit with code 2 on missing vault`);
       assert.match(result.stderr, /Vault path not found/);
     }
+
+    const adoptResult = runCLI(['adopt', 'dummy.md', '--yes']);
+    assert.strictEqual(adoptResult.status, 2, 'adopt should exit with code 2 on missing vault');
+    assert.match(adoptResult.stderr, /Vault path not found/);
+
+    const reviewResult = runCLI(['review', 'T-1', '5']);
+    assert.strictEqual(reviewResult.status, 2, 'review should exit with code 2 on missing vault');
+    assert.match(reviewResult.stderr, /Vault path not found/);
+
+    const sampleRoadmap = path.join(tempDir, 'sample-roadmap.yaml');
+    fs.writeFileSync(sampleRoadmap, 'topics:\n  - id: T-1\n    title: T1\n    path: t1.md\n');
+    const roadmapResult = runCLI(['roadmap', '--from', sampleRoadmap, '--yes']);
+    assert.strictEqual(roadmapResult.status, 2, 'roadmap should exit with code 2 on missing vault');
+    assert.match(roadmapResult.stderr, /Vault path not found/);
 
     // Restore vaultDir
     runCLI(['config', 'set-vault', vaultDir]);
