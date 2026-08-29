@@ -230,7 +230,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

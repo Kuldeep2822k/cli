@@ -57,66 +57,73 @@ async function configCommand(action?: string, value?: string): Promise<void> {
       console.log(`  Vault Path: ${config.vaultPath || '(not set)'}`);
       console.log(`  AI Provider: ${config.aiProvider || '(not set)'}`);
       console.log(`  Model: ${config.model || '(not set)'}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-vault') {
       if (!value) {
         console.error('Error: vault path required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const absolutePath = path.resolve(value);
       if (!fs.existsSync(absolutePath)) {
         console.error(`Error: vault path does not exist: ${absolutePath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       if (!fs.statSync(absolutePath).isDirectory()) {
         console.error(`Error: vault path is not a directory: ${absolutePath}`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.vaultPath = absolutePath;
       saveConfig(config);
       console.log(`Vault path set to: ${absolutePath}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-provider') {
       if (!value) {
         console.error('Error: provider name required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.aiProvider = value;
       saveConfig(config);
       console.log(`AI provider set to: ${value}`);
-      process.exit(0);
+      return;
     }
 
     if (action === 'set-model') {
       if (!value) {
         console.error('Error: model name required');
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
 
       const config = loadConfig();
       config.model = value;
       saveConfig(config);
       console.log(`Model set to: ${value}`);
-      process.exit(0);
+      return;
     }
 
     console.error(`Error: unknown action '${action}'`);
     console.error('Valid actions: show, set-vault, set-provider, set-model');
-    process.exit(2);
+    process.exitCode = 2;
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 

@@ -8,7 +8,8 @@ async function migrateCommand(): Promise<void> {
 
     if (!config.vaultPath) {
       console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
 
     const vaultPath = config.vaultPath;
@@ -44,17 +45,19 @@ async function migrateCommand(): Promise<void> {
       }
       console.log();
       console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
-      process.exit(3);
+      process.exitCode = 3;
+      return;
     }
 
     console.log();
     console.log('✓ All notes are schema v1 - no migration needed');
-    process.exit(0);
+    return;
 
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exit(5);
+    process.exitCode = 5;
+    return;
   }
 }
 
