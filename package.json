@@ -1,6 +1,6 @@
 {
   "name": "@kuldeep2822k/palee",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A smart, AI-powered study tracker that optimizes learning with spaced repetition and dependency-aware recommendations.",
   "homepage": "https://kuldeep2822k.github.io/cli/",
   "main": "dist/src/index.js",
