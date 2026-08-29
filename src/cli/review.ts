@@ -1,4 +1,5 @@
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 import { loadTopics } from '../storage/loader';
 import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite, isConflictError } from '../storage/atomic-write';
@@ -24,14 +25,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const quality = parseInt(qualityStr, 10);
 
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exitCode = 2;
-      return;
-    }
-
-    const vaultPath = config.vaultPath;
+    const vaultPath = validateVaultPath(config.vaultPath);
+    if (!vaultPath) return;
     const loaded = loadTopics(vaultPath);
     const candidates = loaded.filter(
       (t) =>

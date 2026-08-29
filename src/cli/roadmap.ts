@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from './config';
+import { validateVaultPath } from './onboarding';
 import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
 import { parseRoadmapContent } from '../storage/roadmap-parser';
 import { atomicWrite, isConflictError } from '../storage/atomic-write';
@@ -33,14 +34,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     const config = loadConfig();
-
-    if (!config.vaultPath) {
-      console.error('Error: Vault path not configured. Run: palee config set-vault <path>');
-      process.exitCode = 2;
-      return;
-    }
-
-    const vaultPath = config.vaultPath;
+    const validatedVault = validateVaultPath(config.vaultPath);
+    if (!validatedVault) return;
+    const vaultPath = validatedVault;
     const roadmapPath = path.resolve(options.from);
 
     if (!fs.existsSync(roadmapPath)) {
