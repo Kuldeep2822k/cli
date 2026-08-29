@@ -15,7 +15,7 @@
   --vp-c-gutter: #090a0f;
 }
 
-/* Mermaid Diagram Card Container */
+/* GitHub-Style Diagram Card & Pan-Zoom Viewport */
 .mermaid-diagram-card,
 .mermaid,
 [data-mermaid],
@@ -23,88 +23,148 @@
   position: relative;
   background: var(--vp-c-bg-soft) !important;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 10px;
-  padding: 24px 20px 20px 20px;
+  border-radius: 8px;
   margin: 20px 0;
-  overflow: auto;
+  overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  user-select: none;
+}
+
+.mermaid-viewport {
+  position: relative;
+  width: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 20px;
+}
+
+.mermaid-viewport.is-dragging {
+  cursor: grabbing !important;
+}
+
+.mermaid-viewport svg {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  height: auto;
+  transform-origin: center center;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* GitHub-Style Diagram Floating Toolbar */
+.github-diagram-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--vp-c-bg-elv, #ffffff);
+  border: 1px solid var(--vp-c-divider, #d0d7de);
+  border-radius: 6px;
+  padding: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+}
+
+.mermaid-diagram-card:hover .github-diagram-toolbar {
+  opacity: 1;
+}
+
+.gh-diag-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vp-c-text-2, #656d76);
   cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.mermaid-diagram-card:hover,
-.mermaid:hover,
-[data-mermaid]:hover,
-.vp-mermaid:hover {
-  border-color: var(--vp-c-brand-1, #3b82f6);
-  box-shadow: 0 4px 24px var(--vp-c-brand-soft, rgba(59, 130, 246, 0.12));
+.gh-diag-btn:hover {
+  background-color: var(--vp-c-bg-alt, #f6f8fa);
+  color: var(--vp-c-text-1, #1f2328);
 }
 
-/* Dark Mode Scoping for Diagram Cards */
+.gh-diag-btn:active {
+  background-color: var(--vp-c-divider, #d0d7de);
+}
+
+/* Fullscreen Mode (GitHub-style full page diagram view) */
+.mermaid-diagram-card.is-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: var(--vp-c-bg, #ffffff) !important;
+  box-shadow: none !important;
+}
+
+.mermaid-diagram-card.is-fullscreen .mermaid-viewport {
+  width: 100vw;
+  height: 100vh;
+  padding: 40px;
+}
+
+.mermaid-diagram-card.is-fullscreen .mermaid-viewport svg {
+  max-width: none;
+  max-height: none;
+}
+
+/* Dark Mode Scoping for Diagram Cards & Toolbar */
 .dark .mermaid-diagram-card,
 .dark .mermaid,
 .dark [data-mermaid],
 .dark .vp-mermaid {
-  background: #090a0f !important;
-  border: 1px solid #1e2430;
+  background: #0d1117 !important;
+  border: 1px solid #30363d;
 }
 
 .dark .mermaid-diagram-card:hover,
 .dark .mermaid:hover,
 .dark [data-mermaid]:hover,
 .dark .vp-mermaid:hover {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.12);
+  border-color: #58a6ff;
+  box-shadow: 0 4px 20px rgba(56, 139, 253, 0.12);
 }
 
-/* Diagram toolbar button on the card */
-.diagram-card-toolbar {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0.6;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.mermaid-diagram-card:hover .diagram-card-toolbar,
-.mermaid:hover .diagram-card-toolbar {
-  opacity: 1;
-}
-
-.diagram-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--vp-c-text-2, #64748b);
-  background: var(--vp-c-bg-elv, #ffffff);
-  border: 1px solid var(--vp-c-divider, #e2e8f0);
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.diagram-toolbar-btn:hover {
-  background: var(--vp-c-bg-alt, #f1f5f9);
-  border-color: var(--vp-c-brand-1, #3b82f6);
-  color: var(--vp-c-brand-1, #3b82f6);
-}
-
-.dark .diagram-toolbar-btn {
-  color: #94a3b8;
-  background: #0e1117;
-  border-color: #21262d;
-}
-
-.dark .diagram-toolbar-btn:hover {
+.dark .github-diagram-toolbar {
   background: #161b22;
-  border-color: #3b82f6;
-  color: #60a5fa;
+  border-color: #30363d;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.dark .gh-diag-btn {
+  color: #8b949e;
+}
+
+.dark .gh-diag-btn:hover {
+  background-color: #21262d;
+  color: #f0f6fc;
+}
+
+.dark .gh-diag-btn:active {
+  background-color: #30363d;
+}
+
+.dark .mermaid-diagram-card.is-fullscreen {
+  background: #0d1117 !important;
 }
 
 /* Feature cards base styling */
