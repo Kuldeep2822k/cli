@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/palee-logo.png" width="160" alt="PALEE Logo" />
+  <img src="https://raw.githubusercontent.com/Kuldeep2822k/cli/main/assets/palee-logo.png" width="160" alt="PALEE Logo" />
 </p>
 
 <h1 align="center">PALEE CLI</h1>
