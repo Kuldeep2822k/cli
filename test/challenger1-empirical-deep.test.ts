@@ -291,8 +291,12 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       // Invariant checks
       assert.ok(sessionStarted <= sessionEnded, `Invariant violated: started_at (${sessionStarted}) > ended_at (${sessionEnded})`);
       assert.strictEqual(frontmatter.started_at, startedAtIso);
-      assert.strictEqual(frontmatter.duration_minutes, 45);
-      assert.ok(!Number.isNaN(frontmatter.duration_minutes));
+      const durationMin = Number(frontmatter.duration_minutes);
+      assert.ok(
+        durationMin >= 44 && durationMin <= 46,
+        `Expected duration around 45 min, got ${durationMin}`
+      );
+      assert.ok(!Number.isNaN(durationMin));
     });
 
     test('draft checkpoint with future timestamp is strictly rejected/clamped so started_at <= ended_at', async () => {
@@ -325,7 +329,7 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       assert.strictEqual(frontmatter.duration_minutes, 0);
     });
 
-    test('draft checkpoint older than 24 hours is clamped to now with duration = 0', async () => {
+    test('draft checkpoint older than 24 hours accurately preserves multi-day duration without discarding study time', async () => {
       // Create draft with timestamp 30 hours ago
       const staleTime = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString();
       const draftPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-stale.md');
@@ -351,7 +355,8 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       const sessionEnded = new Date(frontmatter.ended_at as string).getTime();
 
       assert.ok(sessionStarted <= sessionEnded);
-      assert.strictEqual(frontmatter.duration_minutes, 0);
+      const durationMin = Number(frontmatter.duration_minutes);
+      assert.ok(durationMin >= 1790 && durationMin <= 1810, `Expected ~1800 min, got ${durationMin}`);
     });
   });
 

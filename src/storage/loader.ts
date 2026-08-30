@@ -9,8 +9,21 @@
 import fs from 'fs';
 import path from 'path';
 import { walkVault } from './vault-walker';
-import { parseFrontmatter } from './frontmatter';
+import { computeFingerprint, parseFrontmatter } from './frontmatter';
+import { FileCache } from './cache';
 import { TopicNode, normalizeDifficulty } from '../types';
+
+/** Module-level topic file cache */
+const topicCache = new FileCache<LoadedTopic>();
+
+/**
+ * Returns the module-level topic cache instance.
+ *
+ * @returns FileCache instance holding parsed topic notes
+ */
+export function getTopicCache(): FileCache<LoadedTopic> {
+  return topicCache;
+}
 
 /**
  * Fully materialized in-memory representation of a PALEE topic note loaded from disk.
@@ -145,6 +158,12 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
+    const cached = topicCache.get(filePath);
+    if (cached) {
+      topics.push(cached);
+      continue;
+    }
+
     let content: string;
     try {
       content = fs.readFileSync(filePath, 'utf8');
@@ -199,6 +218,8 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
       due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
     };
 
+    const fp = computeFingerprint(content);
+    topicCache.set(filePath, topic, fp);
     topics.push(topic);
   }
 

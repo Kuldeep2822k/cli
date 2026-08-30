@@ -571,8 +571,8 @@ async function recoverDraft(
     const nowTime = new Date(nowIso).getTime();
     let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
 
-    // Staleness bound: if draft start is older than 24h or in future, fallback to now
-    if (nowTime - parsedStart > 24 * 60 * 60 * 1000 || parsedStart > nowTime) {
+    // Clock skew tolerance: if within 60s in future, clamp to now
+    if (parsedStart > nowTime) {
       parsedStart = nowTime;
     }
 

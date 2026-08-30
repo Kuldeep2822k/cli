@@ -137,12 +137,101 @@ export function globToRegex(glob: string): RegExp {
 }
 
 /**
+ * Evaluates whether a single path segment matches a segment wildcard pattern.
+ *
+ * @param pattern - Segment pattern (e.g. `*.md`, `[a-z]*`, `?`)
+ * @param str - Path segment string
+ * @returns `true` if segment matches
+ */
+function matchSegmentWildcard(pattern: string, str: string): boolean {
+  if (pattern === str || pattern === '*') return true;
+  let regStr = '';
+  let inGroup = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '[' && !inGroup) {
+      const close = pattern.indexOf(']', i + 1);
+      if (close !== -1) {
+        inGroup = true;
+        regStr += '[';
+        if (pattern[i + 1] === '!') {
+          regStr += '^';
+          i++;
+        }
+        continue;
+      }
+    }
+    if (c === ']' && inGroup) {
+      inGroup = false;
+      regStr += ']';
+      continue;
+    }
+    if (inGroup) {
+      if (c === '\\') regStr += '\\\\';
+      else if (['/', '^', '$'].includes(c)) regStr += `\\${c}`;
+      else regStr += c;
+      continue;
+    }
+    if (c === '*') regStr += '.*';
+    else if (c === '?') regStr += '.';
+    else if (['.', '+', '^', '$', '(', ')', '{', '}', '|', '\\'].includes(c)) regStr += `\\${c}`;
+    else regStr += c;
+  }
+  return new RegExp(`^${regStr}$`, 'i').test(str);
+}
+
+/**
+ * Matches a glob pattern against a target path using linear dynamic programming.
+ *
+ * @remarks
+ * Immune to exponential catastrophic backtracking (ReDoS) across multi-band `**\/` globs.
+ *
+ * @param glob - Normalized glob pattern string
+ * @param target - Normalized target path string
+ * @returns `true` if path matches glob
+ */
+export function matchPathGlob(glob: string, target: string): boolean {
+  const gNorm = glob.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+  const tNorm = target.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+
+  if (!gNorm) return !tNorm;
+
+  // Single-filename glob matching (no '/')
+  if (!gNorm.includes('/')) {
+    const basename = tNorm.split('/').pop() || tNorm;
+    if (matchSegmentWildcard(gNorm, basename)) return true;
+  }
+
+  const gParts = gNorm.split('/').filter(Boolean);
+  const tParts = tNorm.split('/').filter(Boolean);
+
+  const dp = Array.from({ length: gParts.length + 1 }, () => Array(tParts.length + 1).fill(false));
+  dp[0][0] = true;
+
+  for (let i = 1; i <= gParts.length; i++) {
+    if (gParts[i - 1] === '**') {
+      dp[i][0] = dp[i - 1][0];
+      for (let j = 1; j <= tParts.length; j++) {
+        dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+      }
+    } else {
+      dp[i][0] = false;
+      for (let j = 1; j <= tParts.length; j++) {
+        dp[i][j] = dp[i - 1][j - 1] && matchSegmentWildcard(gParts[i - 1], tParts[j - 1]);
+      }
+    }
+  }
+
+  return dp[gParts.length][tParts.length];
+}
+
+/**
  * Evaluates whether a file path or its basename matches any provided glob patterns.
  *
  * @remarks
  * Patterns can be passed as an array of strings or a comma-separated string (e.g. `"*.md, notes/**"`).
  * Matching modes:
- * 1. Full relative path matching.
+ * 1. Full relative path matching via linear DP matcher (ReDoS-immune).
  * 2. Basename matching if pattern contains no `/`.
  * 3. Exact segment and prefix matching for non-wildcard directory specifications.
  *
@@ -173,15 +262,13 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
     const trimmedPattern = pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
     if (!trimmedPattern) continue;
 
-    const regex = globToRegex(trimmedPattern);
-
-    // Full path matching (matches path-scoped and deep glob patterns)
-    if (regex.test(normalizedPath)) {
+    // Linear DP glob match
+    if (matchPathGlob(trimmedPattern, normalizedPath)) {
       return true;
     }
 
     // Basename matching: allowed when pattern is a pure filename pattern (no '/')
-    if (!trimmedPattern.includes('/') && regex.test(basename)) {
+    if (!trimmedPattern.includes('/') && matchSegmentWildcard(trimmedPattern, basename)) {
       return true;
     }
 

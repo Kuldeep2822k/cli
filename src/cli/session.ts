@@ -177,9 +177,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
         const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
 
-        // If already active on the same topic within 24h and not in future, preserve started_at
-        if (activeTopic === resolvedTopic && parsedStart > 0 && (nowTime - parsedStart) <= 24 * 60 * 60 * 1000 && parsedStart <= nowTime) {
-          startedAtToPersist = new Date(parsedStart).toISOString();
+        // If already active on the same topic and not in future (with 60s skew tolerance), preserve started_at
+        if (activeTopic === resolvedTopic && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+          startedAtToPersist = new Date(Math.min(parsedStart, nowTime)).toISOString();
         }
 
         await updateHotMemory(
@@ -270,19 +270,19 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
-      const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
 
       // 3-tier timestamp recovery algorithm
-      // Tier 1: Check draft checkpoints for earliest started_at within 24h
+      // Tier 1: Check draft checkpoints for earliest started_at
       const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter((d) => {
         if (!d.started_at) return false;
         const t = new Date(d.started_at).getTime();
-        return !Number.isNaN(t) && (nowTime - t) <= MAX_DURATION_MS && t <= nowTime;
+        return !Number.isNaN(t) && t <= nowTime + 60000;
       });
       let startedAt: string | null = null;
       if (matchingDrafts.length > 0) {
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
-        startedAt = matchingDrafts[0].started_at;
+        const draftStart = new Date(matchingDrafts[0].started_at).getTime();
+        startedAt = new Date(Math.min(draftStart, nowTime)).toISOString();
       }
 
       // Tier 2: Check active hot memory
@@ -294,8 +294,8 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
             const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
             const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
-            if (activeTopic === topicId && parsedStart > 0 && (nowTime - parsedStart) <= MAX_DURATION_MS && parsedStart <= nowTime) {
-              startedAt = new Date(parsedStart).toISOString();
+            if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+              startedAt = new Date(Math.min(parsedStart, nowTime)).toISOString();
             }
           } catch {
             // ignore parse error

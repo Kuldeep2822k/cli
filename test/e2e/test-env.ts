@@ -53,10 +53,14 @@ export function runPalee(
     stdio: 'pipe',
   });
 
+  if (result.error) {
+    throw new Error(`Process spawn error during '${args.join(' ')}': ${result.error.message}\n${result.error.stack}`);
+  }
+
   return {
-    status: result.status ?? (result.error ? 1 : 0),
+    status: result.status ?? 0,
     stdout: result.stdout || '',
-    stderr: result.stderr || (result.error ? result.error.message : ''),
+    stderr: result.stderr || '',
   };
 }
 

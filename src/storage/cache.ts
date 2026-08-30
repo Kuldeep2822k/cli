@@ -152,13 +152,14 @@ class FileCache<T = unknown> {
    * cache.set('/vault/note.md', parsedAst, hash);
    * ```
    */
-  set(filePath: string, data: T, fingerprint: string): void {
+  set(filePath: string, data: T, fingerprint?: string): void {
     try {
       const stats = fs.statSync(filePath);
+      const fp = fingerprint ?? computeFingerprint(fs.readFileSync(filePath, 'utf8'));
       this.cache.set(filePath, {
         mtime: stats.mtimeMs,
         size: stats.size,
-        fingerprint,
+        fingerprint: fp,
         data,
         lastVerified: Date.now(),
       });
