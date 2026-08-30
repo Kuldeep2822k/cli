@@ -279,7 +279,11 @@ describe('Memory System', () => {
 
     const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
     const files = fs.readdirSync(sessionsDir);
-    const recoveredNote = files.find(f => f.startsWith('S-') && !f.startsWith('DRAFT-S-'));
+    const recoveredNote = files.find(f => {
+      if (!f.startsWith('S-') || f.startsWith('DRAFT-S-')) return false;
+      const content = fs.readFileSync(path.join(sessionsDir, f), 'utf8');
+      return content.includes('T-corrupt-date');
+    });
     assert.ok(recoveredNote);
 
     const content = fs.readFileSync(path.join(sessionsDir, recoveredNote), 'utf8');
