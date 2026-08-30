@@ -216,6 +216,62 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       await roadmapCommand({ from: validRoadmap, yes: true });
       assert.strictEqual(process.exitCode, 0);
     });
+
+    test('batch import with corrupted note creates valid topics, logs error, and sets exitCode 1', async () => {
+      saveConfig({ vaultPath: vaultDir });
+
+      // Create a corrupted note on disk that will cause updateFrontmatter to throw Malformed frontmatter
+      const corruptNotePath = path.join(vaultDir, 'corrupt-topic.md');
+      fs.writeFileSync(corruptNotePath, '---\npalee_id: [unclosed\n---\n# Corrupt Note\n', 'utf8');
+
+      const mixedRoadmap = path.join(tempDir, 'corrupt-batch-roadmap.yaml');
+      fs.writeFileSync(
+        mixedRoadmap,
+        `topics:
+  - id: T-valid-first
+    title: Valid First Topic
+    path: valid-first.md
+  - id: T-corrupt
+    title: Corrupt Topic
+    path: corrupt-topic.md
+  - id: T-valid-second
+    title: Valid Second Topic
+    path: valid-second.md
+`
+      );
+
+      const errorLogs: string[] = [];
+      const origError = console.error;
+      console.error = (...args: unknown[]) => {
+        errorLogs.push(args.map(a => String(a)).join(' '));
+      };
+
+      try {
+        await roadmapCommand({ from: mixedRoadmap, yes: true });
+      } finally {
+        console.error = origError;
+      }
+
+      assert.strictEqual(process.exitCode, 1, 'Expected exitCode 1 on partial batch failure');
+
+      // Verify valid topics were created
+      const validFirstPath = path.join(vaultDir, 'valid-first.md');
+      const validSecondPath = path.join(vaultDir, 'valid-second.md');
+      assert.ok(fs.existsSync(validFirstPath), 'valid-first.md should exist');
+      assert.ok(fs.existsSync(validSecondPath), 'valid-second.md should exist');
+
+      // Verify error was logged for corrupted topic
+      const combinedErrors = errorLogs.join('\n');
+      assert.match(combinedErrors, /Failed T-corrupt \(corrupt-topic\.md\)/);
+      assert.match(combinedErrors, /Malformed frontmatter/);
+      assert.match(combinedErrors, /Failed to import 1 topics/);
+
+      // Cleanup
+      if (fs.existsSync(corruptNotePath)) fs.unlinkSync(corruptNotePath);
+      if (fs.existsSync(validFirstPath)) fs.unlinkSync(validFirstPath);
+      if (fs.existsSync(validSecondPath)) fs.unlinkSync(validSecondPath);
+      if (fs.existsSync(mixedRoadmap)) fs.unlinkSync(mixedRoadmap);
+    });
   });
 
   describe('dashboardCommand, nextCommand, planCommand, progressCommand, validateCommand', () => {

@@ -11,10 +11,14 @@ import {
   formatDateOnly,
   writeSessionNote,
   updateHotMemory,
+  resetHotMemory,
   regenerateIndex,
   rebuildHotAndIndex,
   writeDraftCheckpoint,
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  deleteSessionNote,
   recoverDraft,
   parseFrontmatter,
   MAX_HOT_WORDS,
@@ -176,5 +180,93 @@ describe('Memory System', () => {
     const files = fs.readdirSync(sessionsDir);
     const hasConfirmedSession = files.some(f => f.startsWith('S-') && !f.startsWith('DRAFT-S-'));
     assert.ok(hasConfirmedSession, 'Confirmed session should be created');
+  });
+
+  test('resetHotMemory removes hot.md safely', async () => {
+    await updateHotMemory(testVaultPath, 'S-999', 'T-reset', 'Sample body');
+    const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+    assert.ok(fs.existsSync(hotPath));
+
+    await resetHotMemory(testVaultPath);
+    assert.strictEqual(fs.existsSync(hotPath), false);
+
+    // Idempotent: resetting when not existing should not throw
+    await resetHotMemory(testVaultPath);
+  });
+
+  test('updateHotMemory persists started_at timestamp when provided', async () => {
+    const startTime = '2026-08-30T10:00:00.000Z';
+    const hotPath = await updateHotMemory(testVaultPath, 'S-100', 'T-start-test', 'Body content', startTime);
+    assert.ok(fs.existsSync(hotPath));
+
+    const content = fs.readFileSync(hotPath, 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter);
+    assert.strictEqual(frontmatter!.started_at, startTime);
+    assert.strictEqual(frontmatter!.active_topic, 'T-start-test');
+  });
+
+  test('writeSessionNote persists duration_minutes in frontmatter', async () => {
+    const sessionId = generateSessionId();
+    const sessionPath = await writeSessionNote(testVaultPath, {
+      session_id: sessionId,
+      topic_id: 'T-duration-unit',
+      started_at: '2026-08-30T10:00:00.000Z',
+      ended_at: '2026-08-30T10:45:00.000Z',
+      duration_minutes: 45,
+    }, 'Session body with duration.');
+
+    assert.ok(fs.existsSync(sessionPath));
+    const content = fs.readFileSync(sessionPath, 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter);
+    assert.strictEqual(frontmatter!.duration_minutes, 45);
+  });
+
+  test('getTopicDrafts and deleteTopicDrafts manage topic drafts', async () => {
+    const draftId1 = generateDraftId();
+    const draftId2 = generateDraftId();
+    const draftIdOther = generateDraftId();
+
+    const start1 = '2026-08-30T09:00:00.000Z';
+    const start2 = '2026-08-30T09:30:00.000Z';
+
+    await writeDraftCheckpoint(testVaultPath, draftId1, { topic_id: 'T-multi-draft', started_at: start1 }, 'Draft 1');
+    await writeDraftCheckpoint(testVaultPath, draftId2, { topic_id: 'T-multi-draft', started_at: start2 }, 'Draft 2');
+    await writeDraftCheckpoint(testVaultPath, draftIdOther, { topic_id: 'T-other', started_at: start1 }, 'Draft other');
+
+    const topicDrafts = getTopicDrafts(testVaultPath, 'T-multi-draft');
+    assert.strictEqual(topicDrafts.length, 2);
+    assert.ok(topicDrafts.some(d => d.started_at === start1));
+    assert.ok(topicDrafts.some(d => d.started_at === start2));
+
+    deleteTopicDrafts(testVaultPath, 'T-multi-draft');
+
+    const remainingTopicDrafts = getTopicDrafts(testVaultPath, 'T-multi-draft');
+    assert.strictEqual(remainingTopicDrafts.length, 0);
+
+    const remainingOtherDrafts = getTopicDrafts(testVaultPath, 'T-other');
+    assert.strictEqual(remainingOtherDrafts.length, 1);
+  });
+
+  test('deleteSessionNote unlinks session within sessions dir and throws outside', async () => {
+    const sessionId = generateSessionId();
+    const sessionPath = await writeSessionNote(testVaultPath, {
+      session_id: sessionId,
+      topic_id: 'T-del-test',
+      started_at: '2026-08-30T10:00:00.000Z',
+      ended_at: '2026-08-30T10:10:00.000Z',
+    }, 'Session to delete');
+
+    assert.ok(fs.existsSync(sessionPath));
+    deleteSessionNote(testVaultPath, sessionPath);
+    assert.strictEqual(fs.existsSync(sessionPath), false);
+
+    // Outside boundary security check
+    const outsideFile = path.join(testVaultPath, 'outside.md');
+    fs.writeFileSync(outsideFile, 'outside');
+    assert.throws(() => {
+      deleteSessionNote(testVaultPath, outsideFile);
+    }, /Security error: Cannot delete session file outside sessions directory/);
   });
 });

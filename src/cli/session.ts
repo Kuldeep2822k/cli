@@ -10,7 +10,11 @@ import fs from 'fs';
 import path from 'path';
 import {
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  resetHotMemory,
   rebuildHotAndIndex,
+  updateHotMemory,
   writeSessionNote,
   writeDraftCheckpoint,
   generateSessionId,
@@ -119,12 +123,28 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       if (error || (frontmatter && !frontmatter.palee_schema)) {
         console.warn('Corrupt hot memory detected. Rebuilding...');
-        fs.unlinkSync(hotPath);
+        await resetHotMemory(vaultPath);
         await rebuildHotAndIndex(vaultPath);
         hotContent = fs.readFileSync(hotPath, 'utf8');
         const parsed = parseFrontmatter(hotContent);
         frontmatter = parsed.frontmatter;
         body = parsed.body;
+      }
+
+      const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
+      const nowIso = new Date().toISOString();
+      if (resolvedTopic) {
+        await updateHotMemory(
+          vaultPath,
+          (frontmatter?.last_session as string) || null,
+          resolvedTopic,
+          body || '',
+          nowIso
+        );
+        hotContent = fs.readFileSync(hotPath, 'utf8');
+        const refreshed = parseFrontmatter(hotContent);
+        frontmatter = refreshed.frontmatter;
+        body = refreshed.body;
       }
 
       console.log('=== PALEE Session Started ===\n');
@@ -153,10 +173,29 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         return;
       }
 
+      let draftStart = new Date().toISOString();
+      const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+      if (fs.existsSync(hotPath)) {
+        try {
+          const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+          if (
+            frontmatter &&
+            frontmatter.active_topic === topicId &&
+            typeof frontmatter.started_at === 'string' &&
+            frontmatter.started_at.trim().length > 0 &&
+            !Number.isNaN(new Date(frontmatter.started_at).getTime())
+          ) {
+            draftStart = frontmatter.started_at.trim();
+          }
+        } catch {
+          // ignore read error
+        }
+      }
+
       const draftId = generateDraftId();
       const draftPath = await writeDraftCheckpoint(vaultPath, draftId, {
         topic_id: topicId,
-        started_at: new Date().toISOString(),
+        started_at: draftStart,
       }, 'Draft checkpoint captured during learning session.');
 
       console.log(`✓ Draft checkpoint created: ${path.basename(draftPath)}`);
@@ -171,26 +210,60 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         return;
       }
 
-      const drafts = getDrafts(vaultPath);
+      // 3-tier timestamp recovery algorithm
+      // Tier 1: Check draft checkpoints for earliest started_at
+      const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter(
+        (d) => d.started_at && !Number.isNaN(new Date(d.started_at).getTime())
+      );
+      let startedAt: string | null = null;
+      if (matchingDrafts.length > 0) {
+        matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+        startedAt = matchingDrafts[0].started_at;
+      }
+
+      // Tier 2: Check active hot memory
+      if (!startedAt) {
+        const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+        if (fs.existsSync(hotPath)) {
+          try {
+            const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+            if (
+              frontmatter &&
+              frontmatter.active_topic === topicId &&
+              typeof frontmatter.started_at === 'string' &&
+              frontmatter.started_at.trim().length > 0 &&
+              !Number.isNaN(new Date(frontmatter.started_at).getTime())
+            ) {
+              startedAt = frontmatter.started_at.trim();
+            }
+          } catch {
+            // ignore parse error
+          }
+        }
+      }
+
+      // Tier 3: Fallback to current instant
+      const endedAt = new Date().toISOString();
+      if (!startedAt || Number.isNaN(new Date(startedAt).getTime())) {
+        startedAt = endedAt;
+      }
+
+      // Calculate actual elapsed duration
+      const durationMs = Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
+      const durationMinutes = Math.round(durationMs / 60000);
+
       const sessionId = generateSessionId();
 
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
         topic_id: topicId,
-        started_at: new Date().toISOString(),
-        ended_at: new Date().toISOString(),
-      }, `Completed learning session for ${topicId}.`);
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_minutes: durationMinutes,
+      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
 
       // Clean up drafts on confirmed session end for the current topic
-      for (const draftPath of drafts) {
-        try {
-          const content = fs.readFileSync(draftPath, 'utf8');
-          const { frontmatter } = parseFrontmatter(content);
-          if (frontmatter && frontmatter.topic_id === topicId) {
-            fs.unlinkSync(draftPath);
-          }
-        } catch { /* ignore */ }
-      }
+      deleteTopicDrafts(vaultPath, topicId);
 
       // Regenerate derived views
       await rebuildHotAndIndex(vaultPath);

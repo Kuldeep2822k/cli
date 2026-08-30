@@ -12,7 +12,7 @@
  * - **Pattern & Roadmap Parsers**: `matchesPattern`, `matchesTags`, `parseRoadmapContent`
  */
 
-import { walkVault } from './vault-walker';
+import { walkVault, ensureVaultDirectory } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
@@ -25,10 +25,14 @@ import {
   formatDateOnly,
   writeSessionNote,
   updateHotMemory,
+  resetHotMemory,
   regenerateIndex,
   rebuildHotAndIndex,
   writeDraftCheckpoint,
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  deleteSessionNote,
   recoverDraft,
   MAX_HOT_WORDS,
 } from './memory';
@@ -39,6 +43,7 @@ import { loadTopics, type LoadedTopic } from './loader';
 export {
   // Vault operations
   walkVault,
+  ensureVaultDirectory,
   loadTopics,
 
   // Pattern and Tag Matching
@@ -76,10 +81,14 @@ export {
   formatDateOnly,
   writeSessionNote,
   updateHotMemory,
+  resetHotMemory,
   regenerateIndex,
   rebuildHotAndIndex,
   writeDraftCheckpoint,
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  deleteSessionNote,
   recoverDraft,
   MAX_HOT_WORDS,
 };

@@ -5,8 +5,7 @@
 
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
-import { walkVault } from '../storage/vault-walker';
-import { loadTopics } from '../storage/loader';
+import { walkVault, loadTopics } from '../storage';
 import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
 

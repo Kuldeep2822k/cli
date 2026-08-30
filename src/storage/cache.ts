@@ -14,7 +14,6 @@ import { CacheEntry } from '../types';
 
 /** Duration in milliseconds (2,000 ms) during which recent file modifications require full content SHA-256 hash re-verification */
 const UNSETTLED_HORIZON = 2000;
-const VERIFY_THROTTLE_MS = 0;
 
 /**
  * Generic in-memory file cache keyed by filesystem path.
@@ -62,9 +61,6 @@ class FileCache<T = unknown> {
       // Within unsettled horizon - recompute fingerprint
       const now = Date.now();
       if ((now - mtime) < UNSETTLED_HORIZON) {
-        if (process.env.NODE_ENV !== 'test' && (now - entry.lastVerified) < VERIFY_THROTTLE_MS) {
-          return entry.data;
-        }
         const content = fs.readFileSync(filePath, 'utf8');
         const fingerprint = computeFingerprint(content);
 

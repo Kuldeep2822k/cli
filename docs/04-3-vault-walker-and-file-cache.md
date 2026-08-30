@@ -22,6 +22,13 @@ The `walkVault` function in `src/storage/vault-walker.ts` traverses the file sys
 - **Symlinks**: By default, symbolic links are skipped to prevent circular references or escaping the vault, unless explicitly enabled via `WalkOptions.followSymlinks`.
 - **Permissions**: If a directory cannot be read due to permission errors (`EACCES`/`EPERM`), it is skipped safely.
 
+### Safe Directory Creation (`ensureVaultDirectory`)
+
+In addition to vault traversal, the vault walker module provides `ensureVaultDirectory(vaultPath, targetPath)` [src/storage/vault-walker.ts#136-156](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L136-L156). This helper is utilized by commands like `palee roadmap` to create target directory structures safely:
+- **Path Boundary Validation**: Checks `path.relative(resolvedVault, targetDir)` and throws an error if the path attempts directory traversal outside the vault root (`..`).
+- **Symlink Escape Defense**: After creating directories, validates the canonical path using `fs.realpathSync` to guarantee that no symlink targets resolve outside the vault.
+- **Lock & Idempotency Safety**: Recursively creates missing directories (`fs.mkdirSync(dir, { recursive: true })`) safely.
+
 ### Discovery Logic Flow
 
 ```mermaid
@@ -46,13 +53,13 @@ flowchart TD
     TYPE -- "Markdown (.md)" --> COLLECT["Add to results"]
 ```
 
-Sources: [src/storage/vault-walker.ts#14-120](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L120)[test/storage-walker.test.ts#41-133](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L133)
+Sources: [src/storage/vault-walker.ts#14-156](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L156)[test/storage-walker.test.ts#41-133](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L133)
 
 ---
 
 ## File Cache
 
-The `FileCache` class in `src/storage/cache.ts` provides an in-memory store for parsed file data (such as `FrontmatterResult`). It is designed to minimize expensive disk I/O and SHA-256 fingerprinting operations while remaining safe against external file modifications.
+The `FileCache` class in `src/storage/cache.ts` provides a deterministic in-memory store for parsed file data (such as `FrontmatterResult` or `LoadedTopic`). It is designed to minimize expensive disk I/O and SHA-256 fingerprinting operations while remaining safe against external file modifications. It contains zero test-environment bypasses (no `NODE_ENV !== 'test'` checks), guaranteeing identical deterministic behavior across testing and production.
 
 ### The Unsettled Horizon & SHA-256 Fallback
 

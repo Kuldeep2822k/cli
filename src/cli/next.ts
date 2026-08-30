@@ -5,7 +5,7 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows next topic(s) due for review
  */
 
-import { loadTopics } from '../storage/loader';
+import { loadTopics } from '../storage';
 import { Difficulty, NextOptions } from '../types';
 
 
@@ -127,7 +127,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
           ? topic.dueAt.toISOString().split('T')[0]
           : 'Never reviewed';
         console.log(`  ${topic.id} - ${topic.title}`);
-        console.log(`    Due: ${dueStr} | Mastery: ${topic.mastery.toFixed(2)} | Reps: ${topic.repetition}`);
+        console.log(`    Due: ${dueStr} | Mastery: ${(topic.mastery * 100).toFixed(1)}% | Reps: ${topic.repetition}`);
         console.log(`    Path: ${topic.path}`);
         console.log();
       }
@@ -142,7 +142,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       console.log(`  ${next.title}`);
       console.log(`  ID: ${next.id}`);
       console.log(`  Due: ${dueStr}`);
-      console.log(`  Mastery: ${next.mastery.toFixed(2)}`);
+      console.log(`  Mastery: ${(next.mastery * 100).toFixed(1)}%`);
       console.log(`  Repetitions: ${next.repetition}`);
       console.log(`  Path: ${next.path}`);
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { walkVault } from '../src/storage/vault-walker';
+import { walkVault, ensureVaultDirectory } from '../src/storage/vault-walker';
 import { NodeError } from '../src/types';
 
 describe('Vault Walker', () => {
@@ -97,8 +97,6 @@ describe('Vault Walker', () => {
     }
   });
 
-
-
   test('returns absolute paths', () => {
     const files = walkVault(testVaultPath);
     files.forEach(file => {
@@ -130,6 +128,19 @@ describe('Vault Walker', () => {
 
     const filteredWalk = walkVault(testVaultPath, { excludeDirs: ['_templates'] });
     assert.strictEqual(filteredWalk.some(f => f.includes('template.md')), false);
+  });
+
+  test('ensureVaultDirectory creates directory structure safely within vault', () => {
+    const createdDir = ensureVaultDirectory(testVaultPath, 'nested/sub/topic.md');
+    assert.ok(fs.existsSync(createdDir));
+    const realVault = fs.realpathSync(testVaultPath);
+    assert.ok(createdDir.startsWith(realVault));
+  });
+
+  test('ensureVaultDirectory throws error if path escapes vault boundary', () => {
+    assert.throws(() => {
+      ensureVaultDirectory(testVaultPath, '../outside/topic.md');
+    }, /Path escapes vault boundary/);
   });
 });
 

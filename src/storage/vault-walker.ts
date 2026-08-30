@@ -118,7 +118,41 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
 
   walk(resolvedVaultPath);
   return results;
-
 }
 
-export { walkVault };
+/**
+ * Ensures a directory inside the vault exists, validating path boundaries and preventing symlink escapes.
+ *
+ * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param targetPath - Absolute or relative path to target directory or file within the vault
+ * @returns Canonical path to the ensured directory
+ * @throws {Error} If targetPath escapes vault boundary or resolves outside vault via symlinks
+ *
+ * @example
+ * ```typescript
+ * const dir = ensureVaultDirectory('/path/to/vault', 'topics/math/algebra.md');
+ * ```
+ */
+function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
+  const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
+  const absoluteTarget = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(vaultPath, targetPath);
+  const targetDir = path.extname(absoluteTarget) ? path.dirname(absoluteTarget) : absoluteTarget;
+
+  const relative = path.relative(resolvedVault, targetDir);
+  if (relative.startsWith('..') && !path.isAbsolute(relative)) {
+    throw new Error(`Path escapes vault boundary: ${targetPath}`);
+  }
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  const canonicalDir = fs.realpathSync(targetDir);
+  if (canonicalDir !== resolvedVault && !canonicalDir.startsWith(resolvedVault + path.sep)) {
+    throw new Error(`Symlink escape detected: ${targetPath} resolves outside vault`);
+  }
+
+  return canonicalDir;
+}
+
+export { walkVault, ensureVaultDirectory };

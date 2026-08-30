@@ -5,7 +5,7 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows learning progress summary
  */
 
-import { loadTopics } from '../storage/loader';
+import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, ProgressOptions } from '../types';
 

@@ -1,9 +1,12 @@
 import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { loadTopics } from '../storage/loader';
-import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
-import { atomicWrite } from '../storage/atomic-write';
+import {
+  loadTopics,
+  updateFrontmatter,
+  computeFingerprint,
+  atomicWrite,
+} from '../storage';
 import { MigrateOptions } from '../types';
 
 /**

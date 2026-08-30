@@ -188,6 +188,8 @@ export interface HotMemoryData {
   last_session: string | null;
   /** ID of the topic currently active in working memory, or null */
   active_topic: string | null;
+  /** ISO 8601 timestamp when active session started, or null */
+  started_at?: string | null;
   /** Date formatted as YYYY-MM-DD when hot memory was last regenerated */
   updated_at: string;
 }
@@ -210,6 +212,8 @@ export interface CompletedSessionRecord extends BaseSessionRecord {
   status: 'completed';
   /** ISO 8601 timestamp when session ended */
   ended_at: string;
+  /** Total elapsed duration of the completed session in minutes */
+  duration_minutes?: number;
 }
 
 /** In-progress draft session file frontmatter record */

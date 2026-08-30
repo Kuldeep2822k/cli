@@ -152,6 +152,9 @@ async function writeSessionNote(
     ended_at: fullData.ended_at,
     status: fullData.status,
   };
+  if (fullData.duration_minutes !== undefined) {
+    frontmatterObj.duration_minutes = fullData.duration_minutes;
+  }
 
   const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
   let expectedFingerprint: string | null = null;
@@ -167,19 +170,21 @@ async function writeSessionNote(
  * Writes or updates the active working memory file (`.palee/hot.md`).
  *
  * @remarks
- * Summary body is capped at 250 words and frontmatter tracks `last_session`, `active_topic`, and `updated_at`.
+ * Summary body is capped at 250 words and frontmatter tracks `last_session`, `active_topic`, `started_at`, and `updated_at`.
  *
  * @param vaultPath - Vault root path
  * @param lastSessionId - ID of latest completed session or null
  * @param activeTopicId - ID of currently active topic or null
  * @param summaryBody - Notes text to distill into hot memory
+ * @param startedAt - ISO timestamp when the active topic session started or null
  * @returns Absolute path to `hot.md`
  */
 async function updateHotMemory(
   vaultPath: string,
   lastSessionId: string | null,
   activeTopicId: string | null,
-  summaryBody: string
+  summaryBody: string,
+  startedAt: string | null = null
 ): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
   const hotPath = path.join(paleeDir, 'hot.md');
@@ -191,6 +196,7 @@ async function updateHotMemory(
     memory_id: 'H-active',
     last_session: lastSessionId,
     active_topic: activeTopicId,
+    started_at: startedAt,
     updated_at: formatDateOnly(new Date()),
   };
 
@@ -199,6 +205,7 @@ async function updateHotMemory(
     memory_id: hotData.memory_id,
     last_session: hotData.last_session,
     active_topic: hotData.active_topic,
+    started_at: hotData.started_at,
     updated_at: hotData.updated_at,
   };
 
@@ -209,6 +216,25 @@ async function updateHotMemory(
   }
 
   await atomicWrite(vaultPath, hotPath, content, expectedFingerprint);
+  return hotPath;
+}
+
+/**
+ * Safely resets or deletes the active working memory file (`.palee/hot.md`).
+ *
+ * @param vaultPath - Vault root path
+ * @returns Absolute path to `hot.md`
+ */
+async function resetHotMemory(vaultPath: string): Promise<string> {
+  const paleeDir = getPaleeDir(vaultPath);
+  const hotPath = path.join(paleeDir, 'hot.md');
+  try {
+    if (fs.existsSync(hotPath)) {
+      fs.unlinkSync(hotPath);
+    }
+  } catch {
+    // ignore if already unlinked
+  }
   return hotPath;
 }
 
@@ -416,7 +442,7 @@ async function recoverDraft(
   if (!fs.existsSync(draftPath)) return;
 
   if (action === 'discard') {
-    fs.unlinkSync(draftPath);
+    deleteSessionNote(vaultPath, draftPath);
     return;
   }
 
@@ -431,15 +457,19 @@ async function recoverDraft(
 
     const topicId = frontmatter ? (frontmatter.topic_id as string) || 'unknown' : 'unknown';
     const startedAt = frontmatter ? (frontmatter.started_at as string) || new Date().toISOString() : new Date().toISOString();
+    const endedAt = new Date().toISOString();
+    const durationMs = Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
+    const durationMinutes = Math.round(durationMs / 60000);
 
     await writeSessionNote(vaultPath, {
       session_id: newSessionId,
       topic_id: topicId,
       started_at: startedAt,
-      ended_at: new Date().toISOString(),
+      ended_at: endedAt,
+      duration_minutes: durationMinutes,
     }, body);
 
-    fs.unlinkSync(draftPath);
+    deleteSessionNote(vaultPath, draftPath);
 
     await rebuildHotAndIndex(vaultPath);
     return;
@@ -451,6 +481,81 @@ async function recoverDraft(
   }
 }
 
+/**
+ * Retrieves all active draft checkpoints matching a specific topic ID.
+ *
+ * @param vaultPath - Vault root path
+ * @param topicId - Topic ID
+ * @returns Array of matching draft records with path, started_at timestamp, and body
+ */
+function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string }> {
+  const drafts = getDrafts(vaultPath);
+  const matches: Array<{ path: string; started_at: string; body: string }> = [];
+  for (const draftPath of drafts) {
+    try {
+      const content = fs.readFileSync(draftPath, 'utf8');
+      const { frontmatter, body } = parseFrontmatter(content);
+      if (frontmatter && frontmatter.topic_id === topicId) {
+        matches.push({
+          path: draftPath,
+          started_at: (frontmatter.started_at as string) || '',
+          body,
+        });
+      }
+    } catch {
+      // ignore read errors
+    }
+  }
+  return matches;
+}
+
+/**
+ * Deletes all draft checkpoints matching a specific topic ID.
+ *
+ * @param vaultPath - Vault root path
+ * @param topicId - Topic ID
+ */
+function deleteTopicDrafts(vaultPath: string, topicId: string): void {
+  const drafts = getDrafts(vaultPath);
+  for (const draftPath of drafts) {
+    try {
+      const content = fs.readFileSync(draftPath, 'utf8');
+      const { frontmatter } = parseFrontmatter(content);
+      if (frontmatter && frontmatter.topic_id === topicId) {
+        deleteSessionNote(vaultPath, draftPath);
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Safely unlinks a completed session note or draft checkpoint file within `.palee/sessions/`.
+ *
+ * @param vaultPath - Vault root path
+ * @param targetPath - Path to the session note or draft file
+ */
+function deleteSessionNote(vaultPath: string, targetPath: string): void {
+  const sessionsDir = getSessionsDir(vaultPath);
+  const resolvedSessions = fs.realpathSync(sessionsDir);
+  const resolvedTarget = path.resolve(targetPath);
+
+  // Boundary check: ensure target is within .palee/sessions/
+  if (!resolvedTarget.startsWith(resolvedSessions + path.sep) && resolvedTarget !== resolvedSessions) {
+    throw new Error(`Security error: Cannot delete session file outside sessions directory: ${targetPath}`);
+  }
+
+  try {
+    if (fs.existsSync(resolvedTarget)) {
+      fs.unlinkSync(resolvedTarget);
+    }
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e.code !== 'ENOENT') throw err;
+  }
+}
+
 export {
   generateSessionId,
   generateDraftId,
@@ -459,10 +564,14 @@ export {
   formatDateOnly,
   writeSessionNote,
   updateHotMemory,
+  resetHotMemory,
   regenerateIndex,
   rebuildHotAndIndex,
   writeDraftCheckpoint,
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  deleteSessionNote,
   recoverDraft,
   MAX_HOT_WORDS,
 };

@@ -73,13 +73,18 @@ When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kulde
    - If `q < 3` (failed recall): resets interval to `1` day and increments `lapses`.
 3. **Mastery & Pillar Score Sync**: Normalizes conceptual, practical, debug, and Feynman pillar scores, recomputing `topic_mastery` via the 4-pillar mastery formula.
 4. **Local Date Calculation**: Computes `due_at` by adding `interval_days` calendar days to current local date (`YYYY-MM-DD`).
-5. **OCC-Protected Atomic Write**: Re-checks the note's SHA-256 fingerprint before writing to guarantee atomic consistency [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts).
+5. **OCC TOCTOU Race Elimination**: To eliminate Time-of-Check to Time-of-Use (TOCTOU) race windows between when the topic was initially loaded into memory and when the user finishes entering the review rating, `reviewCommand` re-reads the topic note from disk immediately prior to write:
+   - Validates existence on disk.
+   - Computes a fresh SHA-256 fingerprint from the newly read content.
+   - Confirms `initialFingerprint === freshFingerprint`. If the note was modified on disk concurrently while awaiting user input, an `ECONFLICT` error is thrown immediately.
+   - Passes the verified fresh fingerprint into `atomicWrite()`.
+   - Cleanly catches concurrency errors using `isConflictError(e)` and exits with code `4`.
 
 ```mermaid
 flowchart TD
     ReviewInput["palee review &lt;topic&gt; &lt;0..5&gt;"] --> ValRating{"Is quality an integer 0..5?"}
     ValRating -->|"No"| ErrRating["Exit Code 2 (Invalid Quality)"]
-    ValRating -->|"Yes"| FindTopic["Resolve Topic (loadTopics)"]
+    ValRating -->|"Yes"| FindTopic["Resolve Topic (loadTopics) & Compute Initial Hash"]
     
     FindTopic --> MatchCheck{"Matches Found?"}
     MatchCheck -->|"0 Matches"| ErrNotFound["Exit Code 2 (Topic Not Found)"]
@@ -88,9 +93,12 @@ flowchart TD
     
     SM2Calc --> MastSync["computeTopicMastery() (4-Pillars)"]
     MastSync --> DateCalc["computeDueDate() & formatLocalDateOnly()"]
-    DateCalc --> AtomicCommit["atomicWrite() with SHA-256 Fingerprint"]
+    DateCalc --> PreWriteRead["TOCTOU Check: Re-read Note from Disk"]
+    PreWriteRead --> HashMatch{"freshFingerprint === initialFingerprint?"}
+    HashMatch -->|"Mismatch / Modified"| ErrOCC["Exit Code 4 (OCC ECONFLICT)"]
+    HashMatch -->|"Match"| AtomicCommit["atomicWrite() with Fresh Fingerprint"]
     
-    AtomicCommit -->|"OCC Collision"| ErrOCC["Exit Code 4 (ECONFLICT)"]
+    AtomicCommit -->|"Lock / Write Conflict"| ErrOCC
     AtomicCommit -->|"Success"| SuccessReview["✓ Review recorded (Exit 0)"]
 ```
 
@@ -131,7 +139,7 @@ Next topic due for review:
   Introduction to Rust
   ID: T-20260814T120000-abcd
   Due: Never reviewed
-  Mastery: 0.00
+  Mastery: 0.0%
   Repetitions: 0
   Path: Rust/01-intro.md
 ```
@@ -142,11 +150,11 @@ $ palee next --all
 2 topic(s) due for review:
 
   T-20260814T120000-abcd - Introduction to Rust
-    Due: Never reviewed | Mastery: 0.00 | Reps: 0
+    Due: Never reviewed | Mastery: 0.0% | Reps: 0
     Path: Rust/01-intro.md
 
   T-20260814T120100-efgh - Memory Ownership
-    Due: 2026-08-20 | Mastery: 0.45 | Reps: 2
+    Due: 2026-08-20 | Mastery: 45.0% | Reps: 2
     Path: Rust/02-ownership.md
 ```
 

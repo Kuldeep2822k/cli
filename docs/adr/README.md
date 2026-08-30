@@ -9,4 +9,5 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0003: Non-Destructive Frontmatter Updates via YAML Document API](./0003-concrete-syntax-tree-yaml-frontmatter.md)
 - [ADR-0004: Four-Pillar Pedagogical Assessment Model](./0004-four-pillar-pedagogical-mastery.md)
 - [ADR-0005: Concurrency-Hardened Storage and Automated Schema Migration](./0005-concurrency-storage-and-schema-migration.md)
+- [ADR-0006: Phase 1 Concurrency Resilience, Storage Layer Isolation & Session Duration Tracking](./0006-phase-1-concurrency-resilience-and-storage-isolation.md)
 

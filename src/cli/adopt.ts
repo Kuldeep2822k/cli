@@ -9,10 +9,17 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
-import { atomicWrite, isConflictError } from '../storage/atomic-write';
-import { walkVault } from '../storage/vault-walker';
-import { matchesPattern, matchesTags, validatePattern } from '../storage/pattern-matcher';
+import {
+  parseFrontmatter,
+  updateFrontmatter,
+  computeFingerprint,
+  atomicWrite,
+  isConflictError,
+  walkVault,
+  matchesPattern,
+  matchesTags,
+  validatePattern,
+} from '../storage';
 import { computeTopicMastery, normalizeScore } from '../engine/mastery';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
