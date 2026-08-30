@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { parseFrontmatter } from '../src/storage';
+import { parseFrontmatter, updateHotMemory } from '../src/storage';
 
 describe('Session CLI In-Process Coverage', () => {
   let tempDir: string;
@@ -367,5 +367,22 @@ describe('Session CLI In-Process Coverage', () => {
     for (const f of allFiles) {
       try { fs.unlinkSync(path.join(draftsDir, f)); } catch {}
     }
+  });
+
+  test('session start preserves existing started_at timestamp when called repeatedly on same active topic', async () => {
+    const topicId = 'T-ongoing-topic';
+    const initialStartTime = '2026-08-30T09:00:00.000Z';
+
+    // Set initial hot memory with known start time
+    await updateHotMemory(vaultDir, null, topicId, 'Initial notes', initialStartTime);
+
+    // Call session start on same topic
+    await sessionCommand('start', { topic: topicId });
+
+    const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+    assert.ok(frontmatter);
+    assert.strictEqual(frontmatter.active_topic, topicId);
+    assert.strictEqual(frontmatter.started_at, initialStartTime, 'Must preserve original started_at');
   });
 });

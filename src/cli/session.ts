@@ -12,6 +12,7 @@ import {
   getDrafts,
   getTopicDrafts,
   deleteTopicDrafts,
+  deleteSessionNote,
   resetHotMemory,
   rebuildHotAndIndex,
   updateHotMemory,
@@ -134,12 +135,22 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
       const nowIso = new Date().toISOString();
       if (resolvedTopic) {
+        let startedAtToPersist = nowIso;
+        if (
+          frontmatter &&
+          frontmatter.active_topic === resolvedTopic &&
+          typeof frontmatter.started_at === 'string' &&
+          !Number.isNaN(new Date(frontmatter.started_at).getTime())
+        ) {
+          startedAtToPersist = frontmatter.started_at;
+        }
+
         await updateHotMemory(
           vaultPath,
           (frontmatter?.last_session as string) || null,
           resolvedTopic,
           body || '',
-          nowIso
+          startedAtToPersist
         );
         hotContent = fs.readFileSync(hotPath, 'utf8');
         const refreshed = parseFrontmatter(hotContent);
@@ -254,19 +265,27 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const sessionId = generateSessionId();
 
-      const sessionPath = await writeSessionNote(vaultPath, {
-        session_id: sessionId,
-        topic_id: topicId,
-        started_at: startedAt,
-        ended_at: endedAt,
-        duration_minutes: durationMinutes,
-      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
+      let sessionPath: string | null = null;
+      try {
+        sessionPath = await writeSessionNote(vaultPath, {
+          session_id: sessionId,
+          topic_id: topicId,
+          started_at: startedAt,
+          ended_at: endedAt,
+          duration_minutes: durationMinutes,
+        }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
 
-      // Clean up drafts on confirmed session end for the current topic
-      deleteTopicDrafts(vaultPath, topicId);
+        // Clean up drafts on confirmed session end for the current topic
+        deleteTopicDrafts(vaultPath, topicId);
 
-      // Regenerate derived views
-      await rebuildHotAndIndex(vaultPath);
+        // Regenerate derived views
+        await rebuildHotAndIndex(vaultPath);
+      } catch (err) {
+        if (sessionPath) {
+          try { deleteSessionNote(vaultPath, sessionPath); } catch {}
+        }
+        throw err;
+      }
 
       console.log(`✓ Session recorded: ${sessionId}`);
       console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);

@@ -234,7 +234,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.error(`Failed to import ${failed} topics.`);
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exitCode = (conflicts > 0 && conflicts === failed) ? 4 : 1;
+        process.exitCode = conflicts > 0 ? 4 : 1;
         return;
       } else {
         console.log('✓ Roadmap imported successfully');

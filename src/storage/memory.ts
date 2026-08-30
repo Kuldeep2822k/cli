@@ -457,17 +457,24 @@ async function recoverDraft(
     const durationMs = Math.max(0, new Date(endedAt).getTime() - parsedStart);
     const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
-    await writeSessionNote(vaultPath, {
-      session_id: newSessionId,
-      topic_id: topicId,
-      started_at: startedAt,
-      ended_at: endedAt,
-      duration_minutes: durationMinutes,
-    }, body);
+    let sessionPath: string | null = null;
+    try {
+      sessionPath = await writeSessionNote(vaultPath, {
+        session_id: newSessionId,
+        topic_id: topicId,
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_minutes: durationMinutes,
+      }, body);
 
-    deleteSessionNote(vaultPath, draftPath);
-
-    await rebuildHotAndIndex(vaultPath);
+      deleteSessionNote(vaultPath, draftPath);
+      await rebuildHotAndIndex(vaultPath);
+    } catch (err) {
+      if (sessionPath) {
+        try { deleteSessionNote(vaultPath, sessionPath); } catch {}
+      }
+      throw err;
+    }
     return;
   }
 

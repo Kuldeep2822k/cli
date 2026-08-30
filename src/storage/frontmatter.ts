@@ -28,7 +28,14 @@ import { FrontmatterResult, NodeError } from '../types';
  * ```
  */
 function parseFrontmatter(content: string): FrontmatterResult {
-  const fmMatch = content.match(/^---(?:\r?\n)([\s\S]*?)(?:\r?\n)?---(?:\r?\n)?([\s\S]*)$/);
+  // Case 1: Empty frontmatter fences with no intermediate content (---\n---)
+  const emptyMatch = content.match(/^---\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  if (emptyMatch) {
+    return { frontmatter: null, body: emptyMatch[1], raw: '' };
+  }
+
+  // Case 2: Populated frontmatter with mandatory newline before closing fence
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
 
   if (!fmMatch) {
     return { frontmatter: null, body: content, raw: null };
@@ -80,7 +87,7 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
   if (parsed.raw === null) {
     const doc = new Document(updates);
     const yamlContent = doc.toString();
-    const cleanBody = content.startsWith('\n') ? content.slice(1) : content;
+    const cleanBody = content.startsWith('\r\n') ? content.slice(2) : (content.startsWith('\n') ? content.slice(1) : content);
     return `---\n${yamlContent}---\n${cleanBody}`;
   }
 

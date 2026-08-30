@@ -141,6 +141,35 @@ ${bodyWithYaml}`;
     assert.strictEqual(parsed.frontmatter?.title, 'Updated Title');
     assert.strictEqual(parsed.body, '# Body after empty fence');
   });
+
+  test('correctly parses and updates frontmatter containing mid-line triple dashes', () => {
+    const content = '---\ntitle: a --- b\nkey: c\n---\n# Body Content';
+    const parsed = parseFrontmatter(content);
+    assert.ok(parsed.frontmatter);
+    assert.strictEqual(parsed.frontmatter.title, 'a --- b');
+    assert.strictEqual(parsed.frontmatter.key, 'c');
+    assert.strictEqual(parsed.body, '# Body Content');
+
+    const updated = updateFrontmatter(content, { key: 'd' });
+    const parsedUpdated = parseFrontmatter(updated);
+    assert.ok(parsedUpdated.frontmatter);
+    assert.strictEqual(parsedUpdated.frontmatter.title, 'a --- b');
+    assert.strictEqual(parsedUpdated.frontmatter.key, 'd');
+    assert.strictEqual(parsedUpdated.body, '# Body Content');
+  });
+
+  test('parses CRLF empty frontmatter blocks accurately', () => {
+    const content = '---\r\n---\r\n# CRLF Body';
+    const parsed = parseFrontmatter(content);
+    assert.strictEqual(parsed.raw, '');
+    assert.strictEqual(parsed.body, '# CRLF Body');
+
+    const updated = updateFrontmatter(content, { title: 'CRLF Title' });
+    assert.ok(!updated.includes('---\n---') && !updated.includes('---\r\n---'));
+    const parsedUpdated = parseFrontmatter(updated);
+    assert.strictEqual(parsedUpdated.frontmatter?.title, 'CRLF Title');
+    assert.strictEqual(parsedUpdated.body, '# CRLF Body');
+  });
 });
 
 describe('Fingerprinting', () => {
