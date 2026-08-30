@@ -48,9 +48,9 @@ function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
 export function isConflictError(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false;
   const err = e as { code?: string; message?: string };
-  if (err.code === 'ECONFLICT') return true;
+  if (err.code === 'ECONFLICT' || err.code === 'EBUSY' || err.code === 'EPERM') return true;
   if (typeof err.message === 'string') {
-    return err.message.includes('OCC conflict') || err.message.includes('Lock conflict');
+    return err.message.includes('OCC conflict') || err.message.includes('Lock conflict') || err.message.includes('conflict');
   }
   return false;
 }

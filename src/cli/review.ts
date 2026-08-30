@@ -63,13 +63,23 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const initialFingerprint = computeFingerprint(topic.content);
 
     // OCC TOCTOU Protection: Re-read disk immediately prior to write
-    if (!fs.existsSync(filePath)) {
-      const err = new Error(`OCC conflict: Topic note ${filePath} does not exist`) as NodeError;
-      err.code = 'ECONFLICT';
-      throw err;
+    let freshContent: string;
+    try {
+      if (!fs.existsSync(filePath)) {
+        const err = new Error(`OCC conflict: Topic note ${filePath} does not exist`) as NodeError;
+        err.code = 'ECONFLICT';
+        throw err;
+      }
+      freshContent = fs.readFileSync(filePath, 'utf8');
+    } catch (readErr: unknown) {
+      if ((readErr as NodeError).code === 'ENOENT') {
+        const conflictErr = new Error(`OCC conflict: Topic note ${filePath} does not exist or was removed`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
+      }
+      throw readErr;
     }
 
-    const freshContent = fs.readFileSync(filePath, 'utf8');
     const freshFingerprint = computeFingerprint(freshContent);
 
     if (initialFingerprint !== freshFingerprint) {

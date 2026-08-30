@@ -142,5 +142,14 @@ describe('Vault Walker', () => {
       ensureVaultDirectory(testVaultPath, '../outside/topic.md');
     }, /Path escapes vault boundary/);
   });
+
+  test('walkVault handles directories with leading double dots legitimately named ..custom', () => {
+    const customDotDir = path.join(testVaultPath, '..custom_notes');
+    fs.mkdirSync(customDotDir, { recursive: true });
+    fs.writeFileSync(path.join(customDotDir, 'note.md'), '# Note');
+
+    const files = walkVault(testVaultPath);
+    assert.ok(Array.isArray(files));
+  });
 });
 

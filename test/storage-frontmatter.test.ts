@@ -132,6 +132,15 @@ ${bodyWithYaml}`;
     assert.strictEqual(parsed.body, bodyWithYaml);
     assert.strictEqual(parsed.frontmatter!.title, 'Updated Title');
   });
+
+  test('updates empty frontmatter block without creating duplicate double fences', () => {
+    const content = '---\n---\n# Body after empty fence';
+    const updated = updateFrontmatter(content, { title: 'Updated Title' });
+    assert.ok(!updated.includes('---\n---'));
+    const parsed = parseFrontmatter(updated);
+    assert.strictEqual(parsed.frontmatter?.title, 'Updated Title');
+    assert.strictEqual(parsed.body, '# Body after empty fence');
+  });
 });
 
 describe('Fingerprinting', () => {

@@ -28,7 +28,7 @@ import { FrontmatterResult, NodeError } from '../types';
  * ```
  */
 function parseFrontmatter(content: string): FrontmatterResult {
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  const fmMatch = content.match(/^---(?:\r?\n)([\s\S]*?)(?:\r?\n)?---(?:\r?\n)?([\s\S]*)$/);
 
   if (!fmMatch) {
     return { frontmatter: null, body: content, raw: null };
@@ -77,14 +77,15 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
     throw new Error(`Malformed frontmatter: ${parsed.error}`);
   }
 
-  if (!parsed.frontmatter) {
+  if (parsed.raw === null) {
     const doc = new Document(updates);
     const yamlContent = doc.toString();
-    return `---\n${yamlContent}---\n${content}`;
+    const cleanBody = content.startsWith('\n') ? content.slice(1) : content;
+    return `---\n${yamlContent}---\n${cleanBody}`;
   }
 
-  // Parse as YAML document to preserve CST
-  const doc = parseDocument(parsed.raw!);
+  // Parse as YAML document to preserve CST (handling empty raw block if present)
+  const doc = parsed.raw.trim().length > 0 ? parseDocument(parsed.raw) : new Document({});
 
   // Update only specified keys
   for (const [key, value] of Object.entries(updates)) {

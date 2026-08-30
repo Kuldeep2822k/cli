@@ -122,7 +122,12 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
-    const content = fs.readFileSync(filePath, 'utf8');
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch {
+      continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+    }
     const { frontmatter } = parseFrontmatter(content);
 
     if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {

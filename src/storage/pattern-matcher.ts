@@ -32,10 +32,13 @@ import path from 'path';
  * ```
  */
 export function globToRegex(glob: string): RegExp {
-  const trimmed = glob.trim().replace(/\\/g, '/');
+  let trimmed = glob.trim().replace(/\\/g, '/');
   if (!trimmed) {
     return /^$/i;
   }
+
+  // Collapse redundant adjacent `**/` or `**` segments to prevent catastrophic backtracking (ReDoS)
+  trimmed = trimmed.replace(/(?:\*\*\/)+/g, '**/');
 
   let regexStr = '';
   let inGroup = false;

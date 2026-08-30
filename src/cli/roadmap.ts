@@ -144,6 +144,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let created = 0;
       let updated = 0;
       let failed = 0;
+      let conflicts = 0;
 
       for (const topic of roadmap.topics) {
         const absolutePath = path.resolve(vaultPath, topic.path);
@@ -215,11 +216,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             updated++;
           }
         } catch (err: unknown) {
-          if (isConflictError(err)) {
-            throw err;
-          }
           const targetPath = topic.path;
-          console.error(`  - Failed ${topic.id} (${targetPath}): ${(err as Error).message}`);
+          const isConflict = isConflictError(err);
+          if (isConflict) {
+            conflicts++;
+            console.error(`  - Failed ${topic.id} (${targetPath}): OCC conflict (file locked or concurrently modified)`);
+          } else {
+            console.error(`  - Failed ${topic.id} (${targetPath}): ${(err as Error).message}`);
+          }
           failed++;
           continue;
         }
@@ -230,7 +234,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.error(`Failed to import ${failed} topics.`);
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exitCode = 1;
+        process.exitCode = (conflicts > 0 && conflicts === failed) ? 4 : 1;
         return;
       } else {
         console.log('✓ Roadmap imported successfully');

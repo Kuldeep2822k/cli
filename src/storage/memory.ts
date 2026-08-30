@@ -263,27 +263,20 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
           }
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter } = parseFrontmatter(content);
-          if (frontmatter && frontmatter.session_id) {
-            const status = (frontmatter.status as 'completed' | 'draft') || 'completed';
-            if (status === 'draft') {
-              sessions.push({
-                palee_schema: (frontmatter.palee_schema as number) || 1,
-                session_id: frontmatter.session_id as string,
-                topic_id: (frontmatter.topic_id as string) || 'unknown',
-                started_at: (frontmatter.started_at as string) || '',
-                ended_at: null,
-                status: 'draft',
-              });
-            } else {
-              sessions.push({
-                palee_schema: (frontmatter.palee_schema as number) || 1,
-                session_id: frontmatter.session_id as string,
-                topic_id: (frontmatter.topic_id as string) || 'unknown',
-                started_at: (frontmatter.started_at as string) || '',
-                ended_at: (frontmatter.ended_at as string) || '',
-                status: 'completed',
-              });
-            }
+          if (
+            frontmatter &&
+            frontmatter.session_id &&
+            !String(frontmatter.session_id).startsWith('DRAFT-') &&
+            frontmatter.status !== 'draft'
+          ) {
+            sessions.push({
+              palee_schema: (frontmatter.palee_schema as number) || 1,
+              session_id: frontmatter.session_id as string,
+              topic_id: (frontmatter.topic_id as string) || 'unknown',
+              started_at: (frontmatter.started_at as string) || '',
+              ended_at: (frontmatter.ended_at as string) || '',
+              status: 'completed',
+            });
           }
         } catch (e: any) {
           if (e && !e.code) {
@@ -456,10 +449,13 @@ async function recoverDraft(
     const newSessionId = generateSessionId();
 
     const topicId = frontmatter ? (frontmatter.topic_id as string) || 'unknown' : 'unknown';
-    const startedAt = frontmatter ? (frontmatter.started_at as string) || new Date().toISOString() : new Date().toISOString();
-    const endedAt = new Date().toISOString();
-    const durationMs = Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
-    const durationMinutes = Math.round(durationMs / 60000);
+    const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
+    const nowIso = new Date().toISOString();
+    const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : new Date(nowIso).getTime();
+    const startedAt = new Date(parsedStart).toISOString();
+    const endedAt = nowIso;
+    const durationMs = Math.max(0, new Date(endedAt).getTime() - parsedStart);
+    const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
     await writeSessionNote(vaultPath, {
       session_id: newSessionId,

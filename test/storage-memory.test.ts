@@ -269,4 +269,46 @@ describe('Memory System', () => {
       deleteSessionNote(testVaultPath, outsideFile);
     }, /Security error: Cannot delete session file outside sessions directory/);
   });
+
+  test('recoverDraft with malformed or missing started_at timestamp produces non-NaN duration_minutes', async () => {
+    const draftId = generateDraftId();
+    const draftPath = path.join(testVaultPath, '.palee', 'sessions', `${draftId}.md`);
+    fs.writeFileSync(draftPath, '---\npalee_schema: 1\nsession_id: ' + draftId + '\ntopic_id: T-corrupt-date\nstarted_at: invalid-date-format\n---\nDraft body');
+
+    await recoverDraft(testVaultPath, draftPath, 'save');
+
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    const files = fs.readdirSync(sessionsDir);
+    const recoveredNote = files.find(f => f.startsWith('S-') && !f.startsWith('DRAFT-S-'));
+    assert.ok(recoveredNote);
+
+    const content = fs.readFileSync(path.join(sessionsDir, recoveredNote), 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter);
+    assert.strictEqual(typeof frontmatter!.duration_minutes, 'number');
+    assert.strictEqual(Number.isNaN(frontmatter!.duration_minutes), false);
+  });
+
+  test('regenerateIndex only indexes confirmed sessions and excludes draft notes', async () => {
+    const draftId = generateDraftId();
+    await writeDraftCheckpoint(testVaultPath, draftId, {
+      topic_id: 'T-draft-index-test',
+      started_at: '2026-08-30T10:00:00.000Z',
+    }, 'Draft notes');
+
+    const sessionId = generateSessionId();
+    await writeSessionNote(testVaultPath, {
+      session_id: sessionId,
+      topic_id: 'T-confirmed-index-test',
+      started_at: '2026-08-30T10:00:00.000Z',
+      ended_at: '2026-08-30T10:30:00.000Z',
+      duration_minutes: 30,
+    }, 'Confirmed session');
+
+    const indexPath = await regenerateIndex(testVaultPath);
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    assert.ok(content.includes(sessionId));
+    assert.ok(!content.includes(draftId));
+  });
 });

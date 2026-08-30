@@ -64,7 +64,13 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
       try { 
         realDir = fs.realpathSync(dir);
         const relativePath = path.relative(resolvedVaultPath, realDir);
-        if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return;
+        if (
+          path.isAbsolute(relativePath) ||
+          relativePath === '..' ||
+          relativePath.startsWith('..' + path.sep) ||
+          relativePath.startsWith('../') ||
+          relativePath.split(path.sep).includes('..')
+        ) return;
       } catch { return; }
     }
     if (visited.has(realDir)) return;
@@ -138,9 +144,30 @@ function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
   const absoluteTarget = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(vaultPath, targetPath);
   const targetDir = path.extname(absoluteTarget) ? path.dirname(absoluteTarget) : absoluteTarget;
 
+  // Boundary check: ensure targetDir does not escape vault across relative or cross-drive paths
   const relative = path.relative(resolvedVault, targetDir);
-  if (relative.startsWith('..') && !path.isAbsolute(relative)) {
+  if (
+    path.isAbsolute(relative) ||
+    relative === '..' ||
+    relative.startsWith('..' + path.sep) ||
+    relative.startsWith('../') ||
+    relative.split(path.sep).includes('..')
+  ) {
     throw new Error(`Path escapes vault boundary: ${targetPath}`);
+  }
+
+  // Pre-creation ancestor symlink validation: ensure existing parent paths do not resolve outside the vault
+  let existingAncestor = targetDir;
+  while (!fs.existsSync(existingAncestor)) {
+    const parent = path.dirname(existingAncestor);
+    if (parent === existingAncestor) break;
+    existingAncestor = parent;
+  }
+  if (fs.existsSync(existingAncestor)) {
+    const canonicalAncestor = fs.realpathSync(existingAncestor);
+    if (canonicalAncestor !== resolvedVault && !canonicalAncestor.startsWith(resolvedVault + path.sep)) {
+      throw new Error(`Symlink escape detected: ${targetPath} resolves outside vault`);
+    }
   }
 
   if (!fs.existsSync(targetDir)) {
