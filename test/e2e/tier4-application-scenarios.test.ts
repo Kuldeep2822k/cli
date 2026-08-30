@@ -319,9 +319,9 @@ topics:
     assert.strictEqual(titleLine.trim().length, 62, 'Title row must fit border (62 chars)');
 
     // 6. JSON output parity
-    const dashJson = env.run(['dashboard', '--json']);
-    assert.strictEqual(dashJson.status, 0);
-    const dashData = JSON.parse(dashJson.stdout);
+    const dashRes = env.run(['dashboard', '--json']);
+    assert.strictEqual(dashRes.status, 0);
+    const dashData = JSON.parse(dashRes.stdout);
     assert.strictEqual(dashData.total_topics, 3);
     assert.strictEqual(dashData.mastered, 1);
     assert.strictEqual(dashData.learning, 1);

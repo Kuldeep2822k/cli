@@ -73,6 +73,13 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       assert.strictEqual(frontmatter.memory_id, 'H-active');
       assert.strictEqual(frontmatter.palee_schema, 1);
       assert.ok(body.length > 0);
+
+      // The persisted state must match exactly one worker that reported success
+      const winners = successful.map((r) => `S-worker-${r.worker}`);
+      assert.ok(
+        winners.includes(frontmatter.last_session as string),
+        `Persisted last_session (${frontmatter.last_session}) must match one of the successful workers (${winners.join(', ')})`
+      );
     });
 
     test('high-contention lock acquisition properly blocks and releases without stale lock leakage', async () => {
@@ -107,20 +114,19 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
   // =========================================================================
   describe('Area 2: Non-ENOENT Error Handling in memory.ts', () => {
     test('writeSessionNote rethrows non-ENOENT errors (e.g. EACCES / EBUSY) and does NOT set expectedFingerprint = null', async () => {
+      const targetPath = path.join(env.vaultDir, '.palee', 'sessions', 'S-test-eacces.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
 
       try {
         // Simulate EACCES error during readFileSync on session note
         (fs as any).existsSync = (filePath: string) => {
-          if (filePath.includes('.palee') && filePath.endsWith('.md')) {
-            return true;
-          }
+          if (filePath === targetPath) return true;
           return originalExistsSync(filePath);
         };
 
         (fs as any).readFileSync = (filePath: string, options: any) => {
-          if (filePath.includes('.palee') && filePath.includes('S-test-eacces')) {
+          if (filePath === targetPath) {
             const err = new Error('Permission denied') as NodeJS.ErrnoException;
             err.code = 'EACCES';
             throw err;
@@ -154,17 +160,18 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
     });
 
     test('updateHotMemory rethrows EBUSY / EPERM and does NOT bypass OCC', async () => {
+      const targetPath = path.join(env.vaultDir, '.palee', 'hot.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
 
       try {
         (fs as any).existsSync = (filePath: string) => {
-          if (filePath.includes('hot.md')) return true;
+          if (filePath === targetPath) return true;
           return originalExistsSync(filePath);
         };
 
         (fs as any).readFileSync = (filePath: string, options: any) => {
-          if (filePath.includes('hot.md')) {
+          if (filePath === targetPath) {
             const err = new Error('Resource busy or locked') as NodeJS.ErrnoException;
             err.code = 'EBUSY';
             throw err;
@@ -187,17 +194,18 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
     });
 
     test('regenerateIndex rethrows EPERM and does NOT downgrade expectedFingerprint', async () => {
+      const targetPath = path.join(env.vaultDir, '.palee', 'index.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
 
       try {
         (fs as any).existsSync = (filePath: string) => {
-          if (filePath.includes('index.md')) return true;
+          if (filePath === targetPath) return true;
           return originalExistsSync(filePath);
         };
 
         (fs as any).readFileSync = (filePath: string, options: any) => {
-          if (filePath.includes('index.md')) {
+          if (filePath === targetPath) {
             const err = new Error('Operation not permitted') as NodeJS.ErrnoException;
             err.code = 'EPERM';
             throw err;
@@ -220,17 +228,18 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
     });
 
     test('writeDraftCheckpoint rethrows EACCES without bypassing OCC', async () => {
+      const targetPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-err.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
 
       try {
         (fs as any).existsSync = (filePath: string) => {
-          if (filePath.includes('DRAFT-S-')) return true;
+          if (filePath === targetPath) return true;
           return originalExistsSync(filePath);
         };
 
         (fs as any).readFileSync = (filePath: string, options: any) => {
-          if (filePath.includes('DRAFT-S-')) {
+          if (filePath === targetPath) {
             const err = new Error('Permission denied') as NodeJS.ErrnoException;
             err.code = 'EACCES';
             throw err;
@@ -256,10 +265,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
   // =========================================================================
   // Challenge Area 3: Cross-Midnight & Timestamp Recency Invariants
   // =========================================================================
-  describe('Area 3: Cross-Midnight & Timestamp Recency Invariants', () => {
-    test('session ending across calendar midnight accurately preserves duration and satisfies started_at <= ended_at', () => {
-      // 1. Create a draft note started at 23:45 on previous calendar day
-      // Use fixed relative time: e.g. 45 minutes ago
+  describe('Area 3: Elapsed Session Duration & Timestamp Recency Invariants', () => {
+    test('session end on draft checkpoint accurately preserves 45-minute elapsed duration and satisfies started_at <= ended_at', () => {
+      // 1. Create a draft note started 45 minutes ago
       const now = new Date();
       const fortyFiveMinsAgo = new Date(now.getTime() - 45 * 60 * 1000);
       const startedAtIso = fortyFiveMinsAgo.toISOString();

@@ -414,14 +414,14 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
 }
 
 /**
- * Validates glob pattern strings and throws a descriptive Error if a syntax issue is found.
+ * Validates glob pattern strings and throws a descriptive Error if compilation fails.
  *
  * @param patterns - Pattern string or array of pattern strings to validate
  * @returns Void
- * @throws {Error} If any pattern contains malformed syntax
+ * @throws {Error} If regex compilation fails for any pattern
  *
  * @remarks
- * Compiles each pattern through `globToRegex` to detect unbalanced brackets or invalid characters.
+ * Compiles each pattern through `globToRegex` to ensure regex validity.
  *
  * @example
  * ```typescript

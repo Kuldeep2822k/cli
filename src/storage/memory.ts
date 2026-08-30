@@ -72,12 +72,12 @@ function getSessionsDir(vaultPath: string): string {
  */
 function generateSessionId(): string {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const hours = String(now.getUTCHours()).padStart(2, '0');
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(now.getUTCSeconds()).padStart(2, '0');
   const timestamp = `${year}${month}${day}T${hours}${minutes}${seconds}`;
   const random = crypto.randomBytes(2).toString('hex');
   return `S-${timestamp}-${random}`;
@@ -197,11 +197,9 @@ async function writeSessionNote(
     frontmatterObj.duration_minutes = fullData.duration_minutes;
   }
   const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null = null;
+  let expectedFingerprint: string | null;
   try {
-    if (fs.existsSync(filePath)) {
-      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
-    }
+    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       expectedFingerprint = null;
@@ -262,11 +260,9 @@ async function updateHotMemory(
   };
 
   const content = updateFrontmatter(truncatedBody, frontmatterObj);
-  let expectedFingerprint: string | null = null;
+  let expectedFingerprint: string | null;
   try {
-    if (fs.existsSync(hotPath)) {
-      expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
-    }
+    expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       expectedFingerprint = null;
@@ -387,11 +383,9 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   };
 
   const content = updateFrontmatter(indexBody, frontmatterObj);
-  let expectedFingerprint: string | null = null;
+  let expectedFingerprint: string | null;
   try {
-    if (fs.existsSync(indexPath)) {
-      expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
-    }
+    expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       expectedFingerprint = null;
@@ -493,11 +487,9 @@ async function writeDraftCheckpoint(
   };
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null = null;
+  let expectedFingerprint: string | null;
   try {
-    if (fs.existsSync(filePath)) {
-      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
-    }
+    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       expectedFingerprint = null;
