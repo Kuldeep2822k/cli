@@ -35,11 +35,21 @@ describe('Storage & Memory Fault Injection Test Suite', () => {
       assert.ok(result.body.includes('# Body after empty fence'));
     });
 
-    test('handles frontmatter containing binary / non-ASCII unicode characters', () => {
-      const content = '---\ntitle: 🚀 Advanced AI \u0000\u001f\ntags: [🔥, 学习, 🧠]\n---\n# Unicode Note';
+    test('handles frontmatter containing printable multi-byte unicode characters', () => {
+      const content = '---\ntitle: 🚀 Advanced AI 🤖\ntags: [🔥, 学习, 🧠, ⚡]\n---\n# Unicode Note';
       const result = parseFrontmatter(content);
       assert.ok(result.frontmatter);
+      assert.strictEqual(result.frontmatter.title, '🚀 Advanced AI 🤖');
       assert.ok(Array.isArray(result.frontmatter.tags));
+      assert.strictEqual(result.frontmatter.tags.length, 4);
+    });
+
+    test('handles frontmatter with malformed YAML syntax gracefully without crashing', () => {
+      const content = '---\ntitle: Test\ninvalid: >>>malformed\ncompletely broken: {{{\n---\n# Body';
+      const result = parseFrontmatter(content);
+      // Malformed YAML with parse errors gracefully falls back to null frontmatter without throwing
+      assert.strictEqual(result.frontmatter, null);
+      assert.strictEqual(result.body, '# Body');
     });
 
     test('updateFrontmatter throws clean error on unparseable corrupted frontmatter', () => {

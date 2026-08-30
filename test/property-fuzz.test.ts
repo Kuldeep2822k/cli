@@ -20,14 +20,10 @@ describe('Property-Based & Fuzz Testing Suite', () => {
         }
 
         const start = Date.now();
-        try {
-          const regex = globToRegex(randomGlob);
-          assert.ok(regex instanceof RegExp);
-          // Test matching speed against a standard path to ensure no catastrophic backtracking (ReDoS)
-          regex.test('notes/2026/concepts/kubernetes-architecture-overview.md');
-        } catch {
-          // If the regex compiler rejects malformed unclosed brackets, ensure it didn't hang
-        }
+        const regex = globToRegex(randomGlob);
+        assert.ok(regex instanceof RegExp);
+        // Test matching speed against a standard path to ensure no catastrophic backtracking (ReDoS)
+        regex.test('notes/2026/concepts/kubernetes-architecture-overview.md');
         const elapsed = Date.now() - start;
         assert.ok(elapsed < 100, `Glob evaluation took too long (${elapsed}ms) for pattern: ${randomGlob}`);
       }
