@@ -7,7 +7,7 @@
  * custom formatting, and block scalar structures.
  */
 
-import { parseDocument } from 'yaml';
+import { parseDocument, Document } from 'yaml';
 import crypto from 'crypto';
 import { FrontmatterResult, NodeError } from '../types';
 
@@ -78,11 +78,9 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
   }
 
   if (!parsed.frontmatter) {
-    const newFm = { ...updates };
-    const yamlContent = Object.entries(newFm)
-      .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-      .join('\n');
-    return `---\n${yamlContent}\n---\n${content}`;
+    const doc = new Document(updates);
+    const yamlContent = doc.toString();
+    return `---\n${yamlContent}---\n${content}`;
   }
 
   // Parse as YAML document to preserve CST

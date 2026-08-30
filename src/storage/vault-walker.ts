@@ -39,9 +39,10 @@ const EXCLUDED_DIRS = new Set([
  * ```
  */
 function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
-  const { followSymlinks = false } = options;
+  const { followSymlinks = false, excludeDirs = [] } = options;
   const results: string[] = [];
   const visited = new Set<string>();
+  const customExcluded = new Set([...EXCLUDED_DIRS, ...excludeDirs]);
   const resolvedVaultPath = path.resolve(vaultPath);
 
   if (!fs.existsSync(resolvedVaultPath)) {
@@ -103,7 +104,7 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
       }
 
       // Skip excluded directories
-      if (isDir && EXCLUDED_DIRS.has(entry.name)) {
+      if (isDir && customExcluded.has(entry.name)) {
         continue;
       }
 

@@ -174,7 +174,13 @@ function formatLocalDateOnly(date: Date): string {
  * ```
  */
 function computeDueDate(fromDate: Date | string | number, days: number): Date {
-  const due = new Date(fromDate);
+  let due: Date;
+  if (typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate.trim())) {
+    const [year, month, day] = fromDate.trim().split('-').map(Number);
+    due = new Date(year, month - 1, day);
+  } else {
+    due = new Date(fromDate);
+  }
   // Perform calendar arithmetic in local timezone to avoid cross-DST shift bugs
   due.setDate(due.getDate() + days);
   return due;

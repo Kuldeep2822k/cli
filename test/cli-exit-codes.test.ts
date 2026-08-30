@@ -98,6 +98,13 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       await configCommand('unknown-action');
       assert.strictEqual(process.exitCode, 2);
     });
+
+    test('recovers gracefully from corrupted config.json with fallback to default', async () => {
+      const configPath = path.join(tempDir, 'config.json');
+      fs.writeFileSync(configPath, '{ "vaultPath": corrupt json');
+      await configCommand('show');
+      assert.strictEqual(process.exitCode, undefined);
+    });
   });
 
   describe('migrateCommand', () => {
@@ -116,6 +123,27 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       );
       await migrateCommand();
       assert.strictEqual(process.exitCode, undefined);
+    });
+
+    test('with missing schema property sets exitCode 3 when --fix is false', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const missingSchemaNote = path.join(vaultDir, 'topic-missing-schema.md');
+      fs.writeFileSync(
+        missingSchemaNote,
+        '---\npalee_id: T-no-schema\ntitle: No Schema\n---\n# Topic\n'
+      );
+      await migrateCommand({ fix: false });
+      assert.strictEqual(process.exitCode, 3);
+    });
+
+    test('with --fix upgrades schema-less notes to Schema v1', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const missingSchemaNote = path.join(vaultDir, 'topic-missing-schema.md');
+      await migrateCommand({ fix: true });
+      assert.strictEqual(process.exitCode, undefined);
+      const updated = fs.readFileSync(missingSchemaNote, 'utf8');
+      assert.ok(updated.includes('palee_schema: 1'));
+      fs.unlinkSync(missingSchemaNote);
     });
 
     test('with unrecognized schema version sets exitCode 3', async () => {
@@ -227,8 +255,8 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
 
     before(() => {
       corruptConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-corrupt-'));
-      // write unparseable config file
-      fs.writeFileSync(path.join(corruptConfigDir, 'config.json'), '{ invalid json syntax');
+      // Create config.json as a directory to trigger an unexpected EISDIR error on read
+      fs.mkdirSync(path.join(corruptConfigDir, 'config.json'));
       originalConfigDir = process.env.PALEE_CONFIG_DIR;
       process.env.PALEE_CONFIG_DIR = corruptConfigDir;
     });

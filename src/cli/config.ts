@@ -33,24 +33,31 @@ function getConfigPath(): string {
 /**
  * Loads and parses the stored PALEE configuration from disk.
  *
- * @returns The parsed PaleeConfig object, or an empty object if no config file exists yet.
+ * @returns The parsed PaleeConfig object, or an empty object if no config file exists or content is malformed.
  */
 function loadConfig(): PaleeConfig {
   const configPath = getConfigPath();
   try {
     const data = fs.readFileSync(configPath, 'utf8');
+    if (!data.trim()) {
+      return {};
+    }
     return JSON.parse(data) as PaleeConfig;
   } catch (e: unknown) {
     const err = e as NodeError;
     if (err.code === 'ENOENT') {
       return {}; // No config file yet
     }
+    if (e instanceof SyntaxError) {
+      console.error(`Warning: Corrupted configuration at ${configPath}. Falling back to default configuration.`);
+      return {};
+    }
     throw err;
   }
 }
 
 /**
- * Persists the given PALEE configuration object to disk as JSON.
+ * Persists the given PALEE configuration object to disk as JSON atomically.
  *
  * @param config - The updated configuration object to write.
  */
@@ -62,7 +69,21 @@ function saveConfig(config: PaleeConfig): void {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  const tempPath = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+  const payload = JSON.stringify(config, null, 2);
+
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(tempPath, 'w');
+    fs.writeSync(fd, payload, 0, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
+  }
+
+  fs.renameSync(tempPath, configPath);
 }
 
 /**

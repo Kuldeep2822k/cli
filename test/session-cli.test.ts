@@ -124,4 +124,22 @@ describe('Session CLI In-Process Coverage', () => {
     await sessionCommand('invalid-action');
     assert.strictEqual(process.exitCode, 2);
   });
+
+  test('sessionCommand start with pending drafts sets exitCode 2 in non-interactive mode and outputs JSON', async () => {
+    // Create a draft
+    await sessionCommand('draft', { topic: 'T-pending-draft' });
+    process.exitCode = undefined;
+
+    // Test non-interactive start sets exitCode 2
+    await sessionCommand('start', { interactive: false });
+    assert.strictEqual(process.exitCode, 2);
+
+    // Test JSON mode start with pending drafts sets exitCode 2
+    process.exitCode = undefined;
+    await sessionCommand('start', { json: true });
+    assert.strictEqual(process.exitCode, 2);
+
+    // Cleanup draft
+    await sessionCommand('end', { topic: 'T-pending-draft' });
+  });
 });

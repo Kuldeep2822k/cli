@@ -233,6 +233,14 @@ export type DraftRecoveryAction = 'resume' | 'save' | 'discard' | 'ignore';
 // ─── Config ─────────────────────────────────────────────────────────
 
 /**
+ * Options for the `palee migrate` command
+ */
+export interface MigrateOptions {
+  /** Automatically migrate and fix schema-less notes to schema v1 */
+  fix?: boolean;
+}
+
+/**
  * Global configuration stored in `~/.palee/config.json`.
  */
 export interface PaleeConfig {
@@ -301,6 +309,14 @@ export interface FrontmatterResult {
   doc?: unknown;
   /** Error message if parsing failed */
   error?: string;
+}
+
+/** Options for traversing the vault filesystem */
+export interface WalkOptions {
+  /** Whether to traverse symbolic links (default: false) */
+  followSymlinks?: boolean;
+  /** Optional custom directory names to exclude from traversal */
+  excludeDirs?: string[];
 }
 
 // ─── Validation ─────────────────────────────────────────────────────

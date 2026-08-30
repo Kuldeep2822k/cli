@@ -11,7 +11,7 @@ import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../stor
 import { parseRoadmapContent } from '../storage/roadmap-parser';
 import { atomicWrite, isConflictError } from '../storage/atomic-write';
 import { walkVault } from '../storage/vault-walker';
-import { detectCycle } from '../engine/dependency';
+import { detectCycle, getTopicDependencies } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
 import readline from 'readline';
 
@@ -90,7 +90,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         errors.push(`Invalid order for ${id}: must be a number`);
       }
 
-      topicsMap.set(id, { palee_id: id, depends_on: topic.depends_on || [], topic_mastery: 0 });
+      const normalizedDeps = getTopicDependencies(topic);
+      topicsMap.set(id, { palee_id: id, depends_on: normalizedDeps, topic_mastery: 0 });
     }
 
     const files = walkVault(vaultPath);
@@ -99,9 +100,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const content = fs.readFileSync(file, 'utf8');
         const parsed = parseFrontmatter(content);
         if (parsed.frontmatter && parsed.frontmatter.palee_id) {
-          const pid = parsed.frontmatter.palee_id as string;
-          if (!topicsMap.has(pid)) {
-            topicsMap.set(pid, { palee_id: pid, depends_on: parsed.frontmatter.depends_on as string[] || [], topic_mastery: 0 });
+          const pid = String(parsed.frontmatter.palee_id).trim();
+          if (pid && !topicsMap.has(pid)) {
+            const vaultDeps = getTopicDependencies(parsed.frontmatter);
+            topicsMap.set(pid, { palee_id: pid, depends_on: vaultDeps, topic_mastery: 0 });
           }
         }
       } catch {}
