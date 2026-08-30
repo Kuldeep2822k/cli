@@ -119,5 +119,17 @@ describe('Vault Walker', () => {
       walkVault(filePath);
     }, /Vault path is not a directory/);
   });
+
+  test('excludes custom directories specified in excludeDirs option', () => {
+    const customDir = path.join(testVaultPath, '_templates');
+    fs.mkdirSync(customDir, { recursive: true });
+    fs.writeFileSync(path.join(customDir, 'template.md'), '# Template');
+
+    const defaultWalk = walkVault(testVaultPath);
+    assert.ok(defaultWalk.some(f => f.includes('template.md')));
+
+    const filteredWalk = walkVault(testVaultPath, { excludeDirs: ['_templates'] });
+    assert.strictEqual(filteredWalk.some(f => f.includes('template.md')), false);
+  });
 });
 

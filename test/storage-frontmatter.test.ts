@@ -99,6 +99,18 @@ Body`;
     assert.ok(parsed.body.includes('# Just body content'));
   });
 
+  test('creates frontmatter when none exists with clean YAML block lists for arrays', () => {
+    const content = '# Just body content';
+    const updated = updateFrontmatter(content, { palee_id: 'T-123', depends_on: ['T-a', 'T-b'] });
+    const parsed = parseFrontmatter(updated);
+
+    assert.strictEqual(parsed.frontmatter!.palee_id, 'T-123');
+    assert.deepStrictEqual(parsed.frontmatter!.depends_on, ['T-a', 'T-b']);
+    assert.ok(updated.includes('depends_on:'));
+    assert.ok(updated.includes('T-a'));
+    assert.ok(updated.includes('T-b'));
+  });
+
   test('handles block scalar body with YAML-like text', () => {
     const bodyWithYaml = `# Example
 

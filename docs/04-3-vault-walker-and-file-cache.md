@@ -1,77 +1,52 @@
 # Vault Walker and File Cache
+
 <details>
 <summary><b>Relevant Source Files</b></summary>
 
-- [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
-- [src/storage/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/index.ts)
-- [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
-- [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
 - [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
-- [test/storage-atomic-write.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts)
-- [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
-- [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)
-- [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
-- [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
+- [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
+- [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
 
 </details>
 
-The storage subsystem relies on efficient discovery of Markdown files and a robust caching mechanism to ensure performance during large-scale vault operations. The `Vault Walker` provides a filtered recursive traversal of the Obsidian vault, while the `File Cache` implements a validation logic designed to handle rapid edit cycles without sacrificing data integrity.
+The storage subsystem relies on efficient discovery of Markdown files and a robust caching mechanism to ensure performance during large-scale vault operations. The `Vault Walker` provides a filtered recursive traversal of the Obsidian vault, while the `File Cache` implements validation logic designed to handle rapid edit cycles without sacrificing data integrity.
 
 ## Vault Walker
 
-The `walkVault` function in `src/storage/vault-walker.ts` is responsible for traversing the file system and collecting absolute paths to Markdown files [src/storage/vault-walker.ts#14](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L14) It implements strict filtering to ignore non-content directories and system metadata.
+The `walkVault` function in `src/storage/vault-walker.ts` traverses the file system and collects absolute paths to Markdown files, applying strict filtering rules:
 
-### Traversal and Filtering Rules
-
-The walker enforces the following constraints during traversal:
-
-- Markdown Only: Only files ending in `.md` are collected [src/storage/vault-walker.ts#85-87](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L85-L87)
-- Excluded Directories: Specifically ignores `node_modules`[src/storage/vault-walker.ts#10-12](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L10-L12)
-- Hidden Directories: Any directory starting with a dot (`.`) is skipped, which effectively excludes `.obsidian`, `.trash`, and `.git`[src/storage/vault-walker.ts#74-76](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L74-L76)
-- Symlinks: By default, symbolic links are skipped to prevent circular references or escaping the vault, unless explicitly enabled via `WalkOptions`[src/storage/vault-walker.ts#15](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L15-L15)[src/storage/vault-walker.ts#59-62](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L59-L62)
-- Permissions: If a directory cannot be read due to permission errors, it is skipped silently [src/storage/vault-walker.ts#48-51](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L48-L51)
+- **Markdown Only**: Only files ending in `.md` are collected.
+- **Excluded Directories**: Specifically ignores `node_modules` and any custom directories configured via `WalkOptions.excludeDirs` (e.g. `_templates`, `archive`).
+- **Hidden Directories**: Any directory starting with a dot (`.`) is skipped, effectively excluding `.obsidian`, `.trash`, and `.git`.
+- **Symlinks**: By default, symbolic links are skipped to prevent circular references or escaping the vault, unless explicitly enabled via `WalkOptions.followSymlinks`.
+- **Permissions**: If a directory cannot be read due to permission errors (`EACCES`/`EPERM`), it is skipped safely.
 
 ### Discovery Logic Flow
 
-The following diagram illustrates how `walkVault` filters system entities into valid `Topic` file paths.
-
-Vault Discovery Flow
-
 ```mermaid
 flowchart TD
-    ROOT["walkVault(vaultPath)"]
-    STAT["fs.statSync"]
-    VALID["Is Directory?"]
-    ERR["Throw Error"]
-    RECURSE["Recursive walk()"]
-    ENTRIES["fs.readdirSync"]
-    LOOP["For each entry"]
-    IS_DOT["Starts with '.'?"]
-    SKIP["Skip (e.g. .obsidian, .git)"]
-    IS_EXCL["In EXCLUDED_DIRS?"]
-    TYPE["Entry Type"]
-    COLLECT["Add to results#91;#93;"]
-    SYM["followSymlinks?"]
-    ROOT --> STAT
-    STAT --> VALID
-    VALID --> ERR
-    VALID --> RECURSE
-    RECURSE --> ENTRIES
-    ENTRIES --> LOOP
-    LOOP --> IS_DOT
-    IS_DOT --> SKIP
-    IS_DOT --> IS_EXCL
-    IS_EXCL --> SKIP
-    IS_EXCL --> TYPE
-    TYPE --> RECURSE
-    TYPE --> COLLECT
-    TYPE --> SYM
-    SYM --> SKIP
-    SYM --> RECURSE
+    ROOT["walkVault(vaultPath)"] --> STAT["fs.statSync"]
+    STAT --> VALID{"Is Directory?"}
+    VALID -- "No" --> ERR["Throw Error"]
+    VALID -- "Yes" --> RECURSE["Recursive walk()"]
+    RECURSE --> ENTRIES["fs.readdirSync"]
+    ENTRIES --> LOOP["For each entry"]
+    LOOP --> IS_DOT{"Starts with '.'?"}
+    IS_DOT -- "Yes" --> SKIP["Skip (e.g. .obsidian, .git)"]
+    IS_DOT -- "No" --> IS_EXCL{"In EXCLUDED_DIRS / custom?"}
+    IS_EXCL -- "Yes" --> SKIP
+    IS_EXCL -- "No" --> IS_SYM{"Is Symlink?"}
+    IS_SYM -- "Yes" --> SYM_OPT{"followSymlinks?"}
+    SYM_OPT -- "No" --> SKIP
+    SYM_OPT -- "Yes" --> RESOLVE["Resolve Target Type"]
+    RESOLVE --> TYPE{"Resolved Type"}
+    IS_SYM -- "No" --> TYPE
+    TYPE -- "Directory" --> RECURSE
+    TYPE -- "Markdown (.md)" --> COLLECT["Add to results"]
 ```
 
-Sources: [src/storage/vault-walker.ts#14-93](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L93)[test/storage-walker.test.ts#41-82](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L82)
+Sources: [src/storage/vault-walker.ts#14-120](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L120)[test/storage-walker.test.ts#41-133](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L133)
 
 ---
 
@@ -99,8 +74,6 @@ When `FileCache.get(filePath)` is called, the following validation sequence occu
 3. **Fingerprint Verification**: Uses `computeFingerprint` from `src/storage/frontmatter.ts` for mandatory verification inside the horizon and as a fallback on `mtime` shifts outside the horizon [src/storage/cache.ts#69-74](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L69-L74)[src/storage/cache.ts#89-95](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L89-L95).
 
 ### Cache Validation Flowchart
-
-The diagram below maps the `FileCache.get()` logic across internal validation steps, the 2-second unsettled horizon, and the SHA-256 fallback mechanism.
 
 ```mermaid
 flowchart TD
@@ -145,32 +118,3 @@ Sources: [src/storage/cache.ts#16-107](https://github.com/Kuldeep2822k/cli/blob/
 | `clear()` | Flushes all entries from the in-memory cache | [src/storage/cache.ts#143-145](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L143-L145) |
 
 Sources: [src/storage/cache.ts#1-149](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L1-L149)
-
----
-
-## Pattern Matcher and Tag Filter Engine
-
-The zero-dependency pattern matching utility (`src/storage/pattern-matcher.ts`) provides high-performance glob and metadata filtering for batch commands such as `palee adopt` [src/storage/pattern-matcher.ts#1-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L265)
-
-### Glob Translation Rules
-
-The `globToRegex` function converts standard glob strings into compiled regular expressions:
-
-- Root-Level and Recursive Matching: Leading `**/` expands to `(?:.*/)?`, allowing `**/*.md` to match root notes (e.g. `README.md`) as well as nested notes [src/storage/pattern-matcher.ts#67-75](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L67-L75)
-- Infix and Trailing Wildcards: Middle `/**/` matches zero or more intermediate directory levels (`/(?:.*/)?`), and suffix `/**` matches a directory subtree [src/storage/pattern-matcher.ts#76-88](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L76-L88)
-- Character Classes and Negation: Translates `[0-9]` and `[!0-9]` (or `[^0-9]`) with safe bracket escaping [src/storage/pattern-matcher.ts#30-46](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L30-L46)
-- Path Normalization: Automatically converts Windows backslashes (`\`) to forward slashes (`/`) [src/storage/pattern-matcher.ts#16-19](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L16-L19)
-
-### Frontmatter Tag Matching
-
-The `matchesTags` function extracts tags from YAML arrays (`tags: [a, b]`) or comma/whitespace-separated strings (`tags: "a, b"`), normalizes `#` prefixes, and performs 3-tier hierarchical matching [src/storage/pattern-matcher.ts#178-245](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L178-L245):
-
-1. Exact Match: Target `type/concept` matches note tag `type/concept`
-2. Prefix Match: Target `type` matches note tag `type/concept`
-3. Infix & Suffix Match: Target `cloud` or `aws` matches nested tag `domain/cloud/aws`
-
-### Early Validation
-
-The `validatePattern` function prevalidates `--include` and `--exclude` options before scanning begins, preventing syntax errors from causing unhandled runtime failures [src/storage/pattern-matcher.ts#250-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L250-L265)
-
-Sources: [src/storage/pattern-matcher.ts#1-265](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts#L1-L265)[test/storage-pattern-matcher.test.ts#1-118](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts#L1-L118)

@@ -64,6 +64,17 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const drafts = getDrafts(vaultPath);
 
       if (drafts.length > 0) {
+        if (jsonMode) {
+          console.log(JSON.stringify({
+            status: 'drafts_pending',
+            draft_count: drafts.length,
+            drafts: drafts.map((d) => path.basename(d)),
+            message: 'Unconfirmed draft checkpoints detected. Run with --interactive to resolve.',
+          }));
+          process.exitCode = 2;
+          return;
+        }
+
         console.log(`Found ${drafts.length} unconfirmed draft session(s):`);
         for (const draftPath of drafts) {
           console.log(`  • ${path.basename(draftPath)}`);
@@ -73,6 +84,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           console.log();
           console.log('Unconfirmed draft checkpoint detected.');
           console.log('Run "palee session start --interactive" to resolve.');
+          process.exitCode = 2;
           return;
         }
 

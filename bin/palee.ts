@@ -101,6 +101,7 @@ program
 program
   .command('migrate')
   .description('Migrate PALEE schema to current version')
+  .option('--fix', 'Automatically update notes missing palee_schema to schema v1')
   .action(migrateCommand);
 
 // palee session
@@ -127,7 +128,17 @@ if (!process.argv.slice(2).length) {
 }
 
 // Parse and execute
-program.parseAsync(process.argv).catch((err) => {
-  console.error(err);
+program.parseAsync(process.argv).catch((err: unknown) => {
+  const isJson = process.argv.includes('--json');
+  const message = err instanceof Error ? err.message : String(err);
+  if (isJson) {
+    console.log(JSON.stringify({
+      status: 'error',
+      code: 5,
+      error: message,
+    }));
+  } else {
+    console.error(err);
+  }
   process.exit(5);
 });

@@ -132,4 +132,18 @@ describe('SM-2 Algorithm', () => {
     assert.strictEqual(due.getDate(), 6);
     assert.strictEqual(due.getMonth(), 0); // January
   });
+
+  test('computeDueDate parses date-only YYYY-MM-DD strings in local time', () => {
+    const due = computeDueDate('2026-08-20', 6);
+    assert.strictEqual(due.getFullYear(), 2026);
+    assert.strictEqual(due.getMonth(), 7); // August is index 7
+    assert.strictEqual(due.getDate(), 26);
+  });
+
+  test('computeDueDate preserves 2-digit years 0000-0099 without 1900 offset', () => {
+    const due = computeDueDate('0099-01-01', 0);
+    assert.strictEqual(due.getFullYear(), 99);
+    assert.strictEqual(due.getMonth(), 0);
+    assert.strictEqual(due.getDate(), 1);
+  });
 });

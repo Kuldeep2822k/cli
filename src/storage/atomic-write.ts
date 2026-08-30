@@ -12,6 +12,7 @@
  */
 
 import fs from 'fs';
+import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
 import { NodeError } from '../types';
@@ -116,7 +117,7 @@ async function atomicWrite(
       }
     }
 
-    const tempPath = targetPath + '.tmp.' + process.pid;
+    const tempPath = `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {

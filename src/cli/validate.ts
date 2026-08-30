@@ -51,6 +51,10 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
             files: [topics.get(t.palee_id)!.path, t.path],
           });
         }
+        // Merge dependencies from duplicate node so graph validation does not miss edges
+        const existingNode = topics.get(t.palee_id)!;
+        const mergedDeps = Array.from(new Set([...(existingNode.depends_on || []), ...(t.depends_on || [])]));
+        existingNode.depends_on = mergedDeps;
       } else {
         topics.set(t.palee_id, {
           palee_id: t.palee_id,

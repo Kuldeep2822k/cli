@@ -124,4 +124,43 @@ describe('Session CLI In-Process Coverage', () => {
     await sessionCommand('invalid-action');
     assert.strictEqual(process.exitCode, 2);
   });
+
+  test('sessionCommand start with pending drafts sets exitCode 2 in non-interactive mode and outputs JSON', async () => {
+    // Create a draft
+    await sessionCommand('draft', { topic: 'T-pending-draft' });
+    process.exitCode = undefined;
+
+    // Test non-interactive start sets exitCode 2
+    await sessionCommand('start', { interactive: false });
+    assert.strictEqual(process.exitCode, 2);
+
+    // Test JSON mode start with pending drafts sets exitCode 2 and outputs structured JSON
+    process.exitCode = undefined;
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => {
+      logs.push(String(msg ?? ''));
+    };
+    try {
+      await sessionCommand('start', { json: true });
+    } finally {
+      console.log = origLog;
+    }
+    assert.strictEqual(process.exitCode, 2);
+    const jsonOutput = logs.find(l => {
+      try {
+        const p = JSON.parse(l);
+        return p.status === 'drafts_pending';
+      } catch { return false; }
+    });
+    assert.ok(jsonOutput, 'Expected structured drafts_pending JSON output');
+    const parsedJson = JSON.parse(jsonOutput);
+    assert.strictEqual(parsedJson.status, 'drafts_pending');
+    assert.strictEqual(parsedJson.draft_count, 1);
+    assert.ok(Array.isArray(parsedJson.drafts));
+    assert.strictEqual(parsedJson.drafts.length, 1);
+
+    // Cleanup draft
+    await sessionCommand('end', { topic: 'T-pending-draft' });
+  });
 });

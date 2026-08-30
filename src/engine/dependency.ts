@@ -16,11 +16,25 @@ import { MASTERY_THRESHOLD } from './mastery';
  * @param topic - Topic node
  * @returns Array of unique prerequisite topic ID strings
  */
-function getTopicDependencies(topic: TopicNode): string[] {
-  const fromDependsOn = Array.isArray(topic.depends_on) ? topic.depends_on : [];
-  const fromDependencies = Array.isArray(topic.dependencies) ? topic.dependencies : [];
-  const combined = [...fromDependsOn, ...fromDependencies];
-  return Array.from(new Set(combined.map((d) => String(d).trim()).filter(Boolean)));
+function getTopicDependencies(
+  topic?: Partial<TopicNode> | { depends_on?: unknown; dependencies?: unknown } | null
+): string[] {
+  if (!topic) return [];
+  const rawDependsOn = topic.depends_on;
+  const rawDependencies = (topic as { dependencies?: unknown }).dependencies;
+
+  const extract = (val: unknown): string[] => {
+    if (Array.isArray(val)) {
+      return val.map((d) => String(d).trim()).filter(Boolean);
+    }
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return val.split(',').map((d) => d.trim()).filter(Boolean);
+    }
+    return [];
+  };
+
+  const combined = [...extract(rawDependsOn), ...extract(rawDependencies)];
+  return Array.from(new Set(combined));
 }
 
 /**
