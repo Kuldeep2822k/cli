@@ -1,18 +1,12 @@
 # Vault Walker and File Cache
+
 <details>
 <summary><b>Relevant Source Files</b></summary>
 
-- [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
-- [src/storage/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/index.ts)
-- [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
-- [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
 - [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
-- [test/storage-atomic-write.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts)
-- [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
-- [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)
-- [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
-- [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
+- [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
+- [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
 
 </details>
 
@@ -23,7 +17,7 @@ The storage subsystem relies on efficient discovery of Markdown files and a robu
 The `walkVault` function in `src/storage/vault-walker.ts` traverses the file system and collects absolute paths to Markdown files, applying strict filtering rules:
 
 - **Markdown Only**: Only files ending in `.md` are collected.
-- **Excluded Directories**: Specifically ignores `node_modules` and any custom directories configured via `WalkOptions.excludeDirs` (e.g. `_templates/`, `archive/`).
+- **Excluded Directories**: Specifically ignores `node_modules` and any custom directories configured via `WalkOptions.excludeDirs` (e.g. `_templates`, `archive`).
 - **Hidden Directories**: Any directory starting with a dot (`.`) is skipped, effectively excluding `.obsidian`, `.trash`, and `.git`.
 - **Symlinks**: By default, symbolic links are skipped to prevent circular references or escaping the vault, unless explicitly enabled via `WalkOptions.followSymlinks`.
 - **Permissions**: If a directory cannot be read due to permission errors (`EACCES`/`EPERM`), it is skipped safely.
@@ -42,15 +36,17 @@ flowchart TD
     IS_DOT -- "Yes" --> SKIP["Skip (e.g. .obsidian, .git)"]
     IS_DOT -- "No" --> IS_EXCL{"In EXCLUDED_DIRS / custom?"}
     IS_EXCL -- "Yes" --> SKIP
-    IS_EXCL -- "No" --> TYPE{"Entry Type"}
+    IS_EXCL -- "No" --> IS_SYM{"Is Symlink?"}
+    IS_SYM -- "Yes" --> SYM_OPT{"followSymlinks?"}
+    SYM_OPT -- "No" --> SKIP
+    SYM_OPT -- "Yes" --> RESOLVE["Resolve Target Type"]
+    RESOLVE --> TYPE{"Resolved Type"}
+    IS_SYM -- "No" --> TYPE
     TYPE -- "Directory" --> RECURSE
     TYPE -- "Markdown (.md)" --> COLLECT["Add to results"]
-    TYPE -- "Symlink" --> SYM{"followSymlinks?"}
-    SYM -- "No" --> SKIP
-    SYM -- "Yes" --> RECURSE
 ```
 
-Sources: [src/storage/vault-walker.ts#14-120](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L120)[test/storage-walker.test.ts#41-130](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L130)
+Sources: [src/storage/vault-walker.ts#14-120](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L14-L120)[test/storage-walker.test.ts#41-133](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts#L41-L133)
 
 ---
 

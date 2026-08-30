@@ -110,7 +110,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     for (const topic of roadmap.topics) {
-      const deps = topic.depends_on || [];
+      const deps = getTopicDependencies(topic);
       for (const depId of deps) {
         if (!topicsMap.has(depId)) {
           errors.push(`Topic ${topic.id} depends on missing topic: ${depId}`);
@@ -221,12 +221,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           content = `# ${topic.title}\n\n(Add your notes here)`;
         }
 
+        const roadmapDeps = getTopicDependencies(topic);
         const paleeData: Record<string, unknown> = {
           palee_id: topic.id,
           palee_schema: existingData.palee_schema ?? 1,
           title: topic.title,
           difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
-          depends_on: topic.depends_on || existingData.depends_on || [],
+          depends_on: roadmapDeps.length > 0 ? roadmapDeps : (existingData.depends_on || []),
           topic_mastery: existingData.topic_mastery ?? 0.0,
           assessed_at: existingData.assessed_at ?? null,
           conceptual: existingData.conceptual ?? 0.0,

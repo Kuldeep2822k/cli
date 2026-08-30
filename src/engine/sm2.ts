@@ -178,6 +178,9 @@ function computeDueDate(fromDate: Date | string | number, days: number): Date {
   if (typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate.trim())) {
     const [year, month, day] = fromDate.trim().split('-').map(Number);
     due = new Date(year, month - 1, day);
+    if (year >= 0 && year < 100) {
+      due.setFullYear(year);
+    }
   } else {
     due = new Date(fromDate);
   }

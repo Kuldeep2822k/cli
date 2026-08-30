@@ -2,7 +2,7 @@ import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
 import { loadTopics } from '../storage/loader';
-import { updateFrontmatter } from '../storage/frontmatter';
+import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
 import { atomicWrite } from '../storage/atomic-write';
 import { MigrateOptions } from '../types';
 
@@ -43,19 +43,23 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     if (options.fix && missingSchema.length > 0) {
       console.log(`Migrating ${missingSchema.length} schema-less notes to Schema v1...`);
       let migrated = 0;
+      const failed: string[] = [];
       for (const filePath of missingSchema) {
         try {
           const content = fs.readFileSync(filePath, 'utf8');
+          const expectedFingerprint = computeFingerprint(content);
           const updated = updateFrontmatter(content, { palee_schema: 1 });
-          await atomicWrite(vaultPath, filePath, updated);
+          await atomicWrite(vaultPath, filePath, updated, expectedFingerprint);
           migrated++;
         } catch (err: unknown) {
           console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
+          failed.push(filePath);
         }
       }
       console.log(`✓ Successfully migrated ${migrated} notes to Schema v1.`);
       schemaV1 += migrated;
       missingSchema.length = 0;
+      missingSchema.push(...failed);
     }
 
     console.log(`Schema v1: ${schemaV1} notes`);
