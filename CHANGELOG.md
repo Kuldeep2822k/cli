@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Storage Layer Isolation & Unified Facade**: Encapsulated all vault filesystem mutations (`ensureVaultDirectory`, `resetHotMemory`, `deleteTopicDrafts`, `deleteSessionNote`, `writeSessionNote`) behind the centralized `src/storage/index.ts` facade, eliminating raw `fs.unlinkSync` and `fs.mkdirSync` calls from CLI command handlers ([#86](https://github.com/Kuldeep2822k/cli/issues/86), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
+- **True Session Duration & Timestamp Persistence**: Persisted true start timestamps into `.palee/hot.md` and draft checkpoints, recovered start times upon completion, and recorded accurate study durations in permanent session notes ([#88](https://github.com/Kuldeep2822k/cli/issues/88), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
+- **Resilient Multi-Topic Roadmap Batch Ingestion**: Isolated per-topic parse and write exceptions in `palee roadmap --from` so single malformed notes log errors and allow remaining valid topics to continue importing ([#89](https://github.com/Kuldeep2822k/cli/issues/89), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **Mermaid Interactive Pan-Zoom Controller**: Overhauled VitePress Mermaid rendering with GitHub-style inline controls, 60 FPS hardware-accelerated pan-zoom, drag threshold detection, and full-screen modal ([#115](https://github.com/Kuldeep2822k/cli/pull/115), [#116](https://github.com/Kuldeep2822k/cli/pull/116)).
 - **Automatic Schema Migration (`palee migrate --fix`)**: Added `--fix` flag to automatically upgrade schema-less PALEE notes to `palee_schema: 1` atomically ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Custom Vault Traversal Exclusions**: Added `excludeDirs` option to `walkVault` and `WalkOptions` for custom directory filtering ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
@@ -15,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Flexible Dependency Aliases**: Supported `dependencies` alias along with `depends_on` across `roadmap`, `validate`, and engine dependency validation ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 
 ### Fixed
+- **Review OCC TOCTOU Elimination**: Re-read target topic notes immediately prior to atomic write in `palee review` to eliminate TOCTOU race conditions and emit clean exit code `4` on concurrent modifications ([#87](https://github.com/Kuldeep2822k/cli/issues/87), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
+- **Mastery Output & Dashboard Alignment**: Standardized percentage mastery formatting (`XX.X%`) across all CLI commands (`dashboard`, `next`, `plan`, `progress`, `review`) and aligned ASCII box borders to exactly 62 characters ([#91](https://github.com/Kuldeep2822k/cli/issues/91), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
+- **Deterministic FileCache Operation**: Removed environment bypasses from `FileCache`, guaranteeing deterministic cache invalidation and 2,000 ms unsettled horizon checks across all runtimes ([#90](https://github.com/Kuldeep2822k/cli/issues/90), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **Config Resilience & Atomic Saves**: Added `SyntaxError` and invalid format recovery in `loadConfig()` with graceful fallback to default configuration; implemented atomic `saveConfig()` with temporary file cleanup on failure ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Timezone-Safe Due Date Computation**: Fixed negative-UTC-offset date calculation in `computeDueDate()` for date-only strings and added `0000–0099` 2-digit year offset guard ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Atomic Write Concurrency**: Added cryptographic random entropy to temporary filenames in `atomicWrite()` to eliminate process-internal filename collisions ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).

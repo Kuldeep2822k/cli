@@ -17,7 +17,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { atomicWrite } from './atomic-write';
-import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction } from '../types';
+import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
 
 /** Maximum number of words retained in the active working memory (`hot.md`) summary body */
 const MAX_HOT_WORDS = 250;
@@ -155,11 +155,14 @@ async function writeSessionNote(
   if (fullData.duration_minutes !== undefined) {
     frontmatterObj.duration_minutes = fullData.duration_minutes;
   }
-
   const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
   let expectedFingerprint: string | null = null;
-  if (fs.existsSync(filePath)) {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+  try {
+    if (fs.existsSync(filePath)) {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch {
+    expectedFingerprint = null;
   }
 
   await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
@@ -211,8 +214,12 @@ async function updateHotMemory(
 
   const content = updateFrontmatter(truncatedBody, frontmatterObj);
   let expectedFingerprint: string | null = null;
-  if (fs.existsSync(hotPath)) {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
+  try {
+    if (fs.existsSync(hotPath)) {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
+    }
+  } catch {
+    expectedFingerprint = null;
   }
 
   await atomicWrite(vaultPath, hotPath, content, expectedFingerprint);
@@ -228,13 +235,16 @@ async function updateHotMemory(
 async function resetHotMemory(vaultPath: string): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
   const hotPath = path.join(paleeDir, 'hot.md');
-  try {
-    if (fs.existsSync(hotPath)) {
+
+  if (fs.existsSync(hotPath)) {
+    try {
       fs.unlinkSync(hotPath);
+    } catch (e: unknown) {
+      const err = e as NodeError;
+      if (err.code !== 'ENOENT') throw err;
     }
-  } catch {
-    // ignore if already unlinked
   }
+
   return hotPath;
 }
 
@@ -287,8 +297,14 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
     }
   }
 
-  // Sort newest first
-  sessions.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+  // Sort newest first with NaN protection
+  sessions.sort((a, b) => {
+    const timeA = a.started_at ? new Date(a.started_at).getTime() : 0;
+    const timeB = b.started_at ? new Date(b.started_at).getTime() : 0;
+    const safeA = Number.isNaN(timeA) ? 0 : timeA;
+    const safeB = Number.isNaN(timeB) ? 0 : timeB;
+    return safeB - safeA;
+  });
 
   let indexBody = '# PALEE Session Index\n\n';
   if (sessions.length === 0) {
@@ -309,8 +325,12 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
 
   const content = updateFrontmatter(indexBody, frontmatterObj);
   let expectedFingerprint: string | null = null;
-  if (fs.existsSync(indexPath)) {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
+  try {
+    if (fs.existsSync(indexPath)) {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
+    }
+  } catch {
+    expectedFingerprint = null;
   }
 
   await atomicWrite(vaultPath, indexPath, content, expectedFingerprint);
@@ -451,30 +471,29 @@ async function recoverDraft(
     const topicId = frontmatter ? (frontmatter.topic_id as string) || 'unknown' : 'unknown';
     const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
     const nowIso = new Date().toISOString();
-    const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : new Date(nowIso).getTime();
+    const nowTime = new Date(nowIso).getTime();
+    let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
+
+    // Staleness bound: if draft start is older than 24h or in future, fallback to now
+    if (nowTime - parsedStart > 24 * 60 * 60 * 1000 || parsedStart > nowTime + 60000) {
+      parsedStart = nowTime;
+    }
+
     const startedAt = new Date(parsedStart).toISOString();
     const endedAt = nowIso;
     const durationMs = Math.max(0, new Date(endedAt).getTime() - parsedStart);
     const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
-    let sessionPath: string | null = null;
-    try {
-      sessionPath = await writeSessionNote(vaultPath, {
-        session_id: newSessionId,
-        topic_id: topicId,
-        started_at: startedAt,
-        ended_at: endedAt,
-        duration_minutes: durationMinutes,
-      }, body);
+    await writeSessionNote(vaultPath, {
+      session_id: newSessionId,
+      topic_id: topicId,
+      started_at: startedAt,
+      ended_at: endedAt,
+      duration_minutes: durationMinutes,
+    }, body);
 
-      deleteSessionNote(vaultPath, draftPath);
-      await rebuildHotAndIndex(vaultPath);
-    } catch (err) {
-      if (sessionPath) {
-        try { deleteSessionNote(vaultPath, sessionPath); } catch {}
-      }
-      throw err;
-    }
+    deleteSessionNote(vaultPath, draftPath);
+    await rebuildHotAndIndex(vaultPath);
     return;
   }
 

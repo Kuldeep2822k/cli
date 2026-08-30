@@ -87,8 +87,7 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
   if (parsed.raw === null) {
     const doc = new Document(updates);
     const yamlContent = doc.toString();
-    const cleanBody = content.startsWith('\r\n') ? content.slice(2) : (content.startsWith('\n') ? content.slice(1) : content);
-    return `---\n${yamlContent}---\n${cleanBody}`;
+    return `---\n${yamlContent}---\n${content}`;
   }
 
   // Parse as YAML document to preserve CST (handling empty raw block if present)

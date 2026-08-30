@@ -12,7 +12,6 @@ import {
   getDrafts,
   getTopicDrafts,
   deleteTopicDrafts,
-  deleteSessionNote,
   resetHotMemory,
   rebuildHotAndIndex,
   updateHotMemory,
@@ -134,15 +133,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
       const nowIso = new Date().toISOString();
+      const nowTime = new Date(nowIso).getTime();
       if (resolvedTopic) {
         let startedAtToPersist = nowIso;
-        if (
-          frontmatter &&
-          frontmatter.active_topic === resolvedTopic &&
-          typeof frontmatter.started_at === 'string' &&
-          !Number.isNaN(new Date(frontmatter.started_at).getTime())
-        ) {
-          startedAtToPersist = frontmatter.started_at;
+        const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
+        const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
+        const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
+
+        // If already active on the same topic within 24h and not in future, preserve started_at
+        if (activeTopic === resolvedTopic && parsedStart > 0 && (nowTime - parsedStart) <= 24 * 60 * 60 * 1000 && parsedStart <= nowTime + 60000) {
+          startedAtToPersist = new Date(parsedStart).toISOString();
         }
 
         await updateHotMemory(
@@ -204,12 +204,18 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       const draftId = generateDraftId();
-      const draftPath = await writeDraftCheckpoint(vaultPath, draftId, {
-        topic_id: topicId,
-        started_at: draftStart,
-      }, 'Draft checkpoint captured during learning session.');
+      const draftPath = await writeDraftCheckpoint(
+        vaultPath,
+        draftId,
+        {
+          topic_id: topicId,
+          started_at: draftStart,
+        },
+        `Draft learning notes for ${topicId}.`
+      );
 
-      console.log(`✓ Draft checkpoint created: ${path.basename(draftPath)}`);
+      console.log(`✓ Draft checkpoint created: ${draftId}`);
+      console.log(`  Path: ${path.relative(vaultPath, draftPath)}`);
       return;
     }
 
@@ -221,11 +227,17 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         return;
       }
 
+      const nowIso = new Date().toISOString();
+      const nowTime = new Date(nowIso).getTime();
+      const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+
       // 3-tier timestamp recovery algorithm
-      // Tier 1: Check draft checkpoints for earliest started_at
-      const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter(
-        (d) => d.started_at && !Number.isNaN(new Date(d.started_at).getTime())
-      );
+      // Tier 1: Check draft checkpoints for earliest started_at within 24h
+      const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter((d) => {
+        if (!d.started_at) return false;
+        const t = new Date(d.started_at).getTime();
+        return !Number.isNaN(t) && (nowTime - t) <= MAX_DURATION_MS && t <= nowTime + 60000;
+      });
       let startedAt: string | null = null;
       if (matchingDrafts.length > 0) {
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
@@ -238,14 +250,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         if (fs.existsSync(hotPath)) {
           try {
             const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
-            if (
-              frontmatter &&
-              frontmatter.active_topic === topicId &&
-              typeof frontmatter.started_at === 'string' &&
-              frontmatter.started_at.trim().length > 0 &&
-              !Number.isNaN(new Date(frontmatter.started_at).getTime())
-            ) {
-              startedAt = frontmatter.started_at.trim();
+            const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
+            const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
+            const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
+            if (activeTopic === topicId && parsedStart > 0 && (nowTime - parsedStart) <= MAX_DURATION_MS && parsedStart <= nowTime + 60000) {
+              startedAt = new Date(parsedStart).toISOString();
             }
           } catch {
             // ignore parse error
@@ -254,7 +263,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       // Tier 3: Fallback to current instant
-      const endedAt = new Date().toISOString();
+      const endedAt = nowIso;
       if (!startedAt || Number.isNaN(new Date(startedAt).getTime())) {
         startedAt = endedAt;
       }
@@ -265,27 +274,19 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const sessionId = generateSessionId();
 
-      let sessionPath: string | null = null;
-      try {
-        sessionPath = await writeSessionNote(vaultPath, {
-          session_id: sessionId,
-          topic_id: topicId,
-          started_at: startedAt,
-          ended_at: endedAt,
-          duration_minutes: durationMinutes,
-        }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
+      const sessionPath = await writeSessionNote(vaultPath, {
+        session_id: sessionId,
+        topic_id: topicId,
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_minutes: durationMinutes,
+      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
 
-        // Clean up drafts on confirmed session end for the current topic
-        deleteTopicDrafts(vaultPath, topicId);
+      // Clean up drafts on confirmed session end for the current topic
+      deleteTopicDrafts(vaultPath, topicId);
 
-        // Regenerate derived views
-        await rebuildHotAndIndex(vaultPath);
-      } catch (err) {
-        if (sessionPath) {
-          try { deleteSessionNote(vaultPath, sessionPath); } catch {}
-        }
-        throw err;
-      }
+      // Regenerate derived views
+      await rebuildHotAndIndex(vaultPath);
 
       console.log(`✓ Session recorded: ${sessionId}`);
       console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);

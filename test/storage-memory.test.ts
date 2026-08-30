@@ -300,9 +300,13 @@ describe('Memory System', () => {
       started_at: '2026-08-30T10:00:00.000Z',
     }, 'Draft notes');
 
-    // Create an S-prefixed file that explicitly carries status: 'draft' or DRAFT- session_id
-    const draftNoteInSessions = path.join(testVaultPath, '.palee', 'sessions', 'S-corrupt-draft.md');
-    fs.writeFileSync(draftNoteInSessions, '---\npalee_schema: 1\nsession_id: DRAFT-S-12345678\ntopic_id: T-draft-skip\nstatus: draft\nstarted_at: 2026-08-30T10:00:00.000Z\n---\nDraft note body');
+    // Case A: S-prefixed file carrying explicit status: 'draft' with a normal S- session_id
+    const draftStatusNote = path.join(testVaultPath, '.palee', 'sessions', 'S-corrupt-status-draft.md');
+    fs.writeFileSync(draftStatusNote, '---\npalee_schema: 1\nsession_id: S-status-only\ntopic_id: T-status-skip\nstatus: draft\nstarted_at: 2026-08-30T10:00:00.000Z\n---\nDraft note body');
+
+    // Case B: S-prefixed file carrying DRAFT- session_id even if status is 'completed'
+    const draftIdNote = path.join(testVaultPath, '.palee', 'sessions', 'S-corrupt-id-draft.md');
+    fs.writeFileSync(draftIdNote, '---\npalee_schema: 1\nsession_id: DRAFT-S-id-only\ntopic_id: T-id-skip\nstatus: completed\nstarted_at: 2026-08-30T10:00:00.000Z\n---\nDraft note body');
 
     const sessionId = generateSessionId();
     await writeSessionNote(testVaultPath, {
@@ -318,7 +322,9 @@ describe('Memory System', () => {
 
     assert.ok(content.includes(sessionId));
     assert.ok(!content.includes(draftId));
-    assert.ok(!content.includes('DRAFT-S-12345678'));
-    assert.ok(!content.includes('T-draft-skip'));
+    assert.ok(!content.includes('S-status-only'));
+    assert.ok(!content.includes('T-status-skip'));
+    assert.ok(!content.includes('DRAFT-S-id-only'));
+    assert.ok(!content.includes('T-id-skip'));
   });
 });
