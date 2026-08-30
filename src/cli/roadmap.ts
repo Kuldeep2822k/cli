@@ -100,6 +100,23 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         errors.push(`Invalid order for ${id}: must be a number`);
       }
 
+      // Path boundary validation: ensure topic path does not escape vault
+      if (relativePath) {
+        const absoluteTopicPath = path.isAbsolute(relativePath)
+          ? path.resolve(relativePath)
+          : path.resolve(resolvedVault, relativePath);
+        const rel = path.relative(resolvedVault, absoluteTopicPath);
+        if (
+          path.isAbsolute(rel) ||
+          rel === '..' ||
+          rel.startsWith('..' + path.sep) ||
+          rel.startsWith('../') ||
+          rel.split(path.sep).includes('..')
+        ) {
+          errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        }
+      }
+
       const normalizedDeps = getTopicDependencies(topic);
       topicsMap.set(id, { palee_id: id, depends_on: normalizedDeps, topic_mastery: 0 });
     }
@@ -166,7 +183,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       for (const topic of roadmap.topics) {
         const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
-        
+
         const relative = path.relative(resolvedVault, absolutePath);
         if (
           path.isAbsolute(relative) ||
@@ -179,7 +196,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           failed++;
           continue;
         }
-
+        
         let resolvedTargetPath: string;
 
         try {

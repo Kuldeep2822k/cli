@@ -151,5 +151,45 @@ describe('Vault Walker', () => {
     const files = walkVault(testVaultPath);
     assert.ok(Array.isArray(files));
   });
+
+  test('excludes symlinked files whose real target lies outside the vault', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-outside-'));
+    try {
+      const outsideFile = path.join(outsideDir, 'outside.md');
+      fs.writeFileSync(outsideFile, '# Outside note');
+      const symlinkFile = path.join(testVaultPath, 'outside-link.md');
+      try {
+        fs.symlinkSync(outsideFile, symlinkFile);
+        const files = walkVault(testVaultPath, { followSymlinks: true });
+        const hasOutside = files.some(f => f.includes('outside.md') && f.includes(outsideDir));
+        assert.strictEqual(hasOutside, false);
+      } catch (e: unknown) {
+        const err = e as NodeError;
+        if (err.code !== 'EPERM') throw err;
+      } finally {
+        if (fs.existsSync(symlinkFile)) fs.unlinkSync(symlinkFile);
+      }
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  test('includes symlinked files whose real target is inside the vault', () => {
+    const realFile = path.join(testVaultPath, 'symlink-target.md');
+    const symlinkFile = path.join(testVaultPath, 'symlink-inside.md');
+    fs.writeFileSync(realFile, '# Symlink target');
+    try {
+      fs.symlinkSync(realFile, symlinkFile);
+      const files = walkVault(testVaultPath, { followSymlinks: true });
+      const hasSymlink = files.some(f => f.includes('symlink-inside.md'));
+      assert.ok(hasSymlink);
+    } catch (e: unknown) {
+      const err = e as NodeError;
+      if (err.code !== 'EPERM') throw err;
+    } finally {
+      if (fs.existsSync(symlinkFile)) fs.unlinkSync(symlinkFile);
+      if (fs.existsSync(realFile)) fs.unlinkSync(realFile);
+    }
+  });
 });
 

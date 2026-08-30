@@ -234,9 +234,9 @@ flowchart TD
     Parser --> ValidStruct{"Valid 'topics' Array?"}
     
     ValidStruct -->|"No (Malformed)"| ErrStruct["Exit Code 2 (Argument Error)"]
-    ValidStruct -->|"Yes"| WalkExisting["Scan Vault Notes (walkVault)"]
+    ValidStruct -->|"Yes"| LoadExisting["Load Existing Topics (loadTopics)"]
     
-    WalkExisting --> GraphBuild["Build Combined Dependency Graph"]
+    LoadExisting --> GraphBuild["Build Combined Dependency Graph"]
     GraphBuild --> CycleCheck{"detectCycle() Check"}
     
     CycleCheck -->|"Cycle Found / Missing Dep"| ErrCycle["Exit Code 3 (Cycle/Validation Error)"]

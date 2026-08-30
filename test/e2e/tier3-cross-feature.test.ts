@@ -147,19 +147,27 @@ topics:
     // 1. Session start
     env.run(['session', 'start']);
 
-    // 2. Roadmap import with 1 valid and 1 escaping path
+    // 2. Roadmap import with 1 valid and 1 corrupt note (per-topic write failure → exit 1)
     const roadmapFile = path.join(env.tempDir, 'mixed.yaml');
+
+    // Pre-create a corrupt note that will fail during import
+    const corruptPath = path.join(env.vaultDir, 'corrupt-x4.md');
+    fs.writeFileSync(corruptPath, '---\npalee_id: [unclosed\n---\n# Corrupt\n', 'utf8');
+
     fs.writeFileSync(roadmapFile, `
 topics:
   - id: T-valid-topic
     title: Valid Topic
     path: valid.md
-  - id: T-bad-topic
-    title: Escaped Topic
-    path: ../escape.md
+  - id: T-corrupt-topic
+    title: Corrupt Topic
+    path: corrupt-x4.md
 `, 'utf8');
     const rRes = env.run(['roadmap', '--from', roadmapFile, '--yes']);
     assert.strictEqual(rRes.status, 1, 'Partial failure exits with code 1');
+
+    // valid.md should be created
+    assert.ok(fs.existsSync(path.join(env.vaultDir, 'valid.md')));
 
     // 3. Valid topic draft
     const dRes = env.run(['session', 'draft', '--topic', 'T-valid-topic']);

@@ -249,6 +249,42 @@ describe('Memory System', () => {
     assert.strictEqual(remainingOtherDrafts.length, 1);
   });
 
+  test('deleteTopicDrafts returns errors instead of swallowing them when deletion fails', async () => {
+    const draftId = generateDraftId();
+    const topicId = 'T-eacces-test';
+    const draftPath = path.join(testVaultPath, '.palee', 'sessions', `${draftId}.md`);
+    fs.writeFileSync(
+      draftPath,
+      `---\npalee_schema: 1\nsession_id: ${draftId}\ntopic_id: ${topicId}\nstarted_at: 2026-08-30T10:00:00.000Z\nended_at: null\nstatus: draft\n---\n# Draft Session: ${draftId}\n\nDraft body`
+    );
+
+    const originalUnlinkSync = fs.unlinkSync;
+    try {
+      // Stub unlinkSync to throw EACCES only for this specific draft path
+      (fs as any).unlinkSync = (p: string) => {
+        if (p === draftPath || path.resolve(p) === path.resolve(draftPath)) {
+          const err: NodeJS.ErrnoException = new Error(`EACCES: permission denied, unlink '${p}'`);
+          err.code = 'EACCES';
+          throw err;
+        }
+        return originalUnlinkSync(p);
+      };
+
+      const result = deleteTopicDrafts(testVaultPath, topicId);
+
+      assert.strictEqual(result.errors.length, 1);
+      assert.strictEqual(result.deleted.length, 0);
+      assert.ok(
+        (result.errors[0].error as NodeJS.ErrnoException).code === 'EACCES' ||
+        result.errors[0].error.message.includes('EACCES')
+      );
+    } finally {
+      (fs as any).unlinkSync = originalUnlinkSync;
+      // Cleanup: remove the draft file if still present
+      try { fs.unlinkSync(draftPath); } catch { /* already gone */ }
+    }
+  });
+
   test('deleteSessionNote unlinks session within sessions dir and throws outside', async () => {
     const sessionId = generateSessionId();
     const sessionPath = await writeSessionNote(testVaultPath, {

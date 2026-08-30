@@ -88,9 +88,25 @@ describe('CLI Commands', () => {
   });
 
   test('roadmap command preserves existing state and prevents path traversal', () => {
-    // 1. Create a roadmap yaml
+    // 1. Create a roadmap yaml with R-1 only, import it successfully first
     const roadmapYaml = path.join(tempDir, 'roadmap.yaml');
     fs.writeFileSync(roadmapYaml, `
+topics:
+  - id: R-1
+    title: First
+    path: first.md
+`);
+
+    const importResult = runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
+    assert.strictEqual(importResult.status, 0, `Initial import should succeed. Stderr: ${importResult.stderr}`);
+
+    // R-1 should exist
+    const firstPath = path.join(vaultDir, 'first.md');
+    assert.ok(fs.existsSync(firstPath));
+
+    // 2. Verify path traversal is blocked at validation (exit 3), import does NOT proceed
+    const traversalYaml = path.join(tempDir, 'traversal-roadmap.yaml');
+    fs.writeFileSync(traversalYaml, `
 topics:
   - id: R-1
     title: First
@@ -100,36 +116,29 @@ topics:
     path: ../escaped.md
 `);
 
-    // 2. Run roadmap import with traversal failure
-    const result = runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
-
-    // Since R-2 escapes the vault, the command should fail but still process R-1
-    assert.strictEqual(result.status, 1, `Command should exit with 1 due to failures.\nStdout: ${result.stdout}\nStderr: ${result.stderr}`);
-    assert.match(result.stderr, /Roadmap path escapes vault/);
-    assert.match(result.stderr, /Failed to import 1 topics/);
-
-    // R-1 should exist
-    const firstPath = path.join(vaultDir, 'first.md');
-    assert.ok(fs.existsSync(firstPath));
+    const traversalResult = runCLI(['roadmap', '--from', traversalYaml, '--yes']);
+    // Path escape is caught at validation → exit code 3, entire import blocked
+    assert.strictEqual(traversalResult.status, 3, `Path traversal must fail at validation (exit 3). Got: ${traversalResult.status}`);
+    assert.match(traversalResult.stderr, /escapes vault/);
 
     // 3. Modify R-1 state manually to simulate a review
     let content = fs.readFileSync(firstPath, 'utf8');
     let parsed = parseFrontmatter(content);
     parsed.frontmatter!.topic_mastery = 0.8;
     parsed.frontmatter!.repetition = 5;
-    
+
     // rewrite
     const { updateFrontmatter } = require('../src/storage/frontmatter');
     fs.writeFileSync(firstPath, updateFrontmatter(content, parsed.frontmatter));
 
-    // 4. Run roadmap import again, but with a valid roadmap
+    // 4. Run roadmap import again with a valid roadmap to verify state preservation
     fs.writeFileSync(roadmapYaml, `
 topics:
   - id: R-1
     title: First Modified
     path: first.md
 `);
-    
+
     runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
 
     // Check state preservation

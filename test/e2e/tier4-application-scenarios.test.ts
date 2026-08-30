@@ -220,22 +220,19 @@ topics:
 `, 'utf8');
 
     const importRes = env.run(['roadmap', '--from', mixedRoadmap, '--yes']);
-    // Partial failure due to path escape
-    assert.strictEqual(importRes.status, 1);
-    assert.match(importRes.stderr, /escapes vault/);
-    assert.match(importRes.stderr, /Failed to import 1 topics/);
+    // Path escape is caught at validation time → exit code 3, entire import is blocked
+    assert.strictEqual(importRes.status, 3);
+    assert.match(importRes.stderr, /escapes vault boundary/);
 
-    // 4. Verify existing studied note preserved metrics
+    // 4. Verify existing studied note was NOT modified (import was blocked at validation)
     const studiedNote = env.readTopic('existing-studied.md');
-    assert.strictEqual(studiedNote.frontmatter?.title, 'Studied Note Revised');
+    assert.strictEqual(studiedNote.frontmatter?.title, 'Studied Note');
     assert.strictEqual(studiedNote.frontmatter?.topic_mastery, 0.88);
     assert.strictEqual(studiedNote.frontmatter?.repetition, 6);
     assert.strictEqual(studiedNote.frontmatter?.ease_factor, 2.7);
 
-    // 5. Verify new valid note created
-    const newNote = env.readTopic('sub/brand-new.md');
-    assert.strictEqual(newNote.frontmatter?.palee_id, 'T-brand-new');
-    assert.strictEqual(newNote.frontmatter?.topic_mastery, 0.0);
+    // 5. Verify new valid note was NOT created (import was blocked)
+    assert.strictEqual(fs.existsSync(path.join(env.vaultDir, 'sub', 'brand-new.md')), false);
 
     // 6. Verify outside-vault.md was NOT created outside vault
     assert.strictEqual(fs.existsSync(path.join(env.tempDir, 'outside-vault.md')), false);

@@ -26,6 +26,7 @@ const EXCLUDED_DIRS = new Set([
  * - Non-markdown files are skipped.
  * - `node_modules` directory entries are skipped.
  * - Symbolic links are ignored by default unless `options.followSymlinks` is explicitly enabled.
+ * - Symbolic link *files* (when followSymlinks is enabled) whose real target lies outside the vault are excluded.
  *
  * @param vaultPath - Path to the root Obsidian vault directory
  * @param options - Traversal options (e.g., `followSymlinks`)
@@ -131,6 +132,23 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
       if (isDir) {
         walk(fullPath);
       } else if (isFil && entry.name.endsWith('.md')) {
+        // For symlinked files, validate their real target is within the vault
+        if (entry.isSymbolicLink() && followSymlinks) {
+          try {
+            const realFile = fs.realpathSync(fullPath);
+            const fileRel = path.relative(resolvedVaultPath, realFile);
+            if (
+              path.isAbsolute(fileRel) ||
+              fileRel === '..' ||
+              fileRel.startsWith('..' + path.sep) ||
+              fileRel.startsWith('../')
+            ) {
+              continue; // symlink target is outside vault — skip
+            }
+          } catch {
+            continue; // dead or unresolvable symlink — skip
+          }
+        }
         results.push(fullPath);
       }
     }

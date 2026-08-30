@@ -326,7 +326,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
 
       // Clean up drafts on confirmed session end for the current topic
-      deleteTopicDrafts(vaultPath, topicId);
+      const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
+      if (cleanupResult.errors.length > 0) {
+        console.warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
+        process.exitCode = 1;
+      }
 
       // Regenerate derived views
       await rebuildHotAndIndex(vaultPath);

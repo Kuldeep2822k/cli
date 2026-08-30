@@ -5,7 +5,7 @@
  * Implements crash-resilient atomic file overwriting:
  * 1. Acquires target file {@link Lock}.
  * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>`).
+ * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
  * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
  * 5. Atomically renames temporary file over the destination file.
  * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.

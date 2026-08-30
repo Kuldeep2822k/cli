@@ -630,26 +630,35 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
- * @returns Void
- * @remarks Safely unlinks all matching draft files after a confirmed session is saved.
+ * @returns Object with `deleted` paths array and `errors` array of `{ path, error }` for any failures
+ * @remarks
+ * Attempts deletion of all matching draft files. Read errors (ENOENT, EACCES), parse errors,
+ * and unlink errors are captured in the returned `errors` array rather than swallowed silently.
  * @example
  * ```typescript
- * deleteTopicDrafts('/vault', 'topic-123');
+ * const { deleted, errors } = deleteTopicDrafts('/vault', 'topic-123');
+ * if (errors.length > 0) { console.warn('Cleanup warnings:', errors); }
  * ```
  */
-function deleteTopicDrafts(vaultPath: string, topicId: string): void {
+function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
   const drafts = getDrafts(vaultPath);
+  const deleted: string[] = [];
+  const errors: Array<{ path: string; error: Error }> = [];
+
   for (const draftPath of drafts) {
     try {
       const content = fs.readFileSync(draftPath, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
       if (frontmatter && frontmatter.topic_id === topicId) {
         deleteSessionNote(vaultPath, draftPath);
+        deleted.push(draftPath);
       }
-    } catch {
-      // ignore
+    } catch (err: unknown) {
+      errors.push({ path: draftPath, error: err as Error });
     }
   }
+
+  return { deleted, errors };
 }
 
 /**

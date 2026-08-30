@@ -263,7 +263,7 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
   });
 
   // =========================================================================
-  // Challenge Area 3: Cross-Midnight & Timestamp Recency Invariants
+  // Challenge Area 3: Elapsed Duration & Timestamp Recency Invariants
   // =========================================================================
   describe('Area 3: Elapsed Session Duration & Timestamp Recency Invariants', () => {
     test('session end on draft checkpoint accurately preserves 45-minute elapsed duration and satisfies started_at <= ended_at', () => {
@@ -272,16 +272,16 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       const fortyFiveMinsAgo = new Date(now.getTime() - 45 * 60 * 1000);
       const startedAtIso = fortyFiveMinsAgo.toISOString();
 
-      const draftPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-midnight.md');
+      const draftPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-45min.md');
       fs.mkdirSync(path.dirname(draftPath), { recursive: true });
       fs.writeFileSync(
         draftPath,
-        `---\npalee_schema: 1\nsession_id: DRAFT-S-midnight\ntopic_id: T-midnight\nstarted_at: '${startedAtIso}'\nended_at: null\nstatus: draft\n---\n# Draft\n\nCross midnight draft notes.`,
+        `---\npalee_schema: 1\nsession_id: DRAFT-S-45min\ntopic_id: T-45min\nstarted_at: '${startedAtIso}'\nended_at: null\nstatus: draft\n---\n# Draft\n\n45-minute elapsed session notes.`,
         'utf8'
       );
 
       // 2. End session on topic T-midnight
-      const result = runPaleeCli(['session', 'end', '--topic', 'T-midnight'], env.configDir);
+      const result = runPaleeCli(['session', 'end', '--topic', 'T-45min'], env.configDir);
       assert.strictEqual(result.status, 0, `CLI failed with: ${result.stderr}`);
 
       // 3. Find created session note
@@ -406,7 +406,7 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       }, /escaped|escapes vault/i);
     });
 
-    test('roadmap import with ..custom path creates note successfully, while ../escape fails', () => {
+    test('roadmap with ../escape path fails at validation (exit code 3), blocking entire import', () => {
       const roadmapYaml = `
 topics:
   - id: T-custom-dir
@@ -420,11 +420,15 @@ topics:
       fs.writeFileSync(roadmapFile, roadmapYaml, 'utf8');
 
       const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
-      assert.strictEqual(result.status, 1, `Expected partial failure exit code 1, got ${result.status}`);
+      // Path escape is now caught at validation time → exit code 3, entire import is blocked
+      assert.strictEqual(result.status, 3, `Expected validation failure exit code 3, got ${result.status}`);
 
-      // Verify ..custom file was created
+      // Validation error must mention the escaping path
+      assert.match(result.stderr, /escapes vault boundary/i);
+
+      // Neither file should be created since import was blocked at validation
       const customPath = path.join(env.vaultDir, '..custom', 'valid-note.md');
-      assert.ok(fs.existsSync(customPath), '..custom/valid-note.md should exist');
+      assert.strictEqual(fs.existsSync(customPath), false, '..custom/valid-note.md must not be created when validation fails');
 
       // Verify escape file was NOT created
       const escapePath = path.resolve(env.vaultDir, '../escape.md');

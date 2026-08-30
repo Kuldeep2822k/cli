@@ -216,7 +216,78 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
   // Challenge 2: Roadmap Batch Resilience & Error Isolation Stress Tests
   // =========================================================================
   describe('Challenge 2: Roadmap Batch Resilience & Error Isolation', () => {
-    test('roadmap import with corrupted YAML notes, path traversal escape, and valid notes imports valid, isolates errors, and exits with code 1', () => {
+    test('roadmap with path traversal escape fails at validation (exit code 3), blocking entire import', () => {
+      // 1. Create existing note with established study state
+      env.createTopic(
+        'existing-preserved.md',
+        {
+          palee_id: 'T-exist-1',
+          title: 'Existing Preserved Topic',
+          topic_mastery: 0.85,
+          repetition: 5,
+          ease_factor: 2.8,
+          interval_days: 14,
+        },
+        'Preserved notes body content.'
+      );
+
+      // 2. Create roadmap YAML file with a path traversal escape among otherwise valid topics
+      const roadmapYaml = `
+topics:
+  - id: T-new-valid
+    title: New Valid Topic
+    path: topics/new-valid.md
+    difficulty: beginner
+  - id: T-exist-1
+    title: Existing Preserved Topic
+    path: existing-preserved.md
+    difficulty: intermediate
+  - id: T-traversal
+    title: Vault Escape Attempt
+    path: ../../escaped-outside.md
+    difficulty: intermediate
+  - id: T-deep-nested
+    title: Deeply Nested Topic
+    path: deep/nested/structure/topic.md
+    difficulty: intermediate
+`;
+
+      const roadmapFile = path.join(env.tempDir, 'batch-roadmap.yaml');
+      fs.writeFileSync(roadmapFile, roadmapYaml, 'utf8');
+
+      // Execute roadmap import with --yes
+      const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
+
+      // Path escape is now caught at validation time → exit code 3, entire import is blocked
+      assert.strictEqual(
+        result.status,
+        3,
+        `Expected exit code 3 on validation failure, got ${result.status}. Stderr: ${result.stderr}, Stdout: ${result.stdout}`
+      );
+
+      // Validation errors must report the escaping path
+      assert.ok(
+        result.stderr.includes('escapes vault boundary') ||
+        result.stdout.includes('escapes vault boundary'),
+        'Must report vault escape validation error'
+      );
+
+      // No files should have been created or modified (import was blocked at validation)
+      const newValidPath = path.join(env.vaultDir, 'topics', 'new-valid.md');
+      assert.strictEqual(fs.existsSync(newValidPath), false, 'T-new-valid must not be created when validation fails');
+
+      // T-exist-1 must be untouched since import was blocked
+      const existPath = path.join(env.vaultDir, 'existing-preserved.md');
+      const parsedExist = parseFrontmatter(fs.readFileSync(existPath, 'utf8'));
+      assert.strictEqual(parsedExist.frontmatter?.topic_mastery, 0.85);
+      assert.strictEqual(parsedExist.frontmatter?.repetition, 5);
+
+      // Verify no file was created outside vault
+      const outsidePath = path.resolve(env.vaultDir, '../../escaped-outside.md');
+      assert.strictEqual(fs.existsSync(outsidePath), false, 'Outside escape file must not exist');
+    });
+
+    test('roadmap import with corrupted YAML notes and valid notes imports valid, isolates errors, and exits with code 1', () => {
       // 1. Create existing note with established study state
       env.createTopic(
         'existing-preserved.md',
@@ -239,7 +310,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
         'utf8'
       );
 
-      // 3. Create roadmap YAML file
+      // 3. Create roadmap YAML file (no path escape — only valid paths + corrupt target)
       const roadmapYaml = `
 topics:
   - id: T-new-valid
@@ -254,10 +325,6 @@ topics:
     title: Corrupted Target Note
     path: corrupted-note.md
     difficulty: advanced
-  - id: T-traversal
-    title: Vault Escape Attempt
-    path: ../../escaped-outside.md
-    difficulty: intermediate
   - id: T-deep-nested
     title: Deeply Nested Topic
     path: deep/nested/structure/topic.md
@@ -278,16 +345,11 @@ topics:
       );
 
       // Check outputs
-      assert.match(result.stderr, /Failed to import 2 topics/);
+      assert.match(result.stderr, /Failed to import 1 topics/);
       assert.match(result.stdout, /Created: 2 notes/);
       assert.match(result.stdout, /Updated: 1 notes/);
 
-      // Check errors logged for corrupt and escaping notes
-      assert.ok(
-        result.stderr.includes('Roadmap path escapes vault: ../../escaped-outside.md') ||
-        result.stdout.includes('Roadmap path escapes vault: ../../escaped-outside.md'),
-        'Must report vault escape error'
-      );
+      // Check errors logged for corrupt note
       assert.ok(
         result.stderr.includes('Failed T-corrupt') ||
         result.stdout.includes('Failed T-corrupt'),
@@ -315,10 +377,6 @@ topics:
       assert.ok(fs.existsSync(deepPath), 'Deep nested topic file should exist');
       const parsedDeep = parseFrontmatter(fs.readFileSync(deepPath, 'utf8'));
       assert.strictEqual(parsedDeep.frontmatter?.palee_id, 'T-deep-nested');
-
-      // Verify no file was created outside vault
-      const outsidePath = path.resolve(env.vaultDir, '../../escaped-outside.md');
-      assert.strictEqual(fs.existsSync(outsidePath), false, 'Outside escape file must not exist');
     });
 
     test('roadmap import with locked target file triggers OCC conflict and halts cleanly with code 4', async () => {
@@ -376,7 +434,8 @@ topics:
         );
       }
 
-      // Build roadmap with 10 topics: 3 existing valid, 2 existing corrupt, 3 new valid, 2 escaping
+      // Build roadmap with 8 topics: 3 existing valid, 2 existing corrupt, 3 new valid
+      // (escape paths are now blocked at validation time, covered by the validation test above)
       const topics = [
         { id: 'T-valid-1', title: 'Valid 1', path: 'valid-1.md' },
         { id: 'T-valid-2', title: 'Valid 2', path: 'valid-2.md' },
@@ -386,10 +445,7 @@ topics:
         { id: 'T-new-1', title: 'New 1', path: 'sub/new-1.md' },
         { id: 'T-new-2', title: 'New 2', path: 'sub/new-2.md' },
         { id: 'T-new-3', title: 'New 3', path: 'sub/new-3.md' },
-        { id: 'T-escape-1', title: 'Escape 1', path: '../escape-1.md' },
-        { id: 'T-escape-2', title: 'Escape 2', path: '/absolute/escape-2.md' },
       ];
-
       const roadmapYaml = `
 topics:
 ${topics.map((t) => `  - id: ${t.id}\n    title: ${t.title}\n    path: ${t.path}`).join('\n')}
@@ -400,7 +456,7 @@ ${topics.map((t) => `  - id: ${t.id}\n    title: ${t.title}\n    path: ${t.path}
       const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
 
       assert.strictEqual(result.status, 1);
-      assert.match(result.stderr, /Failed to import 4 topics/);
+      assert.match(result.stderr, /Failed to import 2 topics/);
       assert.match(result.stdout, /Created: 3 notes/);
       assert.match(result.stdout, /Updated: 3 notes/);
 

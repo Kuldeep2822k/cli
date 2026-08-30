@@ -539,14 +539,19 @@ topics:
 
     test('F7.2: roadmap import with corrupt note reports failure, imports others, and exits with code 1', () => {
       const roadmapFile = path.join(env.tempDir, 'partial-fail-roadmap.yaml');
+
+      // Create a corrupt note on disk that will fail during import (malformed YAML frontmatter)
+      const corruptNotePath = path.join(env.vaultDir, 'corrupt-partial.md');
+      fs.writeFileSync(corruptNotePath, '---\npalee_id: [unclosed bracket\n---\n# Corrupt\n', 'utf8');
+
       fs.writeFileSync(roadmapFile, `
 topics:
   - id: T-valid-1
     title: Valid Topic 1
     path: valid1.md
-  - id: T-traversal
-    title: Traversal Topic
-    path: ../escaped.md
+  - id: T-corrupt
+    title: Corrupt Note Topic
+    path: corrupt-partial.md
   - id: T-valid-2
     title: Valid Topic 2
     path: valid2.md
@@ -554,7 +559,6 @@ topics:
 
       const res = env.run(['roadmap', '--from', roadmapFile, '--yes']);
       assert.strictEqual(res.status, 1, 'Should exit with code 1 on partial batch failure');
-      assert.match(res.stderr, /escapes vault/);
       assert.match(res.stderr, /Failed to import 1 topics/);
 
       // Valid topics should still be created
