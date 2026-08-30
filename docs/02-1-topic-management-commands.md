@@ -253,13 +253,15 @@ flowchart TD
     
     CreateNote & UpdateNote --> AtomicOp["atomicWrite() with Fingerprint"]
     AtomicOp -->|"Corrupt / Write Error"| CatchErr["Catch Error -> Log & failed++ -> Continue Next Topic"]
-    AtomicOp -->|"OCC Conflict"| ErrOCC["Rethrow -> isConflictError -> Exit Code 4"]
+    AtomicOp -->|"OCC Conflict"| CatchOCC["Log Conflict & failed++ & conflicts++ -> Continue Next Topic"]
     CatchErr --> NextTopic["Process Remaining Topics"]
-    NextTopic --> FinalResult{"Any Writes Failed?"}
+    CatchOCC --> NextTopic
     AtomicOp -->|"Success"| NextTopic
+    NextTopic --> FinalResult{"Any Writes Failed?"}
     
     FinalResult -->|"0 Failed"| Success["✓ Roadmap imported successfully (Exit 0)"]
     FinalResult -->|"failed > 0"| PartialFail["⚠ Failed to import X topics (Exit 1)"]
+    FinalResult -->|"Exit 4 (conflicts > 0)"| ConflictExit["Exit Code 4 (Conflict)"]
 ```
 
 ---

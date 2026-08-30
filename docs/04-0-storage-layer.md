@@ -16,7 +16,7 @@
 
 The Storage Layer is responsible for managing the Obsidian vault as the canonical source of truth[planning/storage_design.md#3-5](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L3-L5) It ensures that all modifications to Markdown notes are safe, non-destructive, and conflict-aware. By treating the vault as a filesystem-based database, PALEE allows users to use their own editors (like Obsidian) while providing a robust interface for the engine core.
 
-### The File-Safety Contract & Storage Isolation Layer
+## The File-Safety Contract & Storage Isolation Layer
 
 PALEE operates under a strict file-safety and storage isolation contract to prevent data loss or corruption in a multi-process environment:
 

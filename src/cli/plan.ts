@@ -29,6 +29,11 @@ interface PlanTopic extends TopicNode {
  * @returns Promise resolving when plan output finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path or invalid options,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await planCommand({ ready: true, limit: 5 });
+ * ```
  */
 async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {

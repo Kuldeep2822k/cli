@@ -371,7 +371,7 @@ describe('Session CLI In-Process Coverage', () => {
 
   test('session start preserves existing started_at timestamp when called repeatedly on same active topic', async () => {
     const topicId = 'T-ongoing-topic';
-    const initialStartTime = '2026-08-30T09:00:00.000Z';
+    const initialStartTime = new Date(Date.now() - 60000).toISOString();
 
     // Set initial hot memory with known start time
     await updateHotMemory(vaultDir, null, topicId, 'Initial notes', initialStartTime);

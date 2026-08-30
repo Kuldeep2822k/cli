@@ -212,6 +212,9 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
  * @param rawTags - Raw tags value (array of strings, comma/space-delimited string, or null/undefined)
  * @returns Array of normalized tag strings
  *
+ * @remarks
+ * Strips leading '#' characters, trims whitespace, and converts all characters to lowercase.
+ *
  * @example
  * ```typescript
  * extractTags(['#react', '#web/ui']); // ['react', 'web/ui']
@@ -221,11 +224,23 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
 export function extractTags(rawTags: unknown): string[] {
   if (!rawTags) return [];
 
-  const normalize = (t: unknown): string =>
-    String(t)
+  /**
+   * Normalizes an individual tag entry to lowercase without leading hashtags.
+   *
+   * @param t - Raw tag value
+   * @returns Cleaned tag string
+   * @remarks Strips leading '#' characters.
+   * @example
+   * ```typescript
+   * normalize('#Math'); // 'math'
+   * ```
+   */
+  function normalize(t: unknown): string {
+    return String(t)
       .trim()
       .replace(/^#+/, '')
       .toLowerCase();
+  }
 
   if (Array.isArray(rawTags)) {
     return rawTags
@@ -264,8 +279,20 @@ export function extractTags(rawTags: unknown): string[] {
  * ```
  */
 export function matchesTags(noteTags: unknown, targetTags: string | string[]): boolean {
-  const normalize = (t: string): string =>
-    t.trim().replace(/^#+/, '').toLowerCase();
+  /**
+   * Normalizes an individual target tag query string to lowercase without leading hashtags.
+   *
+   * @param t - Raw target tag string
+   * @returns Cleaned tag string
+   * @remarks Strips leading '#' characters.
+   * @example
+   * ```typescript
+   * normalize('#Auth'); // 'auth'
+   * ```
+   */
+  function normalize(t: string): string {
+    return t.trim().replace(/^#+/, '').toLowerCase();
+  }
 
   const targets = Array.isArray(targetTags)
     ? targetTags.map(normalize).filter(Boolean)
@@ -303,7 +330,16 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
  * Validates glob pattern strings and throws a descriptive Error if a syntax issue is found.
  *
  * @param patterns - Pattern string or array of pattern strings to validate
+ * @returns Void
  * @throws {Error} If any pattern contains malformed syntax
+ *
+ * @remarks
+ * Compiles each pattern through `globToRegex` to detect unbalanced brackets or invalid characters.
+ *
+ * @example
+ * ```typescript
+ * validatePattern('notes/*.md');
+ * ```
  */
 export function validatePattern(patterns: string | string[]): void {
   const patternList = Array.isArray(patterns)

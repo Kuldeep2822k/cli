@@ -25,6 +25,18 @@ import {
 } from '../storage';
 import { SessionOptions } from '../types';
 
+/**
+ * Resolves the active topic identifier for a study session.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param explicitTopic - Optional topic ID passed explicitly via `--topic`
+ * @returns The resolved topic ID, or `null` if none active
+ * @remarks Prioritizes explicit topic override before falling back to `hot.md` active topic.
+ * @example
+ * ```typescript
+ * const topic = resolveSessionTopic('/vault', 'topic-linear-algebra');
+ * ```
+ */
 export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string | null {
   if (explicitTopic && explicitTopic.trim().length > 0) {
     const trimmed = explicitTopic.trim();
@@ -57,6 +69,18 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
   return null;
 }
 
+/**
+ * CLI command handler for managing learning session lifecycle and working memory.
+ *
+ * @param action - Session action: `'start'`, `'end'`, `'draft'`, or `'list'`
+ * @param options - Session command options (topic, interactive, json)
+ * @returns Promise resolving when session action completes
+ * @remarks Sets `process.exitCode = 2` on validation/argument error, `4` on OCC conflict, or `5` on runtime error.
+ * @example
+ * ```typescript
+ * await sessionCommand('start', { topic: 'topic-1', interactive: false });
+ * ```
+ */
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
@@ -94,7 +118,20 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const question = (q: string) => new Promise<string>(resolve => rl.question(q, resolve));
+        /**
+         * Prompts the user with a question string via readline and returns the trimmed response.
+         *
+         * @param q - Prompt query string
+         * @returns Promise resolving to user input text
+         * @remarks Wraps readline question in a promise.
+         * @example
+         * ```typescript
+         * const ans = await question('Proceed? ');
+         * ```
+         */
+        function question(q: string): Promise<string> {
+          return new Promise<string>(resolve => rl.question(q, resolve));
+        }
 
         for (const draftPath of drafts) {
           console.log(`\nDraft: ${path.basename(draftPath)}`);
@@ -141,7 +178,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
 
         // If already active on the same topic within 24h and not in future, preserve started_at
-        if (activeTopic === resolvedTopic && parsedStart > 0 && (nowTime - parsedStart) <= 24 * 60 * 60 * 1000 && parsedStart <= nowTime + 60000) {
+        if (activeTopic === resolvedTopic && parsedStart > 0 && (nowTime - parsedStart) <= 24 * 60 * 60 * 1000 && parsedStart <= nowTime) {
           startedAtToPersist = new Date(parsedStart).toISOString();
         }
 
@@ -196,7 +233,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             frontmatter.started_at.trim().length > 0 &&
             !Number.isNaN(new Date(frontmatter.started_at).getTime())
           ) {
-            draftStart = frontmatter.started_at.trim();
+            const parsedCandidate = new Date(frontmatter.started_at.trim()).getTime();
+            const nowMs = Date.now();
+            if ((nowMs - parsedCandidate) <= 24 * 60 * 60 * 1000 && parsedCandidate <= nowMs) {
+              draftStart = frontmatter.started_at.trim();
+            }
           }
         } catch {
           // ignore read error
@@ -236,7 +277,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter((d) => {
         if (!d.started_at) return false;
         const t = new Date(d.started_at).getTime();
-        return !Number.isNaN(t) && (nowTime - t) <= MAX_DURATION_MS && t <= nowTime + 60000;
+        return !Number.isNaN(t) && (nowTime - t) <= MAX_DURATION_MS && t <= nowTime;
       });
       let startedAt: string | null = null;
       if (matchingDrafts.length > 0) {
@@ -253,7 +294,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
             const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
             const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
-            if (activeTopic === topicId && parsedStart > 0 && (nowTime - parsedStart) <= MAX_DURATION_MS && parsedStart <= nowTime + 60000) {
+            if (activeTopic === topicId && parsedStart > 0 && (nowTime - parsedStart) <= MAX_DURATION_MS && parsedStart <= nowTime) {
               startedAt = new Date(parsedStart).toISOString();
             }
           } catch {
@@ -269,8 +310,10 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       // Calculate actual elapsed duration
-      const durationMs = Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
-      const durationMinutes = Math.round(durationMs / 60000);
+      const startMs = new Date(startedAt).getTime();
+      const endMs = new Date(endedAt).getTime();
+      const durationMs = endMs >= startMs ? endMs - startMs : 0;
+      const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
       const sessionId = generateSessionId();
 

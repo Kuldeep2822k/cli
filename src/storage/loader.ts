@@ -40,6 +40,13 @@ export interface LoadedTopic extends TopicNode {
  * @param val - Score input
  * @param fallback - Default fallback if invalid (default: 0.0)
  * @returns Clamped numeric score or raw fallback
+ *
+ * @example
+ * ```typescript
+ * parseScore(0.85432); // 0.8543
+ * parseScore('0.5');   // 0.5
+ * parseScore(null, 0); // 0
+ * ```
  */
 function parseScore(val: unknown, fallback: number = 0.0): number {
   if (typeof val === 'number') {
@@ -68,6 +75,13 @@ function parseScore(val: unknown, fallback: number = 0.0): number {
  * @param val - Numeric input
  * @param fallback - Default fallback value (default: 0)
  * @returns Integer value or raw fallback
+ *
+ * @example
+ * ```typescript
+ * parseInteger(4.8);   // 4
+ * parseInteger('10');  // 10
+ * parseInteger(null);  // 0
+ * ```
  */
 function parseInteger(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {
@@ -87,6 +101,15 @@ function parseInteger(val: unknown, fallback: number = 0): number {
  * @param val - Numeric input
  * @param fallback - Default fallback value (default: 0)
  * @returns Floating point number
+ *
+ * @remarks
+ * Verifies numeric finiteness and parses stringified numbers.
+ *
+ * @example
+ * ```typescript
+ * parseNumber('2.5', 2.5); // 2.5
+ * parseNumber(null, 2.5);  // 2.5
+ * ```
  */
 function parseNumber(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {

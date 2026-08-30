@@ -29,6 +29,10 @@ import { RoadmapOptions, TopicNode } from '../types';
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
  * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
  * process.exitCode = 1 on partial import failure, and process.exitCode = 5 on unexpected runtime exceptions.
+ * @example
+ * ```typescript
+ * await roadmapCommand({ from: 'roadmap.yaml', yes: true });
+ * ```
  */
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
@@ -67,7 +71,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const seenPaths = new Set<string>();
     const topicsMap = new Map<string, TopicNode>();
 
-    const resolvedVault = path.resolve(vaultPath);
+    const resolvedVault = fs.existsSync(vaultPath) ? fs.realpathSync(path.resolve(vaultPath)) : path.resolve(vaultPath);
 
     for (const topic of roadmap.topics) {
       const { id, title, path: relativePath, difficulty, order } = topic;
@@ -140,6 +144,20 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
     console.log();
 
+    /**
+     * Executes batch import of parsed roadmap topics into vault notes with error isolation and OCC tracking.
+     *
+     * @returns Promise resolving when all topics have been processed
+     *
+     * @remarks
+     * Iterates through all roadmap topics, validating vault path boundaries and writing topic notes with frontmatter.
+     * Catches and isolates per-topic errors (logging OCC conflicts vs standard write errors) and assigns exit codes (4 for conflict, 1 for other failures).
+     *
+     * @example
+     * ```typescript
+     * await doImport();
+     * ```
+     */
     async function doImport(): Promise<void> {
       let created = 0;
       let updated = 0;
@@ -147,10 +165,16 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let conflicts = 0;
 
       for (const topic of roadmap.topics) {
-        const absolutePath = path.resolve(vaultPath, topic.path);
+        const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
         
         const relative = path.relative(resolvedVault, absolutePath);
-        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        if (
+          path.isAbsolute(relative) ||
+          relative === '..' ||
+          relative.startsWith('..' + path.sep) ||
+          relative.startsWith('../') ||
+          relative.split(path.sep).includes('..')
+        ) {
           console.error(`Roadmap path escapes vault: ${topic.path}`);
           failed++;
           continue;

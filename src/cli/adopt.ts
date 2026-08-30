@@ -27,6 +27,19 @@ import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
 
 
+/**
+ * Generates a unique topic identifier prefixed with `T-`.
+ *
+ * @returns Unique topic ID string formatted as `T-YYYYMMDDTHHMMSS-XXXXXXXX`
+ *
+ * @remarks
+ * Uses UTC timestamp segments followed by 4 bytes (8 hex characters) of cryptographic randomness.
+ *
+ * @example
+ * ```typescript
+ * const topicId = generateTopicId(); // "T-20260830T120000-a1b2c3d4"
+ * ```
+ */
 function generateTopicId(): string {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0]; // YYYYMMDDTHHMMSS
@@ -35,10 +48,25 @@ function generateTopicId(): string {
 }
 
 /**
- * Resolves the display title for a Markdown note:
- * 1. Usable frontmatter `title` field (if defined and non-empty)
- * 2. First level-1 heading (`# Title`) in Markdown body
- * 3. Filename fallback (basename without .md extension)
+ * Resolves the display title for a Markdown note using hierarchical fallback strategies.
+ *
+ * @param content - Full text content of the note
+ * @param filePath - Optional file path for basename fallback
+ * @param parsedFrontmatter - Optional pre-parsed frontmatter dictionary
+ * @returns Extracted display title string, falling back to 'Untitled'
+ *
+ * @remarks
+ * Evaluation priority:
+ * 1. Existing frontmatter `title` field (if defined, non-empty string, number, or boolean).
+ * 2. First level-1 Markdown heading (`# Title`) in body, stripping comments and code fences.
+ * 3. Note filename without `.md` extension.
+ * 4. Fallback string `'Untitled'`.
+ *
+ * @example
+ * ```typescript
+ * const title = resolveNoteTitle('# Dynamic Systems\n\nNotes...', '/vault/notes/systems.md');
+ * console.log(title); // 'Dynamic Systems'
+ * ```
  */
 export function resolveNoteTitle(
   content: string,
@@ -97,6 +125,20 @@ export function resolveNoteTitle(
   return 'Untitled';
 }
 
+/**
+ * Prompts user for interactive confirmation via CLI stdin.
+ *
+ * @param message - Confirmation prompt question displayed to user
+ * @returns Promise resolving to `true` if user answered 'y' or 'yes', otherwise `false`
+ *
+ * @remarks
+ * Creates a standard readline interface on `process.stdin` and `process.stdout`.
+ *
+ * @example
+ * ```typescript
+ * const confirmed = await promptConfirmation('Proceed with adoption? (y/N): ');
+ * ```
+ */
 async function promptConfirmation(message: string): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -125,6 +167,21 @@ interface RollbackRecord {
   originalContent: string;
 }
 
+/**
+ * Reverts atomic writes for a batch of notes in reverse order during adoption failures.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param journal - List of rollback records containing original file contents
+ * @returns Promise resolving when rollback completes
+ *
+ * @remarks
+ * Restores original content for previously committed notes in reverse chronological order using `atomicWrite`.
+ *
+ * @example
+ * ```typescript
+ * await rollbackBatch('/vault', journal);
+ * ```
+ */
 async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Promise<void> {
   if (journal.length === 0) return;
 
@@ -139,6 +196,25 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
   }
 }
 
+/**
+ * CLI command handler for adopting existing Markdown notes as PALEE topics.
+ *
+ * @param targetPath - Optional relative or absolute path to note file or directory
+ * @param options - CLI flags for filtering, difficulty, dry-run, and batch confirmation
+ * @returns Promise resolving when adoption process finishes
+ *
+ * @remarks
+ * Supports single-file adoption and batch directory adoption. In batch mode:
+ * - Scans vault using `walkVault`.
+ * - Applies `--include`, `--exclude`, and `--tag` filters.
+ * - Displays adoption preview and asks for confirmation (unless `--yes` is specified).
+ * - Executes two-phase adoption with optimistic concurrency control and rollback journal.
+ *
+ * @example
+ * ```typescript
+ * await adoptCommand('notes/quantum.md', { difficulty: 'advanced' });
+ * ```
+ */
 async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
   try {
     const config = loadConfig();

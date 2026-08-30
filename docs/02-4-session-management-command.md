@@ -65,7 +65,6 @@ flowchart TD
     
     PromptRecovery --> ExecuteAction["recoverDraft() (Storage Isolation)"]
     ExecuteAction --> SyncHot
-    WarnDraft --> SyncHot
     
     SyncHot --> SetStart["Record started_at in hot.md"]
     SetStart --> PrintHot["Display Active Topic & Working Memory Excerpt"]
@@ -162,7 +161,7 @@ The following table lists all supported arguments and options for `palee session
 
 All session metadata is isolated within the `.palee/` directory at the vault root. CLI command handlers interact with this storage strictly via dedicated storage helpers (`src/storage/index.ts`), with **zero direct `fs.unlinkSync` or `fs.mkdirSync` calls** in CLI handlers:
 
-```
+```text
 <vaultPath>/
 ├── .palee/
 │   ├── hot.md                     # Active working memory, topic context & started_at

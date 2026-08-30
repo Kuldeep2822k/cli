@@ -58,6 +58,20 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
     throw new Error(`Vault path is not readable (permission denied): ${resolvedVaultPath}`);
   }
 
+  /**
+   * Recursively traverses a subdirectory, filtering entries against exclusion rules.
+   *
+   * @param dir - Directory path to traverse
+   * @returns Void
+   *
+   * @remarks
+   * Evaluates directory entries with symlink escape protection, dot-directory exclusion, and custom filter rules.
+   *
+   * @example
+   * ```typescript
+   * walk('/vault/topics');
+   * ```
+   */
   function walk(dir: string): void {
     let realDir = dir;
     if (followSymlinks) {
@@ -134,6 +148,14 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
  * @returns Canonical path to the ensured directory
  * @throws {Error} If targetPath escapes vault boundary or resolves outside vault via symlinks
  *
+ * @remarks
+ * Performs rigorous security and normalization checks:
+ * 1. Resolves canonical vault root via `fs.realpathSync`.
+ * 2. Normalizes relative target paths against `resolvedVault`.
+ * 3. Validates boundary containment across relative traversal (`..`) and Windows drive roots.
+ * 4. Checks pre-creation ancestor paths to prevent symlink escape outside the vault.
+ * 5. Recursively creates the directory and asserts final canonical path containment.
+ *
  * @example
  * ```typescript
  * const dir = ensureVaultDirectory('/path/to/vault', 'topics/math/algebra.md');
@@ -141,7 +163,7 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
  */
 function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
   const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
-  const absoluteTarget = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(vaultPath, targetPath);
+  const absoluteTarget = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(resolvedVault, targetPath);
   const targetDir = path.extname(absoluteTarget) ? path.dirname(absoluteTarget) : absoluteTarget;
 
   // Boundary check: ensure targetDir does not escape vault across relative or cross-drive paths

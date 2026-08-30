@@ -28,6 +28,11 @@ interface DashboardTopic {
  * @returns Promise resolving when dashboard output finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await dashboardCommand({ json: true });
+ * ```
  */
 async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   try {

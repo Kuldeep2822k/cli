@@ -27,6 +27,11 @@ const MAX_HOT_WORDS = 250;
  *
  * @param vaultPath - Vault root path
  * @returns Path to `.palee` directory
+ * @remarks Creates the directory recursively if it does not already exist.
+ * @example
+ * ```typescript
+ * const dir = getPaleeDir('/path/to/vault');
+ * ```
  */
 function getPaleeDir(vaultPath: string): string {
   const dir = path.join(vaultPath, '.palee');
@@ -41,6 +46,11 @@ function getPaleeDir(vaultPath: string): string {
  *
  * @param vaultPath - Vault root path
  * @returns Path to `.palee/sessions` directory
+ * @remarks Creates the directory recursively if it does not already exist.
+ * @example
+ * ```typescript
+ * const dir = getSessionsDir('/path/to/vault');
+ * ```
  */
 function getSessionsDir(vaultPath: string): string {
   const dir = path.join(vaultPath, '.palee', 'sessions');
@@ -54,7 +64,7 @@ function getSessionsDir(vaultPath: string): string {
  * Generates a unique canonical session identifier with timestamp and random entropy.
  *
  * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXX`
- *
+ * @remarks Formats UTC timestamp segments and appends 2 bytes of random hex entropy.
  * @example
  * ```typescript
  * const id = generateSessionId(); // "S-20260823T153000-a1b2"
@@ -77,6 +87,11 @@ function generateSessionId(): string {
  * Generates a unique checkpoint identifier for in-progress draft sessions.
  *
  * @returns Draft ID string formatted as `DRAFT-S-XXXXXXXX`
+ * @remarks Uses 4 bytes of cryptographic random hex entropy.
+ * @example
+ * ```typescript
+ * const draftId = generateDraftId(); // "DRAFT-S-1a2b3c4d"
+ * ```
  */
 function generateDraftId(): string {
   const random = crypto.randomBytes(4).toString('hex');
@@ -89,6 +104,11 @@ function generateDraftId(): string {
  * @param text - Input string to truncate
  * @param maxWords - Upper bound on word count (e.g. 250)
  * @returns Truncated string with trailing `...` if truncated
+ * @remarks Splits text on whitespace and joins up to maxWords words.
+ * @example
+ * ```typescript
+ * const truncated = truncateWords('One two three four', 2); // "One two..."
+ * ```
  */
 function truncateWords(text: string, maxWords: number): string {
   const words = text.trim().split(/\s+/);
@@ -103,6 +123,11 @@ function truncateWords(text: string, maxWords: number): string {
  *
  * @param text - Input text
  * @returns Number of words
+ * @remarks Returns 0 for empty or whitespace-only input strings.
+ * @example
+ * ```typescript
+ * const count = countWords('Study notes for machine learning'); // 5
+ * ```
  */
 function countWords(text: string): number {
   if (!text.trim()) return 0;
@@ -114,6 +139,11 @@ function countWords(text: string): number {
  *
  * @param date - Date to format
  * @returns Date string formatted as `YYYY-MM-DD`
+ * @remarks Pads single-digit months and days with leading zeros.
+ * @example
+ * ```typescript
+ * const formatted = formatDateOnly(new Date('2026-08-30T10:00:00Z')); // "2026-08-30"
+ * ```
  */
 function formatDateOnly(date: Date): string {
   const year = date.getFullYear();
@@ -129,6 +159,17 @@ function formatDateOnly(date: Date): string {
  * @param sessionData - Session metadata (ID, topic ID, timestamps)
  * @param bodyContent - Markdown note body written during study
  * @returns Absolute path to the saved session note
+ * @remarks Captures existing note fingerprint for optimistic concurrency control (OCC).
+ * @example
+ * ```typescript
+ * const notePath = await writeSessionNote('/vault', {
+ *   session_id: 'S-20260830T100000-abcd',
+ *   topic_id: 'topic-math',
+ *   started_at: '2026-08-30T10:00:00Z',
+ *   ended_at: '2026-08-30T10:30:00Z',
+ *   duration_minutes: 30,
+ * }, 'Note body');
+ * ```
  */
 async function writeSessionNote(
   vaultPath: string,
@@ -161,8 +202,12 @@ async function writeSessionNote(
     if (fs.existsSync(filePath)) {
       expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
     }
-  } catch {
-    expectedFingerprint = null;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      expectedFingerprint = null;
+    } else {
+      throw err;
+    }
   }
 
   await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
@@ -181,6 +226,10 @@ async function writeSessionNote(
  * @param summaryBody - Notes text to distill into hot memory
  * @param startedAt - ISO timestamp when the active topic session started or null
  * @returns Absolute path to `hot.md`
+ * @example
+ * ```typescript
+ * const hotPath = await updateHotMemory('/vault', 'S-1', 'topic-1', 'Active study notes', '2026-08-30T10:00:00Z');
+ * ```
  */
 async function updateHotMemory(
   vaultPath: string,
@@ -218,8 +267,12 @@ async function updateHotMemory(
     if (fs.existsSync(hotPath)) {
       expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
     }
-  } catch {
-    expectedFingerprint = null;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      expectedFingerprint = null;
+    } else {
+      throw err;
+    }
   }
 
   await atomicWrite(vaultPath, hotPath, content, expectedFingerprint);
@@ -231,6 +284,11 @@ async function updateHotMemory(
  *
  * @param vaultPath - Vault root path
  * @returns Absolute path to `hot.md`
+ * @remarks Deletes `hot.md` if it exists, ignoring missing file errors.
+ * @example
+ * ```typescript
+ * await resetHotMemory('/vault');
+ * ```
  */
 async function resetHotMemory(vaultPath: string): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
@@ -253,6 +311,11 @@ async function resetHotMemory(vaultPath: string): Promise<string> {
  *
  * @param vaultPath - Vault root path
  * @returns Absolute path to `index.md`
+ * @remarks Reads all confirmed session files and aggregates them into a markdown index with frontmatter.
+ * @example
+ * ```typescript
+ * const indexPath = await regenerateIndex('/vault');
+ * ```
  */
 async function regenerateIndex(vaultPath: string): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
@@ -329,8 +392,12 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
     if (fs.existsSync(indexPath)) {
       expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
     }
-  } catch {
-    expectedFingerprint = null;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      expectedFingerprint = null;
+    } else {
+      throw err;
+    }
   }
 
   await atomicWrite(vaultPath, indexPath, content, expectedFingerprint);
@@ -341,6 +408,12 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
  * Re-scans all session files on disk and rebuilds both `hot.md` and `index.md`.
  *
  * @param vaultPath - Vault root path
+ * @returns Promise resolving when rebuilding completes
+ * @remarks Finds the newest completed session file and generates active hot memory and session index.
+ * @example
+ * ```typescript
+ * await rebuildHotAndIndex('/vault');
+ * ```
  */
 async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   const sessionsDir = getSessionsDir(vaultPath);
@@ -395,6 +468,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
  * @param sessionData - Session metadata
  * @param bodyContent - Draft notes content
  * @returns Absolute path to the written draft checkpoint file
+ * @remarks Draft checkpoints persist temporary learning state to prevent data loss on unexpected exits.
+ * @example
+ * ```typescript
+ * const draftFile = await writeDraftCheckpoint('/vault', 'DRAFT-S-1a2b', { topic_id: 't-1', started_at: '2026-08-30T10:00:00Z' }, 'Draft body');
+ * ```
  */
 async function writeDraftCheckpoint(
   vaultPath: string,
@@ -416,8 +494,16 @@ async function writeDraftCheckpoint(
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
   let expectedFingerprint: string | null = null;
-  if (fs.existsSync(filePath)) {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+  try {
+    if (fs.existsSync(filePath)) {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      expectedFingerprint = null;
+    } else {
+      throw err;
+    }
   }
 
   await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
@@ -429,6 +515,11 @@ async function writeDraftCheckpoint(
  *
  * @param vaultPath - Vault root path
  * @returns Array of absolute file paths to active draft notes
+ * @remarks Scans the sessions directory for files prefixed with `DRAFT-S-`.
+ * @example
+ * ```typescript
+ * const drafts = getDrafts('/vault');
+ * ```
  */
 function getDrafts(vaultPath: string): string[] {
   const sessionsDir = getSessionsDir(vaultPath);
@@ -446,6 +537,12 @@ function getDrafts(vaultPath: string): string[] {
  * @param vaultPath - Vault root path
  * @param draftPath - Path to draft checkpoint note
  * @param action - Action to take: `'save'`, `'discard'`, `'resume'`, or `'ignore'`
+ * @returns Promise resolving when draft recovery action is executed
+ * @remarks If saving, validates draft start recency (clamping timestamps in the future or older than 24h).
+ * @example
+ * ```typescript
+ * await recoverDraft('/vault', '/vault/.palee/sessions/DRAFT-S-1a2b.md', 'save');
+ * ```
  */
 async function recoverDraft(
   vaultPath: string,
@@ -475,7 +572,7 @@ async function recoverDraft(
     let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
 
     // Staleness bound: if draft start is older than 24h or in future, fallback to now
-    if (nowTime - parsedStart > 24 * 60 * 60 * 1000 || parsedStart > nowTime + 60000) {
+    if (nowTime - parsedStart > 24 * 60 * 60 * 1000 || parsedStart > nowTime) {
       parsedStart = nowTime;
     }
 
@@ -509,6 +606,11 @@ async function recoverDraft(
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
  * @returns Array of matching draft records with path, started_at timestamp, and body
+ * @remarks Filters all existing draft checkpoints by `topic_id`.
+ * @example
+ * ```typescript
+ * const topicDrafts = getTopicDrafts('/vault', 'topic-123');
+ * ```
  */
 function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string }> {
   const drafts = getDrafts(vaultPath);
@@ -536,6 +638,12 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
+ * @returns Void
+ * @remarks Safely unlinks all matching draft files after a confirmed session is saved.
+ * @example
+ * ```typescript
+ * deleteTopicDrafts('/vault', 'topic-123');
+ * ```
  */
 function deleteTopicDrafts(vaultPath: string, topicId: string): void {
   const drafts = getDrafts(vaultPath);
@@ -557,6 +665,12 @@ function deleteTopicDrafts(vaultPath: string, topicId: string): void {
  *
  * @param vaultPath - Vault root path
  * @param targetPath - Path to the session note or draft file
+ * @returns Void
+ * @remarks Validates that the target path does not escape `.palee/sessions/` directory.
+ * @example
+ * ```typescript
+ * deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md');
+ * ```
  */
 function deleteSessionNote(vaultPath: string, targetPath: string): void {
   const sessionsDir = getSessionsDir(vaultPath);

@@ -110,6 +110,12 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
  *
  * @param content - Text content to fingerprint
  * @returns 64-character hexadecimal SHA-256 hash string
+ *
+ * @example
+ * ```typescript
+ * const fingerprint = computeFingerprint('# Topic Note\nContent...');
+ * console.log(fingerprint.length); // 64
+ * ```
  */
 function computeFingerprint(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');

@@ -68,9 +68,7 @@ topics:
     assert.strictEqual(env.listSessions().confirmed.length, 1);
 
     // Phase E: Spaced Repetition Review with 4-Pillar Mastery
-    const dsNote = env.readTopic('ds/foundations.md');
-    env.createTopic('ds/foundations.md', {
-      ...dsNote.frontmatter,
+    env.updateTopic('ds/foundations.md', {
       conceptual: 0.95,
       practical: 0.90,
       debug: 0.85,
@@ -80,7 +78,9 @@ topics:
     assert.strictEqual(reviewRes.status, 0);
 
     // Phase F: Verify Dependency Unlocked in Plan
-    const afternoonPlan = JSON.parse(env.run(['plan', '--json']).stdout);
+    const planRes = env.run(['plan', '--json']);
+    assert.strictEqual(planRes.status, 0);
+    const afternoonPlan = JSON.parse(planRes.stdout);
     const newReadyIds = afternoonPlan.ready_to_learn.map((t: { id: string }) => t.id);
     assert.ok(newReadyIds.includes('T-algo-graphs'), 'Graph algorithms should now be unlocked');
 
@@ -266,9 +266,7 @@ topics:
 
     // 2. Perform assessments and reviews across the 3 topics:
     // Beginner topic: Mastered (85%)
-    const bNote = env.readTopic('beg1.md');
-    env.createTopic('beg1.md', {
-      ...bNote.frontmatter,
+    env.updateTopic('beg1.md', {
       conceptual: 0.85,
       practical: 0.85,
       debug: 0.85,
@@ -277,9 +275,7 @@ topics:
     env.run(['review', 'T-beg-1', '5']);
 
     // Intermediate topic: Learning (40%)
-    const iNote = env.readTopic('int1.md');
-    env.createTopic('int1.md', {
-      ...iNote.frontmatter,
+    env.updateTopic('int1.md', {
       conceptual: 0.40,
       practical: 0.40,
       debug: 0.40,
@@ -324,6 +320,7 @@ topics:
 
     // 6. JSON output parity
     const dashJson = env.run(['dashboard', '--json']);
+    assert.strictEqual(dashJson.status, 0);
     const dashData = JSON.parse(dashJson.stdout);
     assert.strictEqual(dashData.total_topics, 3);
     assert.strictEqual(dashData.mastered, 1);

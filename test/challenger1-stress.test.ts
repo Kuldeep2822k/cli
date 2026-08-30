@@ -2,48 +2,24 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   parseFrontmatter,
-  updateFrontmatter,
   Lock,
 } from '../src/storage';
+import { createTestVault, TestVaultEnv, CLIResult, runPaleeCli } from './e2e/test-env';
 
 const PALEE_BIN = path.resolve(__dirname, '../bin/palee.ts');
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-interface CLIResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
-function runPaleeCli(
-  args: string[],
-  configDir: string,
-  options?: { input?: string; env?: Record<string, string> }
-): CLIResult {
-  const result = spawnSync(process.execPath, ['--import', 'tsx', PALEE_BIN, ...args], {
-    cwd: REPO_ROOT,
-    env: {
-      ...process.env,
-      PALEE_CONFIG_DIR: configDir,
-      NODE_ENV: 'test',
-      ...(options?.env || {}),
-    },
-    input: options?.input,
-    encoding: 'utf8',
-    stdio: 'pipe',
-  });
-
-  return {
-    status: result.status ?? (result.error ? 1 : 0),
-    stdout: result.stdout || '',
-    stderr: result.stderr || (result.error ? result.error.message : ''),
-  };
-}
-
+/**
+ * Executes the PALEE CLI binary asynchronously in a child process for concurrency stress testing.
+ *
+ * @param args - CLI arguments to pass to the binary
+ * @param configDir - Isolated directory containing config.json
+ * @param options - Additional options including custom env vars
+ * @returns Promise resolving to CLI execution result
+ */
 function runPaleeCliAsync(
   args: string[],
   configDir: string,
@@ -82,62 +58,22 @@ function runPaleeCliAsync(
 }
 
 describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness', () => {
-  let tempDir: string;
-  let configDir: string;
-  let vaultDir: string;
+  let env: TestVaultEnv;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-chal1-'));
-    configDir = path.join(tempDir, 'config');
-    vaultDir = path.join(tempDir, 'vault');
-
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.mkdirSync(vaultDir, { recursive: true });
-
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ vaultPath: vaultDir }, null, 2),
-      'utf8'
-    );
+    env = createTestVault('palee-chal1-');
   });
 
   afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    env.cleanup();
   });
-
-  function createTestTopic(
-    filename: string,
-    frontmatter: Record<string, unknown>,
-    body = 'Topic content for testing.'
-  ): string {
-    const fullPath = path.join(vaultDir, filename);
-    const dir = path.dirname(fullPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    const defaultFm: Record<string, unknown> = {
-      palee_schema: 1,
-      difficulty: 'intermediate',
-      depends_on: [],
-      topic_mastery: 0.0,
-      ...frontmatter,
-    };
-
-    const content = updateFrontmatter(
-      `# ${frontmatter.title || frontmatter.palee_id || 'Untitled'}\n\n${body}`,
-      defaultFm
-    );
-    fs.writeFileSync(fullPath, content, 'utf8');
-    return fullPath;
-  }
 
   // =========================================================================
   // Challenge 1: Concurrency & OCC TOCTOU Stress Tests
   // =========================================================================
   describe('Challenge 1: Concurrency & OCC Conflict Stress', () => {
     test('10 simultaneous review processes against the same topic cleanly resolve via OCC (code 0 or code 4) without data corruption', async () => {
-      const topicPath = createTestTopic(
+      const topicPath = env.createTopic(
         'distributed-systems.md',
         {
           palee_id: 'T-dist-sys',
@@ -156,7 +92,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
       // Launch 10 simultaneous review CLI invocations
       const promises: Promise<CLIResult>[] = [];
       for (let i = 0; i < 10; i++) {
-        promises.push(runPaleeCliAsync(['review', 'T-dist-sys', '4'], configDir));
+        promises.push(runPaleeCliAsync(['review', 'T-dist-sys', '4'], env.configDir));
       }
 
       const results = await Promise.all(promises);
@@ -193,13 +129,13 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
       assert.ok(body.includes('Distributed systems consensus and fault tolerance notes.'));
 
       // Check no temp files or locks remain
-      const vaultFiles = fs.readdirSync(vaultDir);
+      const vaultFiles = fs.readdirSync(env.vaultDir);
       const tempFiles = vaultFiles.filter((f) => f.includes('.tmp.') || f.endsWith('.lock'));
       assert.strictEqual(tempFiles.length, 0, 'No leftover temporary files or locks');
     });
 
     test('active note modification during review prompt strictly triggers OCC conflict (exit code 4)', async () => {
-      const topicPath = createTestTopic(
+      const topicPath = env.createTopic(
         'concurrency-model.md',
         {
           palee_id: 'T-conc-mod',
@@ -212,12 +148,12 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
       );
 
       // Acquire lock on the topic file before calling review to simulate in-flight collision
-      const lock = new Lock(vaultDir, topicPath);
+      const lock = new Lock(env.vaultDir, topicPath);
       await lock.acquire();
 
       try {
         // While lock is held, review command must fail with exit code 4
-        const result = runPaleeCli(['review', 'T-conc-mod', '5'], configDir);
+        const result = runPaleeCli(['review', 'T-conc-mod', '5'], env.configDir);
         assert.strictEqual(result.status, 4, `Expected exit code 4 on lock contention, got ${result.status}`);
         assert.match(result.stderr, /OCC conflict|Lock conflict/);
       } finally {
@@ -232,7 +168,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
       );
 
       // Now run review on the freshly modified note - it should succeed on the new content
-      const result2 = runPaleeCli(['review', 'T-conc-mod', '4'], configDir);
+      const result2 = runPaleeCli(['review', 'T-conc-mod', '4'], env.configDir);
       assert.strictEqual(result2.status, 0);
 
       const parsed = parseFrontmatter(fs.readFileSync(topicPath, 'utf8'));
@@ -242,7 +178,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
     });
 
     test('stress cycle: 5 sequential rounds of 6 concurrent reviews maintain 100% data integrity', async () => {
-      const topicPath = createTestTopic(
+      const topicPath = env.createTopic(
         'stress-accumulator.md',
         {
           palee_id: 'T-stress-acc',
@@ -256,7 +192,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
 
       for (let round = 0; round < 5; round++) {
         const promises = Array.from({ length: 6 }, () =>
-          runPaleeCliAsync(['review', 'T-stress-acc', '4'], configDir)
+          runPaleeCliAsync(['review', 'T-stress-acc', '4'], env.configDir)
         );
         const results = await Promise.all(promises);
 
@@ -282,7 +218,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
   describe('Challenge 2: Roadmap Batch Resilience & Error Isolation', () => {
     test('roadmap import with corrupted YAML notes, path traversal escape, and valid notes imports valid, isolates errors, and exits with code 1', () => {
       // 1. Create existing note with established study state
-      createTestTopic(
+      env.createTopic(
         'existing-preserved.md',
         {
           palee_id: 'T-exist-1',
@@ -296,7 +232,7 @@ describe('Challenger 1: Empirical Concurrency & Batch Resilience Stress Harness'
       );
 
       // 2. Create existing note with corrupted, unparseable YAML frontmatter
-      const corruptNotePath = path.join(vaultDir, 'corrupted-note.md');
+      const corruptNotePath = path.join(env.vaultDir, 'corrupted-note.md');
       fs.writeFileSync(
         corruptNotePath,
         `---\nkey: [unclosed malformed YAML array\n---\n# Corrupted Note Body`,
@@ -328,11 +264,11 @@ topics:
     difficulty: intermediate
 `;
 
-      const roadmapFile = path.join(tempDir, 'batch-roadmap.yaml');
+      const roadmapFile = path.join(env.tempDir, 'batch-roadmap.yaml');
       fs.writeFileSync(roadmapFile, roadmapYaml, 'utf8');
 
       // Execute roadmap import with --yes
-      const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], configDir);
+      const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
 
       // R3 Requirement: Exit with code 1 if any topic fails in the batch
       assert.strictEqual(
@@ -359,14 +295,14 @@ topics:
       );
 
       // Verify T-new-valid was created
-      const newValidPath = path.join(vaultDir, 'topics', 'new-valid.md');
+      const newValidPath = path.join(env.vaultDir, 'topics', 'new-valid.md');
       assert.ok(fs.existsSync(newValidPath), 'T-new-valid file should exist');
       const parsedNew = parseFrontmatter(fs.readFileSync(newValidPath, 'utf8'));
       assert.strictEqual(parsedNew.frontmatter?.palee_id, 'T-new-valid');
       assert.strictEqual(parsedNew.frontmatter?.difficulty, 'beginner');
 
       // Verify T-exist-1 preserved prior study state
-      const existPath = path.join(vaultDir, 'existing-preserved.md');
+      const existPath = path.join(env.vaultDir, 'existing-preserved.md');
       const parsedExist = parseFrontmatter(fs.readFileSync(existPath, 'utf8'));
       assert.strictEqual(parsedExist.frontmatter?.palee_id, 'T-exist-1');
       assert.strictEqual(parsedExist.frontmatter?.topic_mastery, 0.85);
@@ -375,18 +311,18 @@ topics:
       assert.strictEqual(parsedExist.frontmatter?.interval_days, 14);
 
       // Verify T-deep-nested created with parent directories
-      const deepPath = path.join(vaultDir, 'deep', 'nested', 'structure', 'topic.md');
+      const deepPath = path.join(env.vaultDir, 'deep', 'nested', 'structure', 'topic.md');
       assert.ok(fs.existsSync(deepPath), 'Deep nested topic file should exist');
       const parsedDeep = parseFrontmatter(fs.readFileSync(deepPath, 'utf8'));
       assert.strictEqual(parsedDeep.frontmatter?.palee_id, 'T-deep-nested');
 
       // Verify no file was created outside vault
-      const outsidePath = path.resolve(vaultDir, '../../escaped-outside.md');
+      const outsidePath = path.resolve(env.vaultDir, '../../escaped-outside.md');
       assert.strictEqual(fs.existsSync(outsidePath), false, 'Outside escape file must not exist');
     });
 
     test('roadmap import with locked target file triggers OCC conflict and halts cleanly with code 4', async () => {
-      const topicPath = createTestTopic(
+      const topicPath = env.createTopic(
         'locked-roadmap-topic.md',
         {
           palee_id: 'T-locked-target',
@@ -401,15 +337,15 @@ topics:
     title: Locked Target
     path: locked-roadmap-topic.md
 `;
-      const roadmapFile = path.join(tempDir, 'locked-roadmap.yaml');
+      const roadmapFile = path.join(env.tempDir, 'locked-roadmap.yaml');
       fs.writeFileSync(roadmapFile, roadmapYaml, 'utf8');
 
       // Acquire lock on the target file
-      const lock = new Lock(vaultDir, topicPath);
+      const lock = new Lock(env.vaultDir, topicPath);
       await lock.acquire();
 
       try {
-        const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], configDir);
+        const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
         assert.strictEqual(
           result.status,
           4,
@@ -424,7 +360,7 @@ topics:
     test('roadmap import with multiple mixed corruptions across 10 topics imports all valid notes and accurately reports stats', () => {
       // Create 3 valid pre-existing notes
       for (let i = 1; i <= 3; i++) {
-        createTestTopic(`valid-${i}.md`, {
+        env.createTopic(`valid-${i}.md`, {
           palee_id: `T-valid-${i}`,
           title: `Valid Topic ${i}`,
           topic_mastery: 0.5,
@@ -434,7 +370,7 @@ topics:
       // Create 2 corrupt pre-existing notes
       for (let i = 1; i <= 2; i++) {
         fs.writeFileSync(
-          path.join(vaultDir, `corrupt-${i}.md`),
+          path.join(env.vaultDir, `corrupt-${i}.md`),
           `---\nkey_${i}: [unclosed malformed YAML array ${i}\n---\n# Corrupt`,
           'utf8'
         );
@@ -458,10 +394,10 @@ topics:
 topics:
 ${topics.map((t) => `  - id: ${t.id}\n    title: ${t.title}\n    path: ${t.path}`).join('\n')}
 `;
-      const roadmapFile = path.join(tempDir, 'mixed-10-roadmap.yaml');
+      const roadmapFile = path.join(env.tempDir, 'mixed-10-roadmap.yaml');
       fs.writeFileSync(roadmapFile, roadmapYaml, 'utf8');
 
-      const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], configDir);
+      const result = runPaleeCli(['roadmap', '--from', roadmapFile, '--yes'], env.configDir);
 
       assert.strictEqual(result.status, 1);
       assert.match(result.stderr, /Failed to import 4 topics/);
@@ -469,9 +405,9 @@ ${topics.map((t) => `  - id: ${t.id}\n    title: ${t.title}\n    path: ${t.path}
       assert.match(result.stdout, /Updated: 3 notes/);
 
       // Verify all 3 new notes created
-      assert.ok(fs.existsSync(path.join(vaultDir, 'sub', 'new-1.md')));
-      assert.ok(fs.existsSync(path.join(vaultDir, 'sub', 'new-2.md')));
-      assert.ok(fs.existsSync(path.join(vaultDir, 'sub', 'new-3.md')));
+      assert.ok(fs.existsSync(path.join(env.vaultDir, 'sub', 'new-1.md')));
+      assert.ok(fs.existsSync(path.join(env.vaultDir, 'sub', 'new-2.md')));
+      assert.ok(fs.existsSync(path.join(env.vaultDir, 'sub', 'new-3.md')));
     });
   });
 });

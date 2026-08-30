@@ -1,9 +1,11 @@
 # ADR-0006: Phase 1 Concurrency Resilience, Storage Layer Isolation & Session Duration Tracking
 
 ## Status
+
 Accepted
 
 ## Context
+
 As PALEE CLI evolves into a daily driver for intense study workflows, real-world usage patterns introduced several concurrency and data integrity challenges:
 
 1. **Storage Leaks in CLI Handlers (#86, #90)**: Direct invocations of `fs.unlinkSync` and `fs.mkdirSync` inside command handlers (`src/cli/session.ts`, `src/cli/roadmap.ts`) bypassed storage boundary checks, creating path traversal risks and potential uncaught exceptions.
@@ -17,6 +19,7 @@ As PALEE CLI evolves into a daily driver for intense study workflows, real-world
 We implemented a comprehensive Phase 1 concurrency resilience and storage isolation architecture:
 
 ### 1. Storage Boundary Isolation & Public Facade (`src/storage/index.ts`)
+
 - Re-exported all persistence functions and types through `src/storage/index.ts`.
 - Replaced all raw filesystem calls in CLI commands with dedicated storage boundary helpers:
   - `ensureVaultDirectory(vaultPath, targetPath)`: Validates vault path boundaries and prevents symlink escape attacks before creating directories.
@@ -25,11 +28,13 @@ We implemented a comprehensive Phase 1 concurrency resilience and storage isolat
   - `getTopicDrafts(vaultPath, topicId)`: Discovers topic-associated active draft checkpoints.
 
 ### 2. Elimination of Review TOCTOU Race Windows (`src/cli/review.ts`)
+
 - In `reviewCommand`, re-read the topic note from disk immediately prior to invoking `atomicWrite()`.
 - Compute a fresh SHA-256 content fingerprint (`computeFingerprint(freshContent)`) and verify that `freshFingerprint === initialFingerprint`.
 - If modified concurrently during the recall prompt, immediately trigger Optimistic Concurrency Control (OCC) conflict handling, cleanly setting `process.exitCode = 4`.
 
 ### 3. Resilient Multi-Topic Roadmap Batch Processing (`src/cli/roadmap.ts`)
+
 - Enclosed per-topic note reading, parsing, and atomic writes inside a per-topic `try/catch` loop within `doImport()`.
 - Corrupt notes or file errors increment `failed++` and emit clear diagnostic errors while allowing valid topics in the batch to continue importing.
 - Established deterministic exit code semantics:
@@ -39,6 +44,7 @@ We implemented a comprehensive Phase 1 concurrency resilience and storage isolat
 - Refactored helper function declaration order above call sites for linear control flow.
 
 ### 4. True Session Duration & 3-Tier Timestamp Recovery (`src/cli/session.ts`, `src/storage/memory.ts`)
+
 - Persist `started_at` in `.palee/hot.md` frontmatter and draft checkpoint files (`.palee/sessions/DRAFT-S-*.md`).
 - In `palee session end`, recover initial `started_at` via a 3-tier algorithm:
   1. **Tier 1**: Earliest `started_at` from matching draft checkpoints for the topic.
@@ -49,6 +55,7 @@ We implemented a comprehensive Phase 1 concurrency resilience and storage isolat
 - Persist `started_at`, `ended_at`, and `duration_minutes` into final session notes.
 
 ### 5. Deterministic Cache Invalidation & UI Hygiene (`src/storage/cache.ts`, `src/cli/*.ts`)
+
 - Removed `NODE_ENV !== 'test'` bypasses from `FileCache`, guaranteeing deterministic cache invalidation and 2,000 ms unsettled horizon checks across all environments.
 - Standardized mastery display across all CLI commands (`next`, `plan`, `progress`, `dashboard`, `review`) to percentage format with 1 decimal place (`XX.X%`).
 - Aligned dashboard ASCII boxes to 62-character width.
@@ -56,6 +63,7 @@ We implemented a comprehensive Phase 1 concurrency resilience and storage isolat
 ## Consequences
 
 ### Positive
+
 - **Fault-Tolerant Batch Operations**: Vault curriculum imports do not fail completely due to an isolated corrupted note.
 - **Zero Race Window on Active Recall**: External edits made during SM-2 reviews are protected from overwrite collisions with exit code `4`.
 - **Accurate Study Analytics**: Session notes record real elapsed study duration rather than placeholder timestamps.
@@ -63,6 +71,7 @@ We implemented a comprehensive Phase 1 concurrency resilience and storage isolat
 - **Deterministic Testability**: Cache behavior in unit and integration test suites matches production runtime identically.
 
 ### Negative / Tradeoffs
+
 - Re-reading topic notes immediately prior to review writes adds a minimal microsecond disk I/O step before atomic commit.
 
 ## Alternatives Considered

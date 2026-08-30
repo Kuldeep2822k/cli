@@ -18,6 +18,11 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * process.exitCode = 3 if validation errors are found in the vault,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await validateCommand({ json: true });
+ * ```
  */
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {

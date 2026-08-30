@@ -15,6 +15,14 @@ import { MASTERY_THRESHOLD } from './mastery';
  *
  * @param topic - Topic node
  * @returns Array of unique prerequisite topic ID strings
+ *
+ * @remarks
+ * Handles string arrays or comma-delimited strings across both property aliases.
+ *
+ * @example
+ * ```typescript
+ * const deps = getTopicDependencies({ depends_on: ['t1', 't2'] });
+ * ```
  */
 function getTopicDependencies(
   topic?: Partial<TopicNode> | { depends_on?: unknown; dependencies?: unknown } | null
@@ -23,7 +31,18 @@ function getTopicDependencies(
   const rawDependsOn = topic.depends_on;
   const rawDependencies = (topic as { dependencies?: unknown }).dependencies;
 
-  const extract = (val: unknown): string[] => {
+  /**
+   * Helper extracting string identifiers from arrays or delimited strings.
+   *
+   * @param val - Input value
+   * @returns String array
+   * @remarks Splits comma-separated strings or maps array elements.
+   * @example
+   * ```typescript
+   * extract('a, b'); // ['a', 'b']
+   * ```
+   */
+  function extract(val: unknown): string[] {
     if (Array.isArray(val)) {
       return val.map((d) => String(d).trim()).filter(Boolean);
     }
@@ -31,7 +50,7 @@ function getTopicDependencies(
       return val.split(',').map((d) => d.trim()).filter(Boolean);
     }
     return [];
-  };
+  }
 
   const combined = [...extract(rawDependsOn), ...extract(rawDependencies)];
   return Array.from(new Set(combined));
@@ -60,6 +79,17 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const visited = new Set<string>();
   const pathStack: string[] = [];
 
+  /**
+   * Recursive DFS visitor function tracking visiting/visited states and current path stack.
+   *
+   * @param id - Topic identifier to visit
+   * @returns Cycle path array if cycle found, or null if acyclic
+   * @remarks Detects back-edges to visiting ancestors.
+   * @example
+   * ```typescript
+   * const cycle = visit('topic-a');
+   * ```
+   */
   function visit(id: string): string[] | null {
     if (visiting.has(id)) {
       // Found cycle - return path from cycle start
@@ -101,6 +131,14 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
  * @param topics - Map of all known topic nodes in the vault
  * @param threshold - Minimum mastery score required (default: {@link MASTERY_THRESHOLD} = 0.70)
  * @returns `true` if all prerequisite dependencies exist and have `topic_mastery >= threshold`, otherwise `false`
+ *
+ * @remarks
+ * Validates that every prerequisite is present in the vault and has achieved the target mastery score.
+ *
+ * @example
+ * ```typescript
+ * const satisfied = areDependenciesSatisfied(topic, topicMap, 0.7);
+ * ```
  */
 function areDependenciesSatisfied(
   topic: TopicNode,

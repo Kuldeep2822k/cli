@@ -16,6 +16,11 @@ import { MigrateOptions } from '../types';
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
  * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
+ *
+ * @example
+ * ```typescript
+ * await migrateCommand({ fix: true });
+ * ```
  */
 async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
   try {

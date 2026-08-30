@@ -37,6 +37,14 @@ interface ParsedLock {
  * Generates a unique lock identifier string with timestamp and random entropy.
  *
  * @returns Lock ID in format `L-YYYYMMDDTHHMMSS-XXXX`
+ *
+ * @remarks
+ * Uses ISO timestamp segments and 2 bytes of random hex entropy.
+ *
+ * @example
+ * ```typescript
+ * const lockId = generateLockId(); // "L-20260830T120000-abcd"
+ * ```
  */
 function generateLockId(): string {
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
@@ -50,6 +58,14 @@ function generateLockId(): string {
  * @param vaultPath - Absolute path to the vault root
  * @param targetPath - Absolute or relative path to the file to lock
  * @returns Path to the hashed `.lockdir` directory
+ *
+ * @remarks
+ * Uses SHA-256 hash of relative vault target path to construct a deterministic lockdir directory.
+ *
+ * @example
+ * ```typescript
+ * const lockDir = getLockDir('/vault', '/vault/notes/topic.md');
+ * ```
  */
 function getLockDir(vaultPath: string, targetPath: string): string {
   let resolvedTarget = targetPath;
@@ -81,6 +97,14 @@ function getLockDir(vaultPath: string, targetPath: string): string {
  *
  * @param lockInfo - Parsed lock record
  * @returns `true` if lock has expired and is eligible for stale recovery, otherwise `false`
+ *
+ * @remarks
+ * Compares current epoch milliseconds against lock file modification time (`mtime`).
+ *
+ * @example
+ * ```typescript
+ * const stale = isLockStale(parsedLock);
+ * ```
  */
 function isLockStale(lockInfo: ParsedLock): boolean {
   if (lockInfo.mtime === 0) return true; // File disappeared mid-read
@@ -95,6 +119,14 @@ function isLockStale(lockInfo: ParsedLock): boolean {
  * @param targetPath - Absolute path to the protected file
  * @returns {@link LockData} on successful acquisition
  * @throws {NodeError} If lock is currently held by an active live process (`ECONFLICT`)
+ *
+ * @remarks
+ * Employs atomic `mkdir` mutex semantics with stale lock quarantine and recovery.
+ *
+ * @example
+ * ```typescript
+ * const lockData = createLock('/vault/.palee/locks/hash.lockdir', '/vault/topic.md');
+ * ```
  */
 function createLock(lockDir: string, targetPath: string): LockData {
   const lockId = generateLockId();
@@ -225,6 +257,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
  *
  * @param lockDir - Lock directory path
  * @param expectedLockId - Lock ID held by this process
+ * @returns Void
+ *
+ * @remarks
+ * Touches `mtime` using `fs.utimesSync` without modifying file content.
+ *
+ * @example
+ * ```typescript
+ * updateHeartbeat('/vault/.palee/locks/hash.lockdir', 'L-1');
+ * ```
  */
 function updateHeartbeat(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
@@ -243,6 +284,15 @@ function updateHeartbeat(lockDir: string, expectedLockId: string): void {
  *
  * @param lockDir - Lock directory path
  * @param expectedLockId - Lock ID held by this process
+ * @returns Void
+ *
+ * @remarks
+ * Unlinks the lock session JSON and removes the parent lockdir if empty.
+ *
+ * @example
+ * ```typescript
+ * releaseLock('/vault/.palee/locks/hash.lockdir', 'L-1');
+ * ```
  */
 function releaseLock(lockDir: string, expectedLockId: string): void {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
@@ -262,6 +312,9 @@ function releaseLock(lockDir: string, expectedLockId: string): void {
 
 /**
  * Mutual exclusion lock controller managing lock acquisition, background heartbeat renewal, and release.
+ *
+ * @remarks
+ * Ensures exclusive access to file modifications using atomic directory primitives and heartbeat renewals.
  *
  * @example
  * ```typescript
@@ -286,6 +339,14 @@ class Lock {
    *
    * @param vaultPath - Vault root path
    * @param targetPath - File path to lock
+   *
+   * @remarks
+   * Computes hashed lock directory inside `.palee/locks/`.
+   *
+   * @example
+   * ```typescript
+   * const lock = new Lock('/vault', '/vault/notes/note.md');
+   * ```
    */
   constructor(vaultPath: string, targetPath: string) {
     this.targetPath = targetPath;
@@ -296,7 +357,16 @@ class Lock {
   /**
    * Acquires the lock and starts the background heartbeat timer.
    *
+   * @returns Promise resolving on successful acquisition
    * @throws {NodeError} If the lock is held by another active process (`ECONFLICT`)
+   *
+   * @remarks
+   * Acquires directory lock atomically and starts 15-second heartbeat timer.
+   *
+   * @example
+   * ```typescript
+   * await lock.acquire();
+   * ```
    */
   async acquire(): Promise<void> {
     this.lockData = createLock(this.lockPath, this.targetPath);
@@ -305,6 +375,16 @@ class Lock {
 
   /**
    * Initiates periodic heartbeat timer that touches the lock file mtime.
+   *
+   * @returns Void
+   *
+   * @remarks
+   * Spawns an unreferenced interval that updates heartbeat every 15,000ms.
+   *
+   * @example
+   * ```typescript
+   * lock.startHeartbeat();
+   * ```
    */
   startHeartbeat(): void {
     if (this.heartbeatTimer) return;
@@ -318,6 +398,16 @@ class Lock {
 
   /**
    * Releases the acquired lock and terminates the background heartbeat timer.
+   *
+   * @returns Void
+   *
+   * @remarks
+   * Stops interval timer and removes session file from disk.
+   *
+   * @example
+   * ```typescript
+   * lock.release();
+   * ```
    */
   release(): void {
     if (this.heartbeatTimer) {

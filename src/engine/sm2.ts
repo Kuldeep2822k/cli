@@ -28,6 +28,12 @@ import { Review } from '../types';
  * @param quality - Review quality rating (integer from 0 to 5)
  * @returns Ease factor delta adjustment
  * @throws {Error} If quality is not an integer between 0 and 5
+ *
+ * @example
+ * ```typescript
+ * calculateEaseFactorDelta(5); // 0.1
+ * calculateEaseFactorDelta(3); // -0.14
+ * ```
  */
 function calculateEaseFactorDelta(quality: number): number {
   if (quality < 0 || quality > 5 || !Number.isInteger(quality)) {
@@ -42,6 +48,9 @@ function calculateEaseFactorDelta(quality: number): number {
  * @param value - Numeric value to round
  * @param decimals - Number of decimal places to preserve
  * @returns Rounded numeric value
+ *
+ * @remarks
+ * Multiplies by 10^decimals and adds epsilon to round ties upwards.
  *
  * @example
  * ```typescript
@@ -150,6 +159,14 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
  *
  * @param date - Date to format
  * @returns Formatted date string (e.g. `'2026-08-24'`)
+ *
+ * @remarks
+ * Zero-pads single digit calendar months and days.
+ *
+ * @example
+ * ```typescript
+ * const formatted = formatLocalDateOnly(new Date('2026-08-24T12:00:00Z'));
+ * ```
  */
 function formatLocalDateOnly(date: Date): string {
   const year = date.getFullYear();

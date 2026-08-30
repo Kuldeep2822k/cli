@@ -150,6 +150,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(sessions.drafts.length, 0, 'Draft should be cleaned up');
       assert.strictEqual(sessions.confirmed.length, 1);
       assert.ok(draftStartedAt);
+      const confirmedContent = env.readTopic(path.join('.palee', 'sessions', sessions.confirmed[0]));
+      assert.strictEqual(confirmedContent.frontmatter?.started_at, draftStartedAt);
     });
 
     test('B3.3: future timestamp in note last_reviewed_at is safely loaded without crashing', () => {
@@ -235,10 +237,20 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
 
-      // In non-interactive mode, drafts remain untouched
+      // Invoke session start --interactive with 'i\n' to directly test ignore action
+      const startRes = env.run(['session', 'start', '--interactive'], { input: 'i\n' });
+      assert.strictEqual(startRes.status, 0);
+      assert.match(startRes.stdout, /PALEE Session Started/);
+
+      // Draft remains intact without being converted to a session
+      const sessions = env.listSessions();
+      assert.strictEqual(sessions.drafts.length, 1);
+      assert.strictEqual(sessions.confirmed.length, 0);
+
       const res = env.run(['session', 'list', '--json']);
       const parsed = JSON.parse(res.stdout);
       assert.strictEqual(parsed.total_drafts, 1);
+      assert.strictEqual(parsed.total_confirmed, 0);
     });
   });
 
@@ -351,15 +363,37 @@ topics:
       }
     });
 
-    test('B6.3: review command exits with code 4 when note is modified on disk right before review', () => {
-      env.createTopic('concurrent-edit.md', {
+    test('B6.3: review command exits with code 4 when note is modified on disk right before review', async () => {
+      const topicPath = env.createTopic('concurrent-edit.md', {
         palee_id: 'T-conc-edit',
         title: 'Concurrent Edit Topic',
       });
 
-      // Normal review succeeds
-      const res = env.run(['review', 'T-conc-edit', '4']);
-      assert.strictEqual(res.status, 0);
+      // 1. Acquire lock on the topic to simulate concurrent edit / lock collision
+      const lock = new Lock(env.vaultDir, topicPath);
+      await lock.acquire();
+
+      try {
+        const conflictRes = env.run(['review', 'T-conc-edit', '4']);
+        assert.strictEqual(conflictRes.status, 4, 'Review on locked note must exit with code 4');
+        assert.match(conflictRes.stderr, /conflict|lock/i);
+      } finally {
+        lock.release();
+      }
+
+      // 2. Modify note on disk to verify subsequent review succeeds
+      env.updateTopic('concurrent-edit.md', {
+        difficulty: 'advanced',
+      }, 'Updated body after OCC conflict.');
+
+      // 3. Normal review succeeds on modified content
+      const successRes = env.run(['review', 'T-conc-edit', '4']);
+      assert.strictEqual(successRes.status, 0);
+      assert.match(successRes.stdout, /Review recorded/);
+
+      const note = env.readTopic('concurrent-edit.md');
+      assert.strictEqual(note.frontmatter?.repetition, 1);
+      assert.strictEqual(note.frontmatter?.difficulty, 'advanced');
     });
   });
 

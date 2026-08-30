@@ -16,6 +16,7 @@ export interface TestVaultEnv {
   vaultDir: string;
   run: (args: string[], options?: { input?: string; env?: Record<string, string> }) => CLIResult;
   createTopic: (filename: string, frontmatter: Record<string, unknown>, body?: string) => string;
+  updateTopic: (filename: string, updates: Record<string, unknown>, body?: string) => string;
   readTopic: (filename: string) => { frontmatter: Record<string, unknown> | null; body: string; raw: string };
   readHotMemory: () => { frontmatter: Record<string, unknown> | null; body: string; raw: string } | null;
   readSessionIndex: () => { frontmatter: Record<string, unknown> | null; body: string; raw: string } | null;
@@ -26,6 +27,14 @@ export interface TestVaultEnv {
 const PALEE_BIN = path.resolve(__dirname, '../../bin/palee.ts');
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+/**
+ * Executes the PALEE CLI binary synchronously in an isolated child process.
+ *
+ * @param args - CLI arguments to pass to the binary
+ * @param configDir - Isolated directory containing config.json
+ * @param options - Additional options including piped input, custom env vars, and working directory
+ * @returns CLI execution result containing status code, stdout, and stderr
+ */
 export function runPalee(
   args: string[],
   configDir: string,
@@ -51,6 +60,17 @@ export function runPalee(
   };
 }
 
+/**
+ * Re-export of runPalee under the runPaleeCli alias for compatibility.
+ */
+export const runPaleeCli = runPalee;
+
+/**
+ * Creates an isolated temporary vault environment for E2E and stress tests.
+ *
+ * @param prefix - Prefix for the temporary directory name
+ * @returns Configured TestVaultEnv helper suite
+ */
 export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const configDir = path.join(tempDir, 'config');
@@ -87,6 +107,26 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
 
     const content = updateFrontmatter(`# ${frontmatter.title || frontmatter.palee_id || 'Untitled'}\n\n${body}`, defaultFm);
     fs.writeFileSync(fullPath, content, 'utf8');
+    return fullPath;
+  };
+
+  const updateTopic = (filename: string, updates: Record<string, unknown>, body?: string): string => {
+    const fullPath = path.isAbsolute(filename) ? filename : path.join(vaultDir, filename);
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`Topic file does not exist: ${fullPath}`);
+    }
+    const raw = fs.readFileSync(fullPath, 'utf8');
+    const updated = updateFrontmatter(raw, updates);
+    let finalContent = updated;
+    if (body !== undefined) {
+      const parsed = parseFrontmatter(updated);
+      if (parsed.raw !== null) {
+        finalContent = `---\n${parsed.raw}\n---\n${body}`;
+      } else {
+        finalContent = body;
+      }
+    }
+    fs.writeFileSync(fullPath, finalContent, 'utf8');
     return fullPath;
   };
 
@@ -152,6 +192,7 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     vaultDir,
     run,
     createTopic,
+    updateTopic,
     readTopic,
     readHotMemory,
     readSessionIndex,

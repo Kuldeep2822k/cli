@@ -21,6 +21,11 @@ import { NodeError } from '../types';
  * @returns Promise resolving when the review state is updated and saved.
  * @remarks Sets process.exitCode = 2 on invalid quality, missing vault, or missing/ambiguous topic,
  * process.exitCode = 4 on OCC lock conflicts, and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await reviewCommand('topic-calculus', '5');
+ * ```
  */
 async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
   try {

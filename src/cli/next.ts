@@ -26,6 +26,11 @@ interface DueTopic {
  * @returns Promise resolving when output is complete.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await nextCommand({ difficulty: 'beginner' });
+ * ```
  */
 async function nextCommand(options: NextOptions = {}): Promise<void> {
   try {
