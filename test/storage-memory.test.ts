@@ -262,7 +262,7 @@ describe('Memory System', () => {
     try {
       // Stub unlinkSync to throw EACCES only for this specific draft path
       (fs as any).unlinkSync = (p: string) => {
-        if (p === draftPath || path.resolve(p) === path.resolve(draftPath)) {
+        if (p.includes(draftId)) {
           const err: NodeJS.ErrnoException = new Error(`EACCES: permission denied, unlink '${p}'`);
           err.code = 'EACCES';
           throw err;
