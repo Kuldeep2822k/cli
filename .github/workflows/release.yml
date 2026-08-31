@@ -111,6 +111,8 @@ jobs:
       - name: Publish to NPM Registry (OIDC)
         if: steps.check-published.outputs.already_published != 'true'
         run: npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   github-release:
     name: Create GitHub Release
