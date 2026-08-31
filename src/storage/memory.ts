@@ -679,7 +679,14 @@ function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: strin
 function deleteSessionNote(vaultPath: string, targetPath: string): void {
   const sessionsDir = getSessionsDir(vaultPath);
   const resolvedSessions = fs.realpathSync(sessionsDir);
-  const resolvedTarget = path.resolve(targetPath);
+  let resolvedTarget: string;
+  if (fs.existsSync(targetPath)) {
+    resolvedTarget = fs.realpathSync(targetPath);
+  } else {
+    const parentDir = path.dirname(targetPath);
+    const resolvedParent = fs.existsSync(parentDir) ? fs.realpathSync(parentDir) : path.resolve(parentDir);
+    resolvedTarget = path.join(resolvedParent, path.basename(targetPath));
+  }
 
   // Boundary check: ensure target is within .palee/sessions/
   if (!resolvedTarget.startsWith(resolvedSessions + path.sep) && resolvedTarget !== resolvedSessions) {
