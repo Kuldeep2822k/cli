@@ -108,11 +108,9 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to NPM Registry
+      - name: Publish to NPM Registry (OIDC)
         if: steps.check-published.outputs.already_published != 'true'
-        run: npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --access public --provenance
 
   github-release:
     name: Create GitHub Release
