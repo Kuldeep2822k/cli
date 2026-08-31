@@ -3,37 +3,51 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 import { Lock } from '../src/storage/lock';
 import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
+import { reviewCommand } from '../src/cli/review';
 
 describe('CLI Commands', () => {
   let tempDir: string;
   let vaultDir: string;
+  let origConfigDir: string | undefined;
 
   before(() => {
+    origConfigDir = process.env.PALEE_CONFIG_DIR;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-cli-test-'));
     vaultDir = path.join(tempDir, 'vault');
     fs.mkdirSync(vaultDir);
+    process.env.PALEE_CONFIG_DIR = tempDir;
+    fs.writeFileSync(
+      path.join(tempDir, 'config.json'),
+      JSON.stringify({ vaultPath: vaultDir }, null, 2),
+      'utf8'
+    );
   });
 
   after(() => {
+    if (origConfigDir !== undefined) {
+      process.env.PALEE_CONFIG_DIR = origConfigDir;
+    } else {
+      delete process.env.PALEE_CONFIG_DIR;
+    }
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
   function runCLI(args: string[]): { status: number | null, stdout: string, stderr: string } {
-    try {
-      const stdout = execSync(`npx tsx bin/palee.ts ${args.join(' ')}`, {
-        cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-      return { status: 0, stdout, stderr: '' };
-    } catch (e: any) {
-      return { status: e.status, stdout: e.stdout, stderr: e.stderr };
-    }
+    const result = spawnSync(process.execPath, ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+    };
   }
 
   test('config set-vault points to directory', () => {
@@ -74,9 +88,25 @@ describe('CLI Commands', () => {
   });
 
   test('roadmap command preserves existing state and prevents path traversal', () => {
-    // 1. Create a roadmap yaml
+    // 1. Create a roadmap yaml with R-1 only, import it successfully first
     const roadmapYaml = path.join(tempDir, 'roadmap.yaml');
     fs.writeFileSync(roadmapYaml, `
+topics:
+  - id: R-1
+    title: First
+    path: first.md
+`);
+
+    const importResult = runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
+    assert.strictEqual(importResult.status, 0, `Initial import should succeed. Stderr: ${importResult.stderr}`);
+
+    // R-1 should exist
+    const firstPath = path.join(vaultDir, 'first.md');
+    assert.ok(fs.existsSync(firstPath));
+
+    // 2. Verify path traversal is blocked at validation (exit 3), import does NOT proceed
+    const traversalYaml = path.join(tempDir, 'traversal-roadmap.yaml');
+    fs.writeFileSync(traversalYaml, `
 topics:
   - id: R-1
     title: First
@@ -86,54 +116,30 @@ topics:
     path: ../escaped.md
 `);
 
-    // 2. Mock user input for prompt (Y)
-    let result;
-    try {
-      const stdout = execSync(`npx tsx bin/palee.ts roadmap --from "${roadmapYaml}" --yes`, {
-        cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-      result = { status: 0, stdout, stderr: '' };
-    } catch (e: any) {
-      result = { status: e.status, stdout: e.stdout, stderr: e.stderr };
-    }
-
-    // Since R-2 escapes the vault, the command should fail but still process R-1
-    assert.strictEqual(result.status, 1, `Command should exit with 1 due to failures.\nStdout: ${result.stdout}\nStderr: ${result.stderr}`);
-    assert.match(result.stderr, /Roadmap path escapes vault/);
-    assert.match(result.stderr, /Failed to import 1 topics/);
-
-    // R-1 should exist
-    const firstPath = path.join(vaultDir, 'first.md');
-    assert.ok(fs.existsSync(firstPath));
+    const traversalResult = runCLI(['roadmap', '--from', traversalYaml, '--yes']);
+    // Path escape is caught at validation → exit code 3, entire import blocked
+    assert.strictEqual(traversalResult.status, 3, `Path traversal must fail at validation (exit 3). Got: ${traversalResult.status}`);
+    assert.match(traversalResult.stderr, /escapes vault/);
 
     // 3. Modify R-1 state manually to simulate a review
     let content = fs.readFileSync(firstPath, 'utf8');
     let parsed = parseFrontmatter(content);
     parsed.frontmatter!.topic_mastery = 0.8;
     parsed.frontmatter!.repetition = 5;
-    
+
     // rewrite
     const { updateFrontmatter } = require('../src/storage/frontmatter');
     fs.writeFileSync(firstPath, updateFrontmatter(content, parsed.frontmatter));
 
-    // 4. Run roadmap import again, but with a valid roadmap
+    // 4. Run roadmap import again with a valid roadmap to verify state preservation
     fs.writeFileSync(roadmapYaml, `
 topics:
   - id: R-1
     title: First Modified
     path: first.md
 `);
-    
-    try {
-      execSync(`npx tsx bin/palee.ts roadmap --from "${roadmapYaml}" --yes`, {
-        cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
-        stdio: 'pipe',
-      });
-    } catch (e) {}
+
+    runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
 
     // Check state preservation
     content = fs.readFileSync(firstPath, 'utf8');
@@ -199,6 +205,45 @@ topics:
       assert.deepStrictEqual(cloudParsed.frontmatter!.depends_on, ['R-md-1']);
     } finally {
       // Restore vaultDir
+      runCLI(['config', 'set-vault', vaultDir]);
+    }
+  });
+
+  test('roadmap command batch imports valid topics and logs error when encountering corrupted note', () => {
+    const corruptVault = path.join(tempDir, 'corrupt-note-vault');
+    fs.mkdirSync(corruptVault, { recursive: true });
+    runCLI(['config', 'set-vault', corruptVault]);
+
+    try {
+      // Create a corrupted note on disk with invalid YAML frontmatter
+      const corruptNotePath = path.join(corruptVault, 'corrupted.md');
+      fs.writeFileSync(corruptNotePath, '---\npalee_id: [unclosed\n---\n# Corrupted\n', 'utf8');
+
+      const batchRoadmap = path.join(tempDir, 'corrupt-note-roadmap.yaml');
+      fs.writeFileSync(batchRoadmap, `topics:
+  - id: R-valid-1
+    title: First Valid Note
+    path: valid1.md
+    difficulty: beginner
+  - id: R-corrupted
+    title: Corrupted Note Topic
+    path: corrupted.md
+  - id: R-valid-2
+    title: Second Valid Note
+    path: valid2.md
+    difficulty: intermediate
+`);
+
+      const result = runCLI(['roadmap', '--from', batchRoadmap, '--yes']);
+      assert.strictEqual(result.status, 1, `Expected exit code 1 on partial failure, got ${result.status}. Stderr: ${result.stderr}`);
+      assert.match(result.stderr, /Failed R-corrupted \(corrupted\.md\)/);
+      assert.match(result.stderr, /Malformed frontmatter/);
+      assert.match(result.stderr, /Failed to import 1 topics/);
+
+      // Verify valid topics were created
+      assert.ok(fs.existsSync(path.join(corruptVault, 'valid1.md')), 'valid1.md should be created');
+      assert.ok(fs.existsSync(path.join(corruptVault, 'valid2.md')), 'valid2.md should be created');
+    } finally {
       runCLI(['config', 'set-vault', vaultDir]);
     }
   });
@@ -375,6 +420,34 @@ Body content.
     assert.match(result.stdout, /Total Topics:\s+2/);
     assert.match(result.stdout, /Mastered \(≥70%\):\s+1 \(50\.0%\)/);
     assert.doesNotMatch(result.stdout, /NaN/);
+
+    const lines = result.stdout.split('\n');
+    const topBorder = lines.find(l => l.includes('╔════'));
+    const bottomBorder = lines.find(l => l.includes('╚════'));
+    const titleLine = lines.find(l => l.includes('PALEE Learning Dashboard'));
+    const divider = lines.find(l => l.includes('───'));
+
+    assert.ok(topBorder);
+    assert.ok(bottomBorder);
+    assert.ok(titleLine);
+    assert.ok(divider);
+
+    assert.strictEqual(topBorder.trim().length, 62, 'Top border must be 62 chars');
+    assert.strictEqual(titleLine.trim().length, 62, 'Title line must be 62 chars');
+    assert.strictEqual(bottomBorder.trim().length, 62, 'Bottom border must be 62 chars');
+    assert.strictEqual(divider.trim().length, 62, 'Divider line must be 62 chars');
+  });
+
+  test('next command outputs mastery in standard XX.X% format for single and all due topics', () => {
+    const nextSingle = runCLI(['next']);
+    assert.strictEqual(nextSingle.status, 0);
+    assert.match(nextSingle.stdout, /Next topic due for review:/);
+    assert.match(nextSingle.stdout, /Mastery:\s+\d+\.\d%/);
+
+    const nextAll = runCLI(['next', '--all']);
+    assert.strictEqual(nextAll.status, 0);
+    assert.match(nextAll.stdout, /topic\(s\) due for review:/);
+    assert.match(nextAll.stdout, /Mastery:\s+\d+\.\d%/);
   });
 
   test('commands display onboarding guidance on empty vault', () => {
@@ -599,6 +672,120 @@ This note is undergoing concurrent modification.
       }
     } finally {
       if (fs.existsSync(occNote)) fs.unlinkSync(occNote);
+    }
+  });
+
+  test('review command exits with code 4 when topic note is modified concurrently between discovery and write submission (TOCTOU)', async () => {
+    const toctouPath = path.join(vaultDir, 'toctou-review-conflict.md');
+    try {
+      fs.writeFileSync(
+        toctouPath,
+        `---
+palee_id: T-toctou-review
+palee_schema: 1
+title: TOCTOU Review Conflict
+difficulty: intermediate
+topic_mastery: 0.5
+ease_factor: 2.5
+interval_days: 1
+repetition: 0
+lapses: 0
+---
+# TOCTOU Review Conflict
+Initial content.
+`,
+        'utf8'
+      );
+
+      const originalExitCode = process.exitCode;
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+
+      // Spy on fs.readFileSync to return modified content on the second read (fresh read in reviewCommand)
+      const origReadFileSync = fs.readFileSync;
+      let readCount = 0;
+      (fs as any).readFileSync = (p: any, options: any) => {
+        const content = origReadFileSync(p, options);
+        if (typeof p === 'string' && p.includes('toctou-review-conflict.md')) {
+          readCount++;
+          if (readCount > 1) {
+            // Simulate external process modifying the note concurrently
+            return String(content).replace('Initial content.', 'Concurrently modified by external editor.');
+          }
+        }
+        return content;
+      };
+
+      try {
+        await reviewCommand('T-toctou-review', '5');
+        assert.strictEqual(process.exitCode, 4, 'Expected process.exitCode = 4 on OCC TOCTOU conflict');
+        assert.match(loggedError, /OCC conflict/i);
+      } finally {
+        fs.readFileSync = origReadFileSync;
+        console.error = originalError;
+        process.exitCode = originalExitCode;
+      }
+    } finally {
+      if (fs.existsSync(toctouPath)) {
+        fs.unlinkSync(toctouPath);
+      }
+    }
+  });
+
+  test('review command exits with code 4 when topic note is deleted concurrently before write', async () => {
+    const deletedTopicPath = path.join(vaultDir, 'deleted-review-topic.md');
+    try {
+      fs.writeFileSync(
+        deletedTopicPath,
+        `---
+palee_id: T-deleted-review
+palee_schema: 1
+title: Deleted Review Topic
+difficulty: intermediate
+topic_mastery: 0.5
+ease_factor: 2.5
+interval_days: 1
+repetition: 0
+lapses: 0
+---
+# Deleted Review Topic
+Content.
+`,
+        'utf8'
+      );
+
+      const originalExitCode = process.exitCode;
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+
+      const origExistsSync = fs.existsSync;
+      let checkCount = 0;
+      (fs as any).existsSync = (p: any) => {
+        if (typeof p === 'string' && p.includes('deleted-review-topic.md')) {
+          checkCount++;
+          if (checkCount > 1) {
+            // Simulate file deletion right after initial discovery
+            return false;
+          }
+        }
+        return origExistsSync(p);
+      };
+
+      try {
+        await reviewCommand('T-deleted-review', '5');
+        assert.strictEqual(process.exitCode, 4, 'Expected process.exitCode = 4 when topic note does not exist at pre-write');
+        assert.match(loggedError, /OCC conflict/i);
+      } finally {
+        fs.existsSync = origExistsSync;
+        console.error = originalError;
+        process.exitCode = originalExitCode;
+      }
+    } finally {
+      if (fs.existsSync(deletedTopicPath)) {
+        fs.unlinkSync(deletedTopicPath);
+      }
     }
   });
 });

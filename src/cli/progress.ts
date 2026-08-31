@@ -5,7 +5,7 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows learning progress summary
  */
 
-import { loadTopics } from '../storage/loader';
+import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, ProgressOptions } from '../types';
 
@@ -31,6 +31,11 @@ interface ProgressTopic {
  * @returns Promise resolving when progress summary finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await progressCommand({ json: true });
+ * ```
  */
 async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   try {

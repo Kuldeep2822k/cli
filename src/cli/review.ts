@@ -1,10 +1,17 @@
+import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { loadTopics } from '../storage/loader';
-import { updateFrontmatter, computeFingerprint } from '../storage/frontmatter';
-import { atomicWrite, isConflictError } from '../storage/atomic-write';
+import {
+  loadTopics,
+  parseFrontmatter,
+  updateFrontmatter,
+  computeFingerprint,
+  atomicWrite,
+  isConflictError,
+} from '../storage';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 import { computeTopicMastery, normalizeScore } from '../engine/mastery';
+import { NodeError } from '../types';
 
 /**
  * CLI command handler for recording a spaced repetition (SM-2) review for a topic.
@@ -14,6 +21,11 @@ import { computeTopicMastery, normalizeScore } from '../engine/mastery';
  * @returns Promise resolving when the review state is updated and saved.
  * @remarks Sets process.exitCode = 2 on invalid quality, missing vault, or missing/ambiguous topic,
  * process.exitCode = 4 on OCC lock conflicts, and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await reviewCommand('topic-calculus', '5');
+ * ```
  */
 async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
   try {
@@ -52,8 +64,37 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     }
 
     const topic = candidates[0];
-    const { content, frontmatter, filePath } = topic;
+    const { filePath } = topic;
+    const initialFingerprint = computeFingerprint(topic.content);
 
+    // OCC TOCTOU Protection: Re-read disk immediately prior to write
+    let freshContent: string;
+    try {
+      if (!fs.existsSync(filePath)) {
+        const err = new Error(`OCC conflict: Topic note ${filePath} does not exist`) as NodeError;
+        err.code = 'ECONFLICT';
+        throw err;
+      }
+      freshContent = fs.readFileSync(filePath, 'utf8');
+    } catch (readErr: unknown) {
+      if ((readErr as NodeError).code === 'ENOENT') {
+        const conflictErr = new Error(`OCC conflict: Topic note ${filePath} does not exist or was removed`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
+      }
+      throw readErr;
+    }
+
+    const freshFingerprint = computeFingerprint(freshContent);
+
+    if (initialFingerprint !== freshFingerprint) {
+      const conflictErr = new Error(`OCC conflict: Topic note ${filePath} was modified concurrently during review`) as NodeError;
+      conflictErr.code = 'ECONFLICT';
+      throw conflictErr;
+    }
+
+    const { frontmatter: rawFm } = parseFrontmatter(freshContent);
+    const frontmatter = rawFm || {};
 
     const currentState = {
       ease_factor: (frontmatter.ease_factor as number) || 2.5,
@@ -90,12 +131,9 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
       due_at: formatLocalDateOnly(dueDate),
     };
 
-    const updatedContent = updateFrontmatter(content, updates);
-    const fingerprint = computeFingerprint(content);
+    const updatedContent = updateFrontmatter(freshContent, updates);
 
-    await atomicWrite(vaultPath, filePath, updatedContent, fingerprint);
-
-
+    await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
 
     console.log(`✓ Review recorded for ${topic.title}`);
     console.log(`  Quality: ${quality}`);
@@ -113,7 +151,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     console.error(`Error: ${err.message}`);
     process.exitCode = isConflictError(e) ? 4 : 5;
   }
-
 }
 
+export { reviewCommand };
 export default reviewCommand;

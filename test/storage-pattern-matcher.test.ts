@@ -72,6 +72,18 @@ describe('Pattern and Glob Matcher', () => {
     assert.strictEqual(matchesPattern('01-concept.md', ['template-*', '01-*', 'lab-*']), true);
     assert.strictEqual(matchesPattern('other.md', ['template-*', '01-*']), false);
   });
+
+  test('matches multiple separated /**/ bands in linear time without ReDoS', () => {
+    const multiBand = Array(15).fill('seg').join('/**/') + '/**/file.md';
+    const nonMatchingPath = Array(40).fill('seg').join('/') + '/nomatch.txt';
+    const matchingPath = Array(15).fill('seg').join('/sub/') + '/sub/file.md';
+
+    const start = Date.now();
+    assert.strictEqual(matchesPattern(nonMatchingPath, multiBand), false);
+    assert.strictEqual(matchesPattern(matchingPath, multiBand), true);
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 500, `Expected multi-band match to execute in <500ms, took ${elapsed}ms`);
+  });
 });
 
 describe('Frontmatter Tag Matcher', () => {

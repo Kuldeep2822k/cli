@@ -13,6 +13,14 @@ import { PaleeConfig, NodeError } from '../types';
  *
  * @returns The absolute file path to config.json.
  * @throws {Error} If LOCALAPPDATA environment variable is missing on Windows.
+ *
+ * @remarks
+ * Checks `PALEE_CONFIG_DIR`, defaulting to `%LOCALAPPDATA%/palee` on Windows or `~/.config/palee` on POSIX.
+ *
+ * @example
+ * ```typescript
+ * const configPath = getConfigPath();
+ * ```
  */
 function getConfigPath(): string {
   if (process.env.PALEE_CONFIG_DIR) {
@@ -34,6 +42,15 @@ function getConfigPath(): string {
  * Loads and parses the stored PALEE configuration from disk.
  *
  * @returns The parsed PaleeConfig object, or an empty object if no config file exists or content is malformed.
+ *
+ * @remarks
+ * Returns empty defaults on `ENOENT` or invalid JSON syntax without throwing unhandled exceptions.
+ *
+ * @example
+ * ```typescript
+ * const config = loadConfig();
+ * console.log(config.vaultPath);
+ * ```
  */
 function loadConfig(): PaleeConfig {
   const configPath = getConfigPath();
@@ -69,6 +86,15 @@ function loadConfig(): PaleeConfig {
  * Persists the given PALEE configuration object to disk as JSON atomically.
  *
  * @param config - The updated configuration object to write.
+ * @returns Void
+ *
+ * @remarks
+ * Writes configuration to a unique temporary file, fsyncs data, and atomically renames.
+ *
+ * @example
+ * ```typescript
+ * saveConfig({ vaultPath: '/vault', aiProvider: 'gemini' });
+ * ```
  */
 function saveConfig(config: PaleeConfig): void {
   const configPath = getConfigPath();
@@ -109,6 +135,11 @@ function saveConfig(config: PaleeConfig): void {
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await configCommand('set-vault', '/Users/alex/Vault');
+ * ```
  */
 async function configCommand(action?: string, value?: string): Promise<void> {
   try {

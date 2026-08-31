@@ -10,7 +10,11 @@ import fs from 'fs';
 import path from 'path';
 import {
   getDrafts,
+  getTopicDrafts,
+  deleteTopicDrafts,
+  resetHotMemory,
   rebuildHotAndIndex,
+  updateHotMemory,
   writeSessionNote,
   writeDraftCheckpoint,
   generateSessionId,
@@ -21,6 +25,18 @@ import {
 } from '../storage';
 import { SessionOptions } from '../types';
 
+/**
+ * Resolves the active topic identifier for a study session.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param explicitTopic - Optional topic ID passed explicitly via `--topic`
+ * @returns The resolved topic ID, or `null` if none active
+ * @remarks Prioritizes explicit topic override before falling back to `hot.md` active topic.
+ * @example
+ * ```typescript
+ * const topic = resolveSessionTopic('/vault', 'topic-linear-algebra');
+ * ```
+ */
 export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string | null {
   if (explicitTopic && explicitTopic.trim().length > 0) {
     const trimmed = explicitTopic.trim();
@@ -53,6 +69,18 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
   return null;
 }
 
+/**
+ * CLI command handler for managing learning session lifecycle and working memory.
+ *
+ * @param action - Session action: `'start'`, `'end'`, `'draft'`, or `'list'`
+ * @param options - Session command options (topic, interactive, json)
+ * @returns Promise resolving when session action completes
+ * @remarks Sets `process.exitCode = 2` on validation/argument error, `4` on OCC conflict, or `5` on runtime error.
+ * @example
+ * ```typescript
+ * await sessionCommand('start', { topic: 'topic-1', interactive: false });
+ * ```
+ */
 async function sessionCommand(action: string, options: SessionOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
@@ -90,7 +118,20 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const question = (q: string) => new Promise<string>(resolve => rl.question(q, resolve));
+        /**
+         * Prompts the user with a question string via readline and returns the trimmed response.
+         *
+         * @param q - Prompt query string
+         * @returns Promise resolving to user input text
+         * @remarks Wraps readline question in a promise.
+         * @example
+         * ```typescript
+         * const ans = await question('Proceed? ');
+         * ```
+         */
+        function question(q: string): Promise<string> {
+          return new Promise<string>(resolve => rl.question(q, resolve));
+        }
 
         for (const draftPath of drafts) {
           console.log(`\nDraft: ${path.basename(draftPath)}`);
@@ -119,12 +160,39 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       if (error || (frontmatter && !frontmatter.palee_schema)) {
         console.warn('Corrupt hot memory detected. Rebuilding...');
-        fs.unlinkSync(hotPath);
+        await resetHotMemory(vaultPath);
         await rebuildHotAndIndex(vaultPath);
         hotContent = fs.readFileSync(hotPath, 'utf8');
         const parsed = parseFrontmatter(hotContent);
         frontmatter = parsed.frontmatter;
         body = parsed.body;
+      }
+
+      const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
+      const nowIso = new Date().toISOString();
+      const nowTime = new Date(nowIso).getTime();
+      if (resolvedTopic) {
+        let startedAtToPersist = nowIso;
+        const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
+        const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
+        const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
+
+        // If already active on the same topic and not in future (with 60s skew tolerance), preserve started_at
+        if (activeTopic === resolvedTopic && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+          startedAtToPersist = new Date(Math.min(parsedStart, nowTime)).toISOString();
+        }
+
+        await updateHotMemory(
+          vaultPath,
+          (frontmatter?.last_session as string) || null,
+          resolvedTopic,
+          body || '',
+          startedAtToPersist
+        );
+        hotContent = fs.readFileSync(hotPath, 'utf8');
+        const refreshed = parseFrontmatter(hotContent);
+        frontmatter = refreshed.frontmatter;
+        body = refreshed.body;
       }
 
       console.log('=== PALEE Session Started ===\n');
@@ -153,13 +221,42 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         return;
       }
 
-      const draftId = generateDraftId();
-      const draftPath = await writeDraftCheckpoint(vaultPath, draftId, {
-        topic_id: topicId,
-        started_at: new Date().toISOString(),
-      }, 'Draft checkpoint captured during learning session.');
+      let draftStart = new Date().toISOString();
+      const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+      if (fs.existsSync(hotPath)) {
+        try {
+          const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+          if (
+            frontmatter &&
+            frontmatter.active_topic === topicId &&
+            typeof frontmatter.started_at === 'string' &&
+            frontmatter.started_at.trim().length > 0 &&
+            !Number.isNaN(new Date(frontmatter.started_at).getTime())
+          ) {
+            const parsedCandidate = new Date(frontmatter.started_at.trim()).getTime();
+            const nowMs = Date.now();
+            if ((nowMs - parsedCandidate) <= 24 * 60 * 60 * 1000 && parsedCandidate <= nowMs) {
+              draftStart = frontmatter.started_at.trim();
+            }
+          }
+        } catch {
+          // ignore read error
+        }
+      }
 
-      console.log(`✓ Draft checkpoint created: ${path.basename(draftPath)}`);
+      const draftId = generateDraftId();
+      const draftPath = await writeDraftCheckpoint(
+        vaultPath,
+        draftId,
+        {
+          topic_id: topicId,
+          started_at: draftStart,
+        },
+        `Draft learning notes for ${topicId}.`
+      );
+
+      console.log(`✓ Draft checkpoint created: ${draftId}`);
+      console.log(`  Path: ${path.relative(vaultPath, draftPath)}`);
       return;
     }
 
@@ -171,25 +268,68 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         return;
       }
 
-      const drafts = getDrafts(vaultPath);
+      const nowIso = new Date().toISOString();
+      const nowTime = new Date(nowIso).getTime();
+
+      // 3-tier timestamp recovery algorithm
+      // Tier 1: Check draft checkpoints for earliest started_at
+      const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter((d) => {
+        if (!d.started_at) return false;
+        const t = new Date(d.started_at).getTime();
+        return !Number.isNaN(t) && t <= nowTime + 60000;
+      });
+      let startedAt: string | null = null;
+      if (matchingDrafts.length > 0) {
+        matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+        const draftStart = new Date(matchingDrafts[0].started_at).getTime();
+        startedAt = new Date(Math.min(draftStart, nowTime)).toISOString();
+      }
+
+      // Tier 2: Check active hot memory
+      if (!startedAt) {
+        const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+        if (fs.existsSync(hotPath)) {
+          try {
+            const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+            const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
+            const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
+            const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
+            if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+              startedAt = new Date(Math.min(parsedStart, nowTime)).toISOString();
+            }
+          } catch {
+            // ignore parse error
+          }
+        }
+      }
+
+      // Tier 3: Fallback to current instant
+      const endedAt = nowIso;
+      if (!startedAt || Number.isNaN(new Date(startedAt).getTime())) {
+        startedAt = endedAt;
+      }
+
+      // Calculate actual elapsed duration
+      const startMs = new Date(startedAt).getTime();
+      const endMs = new Date(endedAt).getTime();
+      const durationMs = endMs >= startMs ? endMs - startMs : 0;
+      const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
+
       const sessionId = generateSessionId();
 
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
         topic_id: topicId,
-        started_at: new Date().toISOString(),
-        ended_at: new Date().toISOString(),
-      }, `Completed learning session for ${topicId}.`);
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_minutes: durationMinutes,
+      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
 
       // Clean up drafts on confirmed session end for the current topic
-      for (const draftPath of drafts) {
-        try {
-          const content = fs.readFileSync(draftPath, 'utf8');
-          const { frontmatter } = parseFrontmatter(content);
-          if (frontmatter && frontmatter.topic_id === topicId) {
-            fs.unlinkSync(draftPath);
-          }
-        } catch { /* ignore */ }
+      const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
+      if (cleanupResult.errors.length > 0) {
+        console.warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
+        process.exitCode = 1;
       }
 
       // Regenerate derived views

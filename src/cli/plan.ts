@@ -5,7 +5,7 @@ import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './on
  * Shows learning plan for the day
  */
 
-import { loadTopics } from '../storage/loader';
+import { loadTopics } from '../storage';
 import { getReadyTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
@@ -29,6 +29,11 @@ interface PlanTopic extends TopicNode {
  * @returns Promise resolving when plan output finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path or invalid options,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await planCommand({ ready: true, limit: 5 });
+ * ```
  */
 async function planCommand(options: PlanOptions = {}): Promise<void> {
   try {

@@ -211,11 +211,22 @@ Before performing file creation or modification, `roadmapCommand` executes a com
 4. **Dependency Resolution**: Checks that every prerequisite ID in `depends_on` exists either in the roadmap or within existing vault notes.
 5. **3-Color DFS Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
 
-### Idempotent Updates & SM-2 State Preservation
+### Idempotent Updates, Safe Directory Management & Batch Resilience
 
-Roadmap imports are fully idempotent:
-- **New Topics**: If a target file does not exist, PALEE creates parent directories, generates a stub Markdown note, and initializes SM-2 tracking metadata with ease factor `2.5` and interval `1` day.
-- **Existing Topics**: If a topic note already exists in the vault (matching by path or `palee_id`), PALEE updates descriptive metadata (such as `title`, `difficulty`, `depends_on`), but **preserves all user learning state** (`topic_mastery`, `conceptual`, `practical`, `debug`, `feynman`, `ease_factor`, `interval_days`, `repetition`, `lapses`, `last_reviewed_at`, `due_at`).
+Roadmap imports are designed for maximum resilience and idempotency:
+
+1. **Lock-Synchronized Safe Directory Creation**: Target directory paths are created via `ensureVaultDirectory(vaultPath, topic.path)` [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts). This utility validates path boundaries, prevents symlink escapes outside the vault root, and eliminates unhandled raw `fs.mkdirSync` failures.
+2. **Per-Topic Try/Catch Isolation**: The note-reading, parsing, and atomic write operations for each roadmap topic execute within an isolated per-topic `try/catch` block inside `doImport()`. If a single target file contains corrupted frontmatter or suffers a localized I/O error:
+   - The failure is captured and logged with the failing topic ID and target path (`- Failed <topic-id> (<path>): <error>`).
+   - The failure counter is incremented (`failed++`).
+   - The batch processor **continues uninterrupted**, successfully importing all remaining valid topics.
+3. **Deterministic Batch Exit Codes**:
+   - **Exit Code 0**: All topics created/updated successfully (`failed === 0`).
+   - **Exit Code 1**: Partial batch failure (`failed > 0`), reporting exact counts of created, updated, and failed notes.
+   - **Exit Code 4**: Optimistic Concurrency Control (OCC) collision during write (`isConflictError(err)`).
+4. **Learning State Preservation**:
+   - **New Topics**: Generates a stub Markdown note and initializes SM-2 tracking metadata with ease factor `2.5` and interval `1` day.
+   - **Existing Topics**: Updates curriculum metadata (such as `title`, `difficulty`, `depends_on`), while **strictly preserving all existing user learning state** (`topic_mastery`, `conceptual`, `practical`, `debug`, `feynman`, `ease_factor`, `interval_days`, `repetition`, `lapses`, `last_reviewed_at`, `due_at`).
 
 ```mermaid
 flowchart TD
@@ -223,9 +234,9 @@ flowchart TD
     Parser --> ValidStruct{"Valid 'topics' Array?"}
     
     ValidStruct -->|"No (Malformed)"| ErrStruct["Exit Code 2 (Argument Error)"]
-    ValidStruct -->|"Yes"| WalkExisting["Scan Vault Notes (walkVault)"]
+    ValidStruct -->|"Yes"| LoadExisting["Load Existing Topics (loadTopics)"]
     
-    WalkExisting --> GraphBuild["Build Combined Dependency Graph"]
+    LoadExisting --> GraphBuild["Build Combined Dependency Graph"]
     GraphBuild --> CycleCheck{"detectCycle() Check"}
     
     CycleCheck -->|"Cycle Found / Missing Dep"| ErrCycle["Exit Code 3 (Cycle/Validation Error)"]
@@ -233,16 +244,24 @@ flowchart TD
     
     PromptCheck -->|"Non-TTY without -y"| ErrTTY["Exit Code 2 (Non-interactive)"]
     PromptCheck -->|"Declined (N)"| Abort["Print 'Aborted.' & Exit 0"]
-    PromptCheck -->|"Confirmed"| ImportLoop["Iterate Roadmap Topics"]
+    PromptCheck -->|"Confirmed"| ImportLoop["Iterate Roadmap Topics (Per-Topic try/catch)"]
     
-    ImportLoop --> PathCheck{"Target Note Exists?"}
+    ImportLoop --> DirCheck["ensureVaultDirectory() (Vault Boundary & Symlink Guard)"]
+    DirCheck --> PathCheck{"Target Note Exists?"}
     PathCheck -->|"New Note"| CreateNote["Create Note + Initialize SM-2 State"]
     PathCheck -->|"Existing Note"| UpdateNote["Update Frontmatter + Preserve SM-2 State"]
     
     CreateNote & UpdateNote --> AtomicOp["atomicWrite() with Fingerprint"]
-    AtomicOp --> FinalResult{"Any Writes Failed?"}
+    AtomicOp -->|"Corrupt / Write Error"| CatchErr["Catch Error -> Log & failed++ -> Continue Next Topic"]
+    AtomicOp -->|"OCC Conflict"| CatchOCC["Log Conflict & failed++ & conflicts++ -> Continue Next Topic"]
+    CatchErr --> NextTopic["Process Remaining Topics"]
+    CatchOCC --> NextTopic
+    AtomicOp -->|"Success"| NextTopic
+    NextTopic --> FinalResult{"Any Writes Failed?"}
+    
     FinalResult -->|"0 Failed"| Success["✓ Roadmap imported successfully (Exit 0)"]
-    FinalResult -->|"failed > 0"| PartialFail["⚠ Partial import failure (Exit 1)"]
+    FinalResult -->|"failed > 0"| PartialFail["⚠ Failed to import X topics (Exit 1)"]
+    FinalResult -->|"Exit 4 (conflicts > 0)"| ConflictExit["Exit Code 4 (Conflict)"]
 ```
 
 ---
@@ -277,7 +296,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | N/A | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
-| `palee roadmap` | All roadmap topics created/updated successfully. | Partial import failure (`failed > 0` topic notes failed to write). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, missing dependency, cycle detected). | OCC conflict during atomic note write. | Unexpected runtime / I/O exception. |
+| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
 
 ---

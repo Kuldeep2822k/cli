@@ -9,8 +9,21 @@
 import fs from 'fs';
 import path from 'path';
 import { walkVault } from './vault-walker';
-import { parseFrontmatter } from './frontmatter';
+import { computeFingerprint, parseFrontmatter } from './frontmatter';
+import { FileCache } from './cache';
 import { TopicNode, normalizeDifficulty } from '../types';
+
+/** Module-level topic file cache */
+const topicCache = new FileCache<LoadedTopic>();
+
+/**
+ * Returns the module-level topic cache instance.
+ *
+ * @returns FileCache instance holding parsed topic notes
+ */
+export function getTopicCache(): FileCache<LoadedTopic> {
+  return topicCache;
+}
 
 /**
  * Fully materialized in-memory representation of a PALEE topic note loaded from disk.
@@ -40,6 +53,13 @@ export interface LoadedTopic extends TopicNode {
  * @param val - Score input
  * @param fallback - Default fallback if invalid (default: 0.0)
  * @returns Clamped numeric score or raw fallback
+ *
+ * @example
+ * ```typescript
+ * parseScore(0.85432); // 0.8543
+ * parseScore('0.5');   // 0.5
+ * parseScore(null, 0); // 0
+ * ```
  */
 function parseScore(val: unknown, fallback: number = 0.0): number {
   if (typeof val === 'number') {
@@ -68,6 +88,13 @@ function parseScore(val: unknown, fallback: number = 0.0): number {
  * @param val - Numeric input
  * @param fallback - Default fallback value (default: 0)
  * @returns Integer value or raw fallback
+ *
+ * @example
+ * ```typescript
+ * parseInteger(4.8);   // 4
+ * parseInteger('10');  // 10
+ * parseInteger(null);  // 0
+ * ```
  */
 function parseInteger(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {
@@ -87,6 +114,15 @@ function parseInteger(val: unknown, fallback: number = 0): number {
  * @param val - Numeric input
  * @param fallback - Default fallback value (default: 0)
  * @returns Floating point number
+ *
+ * @remarks
+ * Verifies numeric finiteness and parses stringified numbers.
+ *
+ * @example
+ * ```typescript
+ * parseNumber('2.5', 2.5); // 2.5
+ * parseNumber(null, 2.5);  // 2.5
+ * ```
  */
 function parseNumber(val: unknown, fallback: number = 0): number {
   if (typeof val === 'number') {
@@ -122,7 +158,18 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
-    const content = fs.readFileSync(filePath, 'utf8');
+    const cached = topicCache.get(filePath);
+    if (cached) {
+      topics.push(cached);
+      continue;
+    }
+
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch {
+      continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+    }
     const { frontmatter } = parseFrontmatter(content);
 
     if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {
@@ -171,6 +218,8 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
       due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
     };
 
+    const fp = computeFingerprint(content);
+    topicCache.set(filePath, topic, fp);
     topics.push(topic);
   }
 

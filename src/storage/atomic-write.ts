@@ -5,7 +5,7 @@
  * Implements crash-resilient atomic file overwriting:
  * 1. Acquires target file {@link Lock}.
  * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>`).
+ * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
  * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
  * 5. Atomically renames temporary file over the destination file.
  * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
@@ -22,6 +22,21 @@ const WINDOWS_RETRY_INITIAL_DELAY = 50; // ms
 const WINDOWS_RETRY_MULTIPLIER = 2;
 const WINDOWS_RETRY_JITTER = 0.25; // ±25%
 const WINDOWS_RETRY_MAX_DELAY = 300; // ms
+/**
+ * Asynchronously pauses execution for a randomized duration to implement retry backoff.
+ *
+ * @param baseDelay - Base delay duration in milliseconds
+ * @param jitter - Fraction (e.g. 0.25 for ±25%) of random jitter to apply
+ * @returns Promise that resolves after the computed backoff delay
+ *
+ * @remarks
+ * Caps the total sleep duration at `WINDOWS_RETRY_MAX_DELAY` (300 ms).
+ *
+ * @example
+ * ```typescript
+ * await sleep(50, 0.25);
+ * ```
+ */
 function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
   const jitterAmount = baseDelay * jitter;
   const delay = baseDelay + (Math.random() * 2 - 1) * jitterAmount;
@@ -33,6 +48,9 @@ function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
  *
  * @param e - Error object or unknown caught value
  * @returns `true` if the error indicates a concurrency conflict (`ECONFLICT`), otherwise `false`
+ *
+ * @remarks
+ * Evaluates both the `code` property (`ECONFLICT`) and message prefix strings (`OCC conflict:` or `Lock conflict:`).
  *
  * @example
  * ```typescript
@@ -50,7 +68,7 @@ export function isConflictError(e: unknown): boolean {
   const err = e as { code?: string; message?: string };
   if (err.code === 'ECONFLICT') return true;
   if (typeof err.message === 'string') {
-    return err.message.includes('OCC conflict') || err.message.includes('Lock conflict');
+    return err.message.startsWith('OCC conflict:') || err.message.startsWith('Lock conflict:');
   }
   return false;
 }
@@ -64,6 +82,15 @@ export function isConflictError(e: unknown): boolean {
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
  * @returns Promise that resolves once data is fsync-flushed and renamed
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
+ *
+ * @remarks
+ * Implements crash-resilient atomic file overwriting:
+ * 1. Acquires target file {@link Lock}.
+ * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
+ * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
+ * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 5. Atomically renames temporary file over the destination file.
+ * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  *
  * @example
  * ```typescript

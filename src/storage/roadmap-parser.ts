@@ -27,6 +27,12 @@ export interface ParsedRoadmapResult {
 /**
  * Extracts and parses a curriculum roadmap definition from Markdown frontmatter, YAML codeblocks, or raw YAML.
  *
+ * @remarks
+ * Evaluates roadmap content across three formats in order:
+ * 1. Markdown YAML frontmatter block (`---`).
+ * 2. Embedded YAML code fences (` ```yaml `).
+ * 3. Raw pure YAML documents.
+ *
  * @param rawContent - Raw text content of the roadmap document
  * @param filePath - Optional path to the file (used for format hints based on extension)
  * @returns {@link ParsedRoadmapResult} with parsed topics array, format classification, or error details

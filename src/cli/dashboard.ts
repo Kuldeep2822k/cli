@@ -3,7 +3,7 @@
  * Interactive learning dashboard (Phase 1: text summary only)
  */
 
-import { loadTopics } from '../storage/loader';
+import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 
 import { loadConfig } from './config';
@@ -28,6 +28,11 @@ interface DashboardTopic {
  * @returns Promise resolving when dashboard output finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await dashboardCommand({ json: true });
+ * ```
  */
 async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   try {
@@ -77,7 +82,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
         return;
       }
       console.log('╔════════════════════════════════════════════════════════════╗');
-      console.log('║              PALEE Learning Dashboard                     ║');
+      console.log('║                  PALEE Learning Dashboard                  ║');
       console.log('╚════════════════════════════════════════════════════════════╝');
       console.log();
       printEmptyVaultOnboarding();
@@ -148,7 +153,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     }
 
     console.log('╔════════════════════════════════════════════════════════════╗');
-    console.log('║              PALEE Learning Dashboard                     ║');
+    console.log('║                  PALEE Learning Dashboard                  ║');
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log();
 
@@ -178,7 +183,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
       console.log();
     }
 
-    console.log('─────────────────────────────────────────────────────────────');
+    console.log('──────────────────────────────────────────────────────────────');
     console.log('Run "palee next" to start reviewing');
     console.log('Run "palee plan" to see today\'s learning plan');
 

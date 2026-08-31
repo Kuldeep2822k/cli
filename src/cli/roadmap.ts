@@ -5,15 +5,21 @@
 
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { updateFrontmatter, computeFingerprint, parseFrontmatter } from '../storage/frontmatter';
-import { parseRoadmapContent } from '../storage/roadmap-parser';
-import { atomicWrite, isConflictError } from '../storage/atomic-write';
-import { walkVault } from '../storage/vault-walker';
+import {
+  updateFrontmatter,
+  computeFingerprint,
+  parseFrontmatter,
+  parseRoadmapContent,
+  atomicWrite,
+  isConflictError,
+  loadTopics,
+  ensureVaultDirectory,
+} from '../storage';
 import { detectCycle, getTopicDependencies } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
-import readline from 'readline';
 
 /**
  * CLI command handler for validating and importing learning roadmaps into the vault.
@@ -23,6 +29,10 @@ import readline from 'readline';
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
  * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
  * process.exitCode = 1 on partial import failure, and process.exitCode = 5 on unexpected runtime exceptions.
+ * @example
+ * ```typescript
+ * await roadmapCommand({ from: 'roadmap.yaml', yes: true });
+ * ```
  */
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
@@ -61,7 +71,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const seenPaths = new Set<string>();
     const topicsMap = new Map<string, TopicNode>();
 
-    const resolvedVault = path.resolve(vaultPath);
+    const resolvedVault = fs.existsSync(vaultPath) ? fs.realpathSync(path.resolve(vaultPath)) : path.resolve(vaultPath);
 
     for (const topic of roadmap.topics) {
       const { id, title, path: relativePath, difficulty, order } = topic;
@@ -90,23 +100,32 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         errors.push(`Invalid order for ${id}: must be a number`);
       }
 
+      // Path boundary validation: ensure topic path does not escape vault
+      if (relativePath) {
+        const absoluteTopicPath = path.isAbsolute(relativePath)
+          ? path.resolve(relativePath)
+          : path.resolve(resolvedVault, relativePath);
+        const rel = path.relative(resolvedVault, absoluteTopicPath);
+        if (
+          path.isAbsolute(rel) ||
+          rel === '..' ||
+          rel.startsWith('..' + path.sep) ||
+          rel.startsWith('../') ||
+          rel.split(path.sep).includes('..')
+        ) {
+          errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        }
+      }
+
       const normalizedDeps = getTopicDependencies(topic);
       topicsMap.set(id, { palee_id: id, depends_on: normalizedDeps, topic_mastery: 0 });
     }
 
-    const files = walkVault(vaultPath);
-    for (const file of files) {
-      try {
-        const content = fs.readFileSync(file, 'utf8');
-        const parsed = parseFrontmatter(content);
-        if (parsed.frontmatter && parsed.frontmatter.palee_id) {
-          const pid = String(parsed.frontmatter.palee_id).trim();
-          if (pid && !topicsMap.has(pid)) {
-            const vaultDeps = getTopicDependencies(parsed.frontmatter);
-            topicsMap.set(pid, { palee_id: pid, depends_on: vaultDeps, topic_mastery: 0 });
-          }
-        }
-      } catch {}
+    const existingTopics = loadTopics(vaultPath);
+    for (const t of existingTopics) {
+      if (!topicsMap.has(t.id)) {
+        topicsMap.set(t.id, { palee_id: t.id, depends_on: t.depends_on, topic_mastery: 0 });
+      }
     }
 
     for (const topic of roadmap.topics) {
@@ -141,6 +160,132 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       console.log(`  • ${topic.path}`);
     }
     console.log();
+
+    /**
+     * Executes batch import of parsed roadmap topics into vault notes with error isolation and OCC tracking.
+     *
+     * @returns Promise resolving when all topics have been processed
+     *
+     * @remarks
+     * Iterates through all roadmap topics, validating vault path boundaries and writing topic notes with frontmatter.
+     * Catches and isolates per-topic errors (logging OCC conflicts vs standard write errors) and assigns exit codes (4 for conflict, 1 for other failures).
+     *
+     * @example
+     * ```typescript
+     * await doImport();
+     * ```
+     */
+    async function doImport(): Promise<void> {
+      let created = 0;
+      let updated = 0;
+      let failed = 0;
+      let conflicts = 0;
+
+      for (const topic of roadmap.topics) {
+        const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
+
+        const relative = path.relative(resolvedVault, absolutePath);
+        if (
+          path.isAbsolute(relative) ||
+          relative === '..' ||
+          relative.startsWith('..' + path.sep) ||
+          relative.startsWith('../') ||
+          relative.split(path.sep).includes('..')
+        ) {
+          console.error(`Roadmap path escapes vault: ${topic.path}`);
+          failed++;
+          continue;
+        }
+        
+        let resolvedTargetPath: string;
+
+        try {
+          const canonicalDir = ensureVaultDirectory(vaultPath, topic.path);
+          resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
+        } catch (e) {
+          console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
+          failed++;
+          continue;
+        }
+
+        try {
+          let content = '';
+          let fingerprint: string | null = null;
+          let isNew = false;
+          let existingData: Record<string, unknown> = {};
+
+          if (fs.existsSync(resolvedTargetPath)) {
+            content = fs.readFileSync(resolvedTargetPath, 'utf8');
+            fingerprint = computeFingerprint(content);
+            const parsed = parseFrontmatter(content);
+            if (parsed.frontmatter) {
+              existingData = parsed.frontmatter;
+            }
+          } else {
+            isNew = true;
+            content = `# ${topic.title}\n\n(Add your notes here)`;
+          }
+
+          const roadmapDeps = getTopicDependencies(topic);
+          const paleeData: Record<string, unknown> = {
+            palee_id: topic.id,
+            palee_schema: existingData.palee_schema ?? 1,
+            title: topic.title,
+            difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
+            depends_on: roadmapDeps.length > 0 ? roadmapDeps : (existingData.depends_on || []),
+            topic_mastery: existingData.topic_mastery ?? 0.0,
+            assessed_at: existingData.assessed_at ?? null,
+            conceptual: existingData.conceptual ?? 0.0,
+            practical: existingData.practical ?? 0.0,
+            debug: existingData.debug ?? 0.0,
+            feynman: existingData.feynman ?? 0.0,
+            ease_factor: existingData.ease_factor ?? 2.5,
+            interval_days: existingData.interval_days ?? 1,
+            repetition: existingData.repetition ?? 0,
+            lapses: existingData.lapses ?? 0,
+            last_quality: existingData.last_quality ?? null,
+            last_reviewed_at: existingData.last_reviewed_at ?? null,
+            due_at: existingData.due_at ?? null,
+          };
+
+          const updatedContent = updateFrontmatter(content, paleeData);
+          await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
+
+          if (isNew) {
+            created++;
+          } else {
+            updated++;
+          }
+        } catch (err: unknown) {
+          const targetPath = topic.path;
+          const isConflict = isConflictError(err);
+          if (isConflict) {
+            conflicts++;
+            console.error(`  - Failed ${topic.id} (${targetPath}): OCC conflict (file locked or concurrently modified)`);
+          } else {
+            console.error(`  - Failed ${topic.id} (${targetPath}): ${(err as Error).message}`);
+          }
+          failed++;
+          continue;
+        }
+      }
+
+      console.log();
+      if (failed > 0) {
+        console.error(`Failed to import ${failed} topics.`);
+        console.log(`  Created: ${created} notes`);
+        console.log(`  Updated: ${updated} notes`);
+        process.exitCode = conflicts > 0 ? 4 : 1;
+        return;
+      } else {
+        console.log('✓ Roadmap imported successfully');
+        console.log(`  Created: ${created} notes`);
+        console.log(`  Updated: ${updated} notes`);
+        process.exitCode = 0;
+        return;
+      }
+    }
+
     if (!options.yes && !process.stdin.isTTY) {
       console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
       process.exitCode = 2;
@@ -165,124 +310,6 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
       await doImport();
     }
-
-    async function doImport() {
-      try {
-
-      let created = 0;
-      let updated = 0;
-      let failed = 0;
-
-      for (const topic of roadmap.topics) {
-        const absolutePath = path.resolve(vaultPath, topic.path);
-        
-        const relative = path.relative(resolvedVault, absolutePath);
-        if (relative.startsWith('..') || path.isAbsolute(relative)) {
-          console.error(`Roadmap path escapes vault: ${topic.path}`);
-          failed++;
-          continue;
-        }
-
-        const dir = path.dirname(absolutePath);
-        let resolvedTargetPath = absolutePath;
-
-        try {
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-          }
-          const canonicalDir = fs.realpathSync(dir);
-          const canonicalVault = fs.realpathSync(resolvedVault);
-          if (canonicalDir !== canonicalVault && !canonicalDir.startsWith(canonicalVault + path.sep)) {
-            console.error(`Symlink escape detected: ${topic.path} resolves outside vault`);
-            failed++;
-            continue;
-          }
-          resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
-        } catch (e) {
-          console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
-          failed++;
-          continue;
-        }
-
-        let content = '';
-        let fingerprint: string | null = null;
-        let isNew = false;
-        let existingData: Record<string, unknown> = {};
-
-        if (fs.existsSync(resolvedTargetPath)) {
-          content = fs.readFileSync(resolvedTargetPath, 'utf8');
-          fingerprint = computeFingerprint(content);
-          const parsed = parseFrontmatter(content);
-          if (parsed.frontmatter) {
-            existingData = parsed.frontmatter;
-          }
-        } else {
-          isNew = true;
-          content = `# ${topic.title}\n\n(Add your notes here)`;
-        }
-
-        const roadmapDeps = getTopicDependencies(topic);
-        const paleeData: Record<string, unknown> = {
-          palee_id: topic.id,
-          palee_schema: existingData.palee_schema ?? 1,
-          title: topic.title,
-          difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
-          depends_on: roadmapDeps.length > 0 ? roadmapDeps : (existingData.depends_on || []),
-          topic_mastery: existingData.topic_mastery ?? 0.0,
-          assessed_at: existingData.assessed_at ?? null,
-          conceptual: existingData.conceptual ?? 0.0,
-          practical: existingData.practical ?? 0.0,
-          debug: existingData.debug ?? 0.0,
-          feynman: existingData.feynman ?? 0.0,
-          ease_factor: existingData.ease_factor ?? 2.5,
-          interval_days: existingData.interval_days ?? 1,
-          repetition: existingData.repetition ?? 0,
-          lapses: existingData.lapses ?? 0,
-          last_quality: existingData.last_quality ?? null,
-          last_reviewed_at: existingData.last_reviewed_at ?? null,
-          due_at: existingData.due_at ?? null,
-        };
-
-        const updatedContent = updateFrontmatter(content, paleeData);
-        try {
-          await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
-        } catch (e) {
-          if (isConflictError(e)) {
-            throw e;
-          }
-          console.error(`Error writing ${topic.path}: ${(e as Error).message}`);
-          failed++;
-          continue;
-        }
-
-        if (isNew) {
-          created++;
-        } else {
-          updated++;
-        }
-      }
-
-      console.log();
-      if (failed > 0) {
-        console.error(`Failed to import ${failed} topics.`);
-        console.log(`  Created: ${created} notes`);
-        console.log(`  Updated: ${updated} notes`);
-        process.exitCode = 1;
-        return;
-      } else {
-        console.log('✓ Roadmap imported successfully');
-        console.log(`  Created: ${created} notes`);
-        console.log(`  Updated: ${updated} notes`);
-        process.exitCode = 0;
-        return;
-      }
-      } catch (err: unknown) {
-        console.error(`Error during import: ${(err as Error).message}`);
-        process.exitCode = isConflictError(err) ? 4 : 5;
-        return;
-      }
-    }
-
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);

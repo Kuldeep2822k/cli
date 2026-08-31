@@ -5,8 +5,7 @@
 
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
-import { walkVault } from '../storage/vault-walker';
-import { loadTopics } from '../storage/loader';
+import { walkVault, loadTopics } from '../storage';
 import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
 
@@ -19,6 +18,11 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * process.exitCode = 3 if validation errors are found in the vault,
  * and process.exitCode = 5 on unexpected exceptions.
+ *
+ * @example
+ * ```typescript
+ * await validateCommand({ json: true });
+ * ```
  */
 async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   try {

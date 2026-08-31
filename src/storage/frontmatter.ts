@@ -28,6 +28,13 @@ import { FrontmatterResult, NodeError } from '../types';
  * ```
  */
 function parseFrontmatter(content: string): FrontmatterResult {
+  // Case 1: Empty frontmatter fences with no intermediate content (---\n---)
+  const emptyMatch = content.match(/^---\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  if (emptyMatch) {
+    return { frontmatter: null, body: emptyMatch[1], raw: '' };
+  }
+
+  // Case 2: Populated frontmatter with mandatory newline before closing fence
   const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
 
   if (!fmMatch) {
@@ -77,14 +84,14 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
     throw new Error(`Malformed frontmatter: ${parsed.error}`);
   }
 
-  if (!parsed.frontmatter) {
+  if (parsed.raw === null) {
     const doc = new Document(updates);
     const yamlContent = doc.toString();
     return `---\n${yamlContent}---\n${content}`;
   }
 
-  // Parse as YAML document to preserve CST
-  const doc = parseDocument(parsed.raw!);
+  // Parse as YAML document to preserve CST (handling empty raw block if present)
+  const doc = parsed.raw.trim().length > 0 ? parseDocument(parsed.raw) : new Document({});
 
   // Update only specified keys
   for (const [key, value] of Object.entries(updates)) {
@@ -103,6 +110,12 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
  *
  * @param content - Text content to fingerprint
  * @returns 64-character hexadecimal SHA-256 hash string
+ *
+ * @example
+ * ```typescript
+ * const fingerprint = computeFingerprint('# Topic Note\nContent...');
+ * console.log(fingerprint.length); // 64
+ * ```
  */
 function computeFingerprint(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
