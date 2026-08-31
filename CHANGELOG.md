@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+---
+
+## [0.4.0] - 2026-08-31
+
+### Features (feat)
 - **Storage Layer Isolation & Unified Facade**: Encapsulated all vault filesystem mutations (`ensureVaultDirectory`, `resetHotMemory`, `deleteTopicDrafts`, `deleteSessionNote`, `writeSessionNote`) behind the centralized `src/storage/index.ts` facade, eliminating raw `fs.unlinkSync` and `fs.mkdirSync` calls from CLI command handlers ([#86](https://github.com/Kuldeep2822k/cli/issues/86), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **True Session Duration & Timestamp Persistence**: Persisted true start timestamps into `.palee/hot.md` and draft checkpoints, recovered start times upon completion, and recorded accurate study durations in permanent session notes ([#88](https://github.com/Kuldeep2822k/cli/issues/88), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **Resilient Multi-Topic Roadmap Batch Ingestion**: Isolated per-topic parse and write exceptions in `palee roadmap --from` so single malformed notes log errors and allow remaining valid topics to continue importing ([#89](https://github.com/Kuldeep2822k/cli/issues/89), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
@@ -17,16 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Session Draft Checkpoint Invariants**: Added exit code `2` and structured JSON format (`status: 'drafts_pending'`) when unconfirmed draft checkpoints block non-interactive `session start` ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Flexible Dependency Aliases**: Supported `dependencies` alias along with `depends_on` across `roadmap`, `validate`, and engine dependency validation ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 
-### Fixed
+### Fixes (fix)
 - **Review OCC TOCTOU Elimination**: Re-read target topic notes immediately prior to atomic write in `palee review` to eliminate TOCTOU race conditions and emit clean exit code `4` on concurrent modifications ([#87](https://github.com/Kuldeep2822k/cli/issues/87), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **Mastery Output & Dashboard Alignment**: Standardized percentage mastery formatting (`XX.X%`) across all CLI commands (`dashboard`, `next`, `plan`, `progress`, `review`) and aligned ASCII box borders to exactly 62 characters ([#91](https://github.com/Kuldeep2822k/cli/issues/91), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 - **Deterministic FileCache Operation**: Removed environment bypasses from `FileCache`, guaranteeing deterministic cache invalidation and 2,000 ms unsettled horizon checks across all runtimes ([#90](https://github.com/Kuldeep2822k/cli/issues/90), [#120](https://github.com/Kuldeep2822k/cli/pull/120)).
+- **macOS Canonical Path Resolution**: Resolved `vaultPath` and `targetPath` via `realpathSync` in `walkVault` and `deleteSessionNote` to prevent false-positive boundary security errors on macOS symlinked `/var/folders` directories ([#122](https://github.com/Kuldeep2822k/cli/pull/122)).
+- **macOS Draft Delete Test Stub**: Updated `deleteTopicDrafts` test stub in `test/storage-memory.test.ts` to match draft ID substring, ensuring deterministic error propagation testing across macOS realpath targets ([#123](https://github.com/Kuldeep2822k/cli/pull/123)).
 - **Config Resilience & Atomic Saves**: Added `SyntaxError` and invalid format recovery in `loadConfig()` with graceful fallback to default configuration; implemented atomic `saveConfig()` with temporary file cleanup on failure ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Timezone-Safe Due Date Computation**: Fixed negative-UTC-offset date calculation in `computeDueDate()` for date-only strings and added `0000–0099` 2-digit year offset guard ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Atomic Write Concurrency**: Added cryptographic random entropy to temporary filenames in `atomicWrite()` to eliminate process-internal filename collisions ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **CST Document Frontmatter Formatting**: Unified frontmatter serialization using `Document` CST formatting for clean YAML block lists (`- item`) ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **Duplicate Topic ID Dependency Graph Retention**: Merged dependencies from duplicate topic notes during validation graph construction to preserve complete edge connectivity for cycle analysis ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
 - **CLI Fatal JSON Formatting**: Added structured JSON error output on unhandled command rejections when `--json` is supplied ([#117](https://github.com/Kuldeep2822k/cli/pull/117)).
+
+### Maintenance & CI (chore)
+- **npm OIDC Trusted Publishing & Provenance**: Configured `.github/workflows/release.yml` for tokenless npm OpenID Connect (OIDC) publishing with build provenance attestations ([#124](https://github.com/Kuldeep2822k/cli/pull/124)).
+- **CodeRabbit Code Review Hardening**: Addressed CodeRabbit review findings across signal handling, CI budget tolerance, and JSDoc documentation ([#120](https://github.com/Kuldeep2822k/cli/pull/120)).
 
 ---
 
