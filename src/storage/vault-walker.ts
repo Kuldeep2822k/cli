@@ -44,7 +44,8 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
   const results: string[] = [];
   const visited = new Set<string>();
   const customExcluded = new Set([...EXCLUDED_DIRS, ...excludeDirs]);
-  const resolvedVaultPath = path.resolve(vaultPath);
+  const absoluteVault = path.resolve(vaultPath);
+  const resolvedVaultPath = fs.existsSync(absoluteVault) ? fs.realpathSync(absoluteVault) : absoluteVault;
 
   if (!fs.existsSync(resolvedVaultPath)) {
     throw new Error(`Vault path does not exist: ${resolvedVaultPath}`);
