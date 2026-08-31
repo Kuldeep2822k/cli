@@ -65,6 +65,7 @@ flowchart TD
     
     PromptRecovery --> ExecuteAction["recoverDraft() (Storage Isolation)"]
     ExecuteAction --> SyncHot
+    WarnDraft --> Stop(("⛔ Exit"))
     
     SyncHot --> SetStart["Record started_at in hot.md"]
     SetStart --> PrintHot["Display Active Topic & Working Memory Excerpt"]

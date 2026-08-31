@@ -135,14 +135,17 @@ function countWords(text: string): number {
 }
 
 /**
- * Formats a Date object into an ISO-standard date string (`YYYY-MM-DD`).
+ * Formats a Date object into a local-time date string (`YYYY-MM-DD`).
  *
  * @param date - Date to format
- * @returns Date string formatted as `YYYY-MM-DD`
- * @remarks Pads single-digit months and days with leading zeros.
+ * @returns Date string formatted as `YYYY-MM-DD` in local timezone
+ * @remarks
+ * Uses local-time getters (`getFullYear`, `getMonth`, `getDate`) intentionally,
+ * as this formats display-oriented fields (`updated_at`) reflecting the user's calendar date.
+ * Session IDs use UTC via `generateSessionId` for cross-timezone uniqueness.
  * @example
  * ```typescript
- * const formatted = formatDateOnly(new Date('2026-08-30T10:00:00Z')); // "2026-08-30"
+ * const formatted = formatDateOnly(new Date('2026-08-30T10:00:00Z')); // "2026-08-30" (in UTC+0)
  * ```
  */
 function formatDateOnly(date: Date): string {

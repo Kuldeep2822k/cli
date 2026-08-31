@@ -58,7 +58,7 @@ export function runPalee(
   }
 
   return {
-    status: result.status ?? 0,
+    status: result.status ?? (result.signal ? 1 : 0),
     stdout: result.stdout || '',
     stderr: result.stderr || '',
   };

@@ -161,8 +161,7 @@ describe('Vault Walker', () => {
       try {
         fs.symlinkSync(outsideFile, symlinkFile);
         const files = walkVault(testVaultPath, { followSymlinks: true });
-        const hasOutside = files.some(f => f.includes('outside.md') && f.includes(outsideDir));
-        assert.strictEqual(hasOutside, false);
+        assert.strictEqual(files.includes(symlinkFile), false);
       } catch (e: unknown) {
         const err = e as NodeError;
         if (err.code !== 'EPERM') throw err;

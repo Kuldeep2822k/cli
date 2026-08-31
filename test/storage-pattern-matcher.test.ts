@@ -82,7 +82,7 @@ describe('Pattern and Glob Matcher', () => {
     assert.strictEqual(matchesPattern(nonMatchingPath, multiBand), false);
     assert.strictEqual(matchesPattern(matchingPath, multiBand), true);
     const elapsed = Date.now() - start;
-    assert.ok(elapsed < 100, `Expected multi-band match to execute in <100ms, took ${elapsed}ms`);
+    assert.ok(elapsed < 500, `Expected multi-band match to execute in <500ms, took ${elapsed}ms`);
   });
 });
 

@@ -159,6 +159,10 @@ function matchSegmentWildcard(pattern: string, str: string): boolean {
           i++;
         }
         continue;
+      } else {
+        // Unclosed '[', escape as literal to avoid SyntaxError
+        regStr += '\\[';
+        continue;
       }
     }
     if (c === ']' && inGroup) {
@@ -422,6 +426,8 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
  *
  * @remarks
  * Compiles each pattern through `globToRegex` to ensure regex validity.
+ * Unclosed character classes (e.g. `[`) are safely escaped as literals
+ * by `globToRegex` and do not trigger validation errors.
  *
  * @example
  * ```typescript

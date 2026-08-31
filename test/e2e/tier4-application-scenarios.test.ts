@@ -79,7 +79,7 @@ topics:
 
     // Phase F: Verify Dependency Unlocked in Plan
     const planRes = env.run(['plan', '--json']);
-    assert.strictEqual(planRes.status, 0);
+    assert.strictEqual(planRes.status, 0, `plan failed: ${planRes.stderr}`);
     const afternoonPlan = JSON.parse(planRes.stdout);
     const newReadyIds = afternoonPlan.ready_to_learn.map((t: { id: string }) => t.id);
     assert.ok(newReadyIds.includes('T-algo-graphs'), 'Graph algorithms should now be unlocked');
@@ -317,7 +317,7 @@ topics:
 
     // 6. JSON output parity
     const dashRes = env.run(['dashboard', '--json']);
-    assert.strictEqual(dashRes.status, 0);
+    assert.strictEqual(dashRes.status, 0, `dashboard --json failed: ${dashRes.stderr}`);
     const dashData = JSON.parse(dashRes.stdout);
     assert.strictEqual(dashData.total_topics, 3);
     assert.strictEqual(dashData.mastered, 1);
