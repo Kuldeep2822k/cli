@@ -12,6 +12,10 @@
  * Four-pillar pedagogical assessment breakdown for a topic.
  *
  * @remarks
+ * Reserved for the Phase-2 AI module assessment schema (`docs/08-2-future-ai-module-and-phase-2-design.md`).
+ * Not the runtime shape: CLI/storage read and write **flat frontmatter keys**, normalized by `loadTopics`
+ * (`src/storage/loader.ts`). Do not delete; do not use as the runtime contract.
+ *
  * Each pillar is evaluated on a scale of `0.0` (uninitiated) to `1.0` (fully mastered).
  */
 export interface Assessment {
@@ -31,6 +35,10 @@ export interface Assessment {
  * SuperMemo SM-2 spaced repetition state for scheduling topic reviews.
  *
  * @remarks
+ * Reserved for the Phase-2 AI module assessment schema (`docs/08-2-future-ai-module-and-phase-2-design.md`).
+ * Not the runtime shape: CLI/storage read and write **flat frontmatter keys**, normalized by `loadTopics`
+ * (`src/storage/loader.ts`). Do not delete; do not use as the runtime contract.
+ *
  * Tracks repetition intervals, ease factors, lapses, and due dates.
  *
  * @see {@link https://www.supermemo.com/en/archives1990-2015/english/ol/sm2} SuperMemo-2 Algorithm
@@ -100,6 +108,11 @@ export function normalizeDifficulty(raw: unknown): Difficulty {
 
 /**
  * Full schema representation of a PALEE topic note.
+ *
+ * @remarks
+ * Reserved for the Phase-2 AI module assessment schema (`docs/08-2-future-ai-module-and-phase-2-design.md`).
+ * Not the runtime shape: CLI/storage read and write **flat frontmatter keys**, normalized by `loadTopics`
+ * (`src/storage/loader.ts`). Do not delete; do not use as the runtime contract.
  */
 export interface Topic {
   /** PALEE frontmatter schema version */
@@ -126,6 +139,10 @@ export interface Topic {
 
 /**
  * Aggregate progress statistics across all topics in a vault.
+ *
+ * @remarks
+ * Reserved for the machine-readable progress JSON contract (`planning/palee_cli_spec.md`);
+ * runtime progress output is built inline in `src/cli/progress.ts`. Do not delete.
  */
 export interface Progress {
   /** Count of non-archived active topics */
@@ -150,7 +167,14 @@ export interface BaseSession {
   started_at: string;
 }
 
-/** Completed learning session with a recorded end timestamp */
+/**
+ * Completed learning session with a recorded end timestamp.
+ *
+ * @remarks
+ * Reserved for the Phase-2 AI session flow; the discriminated-union shape is pinned by
+ * `test/types-difficulty.test.ts`. Runtime session records are `SessionRecord`/`CompletedSessionRecord`
+ * (in this file, `src/types.ts`). Do not delete.
+ */
 export interface CompletedSession extends BaseSession {
   /** Finalized session status */
   status: 'completed';
@@ -158,7 +182,14 @@ export interface CompletedSession extends BaseSession {
   ended_at: string;
 }
 
-/** In-progress draft session without an end timestamp */
+/**
+ * In-progress draft session without an end timestamp.
+ *
+ * @remarks
+ * Reserved for the Phase-2 AI session flow; the discriminated-union shape is pinned by
+ * `test/types-difficulty.test.ts`. Runtime session records are `SessionRecord`/`DraftSessionRecord`
+ * (in this file, `src/types.ts`). Do not delete.
+ */
 export interface DraftSession extends BaseSession {
   /** Draft session status */
   status: 'draft';
@@ -168,6 +199,11 @@ export interface DraftSession extends BaseSession {
 
 /**
  * Learning session state snapshot (discriminated union by status).
+ *
+ * @remarks
+ * Reserved for the Phase-2 AI session flow; the discriminated-union shape is pinned by
+ * `test/types-difficulty.test.ts`. Runtime session records are `SessionRecord`
+ * (in this file, `src/types.ts`). Do not delete.
  */
 export type Session = CompletedSession | DraftSession;
 
@@ -528,16 +564,6 @@ export interface RoadmapTopic {
 export interface RoadmapFile {
   /** List of topics defined in the roadmap */
   topics: RoadmapTopic[];
-}
-
-// ─── Vault Walker ───────────────────────────────────────────────────
-
-/**
- * Options for traversing vault directory trees.
- */
-export interface WalkOptions {
-  /** Whether to traverse symbolic links (default: false) */
-  followSymlinks?: boolean;
 }
 
 // ─── Node Error (for catch blocks) ──────────────────────────────────
