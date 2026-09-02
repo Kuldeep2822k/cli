@@ -210,6 +210,30 @@ dependencies: "T-dep-b, T-dep-c"
     const t = topics[0];
     assert.deepStrictEqual(t.depends_on, ['T-dep-a', 'T-dep-b', 'T-dep-c']);
   });
+
+  test('loadTopics drops null/empty list entries from YAML without coercing to "null"', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'null-entry.md'),
+      `---
+palee_schema: 1
+palee_id: T-null-entry
+title: Null Entry Topic
+depends_on:
+  -
+  - T-valid-dep
+dependencies:
+  -
+---
+# Null Entry Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-valid-dep']);
+  });
 });
 
 describe('normalizeDependencies equivalence with getTopicDependencies (Issue #126)', () => {
@@ -277,6 +301,11 @@ describe('normalizeDependencies equivalence with getTopicDependencies (Issue #12
       name: 'unexpected object shapes gracefully handled',
       dependsOn: { notAnArray: true },
       dependencies: 12345,
+    },
+    {
+      name: 'null and undefined array elements filtered without coercing to strings',
+      dependsOn: [null, 'T-alpha', undefined],
+      dependencies: ['T-beta', null],
     },
   ];
 

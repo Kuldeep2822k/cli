@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixes (fix)
+
 - **Normalize `depends_on` and `dependencies` aliases consistently**: Unified alias resolution in `src/storage/loader.ts` via `normalizeDependencies`, ensuring identical merge and deduplication semantics across `loadTopics`, `validateDependencyGraph`, and roadmap processing ([#126](https://github.com/Kuldeep2822k/cli/issues/126)).
 
 ### Refactor (refactor)

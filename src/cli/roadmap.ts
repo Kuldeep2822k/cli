@@ -130,10 +130,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     for (const topic of roadmap.topics) {
-      const deps = topicsMap.get(topic.id)?.depends_on ?? getTopicDependencies(topic);
+      const topicId = topic.id || (topic as { palee_id?: string }).palee_id || '';
+      const deps = topicsMap.get(topicId)?.depends_on ?? getTopicDependencies(topic);
       for (const depId of deps) {
         if (!topicsMap.has(depId)) {
-          errors.push(`Topic ${topic.id} depends on missing topic: ${depId}`);
+          errors.push(`Topic ${topicId} depends on missing topic: ${depId}`);
         }
       }
     }
@@ -227,14 +228,18 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             content = `# ${topic.title}\n\n(Add your notes here)`;
           }
 
-          const roadmapDeps = getTopicDependencies(topic);
+          const topicId = topic.id || (topic as { palee_id?: string }).palee_id || '';
+          const roadmapDeps = topicsMap.get(topicId)?.depends_on ?? getTopicDependencies(topic);
+          const hasExplicitDeps =
+            topic.depends_on !== undefined ||
+            (topic as { dependencies?: unknown }).dependencies !== undefined;
           const paleeData: Record<string, unknown> = {
-            palee_id: topic.id,
+            palee_id: topicId,
             palee_schema: existingData.palee_schema ?? 1,
             title: topic.title,
             difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
             depends_on:
-              roadmapDeps.length > 0
+              hasExplicitDeps
                 ? roadmapDeps
                 : normalizeDependencies(existingData.depends_on, existingData.dependencies),
             topic_mastery: existingData.topic_mastery ?? 0.0,

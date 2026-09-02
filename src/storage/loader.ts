@@ -161,7 +161,7 @@ export function normalizeDependencies(
 ): string[] {
   function extract(val: unknown): string[] {
     if (Array.isArray(val)) {
-      return val.map((d) => String(d).trim()).filter(Boolean);
+      return val.filter((d) => d != null).map((d) => String(d).trim()).filter(Boolean);
     }
     if (typeof val === 'string' && val.trim().length > 0) {
       return val.split(',').map((d) => d.trim()).filter(Boolean);

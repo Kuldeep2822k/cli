@@ -217,6 +217,41 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       assert.strictEqual(process.exitCode, 0);
     });
 
+    test('roadmapCommand preserves explicit empty depends_on array without reviving existing dependencies', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const notePath = path.join(vaultDir, 'cleared-deps.md');
+      fs.writeFileSync(
+        notePath,
+        `---
+palee_schema: 1
+palee_id: T-clear-deps
+title: Topic To Clear
+depends_on:
+  - T-old-dep
+---
+# Topic To Clear
+`,
+        'utf8'
+      );
+
+      const clearRoadmap = path.join(tempDir, 'clear-roadmap.yaml');
+      fs.writeFileSync(
+        clearRoadmap,
+        `topics:
+  - id: T-clear-deps
+    title: Topic To Clear
+    path: cleared-deps.md
+    depends_on: []
+`
+      );
+
+      await roadmapCommand({ from: clearRoadmap, yes: true });
+      assert.strictEqual(process.exitCode, 0);
+
+      const updatedContent = fs.readFileSync(notePath, 'utf8');
+      assert.ok(!updatedContent.includes('T-old-dep'), 'T-old-dep should have been cleared');
+    });
+
     test('batch import with corrupted note creates valid topics, logs error, and sets exitCode 1', async () => {
       saveConfig({ vaultPath: vaultDir });
 
