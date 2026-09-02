@@ -4,7 +4,6 @@ import {
   detectCycle,
   getReadyTopics,
   validateDependencyGraph,
-  getTopicDependencies,
 } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
@@ -99,29 +98,5 @@ describe('Dependency Graph', () => {
     assert.strictEqual(result.errors.length, 0);
   });
 
-  test('getTopicDependencies preserves dependency edges for TopicNode using dependencies alias', () => {
-    const topic: TopicNode = {
-      palee_id: 'T-1',
-      topic_mastery: 0,
-      dependencies: ['T-dep-1', 'T-dep-2'],
-    };
-    assert.deepStrictEqual(getTopicDependencies(topic), ['T-dep-1', 'T-dep-2']);
-  });
-
-  test('getTopicDependencies retains depends_on precedence when both fields exist', () => {
-    const topic: TopicNode = {
-      palee_id: 'T-1',
-      topic_mastery: 0,
-      depends_on: ['T-canonical'],
-      dependencies: ['T-alias'],
-    };
-    assert.deepStrictEqual(getTopicDependencies(topic), ['T-canonical']);
-  });
-
-  test('getTopicDependencies returns empty array when neither accessor is present or input is null', () => {
-    assert.deepStrictEqual(getTopicDependencies({ palee_id: 'T-1', topic_mastery: 0 }), []);
-    assert.deepStrictEqual(getTopicDependencies(null), []);
-    assert.deepStrictEqual(getTopicDependencies(undefined), []);
-  });
 });
 

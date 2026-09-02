@@ -10,23 +10,13 @@ import { TopicNode, ValidationError, ValidationResult } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
 /**
- * Returns canonical prerequisite IDs from a topic node, supporting `dependencies` alias with `depends_on` precedence.
+ * Returns canonical prerequisite IDs from a topic node.
  *
- * @param topic - Topic node or partial topic node
+ * @param topic - Canonical topic node
  * @returns Prerequisite topic IDs
  */
-function getTopicDependencies(
-  topic?: (Partial<TopicNode> & { dependencies?: unknown }) | null
-): string[] {
-  if (!topic) return [];
-  const raw: unknown = topic.depends_on ?? topic.dependencies;
-  if (Array.isArray(raw)) {
-    return raw.filter((d) => d != null).map((d) => String(d).trim()).filter(Boolean);
-  }
-  if (typeof raw === 'string' && raw.trim().length > 0) {
-    return raw.split(',').map((d) => d.trim()).filter(Boolean);
-  }
-  return [];
+function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
+  return topic?.depends_on ?? [];
 }
 
 /**

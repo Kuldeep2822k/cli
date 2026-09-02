@@ -196,13 +196,31 @@ topics:
   });
 
   test('returns structured error diagnostic when YAML topic entry is primitive or array', () => {
-    const primitiveTopicYaml = `
+    const primitiveResult = parseRoadmapContent(`
 topics:
   - "string-instead-of-object"
-`;
-    const result = parseRoadmapContent(primitiveTopicYaml, 'primitive.yaml');
+`, 'primitive.yaml');
+    assert.strictEqual(primitiveResult.roadmap, null);
+    assert.match(primitiveResult.error ?? '', /Invalid topic at index 0: expected topic object, received string/);
+
+    const arrayResult = parseRoadmapContent(`
+topics:
+  - [nested, array]
+`, 'array.yaml');
+    assert.strictEqual(arrayResult.roadmap, null);
+    assert.match(arrayResult.error ?? '', /Invalid topic at index 0: expected topic object, received array/);
+  });
+
+  test('returns a structured topic error from an invalid YAML code block', () => {
+    const result = parseRoadmapContent(`# Invalid Roadmap
+
+\`\`\`yaml
+topics:
+  - null
+\`\`\`
+`, 'invalid-codeblock.md');
+
     assert.strictEqual(result.roadmap, null);
-    assert.ok(result.error);
-    assert.match(result.error, /Invalid topic at index 0: expected topic object, received string/);
+    assert.match(result.error ?? '', /Invalid topic at index 0: expected topic object, received null/);
   });
 });
