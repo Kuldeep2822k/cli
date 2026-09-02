@@ -9,6 +9,7 @@
  */
 
 import yaml from 'yaml';
+import { normalizeDependencies } from './dependencies';
 import { parseFrontmatter } from './frontmatter';
 import { RoadmapFile, RoadmapTopic } from '../types';
 
@@ -22,6 +23,26 @@ export interface ParsedRoadmapResult {
   format?: 'yaml' | 'frontmatter' | 'codeblock';
   /** Error diagnostic message if parsing failed */
   error?: string;
+}
+
+type RawRoadmapTopic = Omit<RoadmapTopic, 'depends_on'> & {
+  depends_on?: unknown;
+  dependencies?: unknown;
+};
+
+function normalizeRoadmap(topics: RawRoadmapTopic[]): RoadmapFile {
+  return {
+    topics: topics.map((topic) => {
+      const { depends_on, dependencies, ...fields } = topic;
+      if (depends_on === undefined && dependencies === undefined) {
+        return fields;
+      }
+      return {
+        ...fields,
+        depends_on: normalizeDependencies(depends_on, dependencies),
+      };
+    }),
+  };
 }
 
 /**
@@ -60,7 +81,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
     }
     if (fmResult.frontmatter && Array.isArray(fmResult.frontmatter.topics)) {
       return {
-        roadmap: { topics: fmResult.frontmatter.topics as RoadmapTopic[] },
+        roadmap: normalizeRoadmap(fmResult.frontmatter.topics as RawRoadmapTopic[]),
         format: 'frontmatter',
       };
     }
@@ -75,7 +96,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
       const parsed = yaml.parse(codeBlockContent);
       if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
         return {
-          roadmap: parsed as RoadmapFile,
+          roadmap: normalizeRoadmap(parsed.topics as RawRoadmapTopic[]),
           format: 'codeblock',
         };
       }
@@ -89,7 +110,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
     const parsed = yaml.parse(rawContent);
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
       return {
-        roadmap: parsed as RoadmapFile,
+        roadmap: normalizeRoadmap(parsed.topics as RawRoadmapTopic[]),
         format: 'yaml',
       };
     }

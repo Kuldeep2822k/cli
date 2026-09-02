@@ -38,7 +38,7 @@ import {
 } from './memory';
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
-import { loadTopics, getTopicCache, normalizeDependencies, type LoadedTopic } from './loader';
+import { loadTopics, getTopicCache, type LoadedTopic } from './loader';
 
 export {
   // Vault operations
@@ -46,7 +46,6 @@ export {
   ensureVaultDirectory,
   loadTopics,
   getTopicCache,
-  normalizeDependencies,
 
   // Pattern and Tag Matching
   matchesPattern,

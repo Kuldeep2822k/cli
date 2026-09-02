@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { loadTopics, normalizeDependencies } from '../src/storage/loader';
-import { getTopicDependencies } from '../src/engine/dependency';
+import { normalizeDependencies } from '../src/storage/dependencies';
+import { loadTopics } from '../src/storage/loader';
 
 describe('Storage Topic Loader', () => {
   let tmpVault: string;
@@ -236,91 +236,50 @@ dependencies:
   });
 });
 
-describe('normalizeDependencies equivalence with getTopicDependencies (Issue #126)', () => {
+describe('normalizeDependencies (Issue #126)', () => {
   const testCases: Array<{
     name: string;
     dependsOn: unknown;
     dependencies: unknown;
+    expected: string[];
   }> = [
     {
-      name: 'both arrays with overlap',
+      name: 'unions arrays in canonical-first order',
       dependsOn: ['T-1', 'T-2'],
       dependencies: ['T-2', 'T-3'],
+      expected: ['T-1', 'T-2', 'T-3'],
     },
     {
-      name: 'depends_on only (array)',
-      dependsOn: ['T-alpha', 'T-beta'],
-      dependencies: undefined,
-    },
-    {
-      name: 'dependencies only (array)',
-      dependsOn: undefined,
-      dependencies: ['T-gamma', 'T-delta'],
-    },
-    {
-      name: 'both comma-separated strings',
-      dependsOn: 'T-a, T-b',
-      dependencies: 'T-b, T-c',
-    },
-    {
-      name: 'mixed string and array',
+      name: 'supports comma-separated and array values',
       dependsOn: 'T-1, T-2',
-      dependencies: ['T-2', 'T-3', 'T-4'],
+      dependencies: ['T-2', 'T-3'],
+      expected: ['T-1', 'T-2', 'T-3'],
     },
     {
-      name: 'mixed array and string',
-      dependsOn: ['T-x', 'T-y'],
-      dependencies: 'T-y, T-z',
+      name: 'preserves wikilinks',
+      dependsOn: ['[[T-math]]'],
+      dependencies: '[[T-math]], [[T-geometry]]',
+      expected: ['[[T-math]]', '[[T-geometry]]'],
     },
     {
-      name: 'wikilink entries preserved in array and string',
-      dependsOn: ['[[T-math]]', '[[T-calc]]'],
-      dependencies: '[[T-calc]], [[T-geom]]',
+      name: 'trims whitespace and drops empty values',
+      dependsOn: ['  T-1  ', ' ', null],
+      dependencies: ' , T-2, ',
+      expected: ['T-1', 'T-2'],
     },
     {
-      name: 'whitespace and empty entries filtered',
-      dependsOn: ['  T-1  ', '   ', ''],
-      dependencies: '  , T-2 ,   ',
-    },
-    {
-      name: 'numeric and boolean entries coerced to strings',
-      dependsOn: [123, 456],
-      dependencies: [true, 'T-string'],
-    },
-    {
-      name: 'null and undefined inputs',
-      dependsOn: null,
-      dependencies: undefined,
-    },
-    {
-      name: 'empty array and empty string',
-      dependsOn: [],
-      dependencies: '',
-    },
-    {
-      name: 'unexpected object shapes gracefully handled',
-      dependsOn: { notAnArray: true },
-      dependencies: 12345,
-    },
-    {
-      name: 'null and undefined array elements filtered without coercing to strings',
-      dependsOn: [null, 'T-alpha', undefined],
-      dependencies: ['T-beta', null],
+      name: 'ignores unsupported values',
+      dependsOn: { invalid: true },
+      dependencies: 42,
+      expected: [],
     },
   ];
 
-  for (const { name, dependsOn, dependencies } of testCases) {
-    test(`equivalence: ${name}`, () => {
-      const actual = normalizeDependencies(dependsOn, dependencies);
-      const expected = getTopicDependencies({
-        depends_on: dependsOn,
-        dependencies,
-      });
-
-      assert.deepStrictEqual(actual, expected);
+  for (const { name, dependsOn, dependencies, expected } of testCases) {
+    test(name, () => {
+      assert.deepStrictEqual(normalizeDependencies(dependsOn, dependencies), expected);
     });
   }
 });
-
 
 

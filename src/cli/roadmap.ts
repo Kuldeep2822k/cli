@@ -17,9 +17,8 @@ import {
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
-  normalizeDependencies,
 } from '../storage';
-import { detectCycle, getTopicDependencies } from '../engine/dependency';
+import { detectCycle } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
 
 /**
@@ -118,11 +117,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         }
       }
 
-      const normalizedDeps = getTopicDependencies(topic);
-      topicsMap.set(id, { palee_id: id, depends_on: normalizedDeps, topic_mastery: 0 });
+      topicsMap.set(id, { palee_id: id, depends_on: topic.depends_on ?? [], topic_mastery: 0 });
     }
 
     const existingTopics = loadTopics(vaultPath);
+    const existingTopicsByPath = new Map(existingTopics.map((topic) => [topic.filePath, topic]));
     for (const t of existingTopics) {
       if (!topicsMap.has(t.id)) {
         topicsMap.set(t.id, { palee_id: t.id, depends_on: t.depends_on, topic_mastery: 0 });
@@ -130,11 +129,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     for (const topic of roadmap.topics) {
-      const topicId = topic.id || (topic as { palee_id?: string }).palee_id || '';
-      const deps = topicsMap.get(topicId)?.depends_on ?? getTopicDependencies(topic);
-      for (const depId of deps) {
+      for (const depId of topic.depends_on ?? []) {
         if (!topicsMap.has(depId)) {
-          errors.push(`Topic ${topicId} depends on missing topic: ${depId}`);
+          errors.push(`Topic ${topic.id} depends on missing topic: ${depId}`);
         }
       }
     }
@@ -228,20 +225,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             content = `# ${topic.title}\n\n(Add your notes here)`;
           }
 
-          const topicId = topic.id || (topic as { palee_id?: string }).palee_id || '';
-          const roadmapDeps = topicsMap.get(topicId)?.depends_on ?? getTopicDependencies(topic);
-          const hasExplicitDeps =
-            topic.depends_on !== undefined ||
-            (topic as { dependencies?: unknown }).dependencies !== undefined;
+          const existingTopic = existingTopicsByPath.get(resolvedTargetPath);
           const paleeData: Record<string, unknown> = {
-            palee_id: topicId,
+            palee_id: topic.id,
             palee_schema: existingData.palee_schema ?? 1,
             title: topic.title,
             difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
-            depends_on:
-              hasExplicitDeps
-                ? roadmapDeps
-                : normalizeDependencies(existingData.depends_on, existingData.dependencies),
+            depends_on: topic.depends_on ?? existingTopic?.depends_on ?? [],
             topic_mastery: existingData.topic_mastery ?? 0.0,
             assessed_at: existingData.assessed_at ?? null,
             conceptual: existingData.conceptual ?? 0.0,
@@ -257,7 +247,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             due_at: existingData.due_at ?? null,
           };
 
-          const updatedContent = updateFrontmatter(content, paleeData);
+          const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
 
           if (isNew) {

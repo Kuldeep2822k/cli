@@ -11,6 +11,7 @@ import nextCommand from '../src/cli/next';
 import planCommand from '../src/cli/plan';
 import progressCommand from '../src/cli/progress';
 import validateCommand from '../src/cli/validate';
+import { parseFrontmatter } from '../src/storage/frontmatter';
 import { RoadmapOptions } from '../src/types';
 
 describe('CLI Command In-Process Exit Codes & Coverage', () => {
@@ -226,7 +227,7 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
 palee_schema: 1
 palee_id: T-clear-deps
 title: Topic To Clear
-depends_on:
+dependencies:
   - T-old-dep
 ---
 # Topic To Clear
@@ -249,6 +250,9 @@ depends_on:
       assert.strictEqual(process.exitCode, 0);
 
       const updatedContent = fs.readFileSync(notePath, 'utf8');
+      const { frontmatter } = parseFrontmatter(updatedContent);
+      assert.deepStrictEqual(frontmatter?.depends_on, []);
+      assert.ok(!('dependencies' in (frontmatter ?? {})));
       assert.ok(!updatedContent.includes('T-old-dep'), 'T-old-dep should have been cleared');
     });
 

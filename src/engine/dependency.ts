@@ -10,50 +10,13 @@ import { TopicNode, ValidationError, ValidationResult } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
 /**
- * Normalizes and extracts prerequisite dependency IDs from a topic node,
- * transparently supporting both `depends_on` and `dependencies` aliases.
+ * Returns canonical prerequisite IDs from a topic node.
  *
- * @param topic - Topic node
- * @returns Array of unique prerequisite topic ID strings
- *
- * @remarks
- * Handles string arrays or comma-delimited strings across both property aliases.
- *
- * @example
- * ```typescript
- * const deps = getTopicDependencies({ depends_on: ['t1', 't2'] });
- * ```
+ * @param topic - Canonical topic node
+ * @returns Prerequisite topic IDs
  */
-function getTopicDependencies(
-  topic?: Partial<TopicNode> | { depends_on?: unknown; dependencies?: unknown } | null
-): string[] {
-  if (!topic) return [];
-  const rawDependsOn = topic.depends_on;
-  const rawDependencies = (topic as { dependencies?: unknown }).dependencies;
-
-  /**
-   * Helper extracting string identifiers from arrays or delimited strings.
-   *
-   * @param val - Input value
-   * @returns String array
-   * @remarks Splits comma-separated strings or maps array elements.
-   * @example
-   * ```typescript
-   * extract('a, b'); // ['a', 'b']
-   * ```
-   */
-  function extract(val: unknown): string[] {
-    if (Array.isArray(val)) {
-      return val.filter((d) => d != null).map((d) => String(d).trim()).filter(Boolean);
-    }
-    if (typeof val === 'string' && val.trim().length > 0) {
-      return val.split(',').map((d) => d.trim()).filter(Boolean);
-    }
-    return [];
-  }
-
-  const combined = [...extract(rawDependsOn), ...extract(rawDependencies)];
-  return Array.from(new Set(combined));
+function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
+  return topic?.depends_on ?? [];
 }
 
 /**
@@ -206,7 +169,7 @@ function getReadyTopics(
  *
  * @remarks
  * Performs two verification checks:
- * 1. Missing dependencies: Ensures all referenced prerequisite IDs (supporting both `depends_on` and `dependencies` aliases) exist in the vault.
+ * 1. Missing dependencies: Ensures all referenced prerequisite IDs exist in the vault.
  * 2. Cycles: Runs {@link detectCycle} to ensure the dependency graph is a Directed Acyclic Graph (DAG).
  *
  * @param topics - Map of topic ID to {@link TopicNode}

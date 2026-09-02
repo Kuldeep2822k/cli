@@ -11,6 +11,7 @@ import path from 'path';
 import { walkVault } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
+import { normalizeDependencies } from './dependencies';
 import { TopicNode, normalizeDifficulty } from '../types';
 
 /** Module-level topic file cache */
@@ -136,42 +137,6 @@ function parseNumber(val: unknown, fallback: number = 0): number {
   return fallback;
 }
 
-/**
- * Normalizes and unifies raw dependency fields from frontmatter or roadmap entries.
- *
- * @remarks
- * Unifies entries from `depends_on` (canonical) and `dependencies` (legacy alias).
- * Supports string arrays and comma-delimited strings, trims whitespace, removes empty entries,
- * preserves wikilink formats (`[[...]]`), and dedupes while preserving first-seen order.
- * `depends_on` entries take precedence in order over `dependencies` entries.
- *
- * @param rawDependsOn - Raw `depends_on` field value (canonical)
- * @param rawDependencies - Raw `dependencies` field value (alias)
- * @returns Array of deduplicated, normalized dependency identifiers
- *
- * @example
- * ```typescript
- * normalizeDependencies(['t1'], ['t2']); // ['t1', 't2']
- * normalizeDependencies('t1, t2', ['t2', 't3']); // ['t1', 't2', 't3']
- * ```
- */
-export function normalizeDependencies(
-  rawDependsOn?: unknown,
-  rawDependencies?: unknown
-): string[] {
-  function extract(val: unknown): string[] {
-    if (Array.isArray(val)) {
-      return val.filter((d) => d != null).map((d) => String(d).trim()).filter(Boolean);
-    }
-    if (typeof val === 'string' && val.trim().length > 0) {
-      return val.split(',').map((d) => d.trim()).filter(Boolean);
-    }
-    return [];
-  }
-
-  const combined = [...extract(rawDependsOn), ...extract(rawDependencies)];
-  return Array.from(new Set(combined));
-}
 
 /**
  * Scans the vault and parses all Markdown files containing a valid `palee_id`.

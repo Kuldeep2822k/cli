@@ -26,6 +26,24 @@ topics:
     assert.deepStrictEqual(result.roadmap.topics[1].depends_on, ['T-01']);
   });
 
+  test('normalizes dependency aliases at the parse boundary', () => {
+    const result = parseRoadmapContent(`topics:
+  - id: T-01
+    title: Foundations
+    path: foundations.md
+    depends_on: "T-a, T-b"
+    dependencies: [T-b, T-c]
+  - id: T-02
+    title: Independent
+    path: independent.md
+`, 'roadmap.yaml');
+
+    assert.ok(result.roadmap);
+    assert.deepStrictEqual(result.roadmap.topics[0].depends_on, ['T-a', 'T-b', 'T-c']);
+    assert.ok(!('dependencies' in result.roadmap.topics[0]));
+    assert.strictEqual(result.roadmap.topics[1].depends_on, undefined);
+  });
+
   test('parses YAML frontmatter in Markdown files', () => {
     const mdFrontmatter = `---
 roadmap_id: R-k8s
