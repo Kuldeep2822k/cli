@@ -3,7 +3,8 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { loadTopics } from '../src/storage/loader';
+import { loadTopics, normalizeDependencies } from '../src/storage/loader';
+import { getTopicDependencies } from '../src/engine/dependency';
 
 describe('Storage Topic Loader', () => {
   let tmpVault: string;
@@ -163,6 +164,134 @@ title: Prescan 1
     assert.strictEqual(topics.length, 1);
     assert.strictEqual(topics[0].palee_id, 'T-prescan-1');
   });
+
+  test('loadTopics unions and dedupes depends_on and dependencies when both keys are present (Issue #126)', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'dual-deps.md'),
+      `---
+palee_schema: 1
+palee_id: T-dual-deps
+title: Dual Dependencies Topic
+depends_on:
+  - T-dep-1
+  - T-dep-2
+dependencies:
+  - T-dep-2
+  - T-dep-3
+---
+# Dual Deps Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-dep-1', 'T-dep-2', 'T-dep-3']);
+  });
+
+  test('loadTopics supports comma-separated string dependencies and unions aliases', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'comma-deps.md'),
+      `---
+palee_schema: 1
+palee_id: T-comma-deps
+title: Comma Dependencies Topic
+depends_on: "T-dep-a, T-dep-b"
+dependencies: "T-dep-b, T-dep-c"
+---
+# Comma Deps Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-dep-a', 'T-dep-b', 'T-dep-c']);
+  });
 });
+
+describe('normalizeDependencies equivalence with getTopicDependencies (Issue #126)', () => {
+  const testCases: Array<{
+    name: string;
+    dependsOn: unknown;
+    dependencies: unknown;
+  }> = [
+    {
+      name: 'both arrays with overlap',
+      dependsOn: ['T-1', 'T-2'],
+      dependencies: ['T-2', 'T-3'],
+    },
+    {
+      name: 'depends_on only (array)',
+      dependsOn: ['T-alpha', 'T-beta'],
+      dependencies: undefined,
+    },
+    {
+      name: 'dependencies only (array)',
+      dependsOn: undefined,
+      dependencies: ['T-gamma', 'T-delta'],
+    },
+    {
+      name: 'both comma-separated strings',
+      dependsOn: 'T-a, T-b',
+      dependencies: 'T-b, T-c',
+    },
+    {
+      name: 'mixed string and array',
+      dependsOn: 'T-1, T-2',
+      dependencies: ['T-2', 'T-3', 'T-4'],
+    },
+    {
+      name: 'mixed array and string',
+      dependsOn: ['T-x', 'T-y'],
+      dependencies: 'T-y, T-z',
+    },
+    {
+      name: 'wikilink entries preserved in array and string',
+      dependsOn: ['[[T-math]]', '[[T-calc]]'],
+      dependencies: '[[T-calc]], [[T-geom]]',
+    },
+    {
+      name: 'whitespace and empty entries filtered',
+      dependsOn: ['  T-1  ', '   ', ''],
+      dependencies: '  , T-2 ,   ',
+    },
+    {
+      name: 'numeric and boolean entries coerced to strings',
+      dependsOn: [123, 456],
+      dependencies: [true, 'T-string'],
+    },
+    {
+      name: 'null and undefined inputs',
+      dependsOn: null,
+      dependencies: undefined,
+    },
+    {
+      name: 'empty array and empty string',
+      dependsOn: [],
+      dependencies: '',
+    },
+    {
+      name: 'unexpected object shapes gracefully handled',
+      dependsOn: { notAnArray: true },
+      dependencies: 12345,
+    },
+  ];
+
+  for (const { name, dependsOn, dependencies } of testCases) {
+    test(`equivalence: ${name}`, () => {
+      const actual = normalizeDependencies(dependsOn, dependencies);
+      const expected = getTopicDependencies({
+        depends_on: dependsOn,
+        dependencies,
+      });
+
+      assert.deepStrictEqual(actual, expected);
+    });
+  }
+});
+
 
 

@@ -133,5 +133,17 @@ describe('Dependency Graph', () => {
     assert.strictEqual(validation.errors[0].type, 'missing_dependency');
     assert.strictEqual(validation.errors[0].missing, 'T-nonexistent');
   });
+
+  test('detects missing dependencies across both depends_on and dependencies when both keys are present', () => {
+    const topics = new Map<string, TopicNode>([
+      ['T-1', { palee_id: 'T-1', topic_mastery: 0, depends_on: ['T-missing-1'], dependencies: ['T-missing-2'] }],
+    ]);
+    const validation = validateDependencyGraph(topics);
+    assert.strictEqual(validation.valid, false);
+    assert.strictEqual(validation.errors.length, 2);
+    const missingIds = validation.errors.map(e => e.missing);
+    assert.ok(missingIds.includes('T-missing-1'));
+    assert.ok(missingIds.includes('T-missing-2'));
+  });
 });
 

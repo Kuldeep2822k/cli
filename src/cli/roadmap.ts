@@ -17,6 +17,7 @@ import {
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
+  normalizeDependencies,
 } from '../storage';
 import { detectCycle, getTopicDependencies } from '../engine/dependency';
 import { RoadmapOptions, TopicNode } from '../types';
@@ -129,7 +130,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     for (const topic of roadmap.topics) {
-      const deps = getTopicDependencies(topic);
+      const deps = topicsMap.get(topic.id)?.depends_on ?? getTopicDependencies(topic);
       for (const depId of deps) {
         if (!topicsMap.has(depId)) {
           errors.push(`Topic ${topic.id} depends on missing topic: ${depId}`);
@@ -232,7 +233,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             palee_schema: existingData.palee_schema ?? 1,
             title: topic.title,
             difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
-            depends_on: roadmapDeps.length > 0 ? roadmapDeps : (existingData.depends_on || []),
+            depends_on:
+              roadmapDeps.length > 0
+                ? roadmapDeps
+                : normalizeDependencies(existingData.depends_on, existingData.dependencies),
             topic_mastery: existingData.topic_mastery ?? 0.0,
             assessed_at: existingData.assessed_at ?? null,
             conceptual: existingData.conceptual ?? 0.0,

@@ -137,6 +137,43 @@ function parseNumber(val: unknown, fallback: number = 0): number {
 }
 
 /**
+ * Normalizes and unifies raw dependency fields from frontmatter or roadmap entries.
+ *
+ * @remarks
+ * Unifies entries from `depends_on` (canonical) and `dependencies` (legacy alias).
+ * Supports string arrays and comma-delimited strings, trims whitespace, removes empty entries,
+ * preserves wikilink formats (`[[...]]`), and dedupes while preserving first-seen order.
+ * `depends_on` entries take precedence in order over `dependencies` entries.
+ *
+ * @param rawDependsOn - Raw `depends_on` field value (canonical)
+ * @param rawDependencies - Raw `dependencies` field value (alias)
+ * @returns Array of deduplicated, normalized dependency identifiers
+ *
+ * @example
+ * ```typescript
+ * normalizeDependencies(['t1'], ['t2']); // ['t1', 't2']
+ * normalizeDependencies('t1, t2', ['t2', 't3']); // ['t1', 't2', 't3']
+ * ```
+ */
+export function normalizeDependencies(
+  rawDependsOn?: unknown,
+  rawDependencies?: unknown
+): string[] {
+  function extract(val: unknown): string[] {
+    if (Array.isArray(val)) {
+      return val.map((d) => String(d).trim()).filter(Boolean);
+    }
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return val.split(',').map((d) => d.trim()).filter(Boolean);
+    }
+    return [];
+  }
+
+  const combined = [...extract(rawDependsOn), ...extract(rawDependencies)];
+  return Array.from(new Set(combined));
+}
+
+/**
  * Scans the vault and parses all Markdown files containing a valid `palee_id`.
  *
  * @remarks
@@ -182,10 +219,7 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
       ? frontmatter.title.trim()
       : path.basename(filePath, '.md');
 
-    const rawDeps = frontmatter.depends_on || frontmatter.dependencies;
-    const dependsOn = Array.isArray(rawDeps)
-      ? rawDeps.map((d) => String(d).trim()).filter(Boolean)
-      : [];
+    const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
 
     const difficulty = normalizeDifficulty(frontmatter.difficulty);
     const topicMastery = parseScore(frontmatter.topic_mastery, 0.0);
