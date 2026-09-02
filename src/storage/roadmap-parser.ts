@@ -30,18 +30,29 @@ type RawRoadmapTopic = Omit<RoadmapTopic, 'depends_on'> & {
   dependencies?: unknown;
 };
 
-function normalizeRoadmap(topics: RawRoadmapTopic[]): RoadmapFile {
-  return {
-    topics: topics.map((topic) => {
-      const { depends_on, dependencies, ...fields } = topic;
-      if (depends_on === undefined && dependencies === undefined) {
-        return fields;
-      }
+function normalizeRoadmap(topics: unknown[]): { roadmap: RoadmapFile } | { error: string } {
+  for (let i = 0; i < topics.length; i++) {
+    const topic = topics[i];
+    if (!topic || typeof topic !== 'object' || Array.isArray(topic)) {
       return {
-        ...fields,
-        depends_on: normalizeDependencies(depends_on, dependencies),
+        error: `Invalid topic at index ${i}: expected topic object, received ${topic === null ? 'null' : Array.isArray(topic) ? 'array' : typeof topic}`,
       };
-    }),
+    }
+  }
+
+  return {
+    roadmap: {
+      topics: (topics as RawRoadmapTopic[]).map((topic) => {
+        const { depends_on, dependencies, ...fields } = topic;
+        if (depends_on === undefined && dependencies === undefined) {
+          return fields as RoadmapTopic;
+        }
+        return {
+          ...fields,
+          depends_on: normalizeDependencies(depends_on, dependencies),
+        } as RoadmapTopic;
+      }),
+    },
   };
 }
 
@@ -80,8 +91,15 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
       };
     }
     if (fmResult.frontmatter && Array.isArray(fmResult.frontmatter.topics)) {
+      const normalized = normalizeRoadmap(fmResult.frontmatter.topics);
+      if ('error' in normalized) {
+        return {
+          roadmap: null,
+          error: normalized.error,
+        };
+      }
       return {
-        roadmap: normalizeRoadmap(fmResult.frontmatter.topics as RawRoadmapTopic[]),
+        roadmap: normalized.roadmap,
         format: 'frontmatter',
       };
     }
@@ -90,13 +108,19 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
   // 2. Try Embedded YAML Code Blocks (supports whitespace or info strings after language tag)
   const codeBlockRegex = /```(?:ya?ml)[^\n\r]*\r?\n([\s\S]*?)\r?\n```/gi;
   let match: RegExpExecArray | null;
+  let codeBlockError: string | undefined;
   while ((match = codeBlockRegex.exec(rawContent)) !== null) {
     const codeBlockContent = match[1];
     try {
       const parsed = yaml.parse(codeBlockContent);
       if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
+        const normalized = normalizeRoadmap(parsed.topics);
+        if ('error' in normalized) {
+          codeBlockError = normalized.error;
+          continue;
+        }
         return {
-          roadmap: normalizeRoadmap(parsed.topics as RawRoadmapTopic[]),
+          roadmap: normalized.roadmap,
           format: 'codeblock',
         };
       }
@@ -109,8 +133,15 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
   try {
     const parsed = yaml.parse(rawContent);
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {
+      const normalized = normalizeRoadmap(parsed.topics);
+      if ('error' in normalized) {
+        return {
+          roadmap: null,
+          error: normalized.error,
+        };
+      }
       return {
-        roadmap: normalizeRoadmap(parsed.topics as RawRoadmapTopic[]),
+        roadmap: normalized.roadmap,
         format: 'yaml',
       };
     }
@@ -123,10 +154,10 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
     }
   }
 
-  // 4. Fallback: No valid topics array found
+  // 4. Fallback: Return structured codeblock error if found, otherwise missing topics array error
   return {
     roadmap: null,
-    error: 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]',
+    error: codeBlockError || 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]',
   };
 }
 

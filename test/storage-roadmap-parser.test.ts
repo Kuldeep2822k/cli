@@ -179,4 +179,30 @@ topics:
     assert.ok(result.error);
     assert.match(result.error, /Invalid YAML/);
   });
+
+  test('returns structured error diagnostic when frontmatter topic entry is null or non-object', () => {
+    const nullTopicFm = `---
+topics:
+  -
+  - id: T-valid
+    title: Valid
+---
+# Notes
+`;
+    const result = parseRoadmapContent(nullTopicFm, 'null-topic.md');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.error);
+    assert.match(result.error, /Invalid topic at index 0: expected topic object, received null/);
+  });
+
+  test('returns structured error diagnostic when YAML topic entry is primitive or array', () => {
+    const primitiveTopicYaml = `
+topics:
+  - "string-instead-of-object"
+`;
+    const result = parseRoadmapContent(primitiveTopicYaml, 'primitive.yaml');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.error);
+    assert.match(result.error, /Invalid topic at index 0: expected topic object, received string/);
+  });
 });
