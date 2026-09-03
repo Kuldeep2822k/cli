@@ -256,6 +256,69 @@ dependencies:
       assert.ok(!updatedContent.includes('T-old-dep'), 'T-old-dep should have been cleared');
     });
 
+    test('roadmapCommand detects cycle from preserved existing deps when depends_on is omitted in roadmap', async () => {
+      saveConfig({ vaultPath: vaultDir });
+
+      // Set up existing on-disk notes: A depends on B, B has no deps
+      const noteA = path.join(vaultDir, 'cycle-preserve-a.md');
+      const noteB = path.join(vaultDir, 'cycle-preserve-b.md');
+      fs.writeFileSync(
+        noteA,
+        `---
+palee_schema: 1
+palee_id: T-cycle-preserve-a
+title: Topic A
+depends_on:
+  - T-cycle-preserve-b
+---
+# Topic A
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        noteB,
+        `---
+palee_schema: 1
+palee_id: T-cycle-preserve-b
+title: Topic B
+depends_on: []
+---
+# Topic B
+`,
+        'utf8'
+      );
+
+      // Roadmap re-import: A omits depends_on (should preserve existing [B]),
+      // B adds a new reverse edge [A]. Effective graph: A→B, B→A — cycle.
+      const cycleRoadmap = path.join(tempDir, 'cycle-preserve-roadmap.yaml');
+      fs.writeFileSync(
+        cycleRoadmap,
+        `topics:
+  - id: T-cycle-preserve-a
+    title: Topic A
+    path: cycle-preserve-a.md
+  - id: T-cycle-preserve-b
+    title: Topic B
+    path: cycle-preserve-b.md
+    depends_on: [T-cycle-preserve-a]
+`
+      );
+
+      await roadmapCommand({ from: cycleRoadmap, yes: true });
+      assert.strictEqual(process.exitCode, 3, 'Expected exitCode 3 — cycle from preserved deps must be caught during validation');
+
+      // Verify files were NOT modified (validation rejects before import)
+      const contentA = fs.readFileSync(noteA, 'utf8');
+      const contentB = fs.readFileSync(noteB, 'utf8');
+      const fmB = parseFrontmatter(contentB);
+      assert.deepStrictEqual(fmB.frontmatter?.depends_on, [], 'B should still have empty deps — import should not have run');
+      assert.ok(contentA.includes('T-cycle-preserve-b'), 'A should still have its original dep on B');
+
+      // Cleanup
+      fs.unlinkSync(noteA);
+      fs.unlinkSync(noteB);
+    });
+
     test('batch import with corrupted note creates valid topics, logs error, and sets exitCode 1', async () => {
       saveConfig({ vaultPath: vaultDir });
 
