@@ -30,7 +30,7 @@ export const detectCycle = dependency.detectCycle;
 export const getReadyTopics = dependency.getReadyTopics;
 /** Checks whether all dependencies for a topic are satisfied */
 export const areDependenciesSatisfied = dependency.areDependenciesSatisfied;
-/** Normalizes and extracts dependencies from a topic node supporting aliases */
+/** Returns canonical dependencies from a topic node */
 export const getTopicDependencies = dependency.getTopicDependencies;
 /** Validates dependency graph integrity and absence of cycles */
 export const validateDependencyGraph = dependency.validateDependencyGraph;
