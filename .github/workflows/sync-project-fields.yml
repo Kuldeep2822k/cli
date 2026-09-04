@@ -20,13 +20,17 @@ on:
         description: 'Issue number to re-sync (recomputes every field from current labels)'
         required: true
 
+# GITHUB_TOKEN only needs the REST issue lookup; all project reads/writes go
+# through PROJECT_PAT (user-level project — see the step below).
 permissions:
   issues: read
 
-# Serialize runs: label edits fire bursts of events, and every run recomputes
-# from the issue's current labels, so last-write-wins is the correct outcome.
+# Serialize runs per issue: label edits fire bursts of events and queued runs
+# can execute out of order, so coalescing same-issue runs (every one recomputes
+# from current labels — last-write-wins) is safe, while different issues never
+# queue behind each other.
 concurrency:
-  group: sync-project-fields
+  group: sync-project-fields-${{ github.event.issue.number || inputs['issue-number'] }}
   cancel-in-progress: false
 
 jobs:
@@ -66,88 +70,130 @@ jobs:
               labels.includes('phase 2 redefine') || labels.includes('Phase-2 redefine') ? 'Phase 2 AI' :
               'Backlog'
 
-            // ── Resolve the issue payload (event, or manual dispatch) ──────
-            let issue, overwrite
-            if (context.eventName === 'workflow_dispatch') {
-              const number = parseInt(context.payload.inputs['issue-number'], 10)
-              if (!number) { core.setFailed('Dispatch requires the issue-number input'); return }
-              const { data } = await github.rest.issues.get({
+            // ── Which issue, and how aggressively to write ──────────────────
+            const number = context.eventName === 'workflow_dispatch'
+              ? parseInt(context.payload.inputs['issue-number'], 10)
+              : context.payload.issue?.number
+            if (!number) { core.setFailed('No issue number in event payload'); return }
+            // opened → only fill unset fields; labeled/unlabeled/dispatch → recompute
+            const overwrite = context.payload.action !== 'opened'
+
+            try {
+              // The event payload's label list is a snapshot from event time,
+              // and queued runs can execute out of order, so always map from
+              // the issue's CURRENT labels — every run is idempotent and
+              // event-order-proof.
+              const { data: issueData } = await github.rest.issues.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
               })
-              issue = { number, node_id: data.node_id, labels: data.labels }
-              overwrite = true // explicit re-sync: recompute and write
-            } else {
-              issue = context.payload.issue
-              // opened → only fill unset fields; labeled/unlabeled → recompute
-              overwrite = context.payload.action !== 'opened'
-            }
-            if (!issue) { core.setFailed('No issue in event payload'); return }
+              if (issueData.pull_request) {
+                core.setFailed(`#${number} is a pull request — this workflow syncs issues only`)
+                return
+              }
+              const issue = { number, node_id: issueData.node_id, labels: issueData.labels }
 
-            const labels = issue.labels.map((l) => l.name)
-            const desired = {
-              'Priority': priorityFrom(labels),
-              'Issue Type': typeFrom(labels),
-              'AI surface': aiFrom(labels),
-              'Iteration': iterationFrom(labels),
-            }
-            core.info(`Issue #${issue.number} [${labels.join(', ') || 'no labels'}] → ${JSON.stringify(desired)}`)
+              const labels = issue.labels.map((l) => l.name)
+              const desired = {
+                'Priority': priorityFrom(labels),
+                'Issue Type': typeFrom(labels),
+                'AI surface': aiFrom(labels),
+                'Iteration': iterationFrom(labels),
+              }
+              core.info(`Issue #${issue.number} [${labels.join(', ') || 'no labels'}] → ${JSON.stringify(desired)}`)
 
-            try {
+              // Follow a paginated connection to the end. Page size is the
+              // GraphQL max (100), so this loop stays dormant until a
+              // connection actually outgrows one page.
+              const pageThrough = async (firstPage, run) => {
+                const nodes = [...firstPage.nodes]
+                let page = firstPage
+                while (page.pageInfo?.hasNextPage) {
+                  page = await run(page.pageInfo.endCursor)
+                  nodes.push(...page.nodes)
+                }
+                return nodes
+              }
+
               // ── Field and option IDs, resolved by name ────────────────────
-              const fieldsQuery = `query($id: ID!) {
+              const fieldsQuery = `query($id: ID!, $after: String) {
                 node(id: $id) {
                   ... on ProjectV2 {
-                    fields(first: 50) {
+                    fields(first: 100, after: $after) {
                       nodes {
                         ... on ProjectV2FieldCommon { id name }
                         ... on ProjectV2SingleSelectField { id name options { id name } }
                       }
+                      pageInfo { hasNextPage endCursor }
                     }
                   }
                 }
               }`
-              const fields = new Map()
-              const project = await github.graphql(fieldsQuery, { id: PROJECT_ID })
-              if (!project.node) {
+              const fieldsPage = await github.graphql(fieldsQuery, { id: PROJECT_ID, after: null })
+              if (!fieldsPage.node) {
                 throw new Error(`Project ${PROJECT_ID} is not visible to this token (deleted, or the token can't see user-level projects)`)
               }
-              for (const f of project.node.fields.nodes) {
+              const fields = new Map()
+              const fieldNodes = await pageThrough(fieldsPage.node.fields, (after) =>
+                github.graphql(fieldsQuery, { id: PROJECT_ID, after }).then((r) => r.node.fields))
+              for (const f of fieldNodes) {
                 if (f.options) {
                   fields.set(f.name, { id: f.id, options: new Map(f.options.map((o) => [o.name, o.id])) })
                 }
               }
 
               // ── Find (or add) the issue's item in the project ────────────
-              const itemQuery = `query($id: ID!) {
+              const itemQuery = `query($id: ID!, $after: String) {
                 node(id: $id) {
                   ... on Issue {
-                    projectItems(first: 20) {
+                    projectItems(first: 100, after: $after) {
                       nodes {
                         id
                         project { id }
-                        fieldValues(first: 30) {
+                        fieldValues(first: 100) {
                           nodes {
                             ... on ProjectV2ItemFieldSingleSelectValue {
                               field { ... on ProjectV2FieldCommon { name } }
                               name
                             }
                           }
+                          pageInfo { hasNextPage endCursor }
                         }
                       }
+                      pageInfo { hasNextPage endCursor }
                     }
                   }
                 }
               }`
-              const found = await github.graphql(itemQuery, { id: issue.node_id })
-              const existing = found.node.projectItems.nodes.find((n) => n.project.id === PROJECT_ID)
+              const itemsPage = await github.graphql(itemQuery, { id: issue.node_id, after: null })
+              if (!itemsPage.node) { throw new Error(`Issue #${number} not found — was it deleted?`) }
+              const itemNodes = await pageThrough(itemsPage.node.projectItems, (after) =>
+                github.graphql(itemQuery, { id: issue.node_id, after }).then((r) => r.node.projectItems))
+              const existing = itemNodes.find((n) => n.project.id === PROJECT_ID)
 
               let itemId
               const current = {}
               if (existing) {
                 itemId = existing.id
-                for (const v of existing.fieldValues.nodes) {
+                const valuesQuery = `query($id: ID!, $after: String) {
+                  node(id: $id) {
+                    ... on ProjectV2Item {
+                      fieldValues(first: 100, after: $after) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            field { ... on ProjectV2FieldCommon { name } }
+                            name
+                          }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                      }
+                    }
+                  }
+                }`
+                const valueNodes = await pageThrough(existing.fieldValues, (after) =>
+                  github.graphql(valuesQuery, { id: itemId, after }).then((r) => r.node.fieldValues))
+                for (const v of valueNodes) {
                   if (v.field) current[v.field.name] = v.name
                 }
               } else {
