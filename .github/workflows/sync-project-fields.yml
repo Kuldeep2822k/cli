@@ -33,6 +33,7 @@ jobs:
   sync-fields:
     name: Sync issue labels to PALEE roadmap fields
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Compute and write project fields
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -41,6 +42,7 @@ jobs:
           # cannot modify it. Set the PROJECT_PAT secret (classic PAT with the
           # "project" scope) and it is used automatically.
           github-token: ${{ secrets.PROJECT_PAT || github.token }}
+          retries: 3
           script: |
             const PROJECT_ID = 'PVT_kwHOB_VdDM4Bic4L'
             const PROJECT_URL = 'https://github.com/users/Kuldeep2822k/projects/3'
@@ -108,6 +110,9 @@ jobs:
               }`
               const fields = new Map()
               const project = await github.graphql(fieldsQuery, { id: PROJECT_ID })
+              if (!project.node) {
+                throw new Error(`Project ${PROJECT_ID} is not visible to this token (deleted, or the token can't see user-level projects)`)
+              }
               for (const f of project.node.fields.nodes) {
                 if (f.options) {
                   fields.set(f.name, { id: f.id, options: new Map(f.options.map((o) => [o.name, o.id])) })
