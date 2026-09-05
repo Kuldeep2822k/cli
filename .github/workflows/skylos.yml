@@ -1,0 +1,39 @@
+name: Skylos Static Analysis
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: skylos-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  skylos:
+    name: Dead Code & Quality Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Skylos - Dead Code Detection & SAST
+        uses: duriantaco/skylos@89d33c0e856f3451eb88c7f60410051ded8d3109 # v4.35.0
+        with:
+          # Advisory rollout: findings are annotated but never block the merge.
+          # Once the false-positive rate is measured on this repo, switch to
+          # `gate` (block) or `review` (PR comments + block) and drop the
+          # continue-on-error below.
+          mode: scan
+          analysis: dead-code security quality ai-defects
+          confidence: '60'
+        # Trial phase: tooling failures (incl. exit 2 "incomplete analysis")
+        # must not break CI while we evaluate the signal quality.
+        continue-on-error: true
