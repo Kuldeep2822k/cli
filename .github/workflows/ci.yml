@@ -13,13 +13,18 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions: {}
+
 jobs:
   quality-check:
     name: Lint, Typecheck & Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Use Node.js 24.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -39,6 +44,7 @@ jobs:
   test-matrix:
     name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix: >-
@@ -52,6 +58,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -75,12 +82,15 @@ jobs:
   smoke-install:
     name: Global Package Smoke Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       matrix: >-
         ${{ fromJSON(github.event_name == 'pull_request' && '{ "os": ["ubuntu-latest", "windows-latest"] }' || '{ "os": ["ubuntu-latest", "windows-latest", "macos-latest"] }') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Use Node.js 24.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -113,7 +123,7 @@ jobs:
         run: node scripts/verify-tarball.js
 
       - name: Install CLI globally from packed tarball
-        run: npm install -g ${{ steps.pack.outputs.filename }}
+        run: npm install -g --ignore-scripts ${{ steps.pack.outputs.filename }}
 
       - name: Verify Exact Version Match
         shell: bash
@@ -133,6 +143,7 @@ jobs:
     if: always()
     needs: [quality-check, test-matrix, smoke-install]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check status
         run: |
