@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../src/engine/mastery';
+import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD, resolveTopicMastery } from '../src/engine/mastery';
 import { getReadyTopics } from '../src/engine/dependency';
 import { TopicNode } from '../src/types';
 
@@ -98,5 +98,103 @@ describe('Mastery Engine & Threshold', () => {
     const readyTopics = getReadyTopics(topics);
     assert.strictEqual(readyTopics.length, 1);
     assert.strictEqual(readyTopics[0].palee_id, 'T-child');
+  });
+
+  // --- resolveTopicMastery tests ---
+  describe('resolveTopicMastery', () => {
+    test('pillars-first mode: no pillars, no existing -> 0', () => {
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        precedence: 'pillars-first'
+      }), 0);
+    });
+
+    test('pillars-first mode: pillars only -> computed', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        precedence: 'pillars-first'
+      });
+      assert.strictEqual(result, 0.72);
+    });
+
+    test('pillars-first mode: existing only -> existing kept', () => {
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        existing: 0.85,
+        precedence: 'pillars-first'
+      }), 0.85);
+    });
+
+    test('pillars-first mode: both pillars and existing -> pillars win', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        existing: 0.85,
+        precedence: 'pillars-first'
+      });
+      assert.strictEqual(result, 0.72);
+    });
+
+    test('pillars-first mode: existing 0 is treated as present (no recompute)', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        existing: 0,
+        precedence: 'pillars-first'
+      });
+      assert.strictEqual(result, 0);
+    });
+
+    test('existing-first mode: no pillars, no existing -> 0', () => {
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        precedence: 'existing-first'
+      }), 0);
+    });
+
+    test('existing-first mode: pillars only -> computed', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        precedence: 'existing-first'
+      });
+      assert.strictEqual(result, 0.72);
+    });
+
+    test('existing-first mode: existing only -> existing kept', () => {
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        existing: 0.85,
+        precedence: 'existing-first'
+      }), 0.85);
+    });
+
+    test('existing-first mode: both pillars and existing -> existing wins', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        existing: 0.85,
+        precedence: 'existing-first'
+      });
+      assert.strictEqual(result, 0.85);
+    });
+
+    test('existing-first mode: existing 0 is treated as present (no recompute)', () => {
+      const result = resolveTopicMastery({
+        conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
+        existing: 0,
+        precedence: 'existing-first'
+      });
+      assert.strictEqual(result, 0);
+    });
+
+    test('normalizes existing value via normalizeScore', () => {
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        existing: '0.75',
+        precedence: 'existing-first'
+      }), 0.75);
+      assert.strictEqual(resolveTopicMastery({
+        conceptual: 0, practical: 0, debug: 0, feynman: 0,
+        existing: 'invalid',
+        precedence: 'existing-first'
+      }), 0);
+    });
   });
 });
