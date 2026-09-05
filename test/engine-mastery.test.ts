@@ -134,13 +134,15 @@ describe('Mastery Engine & Threshold', () => {
       assert.strictEqual(result, 0.72);
     });
 
-    test('pillars-first mode: existing 0 is treated as present (no recompute)', () => {
+    test('pillars-first mode: existing 0 loses to positive pillar scores', () => {
       const result = resolveTopicMastery({
         conceptual: 0.8, practical: 0.6, debug: 0.4, feynman: 0.9,
         existing: 0,
         precedence: 'pillars-first'
       });
-      assert.strictEqual(result, 0);
+      // Any pillar > 0 triggers a recompute in pillars-first mode, so the
+      // computed 0.72 takes precedence over the explicit existing 0.
+      assert.strictEqual(result, 0.72);
     });
 
     test('existing-first mode: no pillars, no existing -> 0', () => {
