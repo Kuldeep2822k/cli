@@ -168,21 +168,6 @@ interface RollbackRecord {
 }
 
 /**
- * Reverts atomic writes for a batch of notes in reverse order during adoption failures.
- *
- * @param vaultPath - Absolute path to Obsidian vault root
- * @param journal - List of rollback records containing original file contents
- * @returns Promise resolving when rollback completes
- *
- * @remarks
- * Restores original content for previously committed notes in reverse chronological order using `atomicWrite`.
- *
- * @example
- * ```typescript
- * await rollbackBatch('/vault', journal);
- * ```
- */
-/**
  * Rolls back a partially-completed batch adoption by restoring each journaled
  * note to its original content, in reverse journal order.
  *
@@ -193,6 +178,11 @@ interface RollbackRecord {
  * @remarks
  * Restoration is best-effort: a failed revert logs the error and continues with
  * the remaining journal entries so as much of the batch as possible is undone.
+ *
+ * @example
+ * ```typescript
+ * await rollbackBatch('/vault', journal);
+ * ```
  */
 async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Promise<void> {
   if (journal.length === 0) return;
