@@ -54,6 +54,13 @@ function createNote(
   return filePath;
 }
 
+/**
+ * Reads a note from the vault and returns its parsed frontmatter dictionary.
+ *
+ * @param vaultPath - Absolute path to the temp vault root
+ * @param filename - Note filename relative to the vault root
+ * @returns The parsed frontmatter object, or an empty object if absent
+ */
 function readFrontmatter(vaultPath: string, filename: string): Record<string, unknown> {
   const content = fs.readFileSync(path.join(vaultPath, filename), 'utf8');
   const { frontmatter } = parseFrontmatter(content);

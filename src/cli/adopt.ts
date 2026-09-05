@@ -182,6 +182,18 @@ interface RollbackRecord {
  * await rollbackBatch('/vault', journal);
  * ```
  */
+/**
+ * Rolls back a partially-completed batch adoption by restoring each journaled
+ * note to its original content, in reverse journal order.
+ *
+ * @param vaultPath - Absolute path to the vault root
+ * @param journal - Rollback journal of successfully-written notes from the current batch
+ * @returns Promise resolving when all restoration attempts complete
+ *
+ * @remarks
+ * Restoration is best-effort: a failed revert logs the error and continues with
+ * the remaining journal entries so as much of the batch as possible is undone.
+ */
 async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Promise<void> {
   if (journal.length === 0) return;
 
