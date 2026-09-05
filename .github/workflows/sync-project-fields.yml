@@ -4,9 +4,9 @@ name: Sync Project Fields
 # Iteration) on the user-level project "PALEE roadmap":
 # https://github.com/users/Kuldeep2822k/projects/3
 #
-# Mirrors the one-shot migration of 2026-09 (apply-migration.ps1), dropping its
-# per-issue-number special cases. Field/option IDs are resolved by NAME at
-# runtime, so editing options in the project UI does not break this workflow.
+# Mirrors the one-shot migration from 2026-09, dropping its per-issue-number
+# special cases. Field/option IDs are resolved by NAME at runtime, so editing
+# options in the project UI does not break this workflow.
 
 on:
   issues:
