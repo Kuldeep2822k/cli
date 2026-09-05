@@ -6,6 +6,7 @@ import {
   updateFrontmatter,
   computeFingerprint,
   atomicWrite,
+  isConflictError,
 } from '../storage';
 import { MigrateOptions } from '../types';
 
@@ -15,7 +16,9 @@ import { MigrateOptions } from '../types';
  * @param options - Migration options including `--fix`.
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
- * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
+ * process.exitCode = 3 if unrecognized schemas exist, process.exitCode = 4 on an OCC
+ * fingerprint mismatch or active file lock conflict (raised via `isConflictError`),
+ * and process.exitCode = 5 on any other unexpected runtime exception.
  *
  * @example
  * ```typescript
@@ -52,6 +55,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       console.log(`Migrating ${missingSchema.length} schema-less notes to Schema v1...`);
       let migrated = 0;
       const failed: string[] = [];
+      let sawConflict = false;
       for (const filePath of missingSchema) {
         try {
           const content = fs.readFileSync(filePath, 'utf8');
@@ -61,6 +65,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
           migrated++;
         } catch (err: unknown) {
           console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
+          if (isConflictError(err)) sawConflict = true;
           failed.push(filePath);
         }
       }
@@ -68,6 +73,12 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       schemaV1 += migrated;
       missingSchema.length = 0;
       missingSchema.push(...failed);
+      if (sawConflict) {
+        // OCC/lock conflict wins over the "unrecognized schema" exit 3 branch below:
+        // the migration could not complete, so report the stronger signal first.
+        process.exitCode = 4;
+        return;
+      }
     }
 
     console.log(`Schema v1: ${schemaV1} notes`);
@@ -96,7 +107,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = isConflictError(e) ? 4 : 5;
     return;
   }
 }

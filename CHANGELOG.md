@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve explicit `0` values for SM-2 review state fields (`ease_factor`, `interval_days`, `repetition`, `lapses`) instead of treating them as missing and applying defaults.
+
+### Refactored
+- Extract duplicated mastery fallback logic into `resolveTopicMastery` helper in engine, preserving command-specific precedence (`pillars-first` for review, `existing-first` for adopt single and batch).
+
 ### Refactor (refactor)
 - **Merge duplicate `WalkOptions` declarations**: Consolidated the two copies in `src/types.ts` into one interface retaining `followSymlinks` and `excludeDirs`; no API surface change ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
 

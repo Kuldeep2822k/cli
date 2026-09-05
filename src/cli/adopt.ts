@@ -20,7 +20,7 @@ import {
   matchesTags,
   validatePattern,
 } from '../storage';
-import { computeTopicMastery, normalizeScore } from '../engine/mastery';
+import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
 
@@ -295,15 +295,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(content, absolutePath, frontmatter);
 
+      const topicMastery = resolveTopicMastery({
+        conceptual: frontmatter?.conceptual,
+        practical: frontmatter?.practical,
+        debug: frontmatter?.debug,
+        feynman: frontmatter?.feynman,
+        existing: frontmatter?.topic_mastery,
+        precedence: 'existing-first',
+      });
+
       const conceptual = normalizeScore(frontmatter?.conceptual);
       const practical = normalizeScore(frontmatter?.practical);
       const debug = normalizeScore(frontmatter?.debug);
       const feynman = normalizeScore(frontmatter?.feynman);
-      const topicMastery =
-        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
-          ? normalizeScore(frontmatter.topic_mastery)
-          : computeTopicMastery(conceptual, practical, debug, feynman);
-
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
@@ -505,15 +509,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
+      const topicMastery = resolveTopicMastery({
+        conceptual: frontmatter?.conceptual,
+        practical: frontmatter?.practical,
+        debug: frontmatter?.debug,
+        feynman: frontmatter?.feynman,
+        existing: frontmatter?.topic_mastery,
+        precedence: 'existing-first',
+      });
+
       const conceptual = normalizeScore(frontmatter?.conceptual);
       const practical = normalizeScore(frontmatter?.practical);
       const debug = normalizeScore(frontmatter?.debug);
       const feynman = normalizeScore(frontmatter?.feynman);
-      const topicMastery =
-        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
-          ? normalizeScore(frontmatter.topic_mastery)
-          : computeTopicMastery(conceptual, practical, debug, feynman);
-
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,

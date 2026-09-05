@@ -8,6 +8,7 @@ import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter
 import { Lock } from '../src/storage/lock';
 import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
 import { reviewCommand } from '../src/cli/review';
+import migrateCommand from '../src/cli/migrate';
 
 describe('CLI Commands', () => {
   let tempDir: string;
@@ -785,6 +786,94 @@ Content.
     } finally {
       if (fs.existsSync(deletedTopicPath)) {
         fs.unlinkSync(deletedTopicPath);
+      }
+    }
+  });
+
+  test('migrate --fix exits with code 4 on concurrent lock conflict', async () => {
+    const lockMigratePath = path.join(vaultDir, 'lock-conflict-migrate.md');
+    try {
+      fs.writeFileSync(
+        lockMigratePath,
+        `---
+title: Lock Conflict Migrate
+---
+# Lock Conflict Migrate
+`,
+        'utf8'
+      );
+
+      const lock = new Lock(vaultDir, lockMigratePath);
+      await lock.acquire();
+
+      try {
+        const result = runCLI(['migrate', '--fix']);
+        assert.strictEqual(
+          result.status,
+          4,
+          `Expected exit code 4 on migrate --fix lock conflict, got ${result.status}. Stderr: ${result.stderr}`
+        );
+        assert.match(result.stderr, /Lock conflict|conflict/i);
+      } finally {
+        lock.release();
+      }
+    } finally {
+      if (fs.existsSync(lockMigratePath)) {
+        fs.unlinkSync(lockMigratePath);
+      }
+    }
+  });
+
+  test('migrate --fix exits with code 4 on OCC TOCTOU conflict', async () => {
+    const toctouMigratePath = path.join(vaultDir, 'toctou-migrate-conflict.md');
+    try {
+      fs.writeFileSync(
+        toctouMigratePath,
+        `---
+title: TOCTOU Migrate Conflict
+---
+# TOCTOU Migrate Conflict
+Initial content.
+`,
+        'utf8'
+      );
+
+      const originalExitCode = process.exitCode;
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+
+      // Spy on fs.readFileSync so the second read of this note (during migrate's --fix
+      // atomicWrite path) returns externally modified content, forcing an OCC conflict.
+      const origReadFileSync = fs.readFileSync;
+      let readCount = 0;
+      (fs as any).readFileSync = (p: any, options: any) => {
+        const content = origReadFileSync(p, options);
+        if (typeof p === 'string' && p.includes('toctou-migrate-conflict.md')) {
+          readCount++;
+          if (readCount > 1) {
+            return String(content).replace('Initial content.', 'Concurrently modified by external editor.');
+          }
+        }
+        return content;
+      };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(
+          process.exitCode,
+          4,
+          'Expected process.exitCode = 4 on migrate --fix OCC TOCTOU conflict'
+        );
+        assert.match(loggedError, /OCC conflict/i);
+      } finally {
+        fs.readFileSync = origReadFileSync;
+        console.error = originalError;
+        process.exitCode = originalExitCode;
+      }
+    } finally {
+      if (fs.existsSync(toctouMigratePath)) {
+        fs.unlinkSync(toctouMigratePath);
       }
     }
   });
