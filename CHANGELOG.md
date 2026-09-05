@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes (fix)
 
+- Preserve explicit `0` values for SM-2 review state fields (`ease_factor`, `interval_days`, `repetition`, `lapses`) instead of treating them as missing and applying defaults ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Normalize `depends_on` and `dependencies` aliases consistently**: Unified alias resolution in `src/storage/loader.ts` via `normalizeDependencies`, ensuring identical merge and deduplication semantics across `loadTopics`, `validateDependencyGraph`, and roadmap processing ([#126](https://github.com/Kuldeep2822k/cli/issues/126)).
 
 ### Refactor (refactor)
+
+- **Extract `resolveTopicMastery` helper**: Consolidated three hand-written mastery fallback blocks into one engine helper with explicit `pillars-first` (review) and `existing-first` (adopt) precedence modes ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Merge duplicate `WalkOptions` declarations**: Consolidated the two copies in `src/types.ts` into one interface retaining `followSymlinks` and `excludeDirs`; no API surface change ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
 
 ### Documentation & Maintenance (docs)
+
 - **Phase-2 type reservation**: Documented `Topic`/`Assessment`/`Review`/`Progress`/`Session`/`CompletedSession`/`DraftSession` as reserved for the Phase-2 AI module ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
 
 ---

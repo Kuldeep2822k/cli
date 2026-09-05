@@ -22,6 +22,8 @@ export const MASTERY_THRESHOLD = mastery.MASTERY_THRESHOLD;
 export const computeTopicMastery = mastery.computeTopicMastery;
 /** Clamps and rounds raw assessment scores */
 export const normalizeScore = mastery.normalizeScore;
+/** Resolves topic mastery from pillars and optional existing value with precedence */
+export const resolveTopicMastery = mastery.resolveTopicMastery;
 
 // Dependency exports
 /** Detects cyclic prerequisite loops in the topic graph */

@@ -20,7 +20,7 @@ import {
   matchesTags,
   validatePattern,
 } from '../storage';
-import { computeTopicMastery, normalizeScore } from '../engine/mastery';
+import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
 import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 
 
@@ -168,14 +168,16 @@ interface RollbackRecord {
 }
 
 /**
- * Reverts atomic writes for a batch of notes in reverse order during adoption failures.
+ * Rolls back a partially-completed batch adoption by restoring each journaled
+ * note to its original content, in reverse journal order.
  *
- * @param vaultPath - Absolute path to Obsidian vault root
- * @param journal - List of rollback records containing original file contents
- * @returns Promise resolving when rollback completes
+ * @param vaultPath - Absolute path to the vault root
+ * @param journal - Rollback journal of successfully-written notes from the current batch
+ * @returns Promise resolving when all restoration attempts complete
  *
  * @remarks
- * Restores original content for previously committed notes in reverse chronological order using `atomicWrite`.
+ * Restoration is best-effort: a failed revert logs the error and continues with
+ * the remaining journal entries so as much of the batch as possible is undone.
  *
  * @example
  * ```typescript
@@ -295,15 +297,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(content, absolutePath, frontmatter);
 
+      const topicMastery = resolveTopicMastery({
+        conceptual: frontmatter?.conceptual,
+        practical: frontmatter?.practical,
+        debug: frontmatter?.debug,
+        feynman: frontmatter?.feynman,
+        existing: frontmatter?.topic_mastery,
+        precedence: 'existing-first',
+      });
+
       const conceptual = normalizeScore(frontmatter?.conceptual);
       const practical = normalizeScore(frontmatter?.practical);
       const debug = normalizeScore(frontmatter?.debug);
       const feynman = normalizeScore(frontmatter?.feynman);
-      const topicMastery =
-        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
-          ? normalizeScore(frontmatter.topic_mastery)
-          : computeTopicMastery(conceptual, practical, debug, feynman);
-
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
@@ -505,15 +511,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const topicId = generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
+      const topicMastery = resolveTopicMastery({
+        conceptual: frontmatter?.conceptual,
+        practical: frontmatter?.practical,
+        debug: frontmatter?.debug,
+        feynman: frontmatter?.feynman,
+        existing: frontmatter?.topic_mastery,
+        precedence: 'existing-first',
+      });
+
       const conceptual = normalizeScore(frontmatter?.conceptual);
       const practical = normalizeScore(frontmatter?.practical);
       const debug = normalizeScore(frontmatter?.debug);
       const feynman = normalizeScore(frontmatter?.feynman);
-      const topicMastery =
-        frontmatter?.topic_mastery !== undefined && frontmatter?.topic_mastery !== null
-          ? normalizeScore(frontmatter.topic_mastery)
-          : computeTopicMastery(conceptual, practical, debug, feynman);
-
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
