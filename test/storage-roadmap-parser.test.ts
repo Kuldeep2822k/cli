@@ -26,6 +26,24 @@ topics:
     assert.deepStrictEqual(result.roadmap.topics[1].depends_on, ['T-01']);
   });
 
+  test('normalizes dependency aliases at the parse boundary', () => {
+    const result = parseRoadmapContent(`topics:
+  - id: T-01
+    title: Foundations
+    path: foundations.md
+    depends_on: "T-a, T-b"
+    dependencies: [T-b, T-c]
+  - id: T-02
+    title: Independent
+    path: independent.md
+`, 'roadmap.yaml');
+
+    assert.ok(result.roadmap);
+    assert.deepStrictEqual(result.roadmap.topics[0].depends_on, ['T-a', 'T-b', 'T-c']);
+    assert.ok(!('dependencies' in result.roadmap.topics[0]));
+    assert.strictEqual(result.roadmap.topics[1].depends_on, undefined);
+  });
+
   test('parses YAML frontmatter in Markdown files', () => {
     const mdFrontmatter = `---
 roadmap_id: R-k8s
@@ -160,5 +178,49 @@ topics:
     assert.strictEqual(result.roadmap, null);
     assert.ok(result.error);
     assert.match(result.error, /Invalid YAML/);
+  });
+
+  test('returns structured error diagnostic when frontmatter topic entry is null or non-object', () => {
+    const nullTopicFm = `---
+topics:
+  -
+  - id: T-valid
+    title: Valid
+---
+# Notes
+`;
+    const result = parseRoadmapContent(nullTopicFm, 'null-topic.md');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.error);
+    assert.match(result.error, /Invalid topic at index 0: expected topic object, received null/);
+  });
+
+  test('returns structured error diagnostic when YAML topic entry is primitive or array', () => {
+    const primitiveResult = parseRoadmapContent(`
+topics:
+  - "string-instead-of-object"
+`, 'primitive.yaml');
+    assert.strictEqual(primitiveResult.roadmap, null);
+    assert.match(primitiveResult.error ?? '', /Invalid topic at index 0: expected topic object, received string/);
+
+    const arrayResult = parseRoadmapContent(`
+topics:
+  - [nested, array]
+`, 'array.yaml');
+    assert.strictEqual(arrayResult.roadmap, null);
+    assert.match(arrayResult.error ?? '', /Invalid topic at index 0: expected topic object, received array/);
+  });
+
+  test('returns a structured topic error from an invalid YAML code block', () => {
+    const result = parseRoadmapContent(`# Invalid Roadmap
+
+\`\`\`yaml
+topics:
+  - null
+\`\`\`
+`, 'invalid-codeblock.md');
+
+    assert.strictEqual(result.roadmap, null);
+    assert.match(result.error ?? '', /Invalid topic at index 0: expected topic object, received null/);
   });
 });

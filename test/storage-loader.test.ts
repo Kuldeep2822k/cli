@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { normalizeDependencies } from '../src/storage/dependencies';
 import { loadTopics } from '../src/storage/loader';
 
 describe('Storage Topic Loader', () => {
@@ -163,6 +164,122 @@ title: Prescan 1
     assert.strictEqual(topics.length, 1);
     assert.strictEqual(topics[0].palee_id, 'T-prescan-1');
   });
+
+  test('loadTopics unions and dedupes depends_on and dependencies when both keys are present (Issue #126)', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'dual-deps.md'),
+      `---
+palee_schema: 1
+palee_id: T-dual-deps
+title: Dual Dependencies Topic
+depends_on:
+  - T-dep-1
+  - T-dep-2
+dependencies:
+  - T-dep-2
+  - T-dep-3
+---
+# Dual Deps Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-dep-1', 'T-dep-2', 'T-dep-3']);
+  });
+
+  test('loadTopics supports comma-separated string dependencies and unions aliases', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'comma-deps.md'),
+      `---
+palee_schema: 1
+palee_id: T-comma-deps
+title: Comma Dependencies Topic
+depends_on: "T-dep-a, T-dep-b"
+dependencies: "T-dep-b, T-dep-c"
+---
+# Comma Deps Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-dep-a', 'T-dep-b', 'T-dep-c']);
+  });
+
+  test('loadTopics drops null/empty list entries from YAML without coercing to "null"', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'null-entry.md'),
+      `---
+palee_schema: 1
+palee_id: T-null-entry
+title: Null Entry Topic
+depends_on:
+  -
+  - T-valid-dep
+dependencies:
+  -
+---
+# Null Entry Topic
+`,
+      'utf8'
+    );
+
+    const topics = loadTopics(tmpVault);
+    assert.strictEqual(topics.length, 1);
+    const t = topics[0];
+    assert.deepStrictEqual(t.depends_on, ['T-valid-dep']);
+  });
+});
+
+describe('normalizeDependencies (Issue #126)', () => {
+  const testCases: Array<{
+    name: string;
+    dependsOn: unknown;
+    dependencies: unknown;
+    expected: string[];
+  }> = [
+    {
+      name: 'unions arrays in canonical-first order',
+      dependsOn: ['T-1', 'T-2'],
+      dependencies: ['T-2', 'T-3'],
+      expected: ['T-1', 'T-2', 'T-3'],
+    },
+    {
+      name: 'supports comma-separated and array values',
+      dependsOn: 'T-1, T-2',
+      dependencies: ['T-2', 'T-3'],
+      expected: ['T-1', 'T-2', 'T-3'],
+    },
+    {
+      name: 'preserves wikilinks',
+      dependsOn: ['[[T-math]]'],
+      dependencies: '[[T-math]], [[T-geometry]]',
+      expected: ['[[T-math]]', '[[T-geometry]]'],
+    },
+    {
+      name: 'trims whitespace and drops empty values',
+      dependsOn: ['  T-1  ', ' ', null],
+      dependencies: ' , T-2, ',
+      expected: ['T-1', 'T-2'],
+    },
+    {
+      name: 'ignores unsupported values',
+      dependsOn: { invalid: true },
+      dependencies: 42,
+      expected: [],
+    },
+  ];
+
+  for (const { name, dependsOn, dependencies, expected } of testCases) {
+    test(name, () => {
+      assert.deepStrictEqual(normalizeDependencies(dependsOn, dependencies), expected);
+    });
+  }
 });
 
 

@@ -11,6 +11,7 @@ import path from 'path';
 import { walkVault } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
+import { normalizeDependencies } from './dependencies';
 import { TopicNode, normalizeDifficulty } from '../types';
 
 /** Module-level topic file cache */
@@ -136,6 +137,7 @@ function parseNumber(val: unknown, fallback: number = 0): number {
   return fallback;
 }
 
+
 /**
  * Scans the vault and parses all Markdown files containing a valid `palee_id`.
  *
@@ -182,10 +184,7 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
       ? frontmatter.title.trim()
       : path.basename(filePath, '.md');
 
-    const rawDeps = frontmatter.depends_on || frontmatter.dependencies;
-    const dependsOn = Array.isArray(rawDeps)
-      ? rawDeps.map((d) => String(d).trim()).filter(Boolean)
-      : [];
+    const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
 
     const difficulty = normalizeDifficulty(frontmatter.difficulty);
     const topicMastery = parseScore(frontmatter.topic_mastery, 0.0);

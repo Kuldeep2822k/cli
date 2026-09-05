@@ -67,6 +67,7 @@ function parseFrontmatter(content: string): FrontmatterResult {
  *
  * @param content - Existing file content
  * @param updates - Map of frontmatter key-value pairs to set or update
+ * @param removals - Frontmatter keys to remove
  * @returns Modified file content with updated frontmatter
  * @throws {Error} If existing frontmatter contains unparseable syntax errors
  *
@@ -78,7 +79,11 @@ function parseFrontmatter(content: string): FrontmatterResult {
  * });
  * ```
  */
-function updateFrontmatter(content: string, updates: Record<string, unknown>): string {
+function updateFrontmatter(
+  content: string,
+  updates: Record<string, unknown>,
+  removals: string[] = []
+): string {
   const parsed = parseFrontmatter(content);
   if (parsed.error) {
     throw new Error(`Malformed frontmatter: ${parsed.error}`);
@@ -93,7 +98,9 @@ function updateFrontmatter(content: string, updates: Record<string, unknown>): s
   // Parse as YAML document to preserve CST (handling empty raw block if present)
   const doc = parsed.raw.trim().length > 0 ? parseDocument(parsed.raw) : new Document({});
 
-  // Update only specified keys
+  for (const key of removals) {
+    doc.delete(key);
+  }
   for (const [key, value] of Object.entries(updates)) {
     doc.set(key, value);
   }
