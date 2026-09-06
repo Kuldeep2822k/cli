@@ -177,6 +177,40 @@ describe('Session hot.md read characterization', () => {
         console.error = origError;
       }
     });
+
+    test('fails with exit 5 when hot.md vanishes after the session start write', async () => {
+      // Third race window: hot.md exists through the initial read and the
+      // updateHotMemory write, but an external process removes it before the
+      // post-write refresh. Pre-refactor refresh was an unguarded readFileSync
+      // (exit 5 on ENOENT); the tolerant accessor must preserve that outcome.
+      writeHot(['palee_schema: 1', 'active_topic: T-vanish-post']);
+      const origRead = fs.readFileSync;
+      let hotReads = 0;
+      (fs as any).readFileSync = (p: any, ...rest: any[]) => {
+        if (typeof p === 'string' && p.endsWith('hot.md')) {
+          hotReads++;
+          if (hotReads > 2) {
+            // initial read (1) + updateHotMemory OCC pre-read (2) succeeded;
+            // every later hot.md read — the refresh — finds the file gone
+            const e = new Error(`ENOENT: no such file or directory, open '${p}'`) as NodeJS.ErrnoException;
+            e.code = 'ENOENT';
+            throw e;
+          }
+        }
+        return origRead(p, ...rest);
+      };
+      const origError = console.error;
+      let logged = '';
+      console.error = (msg?: unknown) => { logged += String(msg ?? ''); };
+      try {
+        await sessionCommand('start');
+        assert.strictEqual(process.exitCode, 5, 'post-write vanish must fail start, not print (none) fields');
+        assert.match(logged, /hot\.md disappeared|ENOENT/);
+      } finally {
+        (fs as any).readFileSync = origRead;
+        console.error = origError;
+      }
+    });
   });
 
   // ── Draft: same-topic, ≤24h old, not future ─────────────────────────

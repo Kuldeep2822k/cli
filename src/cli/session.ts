@@ -183,6 +183,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           startedAtToPersist
         );
         const refreshed = readHotMemory(vaultPath);
+        if (refreshed.state === 'missing') {
+          // hot.md existed for the write above; missing immediately after means an
+          // external removal in that window. The pre-refactor code hit this via an
+          // unguarded readFileSync (exit 5) — preserve that outcome.
+          throw new Error('.palee/hot.md disappeared after session start write');
+        }
         frontmatter = refreshed.frontmatter;
         body = refreshed.body;
       }
