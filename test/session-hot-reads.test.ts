@@ -100,11 +100,25 @@ describe('Session hot.md read characterization', () => {
     test('rebuilds hot.md when palee_schema is an unsupported version', async () => {
       // Strict contract (ADR-0007): only palee_schema: 1 is supported. A version-2
       // hot.md previously classified as ok (truthiness) and skipped the rebuild.
-      writeHot(['palee_schema: 2', 'active_topic: T-v2']);
+      // Seed a confirmed session so the rebuild has real derived content to restore,
+      // then assert the foreign T-v2 content is replaced, not merely re-labeled.
+      const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(sessionsDir, 'S-20260815T100000-aaaa.md'),
+        '---\npalee_schema: 1\nsession_id: S-20260815T100000-aaaa\ntopic_id: T-history\nstarted_at: 2026-08-15T10:00:00.000Z\nended_at: 2026-08-15T11:00:00.000Z\nstatus: completed\n---\n# Session\n\nConfirmed session body content.\n',
+        'utf8'
+      );
+      writeHot(['palee_schema: 2', 'active_topic: T-v2'], '# Foreign v2 body\n');
+
       await sessionCommand('start');
+
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
-      const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
-      assert.strictEqual(frontmatter?.palee_schema, 1, 'hot.md must be rebuilt at schema 1');
+      const read = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+      assert.strictEqual(read.frontmatter?.palee_schema, 1, 'hot.md must be rebuilt at schema 1');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-history', 'active_topic must come from the confirmed session');
+      assert.match(read.body, /Confirmed session body content/, 'body must come from the confirmed session');
+      assert.ok(!read.body.includes('Foreign'), 'foreign v2 body must be replaced');
     });
 
     test('rebuilds hot.md when frontmatter is malformed YAML', async () => {
