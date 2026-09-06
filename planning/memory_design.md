@@ -47,6 +47,7 @@ palee_schema: 1
 memory_id: H-active
 last_session: S-20260808-180000-a1b2
 active_topic: T-git-rebase
+started_at: 2026-08-08T18:00:00+05:30
 updated_at: 2026-08-08
 ---
 
@@ -59,6 +60,11 @@ compare rebase with merge.
 
 Source: [[S-20260808-180000-a1b2]]
 ```
+
+Readers treat `started_at` as nullable: current writers always emit it, but
+legacy files may omit it, and consumers must tolerate its absence. Readers
+also tolerate unknown additional frontmatter keys — they are ignored, never
+rejected or removed.
 
 The `updated_at` field in hot.md frontmatter uses `YYYY-MM-DD` (date only, no time or timezone). It records which calendar day the hot file was last regenerated — sub-day precision is not needed because hot.md is always regenerated from the most recent confirmed session, and the session record carries the full ISO-8601 timestamp. If two confirmed sessions occur on the same day, the later session's ID becomes `last_session` and replaces the earlier one.
 

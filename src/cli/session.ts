@@ -15,13 +15,14 @@ import {
   resetHotMemory,
   rebuildHotAndIndex,
   updateHotMemory,
+  readHotMemory,
+  resolveActiveTopic,
   writeSessionNote,
   writeDraftCheckpoint,
   generateSessionId,
   generateDraftId,
-  parseFrontmatter,
-  recoverDraft,
   isConflictError,
+  recoverDraft,
 } from '../storage';
 import { SessionOptions } from '../types';
 
@@ -46,27 +47,12 @@ export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): 
     return null;
   }
 
-  // Check .palee/hot.md for active_topic
-  const hotPath = path.join(vaultPath, '.palee', 'hot.md');
-  if (fs.existsSync(hotPath)) {
-    try {
-      const content = fs.readFileSync(hotPath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
-      if (
-        frontmatter &&
-        typeof frontmatter.active_topic === 'string'
-      ) {
-        const active = frontmatter.active_topic.trim();
-        if (active.length > 0 && active.toLowerCase() !== '(none)') {
-          return active;
-        }
-      }
-    } catch {
-      // ignore parse error, fallback to null
-    }
+  // Check .palee/hot.md for active_topic; read/parse failures mean no active topic
+  try {
+    return resolveActiveTopic(readHotMemory(vaultPath));
+  } catch {
+    return null;
   }
-
-  return null;
 }
 
 /**
@@ -155,17 +141,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         await rebuildHotAndIndex(vaultPath);
       }
 
-      let hotContent = fs.readFileSync(hotPath, 'utf8');
-      let { frontmatter, body, error } = parseFrontmatter(hotContent);
+      let hotRead = readHotMemory(vaultPath);
+      let { frontmatter, body } = hotRead;
 
-      if (error || (frontmatter && !frontmatter.palee_schema)) {
+      if (hotRead.state === 'corrupt' || hotRead.state === 'schema-invalid') {
         console.warn('Corrupt hot memory detected. Rebuilding...');
         await resetHotMemory(vaultPath);
         await rebuildHotAndIndex(vaultPath);
-        hotContent = fs.readFileSync(hotPath, 'utf8');
-        const parsed = parseFrontmatter(hotContent);
-        frontmatter = parsed.frontmatter;
-        body = parsed.body;
+        hotRead = readHotMemory(vaultPath);
+        frontmatter = hotRead.frontmatter;
+        body = hotRead.body;
       }
 
       const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
@@ -189,8 +174,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           body || '',
           startedAtToPersist
         );
-        hotContent = fs.readFileSync(hotPath, 'utf8');
-        const refreshed = parseFrontmatter(hotContent);
+        const refreshed = readHotMemory(vaultPath);
         frontmatter = refreshed.frontmatter;
         body = refreshed.body;
       }
@@ -222,26 +206,24 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       let draftStart = new Date().toISOString();
-      const hotPath = path.join(vaultPath, '.palee', 'hot.md');
-      if (fs.existsSync(hotPath)) {
-        try {
-          const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
-          if (
-            frontmatter &&
-            frontmatter.active_topic === topicId &&
-            typeof frontmatter.started_at === 'string' &&
-            frontmatter.started_at.trim().length > 0 &&
-            !Number.isNaN(new Date(frontmatter.started_at).getTime())
-          ) {
-            const parsedCandidate = new Date(frontmatter.started_at.trim()).getTime();
-            const nowMs = Date.now();
-            if ((nowMs - parsedCandidate) <= 24 * 60 * 60 * 1000 && parsedCandidate <= nowMs) {
-              draftStart = frontmatter.started_at.trim();
-            }
+      try {
+        const hot = readHotMemory(vaultPath);
+        const fm = hot.frontmatter;
+        if (
+          fm &&
+          fm.active_topic === topicId &&
+          typeof fm.started_at === 'string' &&
+          fm.started_at.trim().length > 0 &&
+          !Number.isNaN(new Date(fm.started_at).getTime())
+        ) {
+          const parsedCandidate = new Date(fm.started_at.trim()).getTime();
+          const nowMs = Date.now();
+          if ((nowMs - parsedCandidate) <= 24 * 60 * 60 * 1000 && parsedCandidate <= nowMs) {
+            draftStart = fm.started_at.trim();
           }
-        } catch {
-          // ignore read error
         }
+      } catch {
+        // ignore read error
       }
 
       const draftId = generateDraftId();
@@ -287,19 +269,17 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       // Tier 2: Check active hot memory
       if (!startedAt) {
-        const hotPath = path.join(vaultPath, '.palee', 'hot.md');
-        if (fs.existsSync(hotPath)) {
-          try {
-            const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
-            const activeTopic = frontmatter && typeof frontmatter.active_topic === 'string' ? frontmatter.active_topic.trim() : '';
-            const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
-            const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
-            if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
-              startedAt = new Date(Math.min(parsedStart, nowTime)).toISOString();
-            }
-          } catch {
-            // ignore parse error
+        try {
+          const hot = readHotMemory(vaultPath);
+          const fm = hot.frontmatter;
+          const activeTopic = fm && typeof fm.active_topic === 'string' ? fm.active_topic.trim() : '';
+          const rawStarted = fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+          const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
+          if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+            startedAt = new Date(Math.min(parsedStart, nowTime)).toISOString();
           }
+        } catch {
+          // ignore parse error
         }
       }
 

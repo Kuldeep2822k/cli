@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Refactor (refactor)
 
+- **Centralize `hot.md` reads in `readHotMemory()`**: Made `src/storage/memory.ts` the read-side owner of `.palee/hot.md` with a tolerant `readHotMemory()`/`resolveActiveTopic()` accessor (`HotMemoryRead` distinguishes `missing`, `no-frontmatter`, `corrupt`, `schema-invalid`, and `ok`); migrated all six parse sites in `session.ts` (topic resolution, start ×3, draft, end) with every flow's age/skew policy preserved ([#130](https://github.com/Kuldeep2822k/cli/issues/130)).
 - **Extract `resolveTopicMastery` helper**: Consolidated three hand-written mastery fallback blocks into one engine helper with explicit `pillars-first` (review) and `existing-first` (adopt) precedence modes ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Merge duplicate `WalkOptions` declarations**: Consolidated the two copies in `src/types.ts` into one interface retaining `followSymlinks` and `excludeDirs`; no API surface change ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
 
