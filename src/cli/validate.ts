@@ -5,6 +5,7 @@
 
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
+import { ExitCode } from './exit-codes';
 import { walkVault, loadTopics } from '../storage';
 import { validateDependencyGraph } from '../engine/dependency';
 import { ValidateOptions, TopicNode, ValidationError } from '../types';
@@ -115,7 +116,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = ExitCode.Unexpected;
     return;
   }
 }

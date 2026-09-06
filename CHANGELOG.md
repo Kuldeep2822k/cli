@@ -12,12 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reject unsupported `palee_schema` values in hot.md reads**: `readHotMemory()` now classifies only `palee_schema: 1` as `ok`; absent, versioned (`2`), boolean (`true`), and stringified (`"1"`) values classify as `schema-invalid`, so `session start` rebuilds a foreign hot.md instead of trusting derived state it cannot interpret. Read-state contract recorded in [ADR-0007](docs/adr/0007-hot-memory-read-state-contract.md) ([#130](https://github.com/Kuldeep2822k/cli/issues/130)).
 - Preserve explicit `0` values for SM-2 review state fields (`ease_factor`, `interval_days`, `repetition`, `lapses`) instead of treating them as missing and applying defaults ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Normalize `depends_on` and `dependencies` aliases consistently**: Unified alias resolution in `src/storage/loader.ts` via `normalizeDependencies`, ensuring identical merge and deduplication semantics across `loadTopics`, `validateDependencyGraph`, and roadmap processing ([#126](https://github.com/Kuldeep2822k/cli/issues/126)).
+- **Emit exit code 4 on OCC conflict in `palee migrate --fix`**: Per-note write conflicts are now classified as `Conflict` (exit 4) instead of falling through to the validation exit 3 / unexpected 5 paths; the remaining notes continue migrating, and conflict outranks validation when both occur ([#128](https://github.com/Kuldeep2822k/cli/issues/128)).
 
 ### Refactor (refactor)
 
 - **Centralize `hot.md` reads in `readHotMemory()`**: Made `src/storage/memory.ts` the read-side owner of `.palee/hot.md` with a tolerant `readHotMemory()`/`resolveActiveTopic()` accessor (`HotMemoryRead` distinguishes `missing`, `no-frontmatter`, `corrupt`, `schema-invalid`, and `ok`); migrated all six parse sites in `session.ts` (topic resolution, start ×3, draft, end) with every flow's age/skew policy preserved ([#130](https://github.com/Kuldeep2822k/cli/issues/130)).
 - **Extract `resolveTopicMastery` helper**: Consolidated three hand-written mastery fallback blocks into one engine helper with explicit `pillars-first` (review) and `existing-first` (adopt) precedence modes ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Merge duplicate `WalkOptions` declarations**: Consolidated the two copies in `src/types.ts` into one interface retaining `followSymlinks` and `excludeDirs`; no API surface change ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
+- **Centralize exit-code mapping in `src/cli/exit-codes.ts`**: Introduced the `ExitCode` enum and `exitCodeFor()` classifier; all command handlers now share one conflict-vs-unexpected mapping instead of copy-pasted `isConflictError(err) ? 4 : 5` ternaries, and raw `5` literals in catches were replaced with `ExitCode.Unexpected` ([#128](https://github.com/Kuldeep2822k/cli/issues/128)).
 
 ### Documentation & Maintenance (docs)
 

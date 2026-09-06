@@ -158,6 +158,64 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       assert.strictEqual(process.exitCode, 3);
       fs.unlinkSync(badNote);
     });
+
+    test('with --fix exits 4 on OCC conflict and continues migrating remaining notes', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const conflictedNote = path.join(vaultDir, 'topic-conflict.md');
+      const laterNote = path.join(vaultDir, 'topic-later.md');
+      fs.writeFileSync(
+        conflictedNote,
+        '---\npalee_id: T-conflict\ntitle: Conflict Topic\n---\n# Conflict\nInitial content.\n'
+      );
+      fs.writeFileSync(
+        laterNote,
+        '---\npalee_id: T-later\ntitle: Later Topic\n---\n# Later\nInitial content.\n'
+      );
+
+      // Spy on fs.readFileSync: let loadTopics()'s scan read behave normally,
+      // then mutate the real file before the migration loop's fresh read so
+      // atomicWrite() detects the fingerprint mismatch (TOCTOU).
+      const origReadFileSync = fs.readFileSync;
+      let readCount = 0;
+      (fs as any).readFileSync = (p: any, options: any) => {
+        const content = origReadFileSync(p, options);
+        if (typeof p === 'string' && p.includes('topic-conflict.md')) {
+          readCount++;
+          if (readCount > 1) {
+            // Concurrent external edit between scan and write
+            fs.writeFileSync(p, String(content).replace('Initial content.', 'Externally modified.'), 'utf8');
+          }
+        }
+        return content;
+      };
+
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+      const originalLog = console.log;
+      let loggedOutput = '';
+      console.log = (...args: unknown[]) => { loggedOutput += args.join(' ') + '\n'; };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(process.exitCode, 4, 'Expected exitCode 4 on OCC conflict during --fix');
+        assert.match(loggedError, /Failed to migrate/);
+        // The concurrently modified note must remain untouched by migration
+        const conflictedContent = origReadFileSync(conflictedNote, 'utf8');
+        assert.ok(!conflictedContent.includes('palee_schema'), 'Conflicted note must not be migrated');
+        assert.ok(conflictedContent.includes('Externally modified.'), 'External edit preserved');
+        // The later note was still processed, proving batch continuation
+        const laterContent = origReadFileSync(laterNote, 'utf8');
+        assert.ok(laterContent.includes('palee_schema: 1'), 'Migration continued after conflict');
+        assert.match(loggedOutput, /1 notes/);
+      } finally {
+        fs.readFileSync = origReadFileSync;
+        console.error = originalError;
+        console.log = originalLog;
+        fs.unlinkSync(conflictedNote);
+        fs.unlinkSync(laterNote);
+      }
+    });
   });
 
   describe('roadmapCommand', () => {

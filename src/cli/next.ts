@@ -1,5 +1,6 @@
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { ExitCode } from './exit-codes';
 /**
  * Next Command Handler
  * Shows next topic(s) due for review
@@ -157,7 +158,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = ExitCode.Unexpected;
     return;
   }
 }
