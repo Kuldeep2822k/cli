@@ -151,6 +151,32 @@ describe('Session hot.md read characterization', () => {
       assert.notStrictEqual(process.exitCode, 5, 'start must not crash on empty fence');
       // hot.md is not reset+rebuilt in this path; body content is preserved as-is in output path
     });
+
+    test('fails with exit 5 when hot.md vanishes between existence check and read (TOCTOU)', async () => {
+      // Race window: existsSync saw hot.md, an external process removed it, then
+      // readHotMemory finds ENOENT. Pre-refactor code hit this via an unguarded
+      // readFileSync and failed with exit 5; the refactor must preserve that outcome
+      // rather than reporting a successful start against a vanished working memory.
+      const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+      writeHot(['palee_schema: 1', 'active_topic: T-vanish']);
+      const origExists = fs.existsSync;
+      (fs as any).existsSync = (p: any) => {
+        if (typeof p === 'string' && p.endsWith('hot.md')) return true; // saw it…
+        return origExists(p);
+      };
+      fs.unlinkSync(hotPath); // …but it is gone by the time the read happens
+      const origError = console.error;
+      let logged = '';
+      console.error = (msg?: unknown) => { logged += String(msg ?? ''); };
+      try {
+        await sessionCommand('start');
+        assert.strictEqual(process.exitCode, 5, 'vanished hot.md must fail start, not succeed silently');
+        assert.match(logged, /hot\.md disappeared|ENOENT/);
+      } finally {
+        (fs as any).existsSync = origExists;
+        console.error = origError;
+      }
+    });
   });
 
   // ── Draft: same-topic, ≤24h old, not future ─────────────────────────
@@ -217,6 +243,23 @@ describe('Session hot.md read characterization', () => {
       const inherited = readDraftStart();
       assert.ok(inherited);
       assert.ok(!Number.isNaN(new Date(inherited!).getTime()), 'fallback must be valid timestamp');
+    });
+
+    test('whitespace-padded active_topic does not inherit (untrimmed compare, pre-existing)', async () => {
+      // Characterization: the draft inheritance compare reads hot.md's active_topic
+      // raw (no trim) — identical to the pre-refactor `frontmatter.active_topic === topicId`
+      // at old session.ts:231. Pinning it so a future "fix" to trimmed compare is a
+      // deliberate behavior change, not a silent drift.
+      const past = new Date(Date.now() - 3600000).toISOString();
+      writeHot([
+        'palee_schema: 1',
+        'active_topic: " T-padded "',
+        `started_at: "${past}"`,
+      ]);
+      await sessionCommand('draft', { topic: 'T-padded' });
+      const inherited = readDraftStart();
+      assert.ok(inherited);
+      assert.notStrictEqual(inherited, past, 'padded hot topic must not inherit (pre-existing untrimmed compare)');
     });
   });
 

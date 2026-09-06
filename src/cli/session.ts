@@ -153,6 +153,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         body = hotRead.body;
       }
 
+      // hot.md was verified present (or just rebuilt) above; `missing` here means it
+      // was removed in that window. The pre-refactor code hit this via an unguarded
+      // readFileSync and failed with exit 5 — preserve that outcome instead of
+      // reporting a successful start against a vanished working memory.
+      if (hotRead.state === 'missing') {
+        throw new Error('.palee/hot.md disappeared during session start');
+      }
+
       const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
