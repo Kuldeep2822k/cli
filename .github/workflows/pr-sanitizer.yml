@@ -8,10 +8,13 @@ on:
       - synchronize
       - reopened
 
+permissions: {}
+
 jobs:
   lint-pr-title:
     name: Validate PR Title (Conventional Commits)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: read
     steps:

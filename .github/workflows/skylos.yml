@@ -20,9 +20,12 @@ jobs:
   skylos:
     name: Dead Code & Quality Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Skylos - Dead Code Detection & SAST
         uses: duriantaco/skylos@89d33c0e856f3451eb88c7f60410051ded8d3109 # v4.35.0
