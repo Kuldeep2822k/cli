@@ -9,12 +9,12 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
+import { exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
   updateFrontmatter,
   computeFingerprint,
   atomicWrite,
-  isConflictError,
   walkVault,
   matchesPattern,
   matchesTags,
@@ -577,13 +577,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const err = writeErr as Error;
       console.error(`\nBatch adoption write error: ${err.message}`);
       await rollbackBatch(vaultPath, journal);
-      process.exitCode = isConflictError(writeErr) ? 4 : 5;
+      process.exitCode = exitCodeFor(writeErr);
       return;
     }
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = isConflictError(e) ? 4 : 5;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }

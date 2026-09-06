@@ -1,6 +1,7 @@
 import readline from 'readline';
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
+import { exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
  * Manages learning sessions and session memory
@@ -21,7 +22,6 @@ import {
   generateDraftId,
   parseFrontmatter,
   recoverDraft,
-  isConflictError,
 } from '../storage';
 import { SessionOptions } from '../types';
 
@@ -398,7 +398,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = isConflictError(e) ? 4 : 5;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }

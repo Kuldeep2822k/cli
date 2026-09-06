@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { PaleeConfig, NodeError } from '../types';
+import { ExitCode } from './exit-codes';
 
 /**
  * Resolves the platform-specific path to the PALEE config JSON file.
@@ -214,7 +215,7 @@ async function configCommand(action?: string, value?: string): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = ExitCode.Unexpected;
     return;
   }
 }

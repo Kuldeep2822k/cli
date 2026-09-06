@@ -1,13 +1,13 @@
 import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
+import { exitCodeFor } from './exit-codes';
 import {
   loadTopics,
   parseFrontmatter,
   updateFrontmatter,
   computeFingerprint,
   atomicWrite,
-  isConflictError,
 } from '../storage';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
@@ -159,7 +159,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = isConflictError(e) ? 4 : 5;
+    process.exitCode = exitCodeFor(e);
   }
 }
 

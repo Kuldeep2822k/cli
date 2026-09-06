@@ -8,6 +8,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   updateFrontmatter,
   computeFingerprint,
@@ -284,13 +285,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.error(`Failed to import ${failed} topics.`);
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exitCode = conflicts > 0 ? 4 : 1;
+        process.exitCode = conflicts > 0 ? ExitCode.Conflict : ExitCode.PartialImport;
         return;
       } else {
         console.log('✓ Roadmap imported successfully');
         console.log(`  Created: ${created} notes`);
         console.log(`  Updated: ${updated} notes`);
-        process.exitCode = 0;
+        process.exitCode = ExitCode.Success;
         return;
       }
     }
@@ -322,7 +323,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = isConflictError(e) ? 4 : 5;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }
