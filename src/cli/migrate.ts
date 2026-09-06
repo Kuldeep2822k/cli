@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   loadTopics,
   updateFrontmatter,
@@ -15,7 +16,9 @@ import { MigrateOptions } from '../types';
  * @param options - Migration options including `--fix`.
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
- * process.exitCode = 3 if unrecognized schemas exist, and process.exitCode = 5 on unexpected runtime exceptions.
+ * process.exitCode = 3 if unrecognized schemas remain, process.exitCode = 4 if any
+ * note update hits an OCC/lock conflict during `--fix`, and process.exitCode = 5
+ * on unexpected runtime exceptions.
  *
  * @example
  * ```typescript
@@ -52,6 +55,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       console.log(`Migrating ${missingSchema.length} schema-less notes to Schema v1...`);
       let migrated = 0;
       const failed: string[] = [];
+      let hadConflict = false;
       for (const filePath of missingSchema) {
         try {
           const content = fs.readFileSync(filePath, 'utf8');
@@ -62,12 +66,38 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
         } catch (err: unknown) {
           console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
           failed.push(filePath);
+          if (exitCodeFor(err) === ExitCode.Conflict) {
+            hadConflict = true;
+          }
         }
       }
       console.log(`✓ Successfully migrated ${migrated} notes to Schema v1.`);
       schemaV1 += migrated;
       missingSchema.length = 0;
       missingSchema.push(...failed);
+      if (hadConflict) {
+        // Conflict outranks validation: the documented concurrency condition
+        // requires retrying the migration, so surface it even when other
+        // schema-less notes remain.
+        process.exitCode = ExitCode.Conflict;
+      }
+    }
+
+    if (process.exitCode === ExitCode.Conflict) {
+      console.log(`Schema v1: ${schemaV1} notes`);
+      if (missingSchema.length > 0 || unrecognized.length > 0) {
+        const allUnrecognized = [...missingSchema, ...unrecognized];
+        console.log(`Unrecognized schema: ${allUnrecognized.length} notes`);
+        for (const file of allUnrecognized.slice(0, 5)) {
+          console.log(`  • ${file}`);
+        }
+        if (allUnrecognized.length > 5) {
+          console.log(`  ... and ${allUnrecognized.length - 5} more`);
+        }
+        console.log();
+      }
+      console.error('Error: OCC conflict or active lock detected during migration. Re-run to retry the conflicting notes.');
+      return;
     }
 
     console.log(`Schema v1: ${schemaV1} notes`);
@@ -85,7 +115,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
         console.log('Tip: Run "palee migrate --fix" to automatically upgrade notes missing palee_schema to Schema v1.');
       }
       console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
-      process.exitCode = 3;
+      process.exitCode = ExitCode.Validation;
       return;
     }
 
@@ -96,7 +126,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = 5;
+    process.exitCode = ExitCode.Unexpected;
     return;
   }
 }

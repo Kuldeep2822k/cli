@@ -7,6 +7,7 @@
 
 import { program } from 'commander';
 import packageJson from '../package.json';
+import { ExitCode } from '../src/cli/exit-codes';
 
 // Command handlers
 import configCommand from '../src/cli/config';
@@ -134,11 +135,11 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   if (isJson) {
     console.log(JSON.stringify({
       status: 'error',
-      code: 5,
+      code: ExitCode.Unexpected,
       error: message,
     }));
   } else {
     console.error(err);
   }
-  process.exit(5);
+  process.exit(ExitCode.Unexpected);
 });
