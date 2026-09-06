@@ -86,6 +86,45 @@ describe('Memory System', () => {
       assert.strictEqual(read.frontmatter?.active_topic, 'T-legacy', 'tolerant fields retained');
     });
 
+    test('classifies unsupported schema version 2 as schema-invalid but keeps tolerant fields', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: 2\nactive_topic: T-v2\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-v2', 'tolerant fields retained');
+    });
+
+    test('classifies boolean palee_schema true as schema-invalid', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: true\nactive_topic: T-bool\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-bool', 'tolerant fields retained');
+    });
+
+    test('classifies string palee_schema "1" as schema-invalid', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: "1"\nactive_topic: T-string\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-string', 'tolerant fields retained');
+    });
+
     test('classifies malformed YAML as corrupt', () => {
       const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
       fs.mkdirSync(path.dirname(hotPath), { recursive: true });

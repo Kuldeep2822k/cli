@@ -97,6 +97,16 @@ describe('Session hot.md read characterization', () => {
       assert.ok(frontmatter?.palee_schema, 'hot.md must be rebuilt with schema');
     });
 
+    test('rebuilds hot.md when palee_schema is an unsupported version', async () => {
+      // Strict contract (ADR-0007): only palee_schema: 1 is supported. A version-2
+      // hot.md previously classified as ok (truthiness) and skipped the rebuild.
+      writeHot(['palee_schema: 2', 'active_topic: T-v2']);
+      await sessionCommand('start');
+      const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+      const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+      assert.strictEqual(frontmatter?.palee_schema, 1, 'hot.md must be rebuilt at schema 1');
+    });
+
     test('rebuilds hot.md when frontmatter is malformed YAML', async () => {
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       fs.writeFileSync(hotPath, '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
@@ -107,8 +117,8 @@ describe('Session hot.md read characterization', () => {
 
     test('tolerates hot.md with no frontmatter without rebuilding', async () => {
       // No frontmatter fences: parseFrontmatter returns frontmatter null WITHOUT error.
-      // The rebuild condition is `error || (frontmatter && !palee_schema)` — null frontmatter
-      // without error takes the tolerant no-rebuild path, per the #130 behavior matrix.
+      // start's rebuild condition is state corrupt/schema-invalid — no-frontmatter
+      // takes the tolerant no-rebuild path, per the #130 behavior matrix.
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       fs.writeFileSync(hotPath, 'plain body without frontmatter\n', 'utf8');
       const before = fs.readFileSync(hotPath, 'utf8');
@@ -119,8 +129,8 @@ describe('Session hot.md read characterization', () => {
 
     test('empty-fence frontmatter (--- \\n ---) does not trigger corrupt rebuild', async () => {
       // ---\n--- empty fence: parseFrontmatter returns frontmatter null WITHOUT error.
-      // The corrupt condition is `error || (frontmatter && !palee_schema)` — null frontmatter
-      // without error takes the tolerant no-rebuild path (prints with (none) fields).
+      // start's rebuild condition is state corrupt/schema-invalid — no-frontmatter
+      // takes the tolerant no-rebuild path (prints with (none) fields).
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       fs.writeFileSync(hotPath, '---\n---\nempty fence body\n', 'utf8');
       await sessionCommand('start');

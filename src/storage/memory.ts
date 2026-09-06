@@ -26,8 +26,9 @@ const MAX_HOT_WORDS = 250;
  * Read outcome for `.palee/hot.md`, distinguishing why frontmatter is unavailable.
  *
  * @remarks
- * - `ok`: parsed frontmatter contains `palee_schema`.
- * - `schema-invalid`: parsed frontmatter lacks `palee_schema` (tolerant fields still exposed).
+ * - `ok`: parsed frontmatter carries the supported schema version (`palee_schema: 1`).
+ * - `schema-invalid`: parsed frontmatter lacks `palee_schema` or carries an unsupported
+ *   version (tolerant fields still exposed).
  * - `no-frontmatter`: no parsable frontmatter block (absent or empty fences).
  * - `corrupt`: frontmatter delimiters present but YAML failed to parse.
  * - `missing`: file does not exist (`ENOENT`).
@@ -87,7 +88,7 @@ function readHotMemory(vaultPath: string): HotMemoryRead {
   if (!frontmatter) {
     return { state: 'no-frontmatter', frontmatter: null, body };
   }
-  if (!frontmatter.palee_schema) {
+  if (frontmatter.palee_schema !== 1) {
     return { state: 'schema-invalid', frontmatter: frontmatter as Partial<HotMemoryData>, body };
   }
   return { state: 'ok', frontmatter: frontmatter as Partial<HotMemoryData>, body };

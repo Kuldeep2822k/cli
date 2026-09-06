@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes (fix)
 
+- **Reject unsupported `palee_schema` values in hot.md reads**: `readHotMemory()` now classifies only `palee_schema: 1` as `ok`; absent, versioned (`2`), boolean (`true`), and stringified (`"1"`) values classify as `schema-invalid`, so `session start` rebuilds a foreign hot.md instead of trusting derived state it cannot interpret. Read-state contract recorded in [ADR-0007](docs/adr/0007-hot-memory-read-state-contract.md) ([#130](https://github.com/Kuldeep2822k/cli/issues/130)).
 - Preserve explicit `0` values for SM-2 review state fields (`ease_factor`, `interval_days`, `repetition`, `lapses`) instead of treating them as missing and applying defaults ([#127](https://github.com/Kuldeep2822k/cli/issues/127)).
 - **Normalize `depends_on` and `dependencies` aliases consistently**: Unified alias resolution in `src/storage/loader.ts` via `normalizeDependencies`, ensuring identical merge and deduplication semantics across `loadTopics`, `validateDependencyGraph`, and roadmap processing ([#126](https://github.com/Kuldeep2822k/cli/issues/126)).
 
