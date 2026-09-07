@@ -136,7 +136,7 @@ Rather than reducing topic comprehension to a single 1-dimensional recall score,
 The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts.
 
 - **3-Color DFS Cycle Detection**: Traverses prerequisites using White (unvisited), Gray (visiting / recursion stack), and Black (visited / fully settled) node states. Re-encountering a Gray node detects a cyclic back-edge, returning the exact cycle path slice from `pathStack`.
-- **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in `depends_on` or `dependencies` exist in the vault and possess `topic_mastery >= 0.70`.
+- **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in the canonical `depends_on` array exist in the vault and possess `topic_mastery >= 0.70`.
 - **Ready Topic Queuing**: `getReadyTopics` scans the vault, filtering for unmastered topics (`topic_mastery < 0.70`) whose prerequisites are fully satisfied.
 - **Topological Integrity Validation**: `validateDependencyGraph` inspects the entire graph, detecting dangling prerequisites (`missing_dependency`) and circular loops (`cycle`).
 
@@ -155,7 +155,7 @@ flowchart TD
     subgraph Inputs ["Input Data Space (Markdown Frontmatter)"]
         InReview["SRS State:<br/>- ease_factor (default: 2.5)<br/>- interval_days (default: 1)<br/>- repetition (default: 0)<br/>- lapses (default: 0)<br/>+ Review Quality: q &isin; {0,1,2,3,4,5}"]
         InPillars["4 Assessment Pillars:<br/>- conceptual &isin; [0.0, 1.0]<br/>- practical &isin; [0.0, 1.0]<br/>- debug &isin; [0.0, 1.0]<br/>- feynman &isin; [0.0, 1.0]"]
-        InGraph["Graph Topology:<br/>- palee_id<br/>- depends_on / dependencies<br/>- topic_mastery &isin; [0.0, 1.0]"]
+        InGraph["Graph Topology:<br/>- palee_id<br/>- depends_on (canonical, storage-normalized)<br/>- topic_mastery &isin; [0.0, 1.0]"]
     end
 
     subgraph Processing ["Engine Core Processing (Pure Functions)"]
@@ -199,7 +199,7 @@ The engine enforces strict mathematical and architectural invariants across all 
 | **Mastery** | Mastery Threshold | Prerequisite satisfaction requires `topic_mastery` $\ge 0.70$ |
 | **Mastery** | Archive Exclusion | Archived topics (`status === 'archived'`) excluded from active averages and ready queues |
 | **Dependency** | Directed Acyclic Graph | Vault prerequisite graph must be acyclic (`detectCycle === null`) |
-| **Dependency** | Alias Support | Dependencies normalized from both `depends_on` and `dependencies` arrays |
+| **Dependency** | Canonical Dependencies | Legacy `dependencies` aliases are unioned into `depends_on` once at the storage boundary (`normalizeDependencies`, `src/storage/dependencies.ts`); the engine reads `depends_on` only |
 
 Sources:
 - SM-2 Engine: [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)

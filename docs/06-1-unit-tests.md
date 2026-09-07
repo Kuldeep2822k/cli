@@ -52,12 +52,13 @@ Tests in `test/engine-sm2.test.ts` (15 tests) verify the `processReview` functio
 
 ### Dependency Graph & Cycle Detection (`test/engine-dependency.test.ts`)
 
-Tests in `test/engine-dependency.test.ts` (8 tests) exercise graph validation and traversal:
+Tests in `test/engine-dependency.test.ts` (7 tests) exercise graph validation and traversal over the canonical `depends_on` field:
 
 - **3-Color DFS Cycle Detection**: Verifies that `detectCycle` correctly flags simple circular dependencies ($A \rightarrow B \rightarrow A$) as well as complex multi-node cycles ($A \rightarrow B \rightarrow C \rightarrow A$).
 - **Frontier Readiness Filtering**: Validates `getReadyTopics`, confirming that topics are only marked ready when all declared prerequisites reach or exceed `MASTERY_THRESHOLD` (0.70).
 - **Missing Dependency Diagnostics**: Ensures `validateDependencyGraph` emits structured error descriptors containing missing topic IDs when unadopted notes are referenced in `depends_on`.
-- **Alias Support**: Verifies seamless normalization between `depends_on` and `dependencies` frontmatter keys.
+
+Alias unioning is no longer tested here — the engine reads `depends_on` only. The storage-boundary canonicalization (legacy `dependencies` unioned into `depends_on`, deduplicated, array and comma-string forms) is covered in `test/storage-loader.test.ts` (`loadTopics unions and dedupes depends_on and dependencies when both keys are present`) and `test/storage-roadmap-parser.test.ts` (`normalizes dependency aliases at the parse boundary`).
 
 ### Four-Pillar Pedagogical Mastery (`test/engine-mastery.test.ts`)
 
