@@ -80,7 +80,12 @@ describe('Storage Barrel Census & Public Surface (Issue #131)', () => {
       assert.strictEqual(storage.HEARTBEAT_INTERVAL, 15000);
 
       assert.strictEqual(typeof storage.STALE_TIMEOUT, 'number');
-      assert.ok(storage.STALE_TIMEOUT === 60000 || storage.STALE_TIMEOUT === 120000);
+      // Platform-conditional constant (lock.ts): pin the mapping, not just the value-set,
+      // so a swapped ternary fails on every platform in the CI matrix.
+      assert.strictEqual(
+        storage.STALE_TIMEOUT,
+        process.platform === 'win32' ? 60000 : 120000
+      );
     });
   });
 

@@ -63,9 +63,9 @@ export {
 
   // Locking
   Lock,
-  /** @deprecated Internal lock parameter; import directly from './lock'. Scheduled for barrel removal (#131). */
+  /** @deprecated Internal lock parameter; not exported by the published package outside this barrel. Retained for backwards compatibility only; scheduled for removal (#131). */
   HEARTBEAT_INTERVAL,
-  /** @deprecated Internal lock parameter; import directly from './lock'. Scheduled for barrel removal (#131). */
+  /** @deprecated Internal lock parameter; not exported by the published package outside this barrel. Retained for backwards compatibility only; scheduled for removal (#131). */
   STALE_TIMEOUT,
 
   // Atomic writes

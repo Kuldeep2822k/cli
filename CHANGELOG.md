@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated (deprecated)
 
-- **Internal lock parameters deprecated in storage barrel**: Marked `HEARTBEAT_INTERVAL` and `STALE_TIMEOUT` as `@deprecated` in `src/storage/index.ts`; callers should import them directly from `src/storage/lock` if needed ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
+- **Internal lock parameters deprecated in storage barrel**: Marked `HEARTBEAT_INTERVAL` and `STALE_TIMEOUT` as `@deprecated` in `src/storage/index.ts`; these are internal lock tuning parameters with no runtime callers — they remain exported from the barrel for backwards compatibility only and will be removed in the next breaking release ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
 
 ---
 
