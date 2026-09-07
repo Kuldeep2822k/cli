@@ -75,15 +75,24 @@ describe('Storage Barrel Census & Public Surface (Issue #131)', () => {
       assert.strictEqual(storage.UNSETTLED_HORIZON, 2000);
     });
 
-    it('exports deprecated remove-candidate symbols for backwards compatibility', () => {
-      assert.strictEqual(typeof storage.HEARTBEAT_INTERVAL, 'number');
-      assert.strictEqual(storage.HEARTBEAT_INTERVAL, 15000);
+    it('removed remove-candidate symbols from the barrel while lock.ts module exports remain', async () => {
+      // Census verdict "removed" (#131): zero runtime consumers and no reservation
+      // → pruned from the public barrel and root re-export chain. The constants
+      // remain module-private exports in src/storage/lock.ts for internal/test use.
+      // (Cast: the whole point is the property no longer exists on the namespace.)
+      const barrel = storage as unknown as Record<string, unknown>;
+      const root = index as unknown as Record<string, unknown>;
+      assert.strictEqual(barrel.HEARTBEAT_INTERVAL, undefined);
+      assert.strictEqual(barrel.STALE_TIMEOUT, undefined);
+      assert.strictEqual(root.HEARTBEAT_INTERVAL, undefined);
+      assert.strictEqual(root.STALE_TIMEOUT, undefined);
 
-      assert.strictEqual(typeof storage.STALE_TIMEOUT, 'number');
-      // Platform-conditional constant (lock.ts): pin the mapping, not just the value-set,
-      // so a swapped ternary fails on every platform in the CI matrix.
+      // The owning module still exports them for internal consumers (tests import
+      // via '../src/storage/lock'); pin the values and the platform mapping.
+      const lock = await import('../src/storage/lock');
+      assert.strictEqual(lock.HEARTBEAT_INTERVAL, 15000);
       assert.strictEqual(
-        storage.STALE_TIMEOUT,
+        lock.STALE_TIMEOUT,
         process.platform === 'win32' ? 60000 : 120000
       );
     });

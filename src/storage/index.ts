@@ -14,7 +14,7 @@
 
 import { walkVault, ensureVaultDirectory } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
-import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from './lock';
+import { Lock } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
 import {
@@ -63,10 +63,6 @@ export {
 
   // Locking
   Lock,
-  /** @deprecated Internal lock parameter; not exported by the published package outside this barrel. Retained for backwards compatibility only; scheduled for removal (#131). */
-  HEARTBEAT_INTERVAL,
-  /** @deprecated Internal lock parameter; not exported by the published package outside this barrel. Retained for backwards compatibility only; scheduled for removal (#131). */
-  STALE_TIMEOUT,
 
   // Atomic writes
   atomicWrite,
