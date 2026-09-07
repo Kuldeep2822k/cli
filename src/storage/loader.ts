@@ -21,6 +21,7 @@ const topicCache = new FileCache<LoadedTopic>();
  * Returns the module-level topic cache instance.
  *
  * @returns FileCache instance holding parsed topic notes
+ * @remarks Reserved shared-cache seam for future layers (Phase-2 AI read tools, MCP escape hatch, validation framework #25 / #129).
  */
 export function getTopicCache(): FileCache<LoadedTopic> {
   return topicCache;

@@ -12,7 +12,11 @@ import fs from 'fs';
 import { computeFingerprint } from './frontmatter';
 import { CacheEntry } from '../types';
 
-/** Duration in milliseconds (2,000 ms) during which recent file modifications require full content SHA-256 hash re-verification */
+/**
+ * Duration in milliseconds (2,000 ms) during which recent file modifications require full content SHA-256 hash re-verification.
+ *
+ * @remarks Reserved for cache tests and future cache-behavior validation (#131, #129).
+ */
 const UNSETTLED_HORIZON = 2000;
 
 /**

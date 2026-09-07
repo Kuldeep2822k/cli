@@ -5,7 +5,7 @@
  * Bundles the core persistence capabilities of PALEE:
  * - **Vault Traversal & Loading**: `walkVault`, `loadTopics`
  * - **YAML CST & Markdown Frontmatter**: `parseFrontmatter`, `updateFrontmatter`, `computeFingerprint`
- * - **Cross-Process File Locking**: `Lock`, `HEARTBEAT_INTERVAL`, `STALE_TIMEOUT`
+ * - **Cross-Process File Locking**: `Lock`
  * - **Atomic OCC Writes**: `atomicWrite`, `isConflictError`
  * - **Unsettled Horizon Cache**: `FileCache`, `UNSETTLED_HORIZON`
  * - **Session & Memory Persistence**: `writeSessionNote`, `updateHotMemory`, `regenerateIndex`, `rebuildHotAndIndex`, `recoverDraft`, etc.
@@ -14,7 +14,7 @@
 
 import { walkVault, ensureVaultDirectory } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
-import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from './lock';
+import { Lock } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
 import {
@@ -66,8 +66,6 @@ export {
 
   // Locking
   Lock,
-  HEARTBEAT_INTERVAL,
-  STALE_TIMEOUT,
 
   // Atomic writes
   atomicWrite,

@@ -23,7 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation & Maintenance (docs)
 
+- **Storage Barrel Census & JSDoc Reservations**: Conducted a complete export census of `src/storage/index.ts`, annotated planned future-need exports (`getTopicCache`, `countWords`, `truncateWords`, `MAX_HOT_WORDS`, `UNSETTLED_HORIZON`, `extractTags`) with explicit `@remarks` reservation markers in owning modules, and added comprehensive public contract tests ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
+- **CLI Flag Documentation Alignment**: Corrected `nextCommand` and `planCommand` JSDoc docstrings and `@example` blocks in `src/cli/next.ts` and `src/cli/plan.ts` to match registered CLI flags in `bin/palee.ts` exactly, removing phantom references to `--tag`, `--difficulty`, `--ready`, and `--limit` ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
 - **Phase-2 type reservation**: Documented `Topic`/`Assessment`/`Review`/`Progress`/`Session`/`CompletedSession`/`DraftSession` as reserved for the Phase-2 AI module ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
+
+### Removed (removed)
+
+- **Internal lock parameters removed from the storage barrel**: `HEARTBEAT_INTERVAL` and `STALE_TIMEOUT` had zero runtime consumers and no reservations (#131 census verdict: remove) — pruned from `src/storage/index.ts` and the root re-export chain. They remain module exports in `src/storage/lock.ts` for internal and test use. As the package is 0.x, this lands in a minor release per semver 0.x conventions ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
 
 ---
 

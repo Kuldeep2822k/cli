@@ -23,14 +23,14 @@ interface DueTopic {
 /**
  * CLI command handler for showing the next due topics for review.
  *
- * @param options - Next command options including `--tag`, `--difficulty`, and `--json`.
+ * @param options - Next command options including `--all` and `--json`.
  * @returns Promise resolving when output is complete.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * and process.exitCode = 5 on unexpected exceptions.
  *
  * @example
  * ```typescript
- * await nextCommand({ difficulty: 'beginner' });
+ * await nextCommand({ all: true });
  * ```
  */
 async function nextCommand(options: NextOptions = {}): Promise<void> {
