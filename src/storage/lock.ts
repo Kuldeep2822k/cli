@@ -20,7 +20,7 @@ import { LockData, NodeError } from '../types';
 /**
  * Interval in milliseconds (15,000 ms) between periodic heartbeat mtime updates.
  *
- * @deprecated Internal lock parameter. Public storage barrel re-export is deprecated and scheduled for removal (#131).
+ * @remarks Internal lock tuning parameter. Removed from the public storage barrel per the #131 census (zero runtime consumers, no reservations); module-private export used internally and by storage-lock tests.
  */
 const HEARTBEAT_INTERVAL = 15000;
 /** Stale lock expiration timeout in milliseconds for Windows environments (60,000 ms) */
@@ -31,7 +31,7 @@ const STALE_TIMEOUT_OTHER = 120000;
 /**
  * Active stale lock threshold for current runtime platform.
  *
- * @deprecated Internal lock parameter. Public storage barrel re-export is deprecated and scheduled for removal (#131).
+ * @remarks Internal lock tuning parameter. Removed from the public storage barrel per the #131 census (zero runtime consumers, no reservations); module-private export used internally and by storage-lock tests.
  */
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
