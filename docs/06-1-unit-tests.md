@@ -101,11 +101,15 @@ Tests in `test/storage-frontmatter.test.ts` (11 tests) exercise the YAML Documen
 
 ### Vault Topic Loader (`test/storage-loader.test.ts`)
 
-Tests in `test/storage-loader.test.ts` (5 tests) verify batch vault loading:
+Tests in `test/storage-loader.test.ts` (13 tests) verify batch vault loading and the storage-boundary dependency canonicalization:
 
 - **Extraction & Normalization**: Parses frontmatter blocks, converts numeric strings, and clamps invalid values.
 - **Fallback Title Hierarchy**: Verifies title resolution order in `loadTopics`: frontmatter `title` &rarr; base filename.
 - **Pre-Scanned Performance**: Confirms that providing a pre-scanned file list bypasses redundant filesystem scans.
+- **Dependency Canonicalization** (`normalizeDependencies`, 5 parameterized cases): Unions and dedupes `depends_on` + legacy `dependencies` in canonical-first order, supports comma-separated strings, preserves wikilinks, trims whitespace/drops empty entries, ignores unsupported values.
+- **Union at Load** (3 cases): `loadTopics` unions both keys when both are present, supports comma-separated string dependencies, and drops null/empty YAML list entries without coercing to `"null"`.
+
+Roadmap ingestion exercises the same boundary in `test/storage-roadmap-parser.test.ts` (`normalizes dependency aliases at the parse boundary`).
 
 ### Working Memory & Session Recovery (`test/storage-memory.test.ts`)
 

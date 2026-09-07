@@ -69,7 +69,7 @@ The table below catalogs all 19 test files in the `test/` directory, mapped acro
 | **18** | `test/storage-walker.test.ts` | `Vault Walker` | 11 | Storage Layer | Recursive vault traversal (`walkVault`): `.md` discovery, directory exclusions (`.obsidian`, `.trash`, `.git`, `node_modules`, `.*`), non-markdown filtering, symlink skip behavior, absolute path resolution. |
 | **19** | `test/types-difficulty.test.ts` | `Difficulty Enum & Types` | 9 | Data Model / Types | `Difficulty` enum (`beginner`, `intermediate`, `advanced`), `normalizeDifficulty` coercion (case-insensitive, 1–5 scale, fallback), `TopicNode` alias compatibility, discriminated union `Session = CompletedSession | DraftSession`. |
 
-**Grand Totals**: 19 test files, 31 test suites (`describe` blocks), 230 passing test assertions.
+**Grand Totals**: 19 test files, 35 test suites (`describe` blocks), 231 passing test assertions.
 
 ---
 
