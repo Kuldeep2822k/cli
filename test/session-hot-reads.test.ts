@@ -211,6 +211,40 @@ describe('Session hot.md read characterization', () => {
         console.error = origError;
       }
     });
+
+    test('topicless start tolerates hot.md vanishing after the initial read (pre-existing)', async () => {
+      // Characterization: with no explicit --topic and no active_topic in hot.md,
+      // resolvedTopic is null and start takes the print-only path — it never re-reads
+      // hot.md, so a vanish after the initial read is not detected. This is
+      // byte-identical to the pre-refactor flow (old session.ts:158 read once,
+      // unguarded, then resolveSessionTopic swallowed its own re-read failure and
+      // printed stale success). Pinning so a future re-read-based guard is a
+      // deliberate behavior change, not silent drift.
+      writeHot(['palee_schema: 1']); // no active_topic → topicless start
+      const origRead = fs.readFileSync;
+      let hotReads = 0;
+      (fs as any).readFileSync = (p: any, ...rest: any[]) => {
+        if (typeof p === 'string' && p.endsWith('hot.md')) {
+          hotReads++;
+          if (hotReads > 1) {
+            // initial read succeeded; every later hot.md read — resolveSessionTopic's
+            // own re-read here — finds the file gone (swallowed → null → print-only path)
+            const e = new Error(`ENOENT: no such file or directory, open '${p}'`) as NodeJS.ErrnoException;
+            e.code = 'ENOENT';
+            throw e;
+          }
+        }
+        return origRead(p, ...rest);
+      };
+      try {
+        await sessionCommand('start');
+        // Pre-refactor outcome preserved: stale success, exit code unset
+        assert.notStrictEqual(process.exitCode, 5, 'topicless start must not newly fail on late vanish (pre-existing quirk)');
+        assert.strictEqual(hotReads, 2, 'resolution re-read happens (and swallows) on the topicless path');
+      } finally {
+        (fs as any).readFileSync = origRead;
+      }
+    });
   });
 
   // ── Draft: same-topic, ≤24h old, not future ─────────────────────────
