@@ -23,6 +23,99 @@ import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryActi
 const MAX_HOT_WORDS = 250;
 
 /**
+ * Read outcome for `.palee/hot.md`, distinguishing why frontmatter is unavailable.
+ *
+ * @remarks
+ * - `ok`: parsed frontmatter carries the supported schema version (`palee_schema: 1`).
+ * - `schema-invalid`: parsed frontmatter lacks `palee_schema` or carries an unsupported
+ *   version (tolerant fields still exposed).
+ * - `no-frontmatter`: no parsable frontmatter block (absent or empty fences).
+ * - `corrupt`: frontmatter delimiters present but YAML failed to parse.
+ * - `missing`: file does not exist (`ENOENT`).
+ */
+export type HotMemoryReadState =
+  | 'ok'
+  | 'missing'
+  | 'no-frontmatter'
+  | 'corrupt'
+  | 'schema-invalid';
+
+/**
+ * Tolerant read result for `.palee/hot.md`.
+ *
+ * @remarks
+ * Fields are best-effort partial views for legacy/foreign files; callers apply
+ * their own session policy. Unknown keys are ignored, never rejected.
+ */
+export interface HotMemoryRead {
+  state: HotMemoryReadState;
+  frontmatter: Partial<HotMemoryData> | null;
+  body: string;
+}
+
+/**
+ * Reads and classifies `.palee/hot.md` without applying any session policy.
+ *
+ * @param vaultPath - Vault root path
+ * @returns Tolerant read result with classification state, partial frontmatter, and body
+ * @remarks
+ * `ENOENT` maps to `missing`; other filesystem errors are thrown so existing
+ * callers keep deciding whether to swallow them. Parser errors map to `corrupt`.
+ * Does not rebuild files, mutate state, or print output.
+ * @example
+ * ```typescript
+ * const read = readHotMemory('/vault');
+ * if (read.state === 'ok') console.log(read.frontmatter?.active_topic);
+ * ```
+ */
+function readHotMemory(vaultPath: string): HotMemoryRead {
+  // Direct path join: a read must never create the .palee directory (no getPaleeDir here)
+  const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+  let content: string;
+  try {
+    content = fs.readFileSync(hotPath, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { state: 'missing', frontmatter: null, body: '' };
+    }
+    throw err;
+  }
+
+  const { frontmatter, body, error } = parseFrontmatter(content);
+  if (error) {
+    return { state: 'corrupt', frontmatter: null, body };
+  }
+  if (!frontmatter) {
+    return { state: 'no-frontmatter', frontmatter: null, body };
+  }
+  if (frontmatter.palee_schema !== 1) {
+    return { state: 'schema-invalid', frontmatter: frontmatter as Partial<HotMemoryData>, body };
+  }
+  return { state: 'ok', frontmatter: frontmatter as Partial<HotMemoryData>, body };
+}
+
+/**
+ * Resolves the active topic from a hot-memory read.
+ *
+ * @param read - Result of {@link readHotMemory}
+ * @returns Trimmed active topic ID, or null when absent, blank, `(none)`, or unparsable
+ * @example
+ * ```typescript
+ * const topic = resolveActiveTopic(readHotMemory('/vault'));
+ * ```
+ */
+function resolveActiveTopic(read: HotMemoryRead): string | null {
+  const fm = read.frontmatter;
+  if (fm && typeof fm.active_topic === 'string') {
+    const active = fm.active_topic.trim();
+    if (active.length > 0 && active.toLowerCase() !== '(none)') {
+      return active;
+    }
+  }
+  return null;
+}
+
+/**
  * Ensures and returns the `.palee` hidden directory inside the vault.
  *
  * @param vaultPath - Vault root path
@@ -709,6 +802,8 @@ export {
   truncateWords,
   countWords,
   formatDateOnly,
+  readHotMemory,
+  resolveActiveTopic,
   writeSessionNote,
   updateHotMemory,
   resetHotMemory,

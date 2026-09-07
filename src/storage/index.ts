@@ -23,6 +23,8 @@ import {
   truncateWords,
   countWords,
   formatDateOnly,
+  readHotMemory,
+  resolveActiveTopic,
   writeSessionNote,
   updateHotMemory,
   resetHotMemory,
@@ -39,6 +41,7 @@ import {
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
 import { loadTopics, getTopicCache, type LoadedTopic } from './loader';
+import type { HotMemoryRead, HotMemoryReadState } from './memory';
 
 export {
   // Vault operations
@@ -80,6 +83,8 @@ export {
   truncateWords,
   countWords,
   formatDateOnly,
+  readHotMemory,
+  resolveActiveTopic,
   writeSessionNote,
   updateHotMemory,
   resetHotMemory,
@@ -94,6 +99,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic };
+export type { ParsedRoadmapResult, LoadedTopic, HotMemoryRead, HotMemoryReadState };
 
 

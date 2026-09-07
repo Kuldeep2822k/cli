@@ -214,6 +214,9 @@ export type Session = CompletedSession | DraftSession;
  *
  * @remarks
  * Maintains quick-lookup context for the latest active topic and recent study notes.
+ * Readers must treat `started_at` as nullable: current writers always emit it,
+ * but legacy files may omit it, and consumers tolerate its absence. Unknown
+ * additional keys are ignored, never rejected.
  */
 export interface HotMemoryData {
   /** Schema version */

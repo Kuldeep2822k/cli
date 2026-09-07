@@ -9,6 +9,8 @@ import {
   truncateWords,
   countWords,
   formatDateOnly,
+  readHotMemory,
+  resolveActiveTopic,
   writeSessionNote,
   updateHotMemory,
   resetHotMemory,
@@ -45,6 +47,181 @@ describe('Memory System', () => {
     const id = generateDraftId();
     assert.ok(id.startsWith('DRAFT-S-'));
     assert.match(id, /^DRAFT-S-[a-f0-9]{8}$/);
+  });
+
+  // ── readHotMemory / resolveActiveTopic (#130) ────────────────────────
+
+  describe('readHotMemory', () => {
+    test('classifies absent file as missing', () => {
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'missing');
+      assert.strictEqual(read.frontmatter, null);
+      assert.strictEqual(read.body, '');
+    });
+
+    test('classifies valid frontmatter with palee_schema as ok', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: 1\nmemory_id: H-active\nactive_topic: T-git-rebase\nstarted_at: "2026-08-08T18:00:00Z"\nupdated_at: 2026-08-08\n---\n# Working memory\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'ok');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-git-rebase');
+      assert.strictEqual(read.body, '# Working memory\n');
+    });
+
+    test('classifies frontmatter without palee_schema as schema-invalid but keeps tolerant fields', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\nmemory_id: H-active\nactive_topic: T-legacy\n---\n# Legacy hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-legacy', 'tolerant fields retained');
+    });
+
+    test('classifies unsupported schema version 2 as schema-invalid but keeps tolerant fields', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: 2\nactive_topic: T-v2\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-v2', 'tolerant fields retained');
+    });
+
+    test('classifies boolean palee_schema true as schema-invalid', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: true\nactive_topic: T-bool\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-bool', 'tolerant fields retained');
+    });
+
+    test('classifies string palee_schema "1" as schema-invalid', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: "1"\nactive_topic: T-string\n---\n# Foreign hot\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'schema-invalid');
+      assert.strictEqual(read.frontmatter?.active_topic, 'T-string', 'tolerant fields retained');
+    });
+
+    test('classifies malformed YAML as corrupt', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(hotPath, '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'corrupt');
+      assert.strictEqual(read.frontmatter, null);
+    });
+
+    test('classifies absent frontmatter (no fences) as no-frontmatter', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(hotPath, 'plain body without fences\n', 'utf8');
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'no-frontmatter');
+      assert.strictEqual(read.body, 'plain body without fences\n');
+    });
+
+    test('classifies empty fences (--- \\n ---) as no-frontmatter', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(hotPath, '---\n---\nempty fence body\n', 'utf8');
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'no-frontmatter');
+    });
+
+    test('ignores unknown keys without rejecting them', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: 1\nfuture_key: whatever\nanother: { nested: true }\n---\n# Body\n',
+        'utf8'
+      );
+      const read = readHotMemory(testVaultPath);
+      assert.strictEqual(read.state, 'ok');
+    });
+
+    test('throws non-ENOENT filesystem errors instead of swallowing', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(hotPath, '---\npalee_schema: 1\n---\n# Body\n', 'utf8');
+      const origReadFileSync = fs.readFileSync;
+      (fs as any).readFileSync = (p: any, ...rest: any[]) => {
+        if (typeof p === 'string' && p.includes('hot.md')) {
+          const e = new Error(`EACCES: permission denied, open '${p}'`) as NodeJS.ErrnoException;
+          e.code = 'EACCES';
+          throw e;
+        }
+        return origReadFileSync(p, ...rest);
+      };
+      try {
+        assert.throws(() => readHotMemory(testVaultPath), (err: unknown) => {
+          assert.strictEqual((err as NodeJS.ErrnoException).code, 'EACCES');
+          return true;
+        });
+      } finally {
+        (fs as any).readFileSync = origReadFileSync;
+      }
+    });
+  });
+
+  describe('resolveActiveTopic', () => {
+    test('returns trimmed active topic from ok read', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(
+        hotPath,
+        '---\npalee_schema: 1\nactive_topic: " T-spaced "\n---\n# Body\n',
+        'utf8'
+      );
+      assert.strictEqual(resolveActiveTopic(readHotMemory(testVaultPath)), 'T-spaced');
+    });
+
+    test('returns null for blank, (none), non-string, and absent values', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      for (const [label, value] of [
+        ['whitespace-only', '"   "'],
+        ['(none)', '(none)'],
+        ['non-string', '42'],
+      ] as const) {
+        fs.writeFileSync(hotPath, `---\npalee_schema: 1\nactive_topic: ${value}\n---\n# Body\n`, 'utf8');
+        assert.strictEqual(resolveActiveTopic(readHotMemory(testVaultPath)), null, `must reject ${label}`);
+      }
+      fs.writeFileSync(hotPath, '---\npalee_schema: 1\n---\n# Body\n', 'utf8');
+      assert.strictEqual(resolveActiveTopic(readHotMemory(testVaultPath)), null, 'must reject absent');
+    });
+
+    test('returns null for corrupt and missing reads', () => {
+      const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+      fs.mkdirSync(path.dirname(hotPath), { recursive: true });
+      fs.writeFileSync(hotPath, '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
+      assert.strictEqual(resolveActiveTopic(readHotMemory(testVaultPath)), null);
+      fs.unlinkSync(hotPath);
+      assert.strictEqual(resolveActiveTopic(readHotMemory(testVaultPath)), null);
+    });
   });
 
   test('truncateWords caps string to specified max word count', () => {
