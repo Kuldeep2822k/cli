@@ -19,7 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation & Maintenance (docs)
 
+- **Storage Barrel Census & JSDoc Reservations**: Conducted a complete export census of `src/storage/index.ts`, annotated planned future-need exports (`getTopicCache`, `countWords`, `truncateWords`, `MAX_HOT_WORDS`, `UNSETTLED_HORIZON`, `extractTags`) with explicit `@remarks` reservation markers in owning modules, and added comprehensive public contract tests ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
+- **CLI Flag Documentation Alignment**: Corrected `nextCommand` and `planCommand` JSDoc docstrings and `@example` blocks in `src/cli/next.ts` and `src/cli/plan.ts` to match registered CLI flags in `bin/palee.ts` exactly, removing phantom references to `--tag`, `--difficulty`, `--ready`, and `--limit` ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
 - **Phase-2 type reservation**: Documented `Topic`/`Assessment`/`Review`/`Progress`/`Session`/`CompletedSession`/`DraftSession` as reserved for the Phase-2 AI module ([#125](https://github.com/Kuldeep2822k/cli/issues/125)).
+
+### Deprecated (deprecated)
+
+- **Internal lock parameters deprecated in storage barrel**: Marked `HEARTBEAT_INTERVAL` and `STALE_TIMEOUT` as `@deprecated` in `src/storage/index.ts`; callers should import them directly from `src/storage/lock` if needed ([#131](https://github.com/Kuldeep2822k/cli/issues/131)).
 
 ---
 

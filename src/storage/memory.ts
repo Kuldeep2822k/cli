@@ -19,7 +19,11 @@ import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './front
 import { atomicWrite } from './atomic-write';
 import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
 
-/** Maximum number of words retained in the active working memory (`hot.md`) summary body */
+/**
+ * Maximum number of words retained in the active working memory (`hot.md`) summary body.
+ *
+ * @remarks Reserved for valid-hot-memory validation rule (#43) enforcing word count against the 250-word cap.
+ */
 const MAX_HOT_WORDS = 250;
 
 /**
@@ -105,6 +109,7 @@ function generateDraftId(): string {
  * @param maxWords - Upper bound on word count (e.g. 250)
  * @returns Truncated string with trailing `...` if truncated
  * @remarks Splits text on whitespace and joins up to maxWords words.
+ * Reserved for valid-hot-memory validation rule (#43) enforcing word count against the 250-word cap.
  * @example
  * ```typescript
  * const truncated = truncateWords('One two three four', 2); // "One two..."
@@ -124,6 +129,7 @@ function truncateWords(text: string, maxWords: number): string {
  * @param text - Input text
  * @returns Number of words
  * @remarks Returns 0 for empty or whitespace-only input strings.
+ * Reserved for valid-hot-memory validation rule (#43) enforcing word count against the 250-word cap.
  * @example
  * ```typescript
  * const count = countWords('Study notes for machine learning'); // 5

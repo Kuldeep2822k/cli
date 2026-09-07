@@ -17,14 +17,22 @@ import os from 'os';
 import crypto from 'crypto';
 import { LockData, NodeError } from '../types';
 
-/** Interval in milliseconds (15,000 ms) between periodic heartbeat mtime updates */
+/**
+ * Interval in milliseconds (15,000 ms) between periodic heartbeat mtime updates.
+ *
+ * @deprecated Internal lock parameter. Public storage barrel re-export is deprecated and scheduled for removal (#131).
+ */
 const HEARTBEAT_INTERVAL = 15000;
 /** Stale lock expiration timeout in milliseconds for Windows environments (60,000 ms) */
 const STALE_TIMEOUT_WINDOWS = 60000;
 /** Stale lock expiration timeout in milliseconds for POSIX/macOS environments (120,000 ms) */
 const STALE_TIMEOUT_OTHER = 120000;
 
-/** Active stale lock threshold for current runtime platform */
+/**
+ * Active stale lock threshold for current runtime platform.
+ *
+ * @deprecated Internal lock parameter. Public storage barrel re-export is deprecated and scheduled for removal (#131).
+ */
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
 interface ParsedLock {

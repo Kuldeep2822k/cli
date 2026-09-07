@@ -305,6 +305,7 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
  *
  * @remarks
  * Strips leading '#' characters, trims whitespace, and converts all characters to lowercase.
+ * Public barrel contract export pinned by tests; reserved for internal adopt/roadmap and future tag validation rules (#29+, #51).
  *
  * @example
  * ```typescript
