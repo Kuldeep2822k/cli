@@ -183,32 +183,59 @@ describe('Session hot.md read characterization', () => {
       // updateHotMemory write, but an external process removes it before the
       // post-write refresh. Pre-refactor refresh was an unguarded readFileSync
       // (exit 5 on ENOENT); the tolerant accessor must preserve that outcome.
+      //
+      // Deterministic simulation: with an explicit --topic the flow is initial
+      // read → OCC pre-read → atomicWrite verification read → rename → refresh
+      // (first hot.md read after the write). We unlink hot.md at the rename — the
+      // write's final step — so the refresh hits a genuine ENOENT on a file that
+      // really is gone, instead of forcing the error via read interception.
       writeHot(['palee_schema: 1', 'active_topic: T-vanish-post']);
-      const origRead = fs.readFileSync;
-      let hotReads = 0;
-      (fs as any).readFileSync = (p: any, ...rest: any[]) => {
-        if (typeof p === 'string' && p.endsWith('hot.md')) {
-          hotReads++;
-          if (hotReads > 2) {
-            // initial read (1) + updateHotMemory OCC pre-read (2) succeeded;
-            // every later hot.md read — the refresh — finds the file gone
-            const e = new Error(`ENOENT: no such file or directory, open '${p}'`) as NodeJS.ErrnoException;
-            e.code = 'ENOENT';
-            throw e;
-          }
+      const origRename = fs.renameSync;
+      let vanished = false;
+      (fs as any).renameSync = (from: any, to: any) => {
+        origRename(from, to);
+        if (typeof to === 'string' && to.endsWith('hot.md') && !vanished) {
+          vanished = true; // external removal right after the atomic rename
+          try { fs.unlinkSync(to); } catch { /* already gone */ }
         }
-        return origRead(p, ...rest);
       };
       const origError = console.error;
       let logged = '';
       console.error = (msg?: unknown) => { logged += String(msg ?? ''); };
       try {
-        await sessionCommand('start');
+        await sessionCommand('start', { topic: 'T-vanish-post' });
         assert.strictEqual(process.exitCode, 5, 'post-write vanish must fail start, not print (none) fields');
+        assert.ok(vanished, 'test must reach the rename (vanish point) — else it failed in an earlier window');
         assert.match(logged, /hot\.md disappeared|ENOENT/);
       } finally {
-        (fs as any).readFileSync = origRead;
+        (fs as any).renameSync = origRename;
         console.error = origError;
+      }
+    });
+
+    test('corrupt hot.md replacing the file after the start write is tolerated (pre-existing)', async () => {
+      // Characterization: parseFrontmatter never throws on corrupt YAML (it returns
+      // an error field), so the pre-refactor refresh `parseFrontmatter(hotContent)`
+      // swallowed the corruption, took null frontmatter, and printed a successful
+      // start. The accessor-based refresh classifies this as state 'corrupt' but
+      // the guard deliberately checks only 'missing' — preserving the old outcome.
+      // Pinning so rejecting corrupt-on-refresh is a deliberate behavior change.
+      writeHot(['palee_schema: 1', 'active_topic: ']);
+      const origRename = fs.renameSync;
+      let replaced = false;
+      (fs as any).renameSync = (from: any, to: any) => {
+        origRename(from, to);
+        if (typeof to === 'string' && to.endsWith('hot.md') && !replaced) {
+          replaced = true; // external editor corrupts hot.md right after the write
+          fs.writeFileSync(to, '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
+        }
+      };
+      try {
+        await sessionCommand('start', { topic: 'T-corrupt-post' }); // resolved topic → write → corrupt refresh
+        assert.strictEqual(process.exitCode, undefined, 'corrupt-on-refresh must stay a tolerant success (pre-refactor behavior)');
+        assert.ok(replaced, 'test must reach the rename (corruption point)');
+      } finally {
+        (fs as any).renameSync = origRename;
       }
     });
 
@@ -240,6 +267,7 @@ describe('Session hot.md read characterization', () => {
         await sessionCommand('start');
         // Pre-refactor outcome preserved: stale success, exit code unset
         assert.notStrictEqual(process.exitCode, 5, 'topicless start must not newly fail on late vanish (pre-existing quirk)');
+        assert.strictEqual(process.exitCode, undefined, 'topicless start must preserve stale success on late vanish');
         assert.strictEqual(hotReads, 2, 'resolution re-read happens (and swallows) on the topicless path');
       } finally {
         (fs as any).readFileSync = origRead;
