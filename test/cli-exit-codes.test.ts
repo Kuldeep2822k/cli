@@ -377,6 +377,53 @@ depends_on: []
       fs.unlinkSync(noteB);
     });
 
+    test('roadmapCommand resolves effective difficulty identically for validation and writeback (#139)', async () => {
+      saveConfig({ vaultPath: vaultDir });
+
+      // Pre-existing note at the target path with an on-disk difficulty of
+      // 'advanced'. The roadmap omits difficulty for this topic, so the
+      // effective value the import writes must fall back to the on-disk value.
+      const notePath = path.join(vaultDir, 'difficulty-fallback.md');
+      fs.writeFileSync(
+        notePath,
+        `---
+palee_schema: 1
+palee_id: T-difficulty-fallback
+title: Difficulty Fallback
+difficulty: advanced
+depends_on: []
+---
+# Difficulty Fallback
+`,
+        'utf8'
+      );
+
+      const roadmapFile = path.join(tempDir, 'difficulty-fallback-roadmap.yaml');
+      fs.writeFileSync(
+        roadmapFile,
+        `topics:
+  - id: T-difficulty-fallback
+    title: Difficulty Fallback
+    path: difficulty-fallback.md
+`
+      );
+
+      await roadmapCommand({ from: roadmapFile, yes: true });
+      assert.strictEqual(process.exitCode, 0);
+
+      // Both passes consumed resolveTopicUpdates: the omitted difficulty falls
+      // back to the on-disk 'advanced' (not the blind 'intermediate' default).
+      const updatedContent = fs.readFileSync(notePath, 'utf8');
+      const { frontmatter } = parseFrontmatter(updatedContent);
+      assert.strictEqual(
+        frontmatter?.difficulty,
+        'advanced',
+        'omitted roadmap difficulty must preserve the on-disk value via the shared derivation'
+      );
+
+      fs.unlinkSync(notePath);
+    });
+
     test('batch import with corrupted note creates valid topics, logs error, and sets exitCode 1', async () => {
       saveConfig({ vaultPath: vaultDir });
 

@@ -20,7 +20,79 @@ import {
   ensureVaultDirectory,
 } from '../storage';
 import { detectCycle } from '../engine/dependency';
-import { RoadmapOptions, TopicNode } from '../types';
+import { RoadmapOptions, TopicNode, ResolvedTopicUpdates } from '../types';
+
+/**
+ * Effective-input bundle for one roadmap topic, used by `resolveTopicUpdates`.
+ *
+ * @remarks
+ * "Existing" identity is two-keyed on purpose (#137 follow-up): `depends_on`'s
+ * preserve-existing rule looks the topic up BY `palee_id` (the roadmap topic may
+ * not exist on disk yet, so its pre-import identity is its future ID), while
+ * frontmatter pass-through fields come from the note AT THE TARGET PATH (the
+ * file the import will actually write).
+ */
+interface ResolveTopicInput {
+  /** Roadmap-declared topic */
+  topic: RoadmapTopicAlias;
+  /** Existing vault topic with the same `palee_id` (for depends_on preservation), or undefined */
+  existingById: LoadedTopicAlias | undefined;
+  /** Raw frontmatter of the note at the target path, or `{}` for new notes */
+  existingAtPath: Record<string, unknown>;
+}
+
+type RoadmapTopicAlias = import('../types').RoadmapTopic;
+type LoadedTopicAlias = { id: string; depends_on?: string[] };
+
+/**
+ * Single derivation of the effective frontmatter values a roadmap import
+ * writes for one topic (#139).
+ *
+ * @remarks
+ * SINGLE SOURCE OF TRUTH for both passes: `roadmapCommand`'s validation pass
+ * (graph + field checks) AND `doImport`'s writeback both consume this helper.
+ * Never re-derive an import field at a call site — any new field added to the
+ * roadmap import path must be added HERE (and to `ResolvedTopicUpdates`), or
+ * the validation-vs-writeback divergence pattern returns (the class of bug that
+ * produced the #137 cycle-on-import defect).
+ *
+ * This function is PURE: it derives from the inputs it is given. The writeback
+ * pass calls it with the FRESH at-path frontmatter re-read just before the
+ * atomic write (OCC requires re-reading the target at write time), while the
+ * validation pass calls it earlier with the pre-import snapshot. Same rules,
+ * fresh data per pass — the divergence being removed is in the RULES, not in
+ * when the data is read.
+ *
+ * `depends_on` semantics (unchanged since #137): explicit `[]` clears,
+ * omitted preserves the existing topic's deps (by ID), populated replaces.
+ *
+ * @param input - Roadmap topic plus its existing on-disk context
+ * @returns Effective values for every frontmatter field the import writes
+ */
+function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
+  const { topic, existingById, existingAtPath } = input;
+
+  return {
+    palee_id: topic.id,
+    palee_schema: existingAtPath.palee_schema ?? 1,
+    title: topic.title,
+    difficulty: topic.difficulty || existingAtPath.difficulty || 'intermediate',
+    depends_on: topic.depends_on ?? existingById?.depends_on ?? [],
+    topic_mastery: existingAtPath.topic_mastery ?? 0.0,
+    assessed_at: existingAtPath.assessed_at ?? null,
+    conceptual: existingAtPath.conceptual ?? 0.0,
+    practical: existingAtPath.practical ?? 0.0,
+    debug: existingAtPath.debug ?? 0.0,
+    feynman: existingAtPath.feynman ?? 0.0,
+    ease_factor: existingAtPath.ease_factor ?? 2.5,
+    interval_days: existingAtPath.interval_days ?? 1,
+    repetition: existingAtPath.repetition ?? 0,
+    lapses: existingAtPath.lapses ?? 0,
+    last_quality: existingAtPath.last_quality ?? null,
+    last_reviewed_at: existingAtPath.last_reviewed_at ?? null,
+    due_at: existingAtPath.due_at ?? null,
+  };
+}
 
 /**
  * CLI command handler for validating and importing learning roadmaps into the vault.
@@ -127,9 +199,16 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         }
       }
 
-      const effectiveDeps = topic.depends_on ?? existingTopicsById.get(id)?.depends_on ?? [];
-      effectiveDepsMap.set(id, effectiveDeps);
-      topicsMap.set(id, { palee_id: id, depends_on: effectiveDeps, topic_mastery: 0 });
+      // Single-source-of-truth derivation (#139): both the graph/validation pass
+      // and the doImport writeback resolve effective fields through
+      // resolveTopicUpdates — never re-derive here.
+      const resolved = resolveTopicUpdates({
+        topic,
+        existingById: existingTopicsById.get(id),
+        existingAtPath: {}, // validation checks roadmap-declared fields; at-path frontmatter is a writeback concern
+      });
+      effectiveDepsMap.set(id, resolved.depends_on);
+      topicsMap.set(id, { palee_id: id, depends_on: resolved.depends_on, topic_mastery: 0 });
     }
 
     for (const t of existingTopics) {
@@ -238,24 +317,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
 
           const paleeData: Record<string, unknown> = {
-            palee_id: topic.id,
-            palee_schema: existingData.palee_schema ?? 1,
-            title: topic.title,
-            difficulty: topic.difficulty || existingData.difficulty || 'intermediate',
-            depends_on: effectiveDepsMap.get(topic.id) ?? [],
-            topic_mastery: existingData.topic_mastery ?? 0.0,
-            assessed_at: existingData.assessed_at ?? null,
-            conceptual: existingData.conceptual ?? 0.0,
-            practical: existingData.practical ?? 0.0,
-            debug: existingData.debug ?? 0.0,
-            feynman: existingData.feynman ?? 0.0,
-            ease_factor: existingData.ease_factor ?? 2.5,
-            interval_days: existingData.interval_days ?? 1,
-            repetition: existingData.repetition ?? 0,
-            lapses: existingData.lapses ?? 0,
-            last_quality: existingData.last_quality ?? null,
-            last_reviewed_at: existingData.last_reviewed_at ?? null,
-            due_at: existingData.due_at ?? null,
+            ...resolveTopicUpdates({
+              topic,
+              existingById: existingTopicsById.get(topic.id),
+              existingAtPath: existingData,
+            }),
           };
 
           const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
