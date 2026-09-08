@@ -35,6 +35,46 @@ const STALE_TIMEOUT_OTHER = 120000;
  */
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
+/**
+ * Bounded retry parameters for Windows EPERM/EBUSY transient handle-holders on
+ * the lock directory. Mirrors `src/storage/atomic-write.ts:20-24` so a persistent
+ * handle surfaces to the caller rather than hanging the CLI in a busy spin.
+ */
+const WINDOWS_RETRY_ATTEMPTS = 5;
+const WINDOWS_RETRY_INITIAL_DELAY = 50; // ms
+const WINDOWS_RETRY_MULTIPLIER = 2;
+const WINDOWS_RETRY_JITTER = 0.25; // ±25%
+const WINDOWS_RETRY_MAX_DELAY = 300; // ms
+
+/**
+ * Synchronous busy-wait sleep primitive used by the lock acquisition retry loop.
+ *
+ * @param ms - Number of milliseconds to wait
+ * @returns Void
+ *
+ * @remarks
+ * `createLock` is synchronous and runs on the lock-acquisition hot path, so we
+ * cannot yield to the event loop (no `await setTimeout`). Uses a wall-clock
+ * `Date.now()` poll so the wait duration is independent of CPU-bound spin
+ * scheduling. Capped at `WINDOWS_RETRY_MAX_DELAY` (300 ms) per `atomicWrite`
+ * precedent.
+ *
+ * @example
+ * ```typescript
+ * BusyWait.sleepMs(75);
+ * ```
+ */
+const BusyWait = {
+  sleepMs(ms: number): void {
+    const target = Date.now() + Math.min(ms, WINDOWS_RETRY_MAX_DELAY);
+    // Spin on wall-clock until elapsed. We intentionally do not yield to the
+    // event loop — createLock is sync and used inside lock acquisition.
+    while (Date.now() < target) {
+      // No-op busy-wait; the wall-clock check bounds the duration.
+    }
+  },
+};
+
 interface ParsedLock {
   filename: string;
   data: LockData | null;
@@ -248,11 +288,55 @@ function createLock(lockDir: string, targetPath: string): LockData {
         const rmCode = (rmErr as NodeError).code;
         // ENOTEMPTY: A new file was written (someone else won the lock).
         // ENOENT: Someone else already removed the directory.
-        // EPERM/EBUSY (Windows): AV/indexer/another process briefly holds a
-        // handle on the lock directory. Transient — retry the acquisition loop
-        // rather than surfacing an unexpected exit-5 crash to the CLI user
-        // (same Windows-transience policy as atomicWrite's rename retries).
-        if (rmCode === 'ENOTEMPTY' || rmCode === 'ENOENT' || rmCode === 'EPERM' || rmCode === 'EBUSY') {
+        // Both are legitimate forward-progress signals on every platform and
+        // warrant an unconditional `continue` (this was the pre-existing
+        // behaviour and is not under review).
+        if (rmCode === 'ENOTEMPTY' || rmCode === 'ENOENT') {
+          continue;
+        }
+        // Windows EPERM/EBUSY: AV/indexer/another process briefly holds a
+        // handle on the lock directory. Bounded retry with exponential
+        // backoff and ±25% jitter, mirroring the policy in
+        // `src/storage/atomic-write.ts` (constants on lines 20-24) so a
+        // persistent handle surfaces to the caller rather than spinning the
+        // CLI at 100% CPU in a busy loop. createLock is synchronous, so we
+        // busy-wait on a wall clock instead of yielding the event loop.
+        if (process.platform === 'win32' && (rmCode === 'EPERM' || rmCode === 'EBUSY')) {
+          let attempts = 0;
+          while (attempts < WINDOWS_RETRY_ATTEMPTS) {
+            attempts++;
+            const baseDelay = WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, attempts - 1);
+            const jitterAmount = baseDelay * WINDOWS_RETRY_JITTER;
+            const delay = Math.max(
+              0,
+              Math.min(
+                WINDOWS_RETRY_MAX_DELAY,
+                baseDelay + (Math.random() * 2 - 1) * jitterAmount
+              )
+            );
+            BusyWait.sleepMs(delay);
+            try {
+              fs.rmdirSync(lockDir);
+              // Removal succeeded after a transient handle cleared: fall
+              // through to the post-rmdir acquisition loop below.
+              break;
+            } catch (retryErr: unknown) {
+              const retryCode = (retryErr as NodeError).code;
+              if (retryCode === 'ENOTEMPTY' || retryCode === 'ENOENT') {
+                // Forward-progress condition; let the outer loop handle it.
+                rmErr = retryErr;
+                break;
+              }
+              if (retryCode !== 'EPERM' && retryCode !== 'EBUSY') throw retryErr;
+              // Still a transient handle; loop until the budget is spent.
+              rmErr = retryErr;
+            }
+          }
+          if (attempts >= WINDOWS_RETRY_ATTEMPTS) {
+            // Budget exhausted: rethrow the last EPERM/EBUSY so a persistent
+            // handle surfaces to the caller as a real error rather than a hang.
+            throw rmErr;
+          }
           continue;
         }
         throw rmErr;
