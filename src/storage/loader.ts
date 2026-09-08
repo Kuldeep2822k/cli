@@ -184,7 +184,9 @@ export function loadTopics(
   vaultPath: string,
   arg?: string[] | LoadTopicsOptions
 ): LoadedTopic[] {
-  const isOptions = arg !== undefined && !Array.isArray(arg);
+  // Runtime `null` (JS callers) must keep the legacy fallback: the old
+  // `files ?? walkVault` tolerated it, so null is not treated as options.
+  const isOptions = arg !== undefined && arg !== null && !Array.isArray(arg);
   const files = isOptions ? (arg as LoadTopicsOptions).files : (arg as string[] | undefined);
   const cache = isOptions
     ? ((arg as LoadTopicsOptions).cache ?? topicCache)

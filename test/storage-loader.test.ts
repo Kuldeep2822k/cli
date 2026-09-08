@@ -428,6 +428,15 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const again = loadTopics(tmpVault);
     assert.strictEqual(again[0], topics[0]);
   });
+
+  test('runtime null second argument keeps the legacy vault-walk fallback (JS callers)', () => {
+    // `loadTopics(v, null)` predated the options overload via `files ?? walkVault`;
+    // it must keep walking the vault rather than dereferencing null.files.
+    writeTopicNote('T-inj-null');
+    const topics = loadTopics(tmpVault, null as unknown as string[]);
+    assert.strictEqual(topics.length, 1);
+    assert.strictEqual(topics[0].palee_id, 'T-inj-null');
+  });
 });
 
 
