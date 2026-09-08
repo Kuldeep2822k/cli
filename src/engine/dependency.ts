@@ -12,6 +12,12 @@ import { MASTERY_THRESHOLD } from './mastery';
 /**
  * Returns canonical prerequisite IDs from a topic node.
  *
+ * @remarks
+ * Reads the canonical `depends_on` field ONLY — the legacy `dependencies`
+ * alias is not consulted (canonical since #137; type surface aligned in #140).
+ * Storage-layer parsing tolerates the on-disk alias via `normalizeDependencies`,
+ * but programmatic callers of the engine barrel must pass `depends_on`.
+ *
  * @param topic - Canonical topic node
  * @returns Prerequisite topic IDs
  */

@@ -412,9 +412,15 @@ export interface TopicNode {
   difficulty?: Difficulty;
   /** List of prerequisite topic IDs */
   depends_on?: string[];
-  /** Alias for `depends_on` matching serialized topic schema */
-  dependencies?: string[];
-  /** Computed overall mastery score (0.0 - 1.0) */
+  /**
+   * Computed overall mastery score (0.0 - 1.0)
+   *
+   * @remarks The legacy `dependencies` alias is intentionally NOT part of this
+   * type: engine functions (`getTopicDependencies` and everything downstream)
+   * read the canonical `depends_on` field only (see #140). Storage-layer
+   * parsing still tolerates the alias on disk (`normalizeDependencies`), but
+   * programmatic callers of the engine barrel must pass `depends_on`.
+   */
   topic_mastery: number;
 
   /** Learning status */

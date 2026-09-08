@@ -133,21 +133,27 @@ describe('Difficulty Enum & Types', () => {
     };
     assert.deepStrictEqual(topicWithDependsOn.depends_on, ['T-prereq']);
 
-    // TopicNode with only dependencies
-    const nodeWithDeps: import('../src/types').TopicNode = {
-      palee_id: 'T-node-deps',
-      dependencies: ['T-parent'],
-      topic_mastery: 0.5,
-    };
-    assert.deepStrictEqual(nodeWithDeps.dependencies, ['T-parent']);
-
-    // TopicNode with only depends_on
+    // TopicNode with only the canonical depends_on field (#140: the legacy
+    // `dependencies` alias is no longer part of the TopicNode type — engine
+    // functions read `depends_on` only).
     const nodeWithDependsOn: import('../src/types').TopicNode = {
       palee_id: 'T-node-depends',
       depends_on: ['T-parent'],
       topic_mastery: 0.5,
     };
     assert.deepStrictEqual(nodeWithDependsOn.depends_on, ['T-parent']);
+
+    // Pin the contract: the legacy alias is not a typed dep-list on TopicNode.
+    // Assigning it to a `string[] | undefined` must FAIL typecheck — the field
+    // no longer exists on the interface, so it falls through to the index
+    // signature and comes back `unknown`.
+    const legacyNode: import('../src/types').TopicNode = {
+      palee_id: 'T-node-legacy',
+      topic_mastery: 0.5,
+    };
+    // @ts-expect-error - `dependencies` is no longer a `string[] | undefined` member of TopicNode (#140)
+    const legacyDeps: string[] | undefined = legacyNode.dependencies;
+    assert.strictEqual(legacyDeps, undefined);
   });
 
   test('Session and SessionRecord enforce discriminated union invariants', () => {
