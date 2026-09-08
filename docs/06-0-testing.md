@@ -41,11 +41,11 @@
 
 </details>
 
-PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The test suite spans 19 active TypeScript test files containing 230 passing test assertions across 31 test suites.
+PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The catalog below covers the 19 architectural-layer suites (35 `describe` blocks, 231 passing test assertions); additional specialized suites live in the same `test/` tree — concurrency and stress runs, property-based fuzzing, fault injection, timezone matrix coverage, session hot-read races, storage-barrel contract census, and the tiered end-to-end suites under `test/e2e/` — and are documented in their own sections where they carry dedicated invariants.
 
 ## Master Test Suite Catalog
 
-The table below catalogs all 19 test files in the `test/` directory, mapped across their architectural layers, test counts, and verified invariants:
+The table below catalogs the 19 architectural-layer test files in the `test/` directory, mapped across their architectural layers, test counts, and verified invariants:
 
 | # | Test File Path | Top-Level Suite / Describe | Test Count | Layer / Scope | Primary Coverage & Invariants |
 |---|---|---|:---:|---|---|
@@ -69,7 +69,7 @@ The table below catalogs all 19 test files in the `test/` directory, mapped acro
 | **18** | `test/storage-walker.test.ts` | `Vault Walker` | 11 | Storage Layer | Recursive vault traversal (`walkVault`): `.md` discovery, directory exclusions (`.obsidian`, `.trash`, `.git`, `node_modules`, `.*`), non-markdown filtering, symlink skip behavior, absolute path resolution. |
 | **19** | `test/types-difficulty.test.ts` | `Difficulty Enum & Types` | 9 | Data Model / Types | `Difficulty` enum (`beginner`, `intermediate`, `advanced`), `normalizeDifficulty` coercion (case-insensitive, 1–5 scale, fallback), `TopicNode` alias compatibility, discriminated union `Session = CompletedSession | DraftSession`. |
 
-**Grand Totals**: 19 test files, 35 test suites (`describe` blocks), 231 passing test assertions.
+**Catalog Totals**: 19 architectural-layer test files, 35 test suites (`describe` blocks), 231 passing test assertions. Specialized suites (concurrency/stress, fuzz, fault-injection, timezone matrix, hot-read races, barrel census, tiered `test/e2e/`) sit outside this catalog.
 
 ---
 
