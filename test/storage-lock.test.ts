@@ -199,12 +199,12 @@ describe('File Locking', () => {
     // unbounded-busy-spin hang this PR was meant to remove, and CI would not
     // catch it because the existing 11 tests only exercise the happy path.
     //
-    // We monkey-patch the global `fs.rmdirSync` so that the single rmdirSync
+    // We monkey-patch the global `fs.rmdirSync` so that every rmdirSync
     // `createLock` issues on the lock directory (after quarantining all stale
     // session files) throws a synthetic `EPERM`. On Windows the bounded retry
     // loop will spin through its 5-attempt budget and then rethrow the
-    // original error. On non-Windows the platform gate (line 304 of
-    // `src/storage/lock.ts`) skips the retry and rethrows immediately. Either
+    // original error. On non-Windows the platform gate in
+    // `src/storage/lock.ts` skips the retry and rethrows immediately. Either
     // way the call must surface a thrown error — a hang past the watchdog
     // means the retry became unbounded.
     const isWindows = process.platform === 'win32';
@@ -296,13 +296,80 @@ describe('File Locking', () => {
       `expected at least one intercepted rmdirSync call on lockDir (got ${rmdirCalls})`
     );
     // Cross-platform note (informational; not an assertion):
-    // isWindows === true  -> bounded retry runs, total rmdirSync calls
-    //   for that path equal WINDOWS_RETRY_ATTEMPTS (5) plus the initial one
-    //   before the catch — i.e. 5 (only inside the loop, since the initial
-    //   rmdirSync also throws EPERM and feeds the catch in the same iter).
+    // isWindows === true  -> bounded retry runs; with an always-throwing
+    //   mock the intercepted calls are WINDOWS_RETRY_ATTEMPTS (5) retry
+    //   attempts plus the initial rmdirSync before the retry loop — 6 total.
     // isWindows === false -> platform gate skips the retry loop, so exactly
     //   1 rmdirSync call is intercepted.
     void isWindows;
+  });
+
+  test('stale-lock recovery succeeds when the final retry attempt clears the handle', { timeout: 10000 }, async () => {
+    // Regression pin for the off-by-one Greptile/Kilo flagged on the first
+    // cut of the retry budget: when the last permitted attempt's rmdirSync
+    // succeeds, the loop must fall through to re-acquisition — deriving the
+    // outcome from the attempt count alone made the 5th attempt's success
+    // rethrow the original EPERM anyway. Windows-only: the retry budget is
+    // gated on process.platform.
+    if (process.platform !== 'win32') return;
+
+    const RETRY_BUDGET = 5; // mirrors WINDOWS_RETRY_ATTEMPTS in src/storage/lock.ts
+
+    const faultVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-last-'));
+    const faultFile = path.join(faultVault, 'fault-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(faultFile, '# Fault Target', 'utf8');
+
+    const seedLock = new Lock(faultVault, faultFile);
+    await seedLock.acquire();
+    const faultLockDir = seedLock.lockPath;
+    const seedLockData = getLockData(faultLockDir);
+    assert.ok(seedLockData, 'precondition: seed lock should parse');
+
+    const files = fs.readdirSync(faultLockDir).filter(f => f.endsWith('.json'));
+    const faultLockFile = path.join(faultLockDir, files[0]);
+    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(faultLockFile, staleTime, staleTime);
+    const seedTimer = (seedLock as unknown as { heartbeatTimer: ReturnType<typeof setInterval> | null }).heartbeatTimer;
+    if (seedTimer) clearInterval(seedTimer);
+
+    // Throw EPERM for the initial rmdirSync plus the first four retry
+    // attempts; the next call — the final permitted attempt — lets the real
+    // rmdirSync run and succeed on the now-empty directory.
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function patchedRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === faultLockDir) {
+        rmdirCalls += 1;
+        if (rmdirCalls <= RETRY_BUDGET) {
+          const e = new Error('simulated EPERM for final-attempt recovery test') as NodeError;
+          e.code = 'EPERM';
+          throw e;
+        }
+      }
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(
+        this,
+        p as fs.PathLike,
+        ...rest
+      );
+    };
+
+    try {
+      const acquirer = new Lock(faultVault, faultFile);
+      await acquirer.acquire();
+      assert.strictEqual(rmdirCalls, RETRY_BUDGET + 1);
+      const newLockData = getLockData(faultLockDir);
+      assert.ok(newLockData, 'expected a live lock after recovery');
+      assert.notStrictEqual(newLockData.lock_id, seedLockData.lock_id);
+      acquirer.release();
+    } finally {
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      seedLock.release();
+      try { fs.rmSync(faultVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
   });
 
   test('validates Windows specific stale lock timing behavior', async () => {

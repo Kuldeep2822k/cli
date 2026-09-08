@@ -302,10 +302,14 @@ function createLock(lockDir: string, targetPath: string): LockData {
         // CLI at 100% CPU in a busy loop. createLock is synchronous, so we
         // busy-wait on a wall clock instead of yielding the event loop.
         if (process.platform === 'win32' && (rmCode === 'EPERM' || rmCode === 'EBUSY')) {
-          let attempts = 0;
-          while (attempts < WINDOWS_RETRY_ATTEMPTS) {
-            attempts++;
-            const baseDelay = WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, attempts - 1);
+          // `exhausted` stays true only when every attempt hit a transient
+          // EPERM/EBUSY. Success and forward-progress outcomes (ENOTEMPTY/
+          // ENOENT) must fall through to re-acquisition even on the final
+          // attempt — inferring the outcome from the attempt count alone
+          // would rethrow a recovered lock.
+          let exhausted = true;
+          for (let attempts = 0; attempts < WINDOWS_RETRY_ATTEMPTS; attempts++) {
+            const baseDelay = WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, attempts);
             const jitterAmount = baseDelay * WINDOWS_RETRY_JITTER;
             const delay = Math.max(
               0,
@@ -319,22 +323,23 @@ function createLock(lockDir: string, targetPath: string): LockData {
               fs.rmdirSync(lockDir);
               // Removal succeeded after a transient handle cleared: fall
               // through to the post-rmdir acquisition loop below.
+              exhausted = false;
               break;
             } catch (retryErr: unknown) {
               const retryCode = (retryErr as NodeError).code;
               if (retryCode === 'ENOTEMPTY' || retryCode === 'ENOENT') {
                 // Forward-progress condition; let the outer loop handle it.
-                rmErr = retryErr;
+                exhausted = false;
                 break;
               }
               if (retryCode !== 'EPERM' && retryCode !== 'EBUSY') throw retryErr;
               // Still a transient handle; loop until the budget is spent.
-              rmErr = retryErr;
             }
           }
-          if (attempts >= WINDOWS_RETRY_ATTEMPTS) {
-            // Budget exhausted: rethrow the last EPERM/EBUSY so a persistent
-            // handle surfaces to the caller as a real error rather than a hang.
+          if (exhausted) {
+            // Budget exhausted: rethrow the original EPERM/EBUSY so a
+            // persistent handle surfaces to the caller as a real error
+            // rather than a hang.
             throw rmErr;
           }
           continue;
