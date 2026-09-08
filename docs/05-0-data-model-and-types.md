@@ -185,7 +185,7 @@ flowchart LR
     subgraph subGraph1 ["Engine (src/engine/dependency.ts)"]
         TN["TopicNode"]
         TN_ID["palee_id"]
-        TN_DEP["depends_on / dependencies"]
+        TN_DEP["depends_on (canonical;<br/>storage-normalized)"]
         TN_MST["topic_mastery"]
     end
     subgraph subGraph0 ["Storage (Markdown)"]

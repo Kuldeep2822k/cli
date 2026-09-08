@@ -160,8 +160,10 @@ classDiagram
     class Topic {
         +string palee_id
         +number topic_mastery
+        +string[] depends_on
         +string[] dependencies
     }
+    note for Topic "dependencies is a storage-input alias:<br/>normalizeDependencies (src/storage/dependencies.ts)<br/>unions it into depends_on at the storage<br/>boundary; the engine reads depends_on only"
     HotMemoryData --> SessionRecord
     SessionRecord --> Topic
     HotMemoryData --> Topic

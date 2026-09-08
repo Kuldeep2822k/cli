@@ -24,23 +24,21 @@ The graph engine abstracts Markdown vault notes into `TopicNode` entities:
 | `palee_id` | `string` | Unique immutable identifier for the topic note. |
 | `title` | `string` (optional) | Human-readable topic title. |
 | `path` | `string` (optional) | Relative file path within the Obsidian vault. |
-| `depends_on` | `string[]` (optional) | List of prerequisite `palee_id` references that must be mastered first. |
-| `dependencies` | `string[]` (optional) | Alias array for `depends_on`, providing backward compatibility. |
+| `depends_on` | `string[]` (optional) | Canonical list of prerequisite `palee_id` references that must be mastered first. |
 | `topic_mastery` | `number` (optional) | Floating-point mastery score in the interval $[0.0, 1.0]$. |
 
-### Prerequisite Alias Normalization
+### Canonical Dependency Access
 
-To ensure robust interoperability across legacy frontmatter and third-party note formats, `getTopicDependencies` normalizes prerequisite declarations across both `depends_on` and `dependencies` fields:
+The engine reads prerequisite declarations from the canonical `depends_on` field only. Legacy `dependencies` aliases are accepted at the **storage boundary** — `normalizeDependencies` (`src/storage/dependencies.ts`) unions and deduplicates both fields into `depends_on` when topics are loaded (`loadTopics`) or a roadmap file is parsed (`parseRoadmapContent`). By the time topic nodes reach the engine, the graph topology is already canonical:
 
 ```typescript
 // src/engine/dependency.ts
-function getTopicDependencies(topic: TopicNode): string[] {
-  const fromDependsOn = Array.isArray(topic.depends_on) ? topic.depends_on : [];
-  const fromDependencies = Array.isArray(topic.dependencies) ? topic.dependencies : [];
-  const combined = [...fromDependsOn, ...fromDependencies];
-  return Array.from(new Set(combined.map((d) => String(d).trim()).filter(Boolean)));
+function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
+  return topic?.depends_on ?? [];
 }
 ```
+
+Roadmap import additionally deletes the legacy `dependencies` key from topic-note frontmatter when it rewrites a topic, so vaults converge on the canonical field over time.
 
 ---
 
@@ -199,7 +197,7 @@ flowchart TD
 
     subgraph Engine ["Engine Layer (src/engine/dependency.ts)"]
         VDG["validateDependencyGraph(topics)"]
-        CheckDangling["1. Prerequisite Existence Check<br/>(Find dangling depends_on / dependencies)"]
+        CheckDangling["1. Prerequisite Existence Check<br/>(Find dangling depends_on)"]
         RunDFS["2. detectCycle(topics)<br/>(3-Color DFS Traversal)"]
         CollectErrors["Aggregate ValidationError[]<br/>- missing_dependency<br/>- cycle"]
     end
@@ -232,7 +230,7 @@ flowchart TD
 |---|---|
 | **Acyclicity** | Curriculum must form a strict Directed Acyclic Graph (DAG). `detectCycle` returns `null`. |
 | **Prerequisite Gating** | Downstream topics are locked until all direct prerequisites achieve $\ge 0.70$ mastery. |
-| **Alias Equivalence** | `depends_on` and `dependencies` are treated identically with deduplicated IDs. |
+| **Canonical Dependencies** | Legacy `dependencies` aliases are unioned and deduplicated into `depends_on` once at the storage boundary (`normalizeDependencies`); the engine consumes canonical `depends_on` only. |
 | **Deterministic Traversal** | 3-color DFS guarantees linear time $O(V + E)$ cycle detection without infinite recursion. |
 
 Sources:

@@ -47,7 +47,7 @@ export default withMermaid(
         { text: 'ADRs', link: '/adr/README' },
         { text: 'Glossary', link: '/09-glossary' },
         {
-          text: 'v0.3.1',
+          text: 'v0.4.0',
           items: [
             { text: 'Changelog', link: 'https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md' },
             { text: 'GitHub Releases', link: 'https://github.com/Kuldeep2822k/cli/releases' },

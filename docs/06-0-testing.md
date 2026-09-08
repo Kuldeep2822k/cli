@@ -41,11 +41,11 @@
 
 </details>
 
-PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The test suite spans 19 active TypeScript test files containing 230 passing test assertions across 31 test suites.
+PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The catalog below covers the 19 architectural-layer suites (35 `describe` blocks, 231 passing test assertions); additional specialized suites live in the same `test/` tree — concurrency and stress runs, property-based fuzzing, fault injection, timezone matrix coverage, session hot-read races, storage-barrel contract census, and the tiered end-to-end suites under `test/e2e/` — and are documented in their own sections where they carry dedicated invariants.
 
 ## Master Test Suite Catalog
 
-The table below catalogs all 19 test files in the `test/` directory, mapped across their architectural layers, test counts, and verified invariants:
+The table below catalogs the 19 architectural-layer test files in the `test/` directory, mapped across their architectural layers, test counts, and verified invariants:
 
 | # | Test File Path | Top-Level Suite / Describe | Test Count | Layer / Scope | Primary Coverage & Invariants |
 |---|---|---|:---:|---|---|
@@ -53,7 +53,7 @@ The table below catalogs all 19 test files in the `test/` directory, mapped acro
 | **2** | `test/cli-commands.test.ts` | `CLI Commands` | 19 | CLI Integration | End-to-end command pipeline (`config`, `adopt`, `roadmap`, `review`, `plan`, `progress`, `dashboard`, `session`), Markdown frontmatter preservation, lock conflict exit code 4, OCC collision detection, date string handling. |
 | **3** | `test/cli-exit-codes.test.ts` | `CLI Command In-Process Exit Codes & Coverage` | 32 | CLI Core / Process | In-process handler invocation verifying deterministic exit codes: 0 (success), 2 (usage/validation), 3 (schema/cycle error), 4 (concurrency conflict), 5 (unhandled runtime exception). |
 | **4** | `test/cli-json-output.test.ts` | `CLI Machine-Readable --json Output (Invariant #45)` | 22 | CLI JSON Contracts | Machine-readable `--json` contract testing across all commands; empty vault defaults (nulls/empty lists); populated vault schemas; stderr error JSON; automatic non-TTY auto-JSON activation when `stdout.isTTY === false`. |
-| **5** | `test/engine-dependency.test.ts` | `Dependency Graph` | 8 | Engine Core | Pure graph algorithms: 3-color DFS cycle detection (`detectCycle`), frontier readiness filtering (`getReadyTopics`), missing dependency validation (`validateDependencyGraph`), `dependencies` vs `depends_on` alias support. |
+| **5** | `test/engine-dependency.test.ts` | `Dependency Graph` | 7 | Engine Core | Pure graph algorithms over canonical `depends_on`: 3-color DFS cycle detection (`detectCycle`), frontier readiness filtering (`getReadyTopics`), missing dependency validation (`validateDependencyGraph`). Alias unioning is covered at the storage layer (row 13). |
 | **6** | `test/engine-mastery.test.ts` | `Mastery Engine & Threshold` | 11 | Engine Core | 4-Pillar Pedagogical Mastery formula $(c + p + d + 2f) / 5$, `MASTERY_THRESHOLD = 0.70`, 40% Feynman weight, score normalization/clamping $[0.0, 1.0]$, 4-decimal rounding. |
 | **7** | `test/engine-sm2.test.ts` | `SM-2 Algorithm` | 15 | Engine Core | SuperMemo SM-2 interval progression (1 $\rightarrow$ 6 $\rightarrow$ $I \times EF$), quality rating bounds $[0, 5]$, ease factor clamping ($\ge 1.30$), lapse tracking, and local calendar due date arithmetic. |
 | **8** | `test/session-cli.test.ts` | `Session CLI In-Process Coverage` | 8 | CLI Session | In-process session CLI dispatch and active topic resolution (`resolveSessionTopic`), fallback from explicit argument to `.palee/hot.md` frontmatter, draft lifecycle (`start`, `draft`, `end`, `list`), unknown action exit code 2. |
@@ -61,7 +61,7 @@ The table below catalogs all 19 test files in the `test/` directory, mapped acro
 | **10** | `test/storage-atomic-write.test.ts` | `Atomic Write` | 10 | Storage Layer | `atomicWrite` temp-file flush (`.tmp.*`), atomic `renameSync`, SHA-256 Optimistic Concurrency Control (OCC), `ECONFLICT` error codes, `isConflictError` helper, no orphaned temp files on failure. |
 | **11** | `test/storage-cache.test.ts` | `File Cache` | 9 | Storage Layer | In-memory `FileCache`, 2000ms `UNSETTLED_HORIZON` rapid edit window, size mismatch invalidation, SHA-256 fingerprint fallback within horizon, mtime check outside horizon, cache deletion safety. |
 | **12** | `test/storage-frontmatter.test.ts` | `Frontmatter Parser`, `Frontmatter Updater`, `Fingerprinting` | 11 | Storage Layer | `parseFrontmatter`, `updateFrontmatter`, and `computeFingerprint`. Preserves Markdown body byte-for-byte, preserves unknown YAML keys and comments via YAML CST Document API, SHA-256 hashing. |
-| **13** | `test/storage-loader.test.ts` | `Storage Topic Loader` | 5 | Storage Layer | `loadTopics` vault loader: frontmatter extraction, string score parsing & clamping, NaN/non-finite counter fallbacks, filename title fallback, dependency alias normalization, pre-scanned file list optimization. |
+| **13** | `test/storage-loader.test.ts` | `Storage Topic Loader`, `normalizeDependencies (Issue #126)` | 13 | Storage Layer | `loadTopics` vault loader (8 tests): frontmatter extraction, string score parsing & clamping, NaN/non-finite counter fallbacks, filename title fallback, pre-scanned file list optimization. Plus `normalizeDependencies` canonicalization matrix (5 parameterized cases): union/dedupe of `depends_on` + legacy `dependencies`, comma-separated strings, wikilink preservation, whitespace trimming, unsupported-value rejection. |
 | **14** | `test/storage-lock.test.ts` | `File Locking` | 11 | Storage Layer | `Lock` class mutex via atomic lockdirs (`.palee/locks/<hash>.lockdir`), 15s heartbeat `utimesSync`, platform-specific stale lock takeover (60s Windows, 120s POSIX), symlink canonicalization, `ECONFLICT` errors. |
 | **15** | `test/storage-memory.test.ts` | `Memory System` | 10 | Storage Layer | Working memory system: session ID generation (`S-YYYYMMDDTHHMMSS-xxxx`), draft checkpoints (`DRAFT-S-xxxxxxxx`), word truncation (`MAX_HOT_WORDS = 250`), `hot.md` update, `index.md` regeneration, draft recovery. |
 | **16** | `test/storage-pattern-matcher.test.ts` | `Pattern and Glob Matcher`, `Frontmatter Tag Matcher`, `Pattern Validation` | 14 | Storage / Utilities | Glob wildcard matching (`*`, `**/*.md`, `?`, `[...]`), Windows backslash normalization, Obsidian frontmatter tag hierarchy extraction (prefix, infix, suffix), comma-separated pattern lists. |
@@ -69,7 +69,7 @@ The table below catalogs all 19 test files in the `test/` directory, mapped acro
 | **18** | `test/storage-walker.test.ts` | `Vault Walker` | 11 | Storage Layer | Recursive vault traversal (`walkVault`): `.md` discovery, directory exclusions (`.obsidian`, `.trash`, `.git`, `node_modules`, `.*`), non-markdown filtering, symlink skip behavior, absolute path resolution. |
 | **19** | `test/types-difficulty.test.ts` | `Difficulty Enum & Types` | 9 | Data Model / Types | `Difficulty` enum (`beginner`, `intermediate`, `advanced`), `normalizeDifficulty` coercion (case-insensitive, 1–5 scale, fallback), `TopicNode` alias compatibility, discriminated union `Session = CompletedSession | DraftSession`. |
 
-**Grand Totals**: 19 test files, 31 test suites (`describe` blocks), 230 passing test assertions.
+**Catalog Totals**: 19 architectural-layer test files, 35 test suites (`describe` blocks), 231 passing test assertions. Specialized suites (concurrency/stress, fuzz, fault-injection, timezone matrix, hot-read races, barrel census, tiered `test/e2e/`) sit outside this catalog.
 
 ---
 
