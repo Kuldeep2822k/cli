@@ -21,7 +21,10 @@ const topicCache = new FileCache<LoadedTopic>();
  * Returns the module-level topic cache instance.
  *
  * @returns FileCache instance holding parsed topic notes
- * @remarks Reserved shared-cache seam for future layers (Phase-2 AI read tools, MCP escape hatch, validation framework #25 / #129).
+ * @remarks
+ * Reserved shared-cache seam for future layers (Phase-2 AI read tools, MCP escape hatch, validation framework #25 / #129).
+ * In-process tests and consumers needing cache isolation should inject their own `FileCache<LoadedTopic>` via
+ * `loadTopics(vaultPath, { cache })` instead of relying on this shared instance.
  */
 export function getTopicCache(): FileCache<LoadedTopic> {
   return topicCache;
@@ -43,6 +46,16 @@ export interface LoadedTopic extends TopicNode {
   content: string;
   /** Parsed YAML frontmatter dictionary */
   frontmatter: Record<string, unknown>;
+}
+
+/**
+ * Options for {@link loadTopics}.
+ */
+export interface LoadTopicsOptions {
+  /** Pre-scanned array of absolute file paths (avoids duplicate vault walks) */
+  files?: string[];
+  /** Cache to read from and populate; defaults to the shared `getTopicCache()` instance */
+  cache?: FileCache<LoadedTopic>;
 }
 
 /**
@@ -146,22 +159,44 @@ function parseNumber(val: unknown, fallback: number = 0): number {
  * Normalizes all frontmatter fields, sets default SM-2 values if omitted,
  * and extracts prerequisite dependencies from `depends_on` or `dependencies` arrays.
  *
+ * Overloads:
+ * - `loadTopics(vaultPath, files?)` — legacy positional form; uses the shared topic cache.
+ * - `loadTopics(vaultPath, options?)` — options form; pass `{ cache }` to inject a dedicated
+ *   `FileCache<LoadedTopic>` (isolated tests, per-consumer caching) and/or `{ files }`.
+ *
  * @param vaultPath - Absolute path to the Obsidian vault root
  * @param files - Optional pre-scanned array of absolute file paths (avoids duplicate vault walks)
+ * @param options - Optional loader options (`files`, `cache`)
  * @returns Array of parsed and normalized {@link LoadedTopic} instances
  *
  * @example
  * ```typescript
  * const topics = loadTopics('/path/to/vault');
  * console.log(`Loaded ${topics.length} topics`);
+ *
+ * // Isolated cache injection:
+ * const topics2 = loadTopics('/path/to/vault', { cache: new FileCache() });
  * ```
  */
-export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
+export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[];
+export function loadTopics(vaultPath: string, options?: LoadTopicsOptions): LoadedTopic[];
+export function loadTopics(
+  vaultPath: string,
+  arg?: string[] | LoadTopicsOptions
+): LoadedTopic[] {
+  // Runtime `null` (JS callers) must keep the legacy fallback: the old
+  // `files ?? walkVault` tolerated it, so null is not treated as options.
+  const isOptions = arg !== undefined && arg !== null && !Array.isArray(arg);
+  const files = isOptions ? (arg as LoadTopicsOptions).files : (arg as string[] | undefined);
+  const cache = isOptions
+    ? ((arg as LoadTopicsOptions).cache ?? topicCache)
+    : topicCache;
+
   const scanFiles = files ?? walkVault(vaultPath);
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
-    const cached = topicCache.get(filePath);
+    const cached = cache.get(filePath);
     if (cached) {
       topics.push(cached);
       continue;
@@ -219,7 +254,7 @@ export function loadTopics(vaultPath: string, files?: string[]): LoadedTopic[] {
     };
 
     const fp = computeFingerprint(content);
-    topicCache.set(filePath, topic, fp);
+    cache.set(filePath, topic, fp);
     topics.push(topic);
   }
 
