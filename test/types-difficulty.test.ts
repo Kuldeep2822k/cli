@@ -143,17 +143,15 @@ describe('Difficulty Enum & Types', () => {
     };
     assert.deepStrictEqual(nodeWithDependsOn.depends_on, ['T-parent']);
 
-    // Pin the contract: the legacy alias is not a typed dep-list on TopicNode.
-    // Assigning it to a `string[] | undefined` must FAIL typecheck — the field
-    // no longer exists on the interface, so it falls through to the index
-    // signature and comes back `unknown`.
-    const legacyNode: import('../src/types').TopicNode = {
-      palee_id: 'T-node-legacy',
+    // Pin the contract: constructing a TopicNode with the legacy `dependencies`
+    // alias must FAIL typecheck (dependencies?: never prevents construction-time alias passing).
+    const bad: import('../src/types').TopicNode = {
+      palee_id: 'T-forbidden',
       topic_mastery: 0.5,
+      // @ts-expect-error - `dependencies` is forbidden on TopicNode (#140)
+      dependencies: ['T-y'],
     };
-    // @ts-expect-error - `dependencies` is no longer a `string[] | undefined` member of TopicNode (#140)
-    const legacyDeps: string[] | undefined = legacyNode.dependencies;
-    assert.strictEqual(legacyDeps, undefined);
+    assert.strictEqual(bad.palee_id, 'T-forbidden');
   });
 
   test('Session and SessionRecord enforce discriminated union invariants', () => {

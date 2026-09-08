@@ -410,10 +410,8 @@ export interface TopicNode {
   path?: string;
   /** Difficulty categorization */
   difficulty?: Difficulty;
-  /** List of prerequisite topic IDs */
-  depends_on?: string[];
   /**
-   * Computed overall mastery score (0.0 - 1.0)
+   * List of prerequisite topic IDs
    *
    * @remarks The legacy `dependencies` alias is intentionally NOT part of this
    * type: engine functions (`getTopicDependencies` and everything downstream)
@@ -421,6 +419,10 @@ export interface TopicNode {
    * parsing still tolerates the alias on disk (`normalizeDependencies`), but
    * programmatic callers of the engine barrel must pass `depends_on`.
    */
+  depends_on?: string[];
+  /** Legacy alias forbidden on TopicNode (#140: rejected at construction time) */
+  dependencies?: never;
+  /** Computed overall mastery score (0.0 - 1.0) */
   topic_mastery: number;
 
   /** Learning status */
