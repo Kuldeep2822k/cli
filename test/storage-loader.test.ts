@@ -17,11 +17,24 @@ class TrackingCache extends FileCache<LoadedTopic> {
   getCalls: string[] = [];
   setCalls: string[] = [];
 
+  /**
+   * Records the read attempt and delegates to the parent cache.
+   *
+   * @param filePath - Absolute path to cached file
+   * @returns Cached topic if still valid, or null on miss/invalidation
+   */
   get(filePath: string): LoadedTopic | null {
     this.getCalls.push(filePath);
     return super.get(filePath);
   }
 
+  /**
+   * Records the write attempt and delegates to the parent cache.
+   *
+   * @param filePath - Absolute path to cached file
+   * @param data - Parsed topic payload to store
+   * @param fingerprint - Content SHA-256 hash of the file
+   */
   set(filePath: string, data: LoadedTopic, fingerprint?: string): void {
     this.setCalls.push(filePath);
     super.set(filePath, data, fingerprint);
@@ -315,6 +328,13 @@ describe('loadTopics cache injection (Issue #129)', () => {
     fs.rmSync(tmpVault, { recursive: true, force: true });
   });
 
+  /**
+   * Writes a minimal PALEE topic note into the temp vault.
+   *
+   * @param id - palee_id to embed in the note frontmatter
+   * @param status - Learning status value for the note (default: learning)
+   * @returns Absolute path of the written note
+   */
   function writeTopicNote(id: string, status = 'learning'): string {
     const filePath = path.join(tmpVault, `topic-${id}.md`);
     fs.writeFileSync(
