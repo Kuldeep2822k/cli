@@ -133,21 +133,25 @@ describe('Difficulty Enum & Types', () => {
     };
     assert.deepStrictEqual(topicWithDependsOn.depends_on, ['T-prereq']);
 
-    // TopicNode with only dependencies
-    const nodeWithDeps: import('../src/types').TopicNode = {
-      palee_id: 'T-node-deps',
-      dependencies: ['T-parent'],
-      topic_mastery: 0.5,
-    };
-    assert.deepStrictEqual(nodeWithDeps.dependencies, ['T-parent']);
-
-    // TopicNode with only depends_on
+    // TopicNode with only the canonical depends_on field (#140: the legacy
+    // `dependencies` alias is no longer part of the TopicNode type — engine
+    // functions read `depends_on` only).
     const nodeWithDependsOn: import('../src/types').TopicNode = {
       palee_id: 'T-node-depends',
       depends_on: ['T-parent'],
       topic_mastery: 0.5,
     };
     assert.deepStrictEqual(nodeWithDependsOn.depends_on, ['T-parent']);
+
+    // Pin the contract: constructing a TopicNode with the legacy `dependencies`
+    // alias must FAIL typecheck (dependencies?: never prevents construction-time alias passing).
+    const bad: import('../src/types').TopicNode = {
+      palee_id: 'T-forbidden',
+      topic_mastery: 0.5,
+      // @ts-expect-error - `dependencies` is forbidden on TopicNode (#140)
+      dependencies: ['T-y'],
+    };
+    assert.strictEqual(bad.palee_id, 'T-forbidden');
   });
 
   test('Session and SessionRecord enforce discriminated union invariants', () => {

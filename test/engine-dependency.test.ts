@@ -98,5 +98,22 @@ describe('Dependency Graph', () => {
     assert.strictEqual(result.errors.length, 0);
   });
 
+  test('getTopicDependencies ignores the legacy "dependencies" alias (canonical depends_on only — #140)', () => {
+    // Runtime pin: a node carrying the legacy alias via the index signature
+    // yields no edges — the engine reads canonical `depends_on` only.
+    const legacyNode = {
+      palee_id: 'T-legacy-alias',
+      dependencies: ['T-prereq'],
+      topic_mastery: 0,
+    } as unknown as TopicNode;
+
+    const { getTopicDependencies } = require('../src/engine/dependency');
+    assert.deepStrictEqual(getTopicDependencies(legacyNode), []);
+    assert.deepStrictEqual(
+      getTopicDependencies({ palee_id: 'T-canonical', depends_on: ['T-prereq'], topic_mastery: 0 }),
+      ['T-prereq']
+    );
+  });
+
 });
 
