@@ -245,10 +245,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
       try {
         fs.rmdirSync(lockDir);
       } catch (rmErr: unknown) {
+        const rmCode = (rmErr as NodeError).code;
         // ENOTEMPTY: A new file was written (someone else won the lock).
         // ENOENT: Someone else already removed the directory.
-        if ((rmErr as NodeError).code === 'ENOTEMPTY' || (rmErr as NodeError).code === 'ENOENT') {
-          continue; 
+        // EPERM/EBUSY (Windows): AV/indexer/another process briefly holds a
+        // handle on the lock directory. Transient — retry the acquisition loop
+        // rather than surfacing an unexpected exit-5 crash to the CLI user
+        // (same Windows-transience policy as atomicWrite's rename retries).
+        if (rmCode === 'ENOTEMPTY' || rmCode === 'ENOENT' || rmCode === 'EPERM' || rmCode === 'EBUSY') {
+          continue;
         }
         throw rmErr;
       }
