@@ -321,7 +321,12 @@ describe('loadTopics cache injection (Issue #129)', () => {
   let tmpVault: string;
 
   beforeEach(() => {
-    tmpVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-cache-'));
+    // Canonicalize the temp path the way walkVault does (realpathSync):
+    // on macOS os.tmpdir() is /var/..., a symlink to /private/var/...,
+    // so walked file paths never string-match the raw mkdtemp result.
+    tmpVault = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-cache-'))
+    );
   });
 
   afterEach(() => {
