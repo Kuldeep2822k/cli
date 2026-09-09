@@ -14,6 +14,7 @@
 
 import { walkVault, ensureVaultDirectory } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
+import { scanNotes } from './scanner';
 import { Lock } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
@@ -49,6 +50,7 @@ export {
   ensureVaultDirectory,
   loadTopics,
   getTopicCache,
+  scanNotes,
 
   // Pattern and Tag Matching
   matchesPattern,

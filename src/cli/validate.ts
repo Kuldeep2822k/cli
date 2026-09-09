@@ -6,10 +6,30 @@
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
 import { ExitCode } from './exit-codes';
-import { walkVault, loadTopics } from '../storage';
-import { validateDependencyGraph } from '../engine/dependency';
-import { ValidateOptions, TopicNode, ValidationError } from '../types';
+import { ValidateOptions } from '../types';
+import { collectVault } from '../validation/collect-vault';
+import { runRules } from '../validation/run-rules';
+import { formatHuman, formatJson } from '../validation/format';
+import { parseFrontmatterRule } from '../validation/rules/parse-frontmatter';
+import { noDuplicateTopicIdRule } from '../validation/rules/no-duplicate-topic-id';
+import { noMissingDependencyRule } from '../validation/rules/no-missing-dependency';
+import { noDependencyCycleRule } from '../validation/rules/no-dependency-cycle';
+import type { ValidationRule } from '../validation/types';
 
+/**
+ * Rules executed by `palee validate`, in registration order.
+ *
+ * @remarks
+ * Parse warnings come first (they explain why a note may be missing from the
+ * collected topic set), then identity and graph checks. Rule order is the
+ * deterministic output order.
+ */
+const VALIDATION_RULES: ValidationRule[] = [
+  parseFrontmatterRule,
+  noDuplicateTopicIdRule,
+  noMissingDependencyRule,
+  noDependencyCycleRule,
+];
 
 /**
  * CLI command handler for validating vault integrity, schema compliance, and dependency cycles.
@@ -19,6 +39,7 @@ import { ValidateOptions, TopicNode, ValidationError } from '../types';
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * process.exitCode = 3 if validation errors are found in the vault,
  * and process.exitCode = 5 on unexpected exceptions.
+ * Warnings never gate the exit code (adopted severity policy, #25).
  *
  * @example
  * ```typescript
@@ -37,82 +58,41 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
       console.log();
     }
 
-    const files = walkVault(vaultPath);
-    const loaded = loadTopics(vaultPath, files);
-    const topics = new Map<string, TopicNode & { path: string }>();
-
-    const errors: ValidationError[] = [];
-
-    for (const t of loaded) {
-      if (topics.has(t.palee_id)) {
-        const existingError = errors.find((e) => e.type === 'duplicate_id' && e.id === t.palee_id);
-
-        if (existingError && existingError.files) {
-          existingError.files.push(t.path);
-        } else {
-          errors.push({
-            type: 'duplicate_id',
-            id: t.palee_id,
-            files: [topics.get(t.palee_id)!.path, t.path],
-          });
-        }
-      } else {
-        topics.set(t.palee_id, {
-          palee_id: t.palee_id,
-          depends_on: t.depends_on,
-          topic_mastery: t.topic_mastery,
-          path: t.path,
-        });
-      }
-    }
-
-
-    const graphValidation = validateDependencyGraph(topics);
-    errors.push(...graphValidation.errors);
+    const context = collectVault(vaultPath);
+    const issues = runRules(context, VALIDATION_RULES);
+    const errorCount = issues.filter((issue) => issue.severity === 'error').length;
 
     if (jsonMode) {
-      console.log(JSON.stringify({
-        valid: errors.length === 0,
-        topic_count: topics.size,
-        file_count: files.length,
-        error_count: errors.length,
-        errors,
-      }));
-      if (errors.length > 0) {
-        process.exitCode = 3;
+      console.log(
+        formatJson(issues, {
+          topicCount: context.topics.length,
+          fileCount: context.files.length,
+        })
+      );
+      if (errorCount > 0) {
+        process.exitCode = ExitCode.Validation;
       }
       return;
     }
 
-    console.log(`Found ${topics.size} PALEE topics in ${files.length} files`);
+    console.log(`Found ${context.topics.length} PALEE topics in ${context.files.length} files`);
     console.log();
 
-    if (errors.length === 0) {
+    if (issues.length === 0) {
       console.log('✓ Vault validation passed - no errors found');
-      return;
-    } else {
-      console.log(`✗ Found ${errors.length} validation error(s):\n`);
-
-      for (const error of errors) {
-        if (error.type === 'duplicate_id') {
-          console.log(`  • Duplicate ID: ${error.id}`);
-          console.log(`    Files: ${error.files?.join(', ')}`);
-        } else if (error.type === 'missing_dependency') {
-          console.log(`  • Missing dependency: ${error.topic} depends on ${error.missing}`);
-        } else if (error.type === 'cycle') {
-          console.log(`  • Dependency cycle: ${error.path?.join(' → ')}`);
-        }
-        console.log();
-      }
-
-      if (options.fix) {
-        console.log('Note: --fix is not implemented in Phase 1');
-      }
-
-      process.exitCode = 3;
       return;
     }
 
+    console.log(formatHuman(issues));
+
+    if (options.fix) {
+      console.log('Note: --fix is not implemented in Phase 1');
+    }
+
+    if (errorCount > 0) {
+      process.exitCode = ExitCode.Validation;
+      return;
+    }
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);

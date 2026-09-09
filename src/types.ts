@@ -362,6 +362,25 @@ export interface WalkOptions {
   excludeDirs?: string[];
 }
 
+/**
+ * Per-file frontmatter parse outcome used by the validation framework (#25).
+ *
+ * @remarks
+ * One entry per scanned Markdown file. A file with malformed YAML keeps
+ * `frontmatter: null` plus the parser message, so a bad note can be reported
+ * as a validation warning instead of aborting the whole vault scan.
+ */
+export interface ScannedNote {
+  /** Absolute path of the scanned Markdown file */
+  absolutePath: string;
+  /** Relative POSIX path from the vault root */
+  relativePath: string;
+  /** Parsed frontmatter dictionary, or `null` when absent or malformed */
+  frontmatter: Record<string, unknown> | null;
+  /** Parser error message when the YAML could not be parsed */
+  parseError?: string;
+}
+
 // ─── Validation ─────────────────────────────────────────────────────
 
 /**
