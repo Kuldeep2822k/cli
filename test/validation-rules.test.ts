@@ -55,6 +55,7 @@ function makeContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     files: [],
     topics: [],
     notes: [],
+    readIncomplete: false,
     ...overrides,
   };
 }
@@ -221,6 +222,22 @@ describe('no-missing-dependency rule (ported from engine)', () => {
       issues.map((i) => `${i.topicId}:${i.details?.missing}`),
       ['T-a:T-y', 'T-a:T-z', 'T-b:T-x']
     );
+  });
+
+  test('read-incomplete snapshot downgrades missing deps to warnings (no false exit 3)', () => {
+    // Greptile re-review: a transient read failure must not produce a
+    // missing-dependency ERROR on a healthy vault.
+    const context = makeContext({
+      topics: [makeTopic({ palee_id: 'T-dep', id: 'T-dep', depends_on: ['T-locked'] })],
+      readIncomplete: true,
+    });
+
+    const issues = noMissingDependencyRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].severity, 'warning');
+    assert.strictEqual(issues[0].details?.snapshotIncomplete, true);
+    assert.match(issues[0].message, /unverified/);
   });
 });
 

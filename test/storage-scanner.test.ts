@@ -159,7 +159,43 @@ describe('Storage Note Scanner', () => {
 
     const notes = scanNotes(tmpVault, { files });
 
+    // Read failures are RETAINED as readError notes (not dropped), so rules
+    // can warn that validation ran on an incomplete snapshot.
+    assert.strictEqual(notes.length, 2);
+    const failed = notes.find((n) => n.relativePath === 'deleted-in-flight.md');
+    assert.ok(failed);
+    assert.ok(failed.readError);
+    assert.strictEqual(failed.frontmatter, null);
+    assert.strictEqual(failed.parseError, undefined);
+    const ok = notes.find((n) => n.relativePath === 'readable.md');
+    assert.ok(ok);
+    assert.strictEqual(ok.readError, undefined);
+  });
+
+  test('unclosed fence with column-0 YAML sequence still reports a parse error', () => {
+    // Kilo review: block sequences at column 0 (`- item`) must be flagged.
+    fs.writeFileSync(
+      path.join(tmpVault, 'seq-note.md'),
+      '---\n- tag1\n- tag2\n# Content\n',
+      'utf8'
+    );
+
+    const notes = scanNotes(tmpVault);
+
     assert.strictEqual(notes.length, 1);
-    assert.strictEqual(notes[0].relativePath, 'readable.md');
+    assert.match(notes[0].parseError ?? '', /unclosed/i);
+  });
+
+  test('unclosed fence with indented YAML mapping still reports a parse error', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'indented-note.md'),
+      '---\n  tags: [a, b]\n# Content\n',
+      'utf8'
+    );
+
+    const notes = scanNotes(tmpVault);
+
+    assert.strictEqual(notes.length, 1);
+    assert.match(notes[0].parseError ?? '', /unclosed/i);
   });
 });

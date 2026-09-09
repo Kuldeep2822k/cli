@@ -28,3 +28,29 @@ export const parseFrontmatterRule: ValidationRule = {
       .sort((a, b) => (a.file! < b.file! ? -1 : a.file! > b.file! ? 1 : 0));
   },
 };
+
+/**
+ * Reports files that could not be read during collection.
+ *
+ * @remarks Distinct from parse failures: a read failure means validation
+ * ran on an incomplete snapshot — the note might be perfectly healthy but
+ * locked or deleted mid-scan. Warning-only, never gates the exit code.
+ */
+export const readFailureRule: ValidationRule = {
+  id: 'read-failure',
+  description: 'Reports files that could not be read during collection',
+  severity: 'warning',
+  fixable: false,
+  run(context) {
+    return context.notes
+      .filter((note) => note.readError !== undefined)
+      .map((note) => ({
+        ruleId: 'read-failure',
+        severity: 'warning' as const,
+        message: `Could not read ${note.relativePath}: ${note.readError} (validation ran on an incomplete snapshot)`,
+        file: note.relativePath,
+        details: { readError: note.readError },
+      }))
+      .sort((a, b) => (a.file! < b.file! ? -1 : a.file! > b.file! ? 1 : 0));
+  },
+};

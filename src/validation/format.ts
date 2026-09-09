@@ -93,11 +93,6 @@ function formatBlock(block: ValidationIssue[]): string[] {
 }
 
 /**
- * Options for {@link formatJson}.
- */
-export interface FormatJsonOptions extends FormatCounts {}
-
-/**
  * Serializes issues into the documented `palee validate --json` contract.
  *
  * @remarks
@@ -110,7 +105,7 @@ export interface FormatJsonOptions extends FormatCounts {}
  * `valid` or `error_count`. Output is single-line JSON.
  *
  * @param issues - All reported validation issues, in runner order
- * @param options - Counts plus an optional explicit `valid` verdict
+ * @param options - Counts for `topic_count` and `file_count`
  * @returns Single-line JSON string
  *
  * @example
@@ -118,7 +113,7 @@ export interface FormatJsonOptions extends FormatCounts {}
  * console.log(formatJson(issues, { topicCount: 3, fileCount: 9 }));
  * ```
  */
-function formatJson(issues: ValidationIssue[], options: FormatJsonOptions): string {
+function formatJson(issues: ValidationIssue[], options: FormatCounts): string {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity === 'warning');
   const valid = errors.length === 0;

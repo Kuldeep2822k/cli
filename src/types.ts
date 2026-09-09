@@ -386,8 +386,16 @@ export interface ScannedNote {
   /** Parser error message when the YAML could not be parsed */
   parseError?: string;
   /**
+   * Read error message when the file could not be read at all
+   * (deleted mid-scan, locked by a concurrent writer).
+   *
+   * @remarks The note is retained so rules can warn that validation ran on
+   * an incomplete snapshot; `frontmatter` is `null` and `content` absent.
+   */
+  readError?: string;
+  /**
    * Raw file content, populated only when the caller passes
-   * `includeContent: true` to {@link scanNotes}.
+   * `includeContent: true` to {@link scanNotes} and the read succeeded.
    *
    * @remarks Lets collectors build a single-read snapshot: parse outcomes
    * and derived topic loading can share one set of bytes per file.

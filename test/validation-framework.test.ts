@@ -25,6 +25,7 @@ function makeContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     files: [],
     topics: [],
     notes: [],
+    readIncomplete: false,
     ...overrides,
   };
 }

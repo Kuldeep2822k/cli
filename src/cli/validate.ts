@@ -10,7 +10,7 @@ import { ValidateOptions } from '../types';
 import { collectVault } from '../validation/collect-vault';
 import { runRules } from '../validation/run-rules';
 import { formatHuman, formatJson } from '../validation/format';
-import { parseFrontmatterRule } from '../validation/rules/parse-frontmatter';
+import { parseFrontmatterRule, readFailureRule } from '../validation/rules/parse-frontmatter';
 import { noDuplicateTopicIdRule } from '../validation/rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from '../validation/rules/no-missing-dependency';
 import { noDependencyCycleRule } from '../validation/rules/no-dependency-cycle';
@@ -20,12 +20,13 @@ import type { ValidationRule } from '../validation/types';
  * Rules executed by `palee validate`, in registration order.
  *
  * @remarks
- * Parse warnings come first (they explain why a note may be missing from the
- * collected topic set), then identity and graph checks. Rule order is the
- * deterministic output order.
+ * Parse and read warnings come first (they explain why a note may be
+ * missing from the collected topic set), then identity and graph checks.
+ * Rule order is the deterministic output order.
  */
 const VALIDATION_RULES: ValidationRule[] = [
   parseFrontmatterRule,
+  readFailureRule,
   noDuplicateTopicIdRule,
   noMissingDependencyRule,
   noDependencyCycleRule,

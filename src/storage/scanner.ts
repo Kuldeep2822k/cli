@@ -60,8 +60,19 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     let content: string;
     try {
       content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+    } catch (e: unknown) {
+      // Retain the note with a read error so rules can warn that
+      // validation ran on an incomplete snapshot instead of silently
+      // shrinking the graph (which would turn transient locks into
+      // false missing-dependency errors).
+      const err = e as NodeJS.ErrnoException;
+      notes.push({
+        absolutePath: filePath,
+        relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
+        frontmatter: null,
+        readError: err.message,
+      });
+      continue;
     }
 
     const { frontmatter, error } = parseFrontmatter(content);
@@ -74,7 +85,10 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     if (!parseError && frontmatter === null && /^---\r?\n/.test(content) && !content.includes('\n---')) {
       const fenceBody = content.slice(content.indexOf('\n') + 1);
       const looksLikeYaml =
-        /^[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) || /^\s+-\s+\S/m.test(fenceBody);
+        // key: value at any indent (keys start A-Z, a-z, or _)
+        /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
+        // sequence items, column-0 or indented: "- item"
+        /^[ \t]*-\s+\S/m.test(fenceBody);
       if (looksLikeYaml) {
         parseError =
           'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +

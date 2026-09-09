@@ -71,6 +71,16 @@ export interface ValidationContext {
   topics: LoadedTopic[];
   /** Raw per-file frontmatter parse outcomes, sorted by relative path */
   notes: ScannedNote[];
+  /**
+   * True when at least one scanned file could not be read (deleted
+   * mid-scan, locked by a concurrent writer).
+   *
+   * @remarks Graph rules must treat findings as provisional when set: the
+   * missing-topic set is computed from an incomplete snapshot, so a
+   * missing-dependency report could be a transient read failure, not a
+   * real dangling reference.
+   */
+  readIncomplete: boolean;
 }
 
 /**

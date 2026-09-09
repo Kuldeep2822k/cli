@@ -37,13 +37,22 @@ export const noMissingDependencyRule: ValidationRule = {
 
     const errors = findMissingDependencies(topics);
 
+    // When any file could not be read, "missing" may mean "locked or
+    // deleted mid-scan", not a real dangling reference — report warnings
+    // instead of errors so a transient read failure cannot fail validation
+    // with exit 3 on a healthy vault.
+    const severity = context.readIncomplete ? ('warning' as const) : ('error' as const);
+
     return errors
       .map((error) => ({
         ruleId: 'no-missing-dependency',
-        severity: 'error' as const,
-        message: error.message ?? `Topic ${error.topic} depends on missing topic ${error.missing}`,
+        severity,
+        message:
+          severity === 'warning'
+            ? `${error.message} (unverified: some files could not be read — re-run validation)`
+            : error.message ?? `Topic ${error.topic} depends on missing topic ${error.missing}`,
         topicId: error.topic,
-        details: { missing: error.missing },
+        details: { missing: error.missing, ...(severity === 'warning' ? { snapshotIncomplete: true } : {}) },
       }))
       // Engine reports in map insertion order; sort for determinism
       // independent of how the context was assembled.

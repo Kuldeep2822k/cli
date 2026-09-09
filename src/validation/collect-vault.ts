@@ -68,7 +68,14 @@ function collectVault(
   const files = notes.map((note) => note.absolutePath);
   const contents = new Map<string, string>();
   for (const note of notes) {
-    contents.set(note.absolutePath, note.content ?? '');
+    // Only readable notes contribute bytes: a read-failure note has no
+    // content, and injecting empty string would tell the loader a file is
+    // blank when the truth is "could not read". Unreadable files are
+    // simply absent from the snapshot — the readIncomplete flag carries
+    // that signal to the rules.
+    if (note.content !== undefined) {
+      contents.set(note.absolutePath, note.content);
+    }
   }
 
   const topics = loadTopics(vaultPath, {
@@ -82,6 +89,7 @@ function collectVault(
     files,
     topics,
     notes,
+    readIncomplete: notes.some((note) => note.readError !== undefined),
   };
 }
 
