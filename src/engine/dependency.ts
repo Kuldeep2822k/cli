@@ -93,6 +93,12 @@ function buildEdgeMap(topics: Map<string, TopicNode>): Map<string, string[]> {
  * exact node path — including loops that share nodes or edges. Iteration is
  * ordered by the SCC's sorted node list, keeping the output deterministic.
  *
+ * Johnson's deferred unblocking is preserved: a node whose subtree closed no
+ * cycle stays blocked after backtracking and is recorded in its successors' B
+ * sets, so fruitless regions are not re-explored per reaching path — the
+ * enumeration cost stays proportional to the cycles reported, not to the
+ * number of simple paths.
+ *
  * @param scc - Nodes of one strongly connected component
  * @param edges - Deduplicated edge map (from {@link buildEdgeMap})
  * @param seen - Cross-call dedup set of canonicalized cycle keys
@@ -110,37 +116,19 @@ function enumerateSccCycles(
     // Nodes at or before `startIndex` are already covered as starts of earlier
     // scans; excluding them here prevents re-enumerating the same loops.
     const subScc = new Set(order.slice(startIndex));
-    const blocked = new Set<string>();
-    const stackBlockedWith: Array<{ node: string; blockedWith: string[] }> = [];
-
-    /**
-     * Unblocks a node and transitively every node whose discovery depended on it.
-     * Iterative by design: the cascade runs on an explicit work list, so
-     * pathological dependency chains inside a large SCC cannot exhaust the
-     * JavaScript call stack.
-     *
-     * @param initial - Node to unblock
-     */
-    function unblock(initial: string): void {
-      const work = [initial];
-      while (work.length > 0) {
-        const node = work.pop()!;
-        blocked.delete(node);
-        while (stackBlockedWith.length > 0) {
-          const top = stackBlockedWith[stackBlockedWith.length - 1];
-          if (top.blockedWith.includes(node)) {
-            stackBlockedWith.pop();
-            if (blocked.has(top.node)) work.push(top.node);
-          } else {
-            break;
-          }
-        }
-      }
-    }
+    // Johnson's bookkeeping: `blocked` holds the current path plus every node
+    // proven fruitless for it; `bSets` remembers, per node, which nodes were
+    // blocked because they led into it.
+    const blocked = new Set<string>([start]);
+    const bSets = new Map<string, Set<string>>();
+    // Per path entry: did this node's subtree close a cycle?
+    const foundCycle: boolean[] = [false];
 
     // Explicit-stack DFS from `start`; path always begins at `start`.
     const path: string[] = [start];
     // Per path-node iterator state so backtracking resumes where it left off.
+    // Popped frames are never re-entered (the descend branch always resets
+    // to 0), so stale entries are harmless.
     const iterators = new Map<string, number>([[start, 0]]);
 
     while (path.length > 0) {
@@ -160,23 +148,54 @@ function enumerateSccCycles(
             seen.add(key);
             cycles.push(cycle);
           }
-        } else if (subScc.has(next) && !blocked.has(next) && !path.includes(next)) {
-          // Descend: remember iterator position, mark blocked-with bookkeeping.
+          foundCycle[path.length - 1] = true;
+        } else if (subScc.has(next) && !blocked.has(next)) {
+          // Descend. `blocked` subsumes path membership: `start` and every
+          // pushed node are blocked, so a blocked `next` is either on the
+          // path or provably fruitless for it.
           iterators.set(current, i);
-          stackBlockedWith.push({ node: next, blockedWith: Array.from(blocked) });
           blocked.add(next);
           path.push(next);
           iterators.set(next, 0);
+          foundCycle.push(false);
           advanced = true;
           break;
         }
       }
 
       if (!advanced) {
-        // Exhausted `current`'s edges: backtrack and unblock it.
-        iterators.set(current, i);
+        // Exhausted `current`'s edges: backtrack.
         path.pop();
-        unblock(current);
+        if (foundCycle.pop()) {
+          // A cycle closed below: propagate to the parent frame and unblock
+          // `current` plus every blocked node whose only route led through
+          // it. The cascade runs on an explicit work list, so large SCCs
+          // cannot exhaust the call stack.
+          if (foundCycle.length > 0) foundCycle[foundCycle.length - 1] = true;
+          const work = [current];
+          while (work.length > 0) {
+            const node = work.pop()!;
+            if (!blocked.has(node)) continue;
+            blocked.delete(node);
+            const routes = bSets.get(node);
+            if (routes !== undefined) {
+              for (const route of routes) work.push(route);
+              routes.clear();
+            }
+          }
+        } else {
+          // No cycle below `current`: keep it blocked and record it in its
+          // successors' B sets, so a later unblock cascade can free it.
+          for (const succ of edges.get(current) ?? []) {
+            if (!subScc.has(succ)) continue;
+            let routes = bSets.get(succ);
+            if (routes === undefined) {
+              routes = new Set<string>();
+              bSets.set(succ, routes);
+            }
+            routes.add(current);
+          }
+        }
       }
     }
   }

@@ -216,6 +216,29 @@ describe('Dependency Graph', () => {
     assert.ok(cycles.length >= 1, 'the ring is a cycle');
   });
 
+  test('detectCycles enumerates every elementary cycle of a dense SCC (#79 review fix)', () => {
+    // CodeRabbit: the enumeration must keep Johnson's deferred unblocking, so
+    // fruitless regions are not re-explored per reaching path. Pin completeness
+    // on the worst case for that pruning: a complete digraph on 6 nodes, whose
+    // elementary-cycle count is exactly sum of C(6,k)·(k-1)! for k=2..6 = 409.
+    const n = 6;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      const deps = [];
+      for (let j = 0; j < n; j++) {
+        if (i !== j) deps.push(`T-k-${j}`);
+      }
+      topics.set(`T-k-${i}`, { palee_id: `T-k-${i}`, depends_on: deps, topic_mastery: 0 });
+    }
+
+    const cycles = detectCycles(topics);
+    assert.strictEqual(cycles.length, 409, 'complete digraph K6 has exactly 409 elementary cycles');
+    // Canonical rotation means the lexicographically-smallest node leads each
+    // cycle, so no two entries share a joined key.
+    const keys = new Set(cycles.map(c => c.join('\u0000')));
+    assert.strictEqual(keys.size, 409, 'every cycle must be distinct');
+  });
+
   // ─── #79: quarantine ────────────────────────────────────────────────
 
   test('quarantineCyclicTopics removes cycle members and their dependents, keeps independent components (#79)', () => {
