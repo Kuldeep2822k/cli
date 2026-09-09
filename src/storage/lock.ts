@@ -47,31 +47,30 @@ const WINDOWS_RETRY_JITTER = 0.25; // ±25%
 const WINDOWS_RETRY_MAX_DELAY = 300; // ms
 
 /**
- * Synchronous busy-wait sleep primitive used by the lock acquisition retry loop.
+ * Synchronous non-spinning sleep primitive used by the lock acquisition retry loop.
  *
  * @param ms - Number of milliseconds to wait
  * @returns Void
  *
  * @remarks
  * `createLock` is synchronous and runs on the lock-acquisition hot path, so we
- * cannot yield to the event loop (no `await setTimeout`). Uses a wall-clock
- * `Date.now()` poll so the wait duration is independent of CPU-bound spin
- * scheduling. Capped at `WINDOWS_RETRY_MAX_DELAY` (300 ms) per `atomicWrite`
- * precedent.
+ * cannot yield to the event loop (no `await setTimeout`). `Atomics.wait`
+ * parks the thread for the requested duration instead of spinning on a
+ * wall-clock poll — Node.js permits it on the main thread (unlike browsers),
+ * so the wait is blocking but consumes no CPU. The caller already caps the
+ * delay at `WINDOWS_RETRY_MAX_DELAY` (300 ms) per `atomicWrite` precedent.
  *
  * @example
  * ```typescript
- * BusyWait.sleepMs(75);
+ * SyncWait.sleepMs(75);
  * ```
  */
-const BusyWait = {
+const SyncWait = {
   sleepMs(ms: number): void {
-    const target = Date.now() + Math.min(ms, WINDOWS_RETRY_MAX_DELAY);
-    // Spin on wall-clock until elapsed. We intentionally do not yield to the
-    // event loop — createLock is sync and used inside lock acquisition.
-    while (Date.now() < target) {
-      // No-op busy-wait; the wall-clock check bounds the duration.
-    }
+    if (ms <= 0) return;
+    // Blocking wait without CPU spin. createLock is sync, so we cannot yield
+    // to the event loop; Atomics.wait parks the thread instead of spinning.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
   },
 };
 
@@ -318,7 +317,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
                 baseDelay + (Math.random() * 2 - 1) * jitterAmount
               )
             );
-            BusyWait.sleepMs(delay);
+            SyncWait.sleepMs(delay);
             try {
               fs.rmdirSync(lockDir);
               // Removal succeeded after a transient handle cleared: fall

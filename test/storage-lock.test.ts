@@ -192,7 +192,7 @@ describe('File Locking', () => {
     }
   });
 
-  test('stale-lock recovery retries EPERM/EBUSY up to the budget and rethrows', async () => {
+  test('stale-lock recovery retries EPERM/EBUSY up to the budget and rethrows', { timeout: 10000 }, async () => {
     // Pin the bounded-retry contract from `createLock`'s stale-recovery path.
     // Without this, a future refactor that drops the budget (e.g. back to a
     // bare `continue` inside `while (true)`) would re-introduce the
@@ -205,8 +205,13 @@ describe('File Locking', () => {
     // loop will spin through its 5-attempt budget and then rethrow the
     // original error. On non-Windows the platform gate in
     // `src/storage/lock.ts` skips the retry and rethrows immediately. Either
-    // way the call must surface a thrown error — a hang past the watchdog
-    // means the retry became unbounded.
+    // way the call must surface a thrown error. The setTimeout watchdog below
+    // only detects hangs on the ASYNCHRONOUS path (acquire() is async, so a
+    // hang before the synchronous createLock section can still tick timers);
+    // a regression to an unbounded SYNCHRONOUS spin would freeze the event
+    // loop and bypass the watchdog — the per-test `timeout` above is what
+    // bounds that case, since the test runner supervises each child process
+    // from outside.
     const isWindows = process.platform === 'win32';
 
     // Set up a vault + a target file the same way the other stale tests do.
