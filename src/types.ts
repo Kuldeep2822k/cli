@@ -577,6 +577,60 @@ export interface RoadmapFile {
   topics: RoadmapTopic[];
 }
 
+/**
+ * Effective frontmatter values a roadmap import writes for ONE topic.
+ *
+ * @remarks
+ * SINGLE SOURCE OF TRUTH for both roadmap passes (#139): the validation pass
+ * and the `doImport` writeback pass must both consume `resolveTopicUpdates()`
+ * in `src/cli/roadmap.ts` — never re-derive a field at the call site. Any new
+ * field added to the roadmap import path must be added to that helper (and this
+ * interface), not to one pass only.
+ *
+ * Frontmatter pass-through fields are typed `unknown` because they mirror raw
+ * on-disk frontmatter values verbatim (same `??` fallback semantics the
+ * writeback has always used); validation checks constrain them before
+ * writeback runs.
+ */
+export interface ResolvedTopicUpdates {
+  /** Target topic ID (`palee_id`) from the roadmap */
+  palee_id: string;
+  /** Schema version preserved from the note at the target path (default 1) */
+  palee_schema: unknown;
+  /** Roadmap-declared title */
+  title: string;
+  /** Effective difficulty: roadmap value, else on-disk value, else 'intermediate' */
+  difficulty: unknown;
+  /** Effective prerequisites: explicit `[]` clears, omitted preserves the existing topic's, populated replaces */
+  depends_on: string[];
+  /** Preserved topic mastery from the note at the target path (default 0.0) */
+  topic_mastery: unknown;
+  /** Preserved assessment timestamp (default null) */
+  assessed_at: unknown;
+  /** Preserved conceptual score (default 0.0) */
+  conceptual: unknown;
+  /** Preserved practical score (default 0.0) */
+  practical: unknown;
+  /** Preserved debug score (default 0.0) */
+  debug: unknown;
+  /** Preserved feynman score (default 0.0) */
+  feynman: unknown;
+  /** Preserved SM-2 ease factor (default 2.5) */
+  ease_factor: unknown;
+  /** Preserved SM-2 interval in days (default 1) */
+  interval_days: unknown;
+  /** Preserved SM-2 repetition count (default 0) */
+  repetition: unknown;
+  /** Preserved SM-2 lapse counter (default 0) */
+  lapses: unknown;
+  /** Preserved last review quality (default null) */
+  last_quality: unknown;
+  /** Preserved last review date (default null) */
+  last_reviewed_at: unknown;
+  /** Preserved next-review due date (default null) */
+  due_at: unknown;
+}
+
 // ─── Node Error (for catch blocks) ──────────────────────────────────
 
 /**
