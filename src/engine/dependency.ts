@@ -61,7 +61,8 @@ function canonicalizeCycle(path: string[]): string[] {
 /**
  * Directed-edge view of the dependency graph, restricted to edges between
  * known topics and deduplicated so parallel/identical `depends_on` entries
- * cannot multiply traversal work.
+ * cannot multiply traversal work. Self-edges are retained: a topic that
+ * depends on itself is a one-node cycle (`T-a -> T-a`).
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Map of topic ID to its unique, resolvable prerequisite IDs
@@ -72,7 +73,7 @@ function buildEdgeMap(topics: Map<string, TopicNode>): Map<string, string[]> {
     const seen = new Set<string>();
     const deps: string[] = [];
     for (const depId of getTopicDependencies(topic)) {
-      if (depId !== id && topics.has(depId) && !seen.has(depId)) {
+      if (topics.has(depId) && !seen.has(depId)) {
         seen.add(depId);
         deps.push(depId);
       }
@@ -114,18 +115,25 @@ function enumerateSccCycles(
 
     /**
      * Unblocks a node and transitively every node whose discovery depended on it.
+     * Iterative by design: the cascade runs on an explicit work list, so
+     * pathological dependency chains inside a large SCC cannot exhaust the
+     * JavaScript call stack.
      *
-     * @param node - Node to unblock
+     * @param initial - Node to unblock
      */
-    function unblock(node: string): void {
-      blocked.delete(node);
-      while (stackBlockedWith.length > 0) {
-        const top = stackBlockedWith[stackBlockedWith.length - 1];
-        if (top.blockedWith.includes(node)) {
-          stackBlockedWith.pop();
-          if (blocked.has(top.node)) unblock(top.node);
-        } else {
-          break;
+    function unblock(initial: string): void {
+      const work = [initial];
+      while (work.length > 0) {
+        const node = work.pop()!;
+        blocked.delete(node);
+        while (stackBlockedWith.length > 0) {
+          const top = stackBlockedWith[stackBlockedWith.length - 1];
+          if (top.blockedWith.includes(node)) {
+            stackBlockedWith.pop();
+            if (blocked.has(top.node)) work.push(top.node);
+          } else {
+            break;
+          }
         }
       }
     }
@@ -178,20 +186,22 @@ function enumerateSccCycles(
  * Enumerates every distinct simple cycle in the topic graph.
  *
  * @remarks
- * Two-stage, recursion-free algorithm (stack-safe for deep dependency chains):
- * 1. Strongly connected components via an iterative Tarjan pass — any topic
- *    outside a multi-node SCC is provably cycle-free, so only cyclic SCCs are
- *    searched.
- * 2. Elementary-cycle enumeration inside each cyclic SCC (Johnson-style, with
- *    explicit stacks), canonicalized so every distinct loop is reported exactly
- *    once with its exact path — including overlapping cycles that share nodes
- *    or edges. Acyclic components are never touched, matching the spec's
- *    quarantine contract (`planning/palee_cli_spec.md` §Dependency processing,
+ * Two-stage, recursion-free algorithm (stack-safe for deep dependency chains
+ * and large strongly connected components):
+ * 1. Strongly connected components via an iterative Tarjan pass. Any topic
+ *    outside a multi-node SCC is provably cycle-free — except a singleton
+ *    with a self-edge (`T-a` depends on `T-a`), which is a one-node cycle.
+ * 2. Elementary-cycle enumeration inside each multi-node SCC (Johnson-style,
+ *    with explicit stacks — including the unblock cascade), canonicalized so
+ *    every distinct loop is reported exactly once with its exact path —
+ *    including overlapping cycles that share nodes or edges. Acyclic
+ *    components are never touched, matching the spec's quarantine contract
+ *    (`planning/palee_cli_spec.md` §Dependency processing,
  *    `planning/invariants.md` line 37).
  *
- * Determinism: SCC roots and cycle enumeration follow sorted node order, so
- * the returned list is stable for a given graph regardless of map insertion
- * order.
+ * Determinism: enumeration inside an SCC starts from sorted nodes, and the
+ * final cycle list is sorted by canonical path, so the output is stable for
+ * a given graph regardless of map insertion order.
  *
  * Complexity: O(V + E) for SCC detection plus Johnson's bound per cyclic SCC.
  *
@@ -260,25 +270,40 @@ function detectCycles(topics: Map<string, TopicNode>): string[][] {
     }
   }
 
-  // ── Stage 2: enumerate cycles in each multi-node SCC ────────────────
+  // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
+  // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
+  // cyclic only via a self-edge (T-a depends on T-a) — a one-node cycle.
   const seen = new Set<string>();
   const cycles: string[][] = [];
   for (const scc of sccs) {
-    if (scc.length < 2) continue;
+    if (scc.length === 1) {
+      const node = scc[0];
+      if ((edges.get(node) ?? []).includes(node)) {
+        cycles.push([node, node]);
+      }
+      continue;
+    }
     enumerateSccCycles(new Set(scc), edges, seen, cycles);
   }
+
+  // Tarjan discovers SCCs in insertion-dependent order; sort the final list
+  // so the contract holds — stable output regardless of map insertion order.
+  // Each path is canonically rotated, so its joined form is a stable key.
+  cycles.sort((a, b) => (a.join('\u0000') < b.join('\u0000') ? -1 : a.join('\u0000') > b.join('\u0000') ? 1 : 0));
 
   return cycles;
 }
 
 /**
- * Detects cyclic dependencies within the topic graph using depth-first search (DFS) with a 3-color visiting state.
+ * Detects cyclic dependencies within the topic graph.
  *
  * @remarks
  * Thin compatibility wrapper over {@link detectCycles}: returns the first
- * cycle found in traversal order, or `null` when the graph is acyclic. Callers
- * that need every cyclic component (quarantine, full validation reports) should
- * call {@link detectCycles} directly.
+ * cycle in {@link detectCycles}'s sorted canonical order (lexicographically
+ * smallest path first), or `null` when the graph is acyclic — including
+ * self-referential topics (`T-a` depends on `T-a`), reported as
+ * `['T-a', 'T-a']`. Callers that need every cyclic component (quarantine,
+ * full validation reports) should call {@link detectCycles} directly.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Array of topic IDs representing the cycle loop (e.g. `['A', 'B', 'C', 'A']`), or `null` if acyclic

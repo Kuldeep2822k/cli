@@ -139,6 +139,83 @@ describe('Dependency Graph', () => {
     assert.deepStrictEqual(detectCycles(topics), []);
   });
 
+  test('detectCycles reports self-referential dependency as a one-node cycle (#79 review fix)', () => {
+    // greptile P1: buildEdgeMap used to drop self-edges (depId !== id), so
+    // T-a -> [T-a] silently validated clean — a regression from pre-#79
+    // detectCycle, which reported ['T-a', 'T-a'].
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-free', { palee_id: 'T-free', depends_on: [], topic_mastery: 0 }],
+    ]);
+
+    const cycles = detectCycles(topics);
+    assert.strictEqual(cycles.length, 1, 'self-loop must be reported as a cycle');
+    assert.deepStrictEqual(cycles[0], ['T-a', 'T-a']);
+
+    // And it flows through every consumer: detectCycle wrapper, quarantine, validation.
+    assert.deepStrictEqual(detectCycle(topics), ['T-a', 'T-a']);
+
+    const { acyclic, cycles: qCycles } = quarantineCyclicTopics(topics);
+    assert.deepStrictEqual(qCycles, [['T-a', 'T-a']]);
+    assert.ok(!acyclic.has('T-a'), 'self-referential topic must be quarantined');
+    assert.ok(acyclic.has('T-free'), 'unrelated topic survives');
+
+    const result = validateDependencyGraph(topics);
+    assert.strictEqual(result.valid, false);
+    const cycleError = result.errors.find(e => e.type === 'cycle');
+    assert.ok(cycleError, 'self-loop must fail validation');
+    assert.deepStrictEqual(cycleError!.path, ['T-a', 'T-a']);
+  });
+
+  test('detectCycle reports self-referential dependency (#79 review fix)', () => {
+    // Pin the compatibility wrapper's contract directly: pre-#79 detectCycle
+    // returned ['T-a', 'T-a'] for a self-dep; the wrapper must keep that.
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    assert.deepStrictEqual(detectCycle(topics), ['T-a', 'T-a']);
+  });
+
+  test('detectCycles output order is independent of map insertion order (#79 review fix)', () => {
+    // greptile P2: same graph built twice with different insertion orders must
+    // produce the identical cycle list (JSDoc contract: stable output).
+    const build = (order: 'a-first' | 'z-first'): Map<string, TopicNode> => {
+      const a = [
+        ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+        ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ] as const;
+      const z = [
+        ['T-z1', { palee_id: 'T-z1', depends_on: ['T-z2'], topic_mastery: 0 }],
+        ['T-z2', { palee_id: 'T-z2', depends_on: ['T-z1'], topic_mastery: 0 }],
+      ] as const;
+      const entries = order === 'a-first' ? [...a, ...z] : [...z, ...a];
+      return new Map<string, TopicNode>(entries as unknown as Array<[string, TopicNode]>);
+    };
+
+    const fromA = detectCycles(build('a-first'));
+    const fromZ = detectCycles(build('z-first'));
+    assert.deepStrictEqual(fromZ, fromA, 'cycle list must not depend on insertion order');
+    assert.strictEqual(fromA.length, 2);
+    // Sorted canonical order: T-a cycle before T-z cycle.
+    assert.deepStrictEqual(fromA[0], ['T-a', 'T-b', 'T-a']);
+    assert.deepStrictEqual(fromA[1], ['T-z1', 'T-z2', 'T-z1']);
+  });
+
+  test('quarantineCyclicTopics survives a large SCC without stack overflow (#79 review fix)', () => {
+    // greptile P1: the unblock cascade used to recurse once per blocked node.
+    // Build a wide SCC (1000 nodes, each depending on the next and the first)
+    // so enumeration's blocked/unblocked churn runs deep cascades.
+    const n = 1000;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      const dep = i === n - 1 ? 'T-scc-0' : `T-scc-${i + 1}`;
+      topics.set(`T-scc-${i}`, { palee_id: `T-scc-${i}`, depends_on: [dep], topic_mastery: 0 });
+    }
+
+    const { cycles } = quarantineCyclicTopics(topics);
+    assert.ok(cycles.length >= 1, 'the ring is a cycle');
+  });
+
   // ─── #79: quarantine ────────────────────────────────────────────────
 
   test('quarantineCyclicTopics removes cycle members and their dependents, keeps independent components (#79)', () => {
