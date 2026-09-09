@@ -8,7 +8,7 @@
  * and exit-code mapping.
  */
 
-import { ValidationContext, ValidationIssue, ValidationRule } from './types';
+import type { ValidationContext, ValidationIssue, ValidationRule } from './types';
 
 /**
  * Runs every rule against the context in registration order.

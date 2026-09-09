@@ -7,7 +7,7 @@
  * the collected topics and reports the exact repeated-start path it returns.
  */
 
-import { ValidationRule } from '../types';
+import type { ValidationRule } from '../types';
 import { detectCycle } from '../../engine/dependency';
 import type { TopicNode } from '../../types';
 

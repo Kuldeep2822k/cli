@@ -375,10 +375,24 @@ export interface ScannedNote {
   absolutePath: string;
   /** Relative POSIX path from the vault root */
   relativePath: string;
-  /** Parsed frontmatter dictionary, or `null` when absent or malformed */
+  /**
+   * Parsed frontmatter dictionary, or `null` when absent or malformed.
+   *
+   * @remarks Caveat: YAML that parses to a non-object (a scalar, list, or
+   * comment-only block) still populates this field — callers must treat it
+   * as `unknown`, not assume a plain object shape.
+   */
   frontmatter: Record<string, unknown> | null;
   /** Parser error message when the YAML could not be parsed */
   parseError?: string;
+  /**
+   * Raw file content, populated only when the caller passes
+   * `includeContent: true` to {@link scanNotes}.
+   *
+   * @remarks Lets collectors build a single-read snapshot: parse outcomes
+   * and derived topic loading can share one set of bytes per file.
+   */
+  content?: string;
 }
 
 // ─── Validation ─────────────────────────────────────────────────────

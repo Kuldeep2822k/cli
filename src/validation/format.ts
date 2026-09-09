@@ -13,7 +13,7 @@
  * `warning_count`/`warnings[]` additively.
  */
 
-import { ValidationIssue } from './types';
+import type { ValidationIssue } from './types';
 
 /**
  * Shape options shared by both formatters.
@@ -95,10 +95,7 @@ function formatBlock(block: ValidationIssue[]): string[] {
 /**
  * Options for {@link formatJson}.
  */
-export interface FormatJsonOptions extends FormatCounts {
-  /** Explicit `valid` verdict; defaults to "no error-severity issues" */
-  valid?: boolean;
-}
+export interface FormatJsonOptions extends FormatCounts {}
 
 /**
  * Serializes issues into the documented `palee validate --json` contract.
@@ -124,7 +121,7 @@ export interface FormatJsonOptions extends FormatCounts {
 function formatJson(issues: ValidationIssue[], options: FormatJsonOptions): string {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity === 'warning');
-  const valid = options.valid ?? errors.length === 0;
+  const valid = errors.length === 0;
 
   return JSON.stringify({
     valid,

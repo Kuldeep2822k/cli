@@ -15,6 +15,7 @@
 import { walkVault, ensureVaultDirectory } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { scanNotes } from './scanner';
+import type { ScanNotesOptions } from './scanner';
 import { Lock } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
@@ -99,6 +100,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState };
+export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions };
 
 

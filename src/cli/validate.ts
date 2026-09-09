@@ -61,11 +61,14 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     const context = collectVault(vaultPath);
     const issues = runRules(context, VALIDATION_RULES);
     const errorCount = issues.filter((issue) => issue.severity === 'error').length;
+    // Old behavior: topic_count is the number of UNIQUE palee_ids, not the
+    // number of topic notes (duplicates collapse to one entry).
+    const uniqueTopicCount = new Set(context.topics.map((topic) => topic.palee_id)).size;
 
     if (jsonMode) {
       console.log(
         formatJson(issues, {
-          topicCount: context.topics.length,
+          topicCount: uniqueTopicCount,
           fileCount: context.files.length,
         })
       );
@@ -75,7 +78,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
       return;
     }
 
-    console.log(`Found ${context.topics.length} PALEE topics in ${context.files.length} files`);
+    console.log(`Found ${uniqueTopicCount} PALEE topics in ${context.files.length} files`);
     console.log();
 
     if (issues.length === 0) {

@@ -5,13 +5,14 @@
  * Ports the engine's missing-dependency finding into the rule framework.
  * The engine stays the single source of truth for graph semantics: this
  * rule maps `LoadedTopic`s into the engine's `TopicNode` shape and reports
- * exactly what `validateDependencyGraph` would find. Severity stays
- * `error` for now (matching the current CLI contract); the warning policy
- * from the framework verdict lands with #34.
+ * exactly what the engine's {@link findMissingDependencies} finds (without
+ * paying for the cycle detection that `validateDependencyGraph` also runs).
+ * Severity stays `error` for now (matching the current CLI contract); the
+ * warning policy from the framework verdict lands with #34.
  */
 
-import { ValidationRule } from '../types';
-import { validateDependencyGraph } from '../../engine/dependency';
+import type { ValidationRule } from '../types';
+import { findMissingDependencies } from '../../engine/dependency';
 import type { TopicNode } from '../../types';
 
 /** Reports dependencies that reference non-existent topic IDs. */
@@ -34,10 +35,9 @@ export const noMissingDependencyRule: ValidationRule = {
       }
     }
 
-    const { errors } = validateDependencyGraph(topics);
+    const errors = findMissingDependencies(topics);
 
     return errors
-      .filter((error) => error.type === 'missing_dependency')
       .map((error) => ({
         ruleId: 'no-missing-dependency',
         severity: 'error' as const,
@@ -45,7 +45,7 @@ export const noMissingDependencyRule: ValidationRule = {
         topicId: error.topic,
         details: { missing: error.missing },
       }))
-      // The engine reports in map insertion order; sort for determinism
+      // Engine reports in map insertion order; sort for determinism
       // independent of how the context was assembled.
       .sort((a, b) => {
         const byTopic = a.topicId! < b.topicId! ? -1 : a.topicId! > b.topicId! ? 1 : 0;

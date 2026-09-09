@@ -7,7 +7,7 @@
  * deterministic: issues sorted by topic ID, files sorted by path.
  */
 
-import { ValidationRule } from '../types';
+import type { ValidationRule } from '../types';
 
 /** Reports each topic ID that exists in more than one note. */
 export const noDuplicateTopicIdRule: ValidationRule = {

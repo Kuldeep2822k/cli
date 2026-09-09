@@ -109,4 +109,23 @@ describe('Validation vault collection', () => {
     assert.strictEqual(context.topics.length, 1);
     assert.strictEqual(context.notes.length, 1);
   });
+
+  test('collection is a single-read snapshot: injected bytes match scanned notes', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic.md'),
+      '---\npalee_schema: 1\npalee_id: T-snap\n---\n# Snap\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    // Every scanned note's captured content is exactly what the loader saw:
+    // same bytes → topics and parse outcomes can never diverge mid-scan.
+    const topic = context.topics.find((t) => t.palee_id === 'T-snap');
+    assert.ok(topic);
+    const note = context.notes.find((n) => n.relativePath === 'topic.md');
+    assert.ok(note?.content);
+    assert.strictEqual(topic.content, note.content);
+    assert.strictEqual(topic.frontmatter.palee_id, 'T-snap');
+  });
 });

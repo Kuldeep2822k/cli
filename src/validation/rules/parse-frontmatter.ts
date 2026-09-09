@@ -7,7 +7,7 @@
  * consumes the per-file parse outcomes collected by `scanNotes`.
  */
 
-import { ValidationRule } from '../types';
+import type { ValidationRule } from '../types';
 
 /** Reports every note whose frontmatter could not be parsed. */
 export const parseFrontmatterRule: ValidationRule = {

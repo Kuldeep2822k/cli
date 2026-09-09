@@ -93,7 +93,7 @@ describe('Human formatter (#25)', () => {
 
 describe('JSON formatter (#25)', () => {
   test('preserves documented contract keys on a clean vault', () => {
-    const payload = formatJson([], { topicCount: 3, fileCount: 7, valid: true });
+    const payload = formatJson([], { topicCount: 3, fileCount: 7 });
     const data = JSON.parse(payload);
 
     assert.strictEqual(data.valid, true);
@@ -106,7 +106,7 @@ describe('JSON formatter (#25)', () => {
   });
 
   test('errors land in errors[] with rule_id and severity', () => {
-    const payload = formatJson([ERROR_ISSUE], { topicCount: 2, fileCount: 5, valid: false });
+    const payload = formatJson([ERROR_ISSUE], { topicCount: 2, fileCount: 5 });
     const data = JSON.parse(payload);
 
     assert.strictEqual(data.valid, false);
@@ -117,7 +117,7 @@ describe('JSON formatter (#25)', () => {
   });
 
   test('warnings land in warnings[] and never flip valid', () => {
-    const payload = formatJson([WARNING_ISSUE], { topicCount: 1, fileCount: 2, valid: true });
+    const payload = formatJson([WARNING_ISSUE], { topicCount: 1, fileCount: 2 });
     const data = JSON.parse(payload);
 
     assert.strictEqual(data.valid, true);
@@ -130,7 +130,6 @@ describe('JSON formatter (#25)', () => {
     const payload = formatJson([CYCLE_ISSUE, WARNING_ISSUE], {
       topicCount: 3,
       fileCount: 3,
-      valid: false,
     });
     const data = JSON.parse(payload);
 
@@ -145,7 +144,6 @@ describe('JSON formatter (#25)', () => {
     const payload = formatJson([ERROR_ISSUE, WARNING_ISSUE], {
       topicCount: 2,
       fileCount: 5,
-      valid: false,
     });
     assert.ok(!payload.includes('\n'), 'JSON output must be single-line');
     assert.doesNotThrow(() => JSON.parse(payload));

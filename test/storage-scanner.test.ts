@@ -77,6 +77,46 @@ describe('Storage Note Scanner', () => {
     assert.match(notes[0].parseError ?? '', /unclosed/i);
   });
 
+  test('a note opening with a --- thematic break is not flagged (horizontal rule)', () => {
+    // Legal Markdown: opens with a horizontal rule, no frontmatter anywhere.
+    fs.writeFileSync(
+      path.join(tmpVault, 'hr-note.md'),
+      '---\n# My day\nsome prose with no YAML at all\n',
+      'utf8'
+    );
+
+    const notes = scanNotes(tmpVault);
+
+    assert.strictEqual(notes.length, 1);
+    assert.strictEqual(notes[0].parseError, undefined, 'thematic break must not be flagged');
+    assert.strictEqual(notes[0].frontmatter, null);
+  });
+
+  test('unclosed fence with YAML-like body still reports a parse error', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'yaml-ish.md'),
+      '---\ntags: [broken, list\n\n# Note\n',
+      'utf8'
+    );
+
+    const notes = scanNotes(tmpVault);
+
+    assert.strictEqual(notes.length, 1);
+    assert.match(notes[0].parseError ?? '', /unclosed/i);
+  });
+
+  test('includeContent captures raw bytes for snapshot injection', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic.md'),
+      '---\npalee_id: T-a\n---\n# A\n',
+      'utf8'
+    );
+
+    const [note] = scanNotes(tmpVault, { includeContent: true });
+
+    assert.strictEqual(note.content, '---\npalee_id: T-a\n---\n# A\n');
+  });
+
   test('empty frontmatter fences are not a parse error', () => {
     fs.writeFileSync(path.join(tmpVault, 'empty-fences.md'), '---\n---\n# Body\n', 'utf8');
 

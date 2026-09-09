@@ -230,9 +230,11 @@ Found 18 PALEE topics in 24 files
 
 ✗ Found 2 validation error(s):
 
-  • Missing dependency: T-cloud-native depends on T-docker-missing
+  • Topic T-cloud-native depends on missing topic T-docker-missing
+    Rule: no-missing-dependency
 
-  • Dependency cycle: T-topic-a → T-topic-b → T-topic-a
+  • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
+    Rule: no-dependency-cycle
 ```
 
 ---

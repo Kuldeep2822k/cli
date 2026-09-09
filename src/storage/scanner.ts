@@ -20,6 +20,14 @@ import { ScannedNote } from '../types';
 export interface ScanNotesOptions {
   /** Pre-scanned array of absolute file paths (avoids duplicate vault walks) */
   files?: string[];
+  /**
+   * Capture each file's raw content on the returned notes.
+   *
+   * @remarks Enables single-read collection: the caller can thread the same
+   * bytes into `loadTopics({ contents })` so parse outcomes and topic
+   * loading observe one snapshot of the vault.
+   */
+  includeContent?: boolean;
 }
 
 /**
@@ -34,7 +42,8 @@ export interface ScanNotesOptions {
  * downstream output is deterministic across platforms.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
- * @param options - Scan options (`files` for a pre-scanned file list)
+ * @param options - Scan options (`files` for a pre-scanned file list,
+ * `includeContent` to capture raw bytes per note)
  * @returns One parse-outcome entry per readable file, sorted by relative path
  *
  * @example
@@ -58,11 +67,19 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     const { frontmatter, error } = parseFrontmatter(content);
 
     // An opening `---` fence with no closing fence is invisible to
-    // parseFrontmatter (it only sees "no frontmatter found"). Surface it as
-    // a parse error so the validation rule can warn instead of skipping.
+    // parseFrontmatter (it only sees "no frontmatter found"). Flag it only
+    // when the body reads like YAML — a legal note opening with a `---`
+    // thematic break (horizontal rule) must not be reported as malformed.
     let parseError = error;
     if (!parseError && frontmatter === null && /^---\r?\n/.test(content) && !content.includes('\n---')) {
-      parseError = 'Unclosed frontmatter block: opening `---` fence has no closing `---`';
+      const fenceBody = content.slice(content.indexOf('\n') + 1);
+      const looksLikeYaml =
+        /^[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) || /^\s+-\s+\S/m.test(fenceBody);
+      if (looksLikeYaml) {
+        parseError =
+          'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+          '(if the opening line is a horizontal rule, use `***` instead)';
+      }
     }
 
     notes.push({
@@ -70,6 +87,7 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
       relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
       frontmatter,
       ...(parseError ? { parseError } : {}),
+      ...(options.includeContent ? { content } : {}),
     });
   }
 

@@ -65,7 +65,7 @@ export interface ValidationIssue {
 export interface ValidationContext {
   /** Absolute path of the Obsidian vault root */
   vaultPath: string;
-  /** Absolute paths of all scanned Markdown files, in walk order */
+  /** Absolute paths of all scanned Markdown files, sorted by relative path */
   files: string[];
   /** Normalized PALEE topics loaded from the vault */
   topics: LoadedTopic[];
