@@ -12,7 +12,7 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { parseFrontmatterRule } from '../src/validation/rules/parse-frontmatter';
+import { parseFrontmatterRule, readFailureRule } from '../src/validation/rules/parse-frontmatter';
 import { noDuplicateTopicIdRule } from '../src/validation/rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from '../src/validation/rules/no-missing-dependency';
 import { noDependencyCycleRule } from '../src/validation/rules/no-dependency-cycle';
@@ -106,6 +106,46 @@ describe('parse-frontmatter rule (#26)', () => {
     assert.strictEqual(parseFrontmatterRule.id, 'parse-frontmatter');
     assert.strictEqual(parseFrontmatterRule.severity, 'warning');
     assert.strictEqual(parseFrontmatterRule.fixable, 'manual');
+  });
+});
+
+describe('read-failure rule', () => {
+  test('reports only unreadable notes in deterministic path order', () => {
+    const context = makeContext({
+      notes: [
+        makeNote({ relativePath: 'z-locked.md', readError: 'EBUSY: file locked' }),
+        makeNote({ relativePath: 'a-locked.md', readError: 'EPERM: denied' }),
+        makeNote({ relativePath: 'mid-ok.md' }),
+      ],
+    });
+
+    const issues = readFailureRule.run(context);
+
+    assert.strictEqual(issues.length, 2);
+    assert.deepStrictEqual(
+      issues.map((i) => i.file),
+      ['a-locked.md', 'z-locked.md']
+    );
+    assert.strictEqual(issues[0].ruleId, 'read-failure');
+    assert.strictEqual(issues[0].severity, 'warning');
+    assert.match(issues[0].message, /a-locked\.md/);
+    assert.match(issues[0].message, /EPERM/);
+    assert.strictEqual(issues[0].details?.readError, 'EPERM: denied');
+    assert.strictEqual(issues[1].details?.readError, 'EBUSY: file locked');
+  });
+
+  test('fully readable vault yields no issues', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'ok.md' })],
+    });
+
+    assert.deepStrictEqual(readFailureRule.run(context), []);
+  });
+
+  test('rule metadata: warning severity, not fixable', () => {
+    assert.strictEqual(readFailureRule.id, 'read-failure');
+    assert.strictEqual(readFailureRule.severity, 'warning');
+    assert.strictEqual(readFailureRule.fixable, false);
   });
 });
 

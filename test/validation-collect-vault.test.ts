@@ -128,4 +128,36 @@ describe('Validation vault collection', () => {
     assert.strictEqual(topic.content, note.content);
     assert.strictEqual(topic.frontmatter.palee_id, 'T-snap');
   });
+
+  test('unreadable files are excluded from topic loading but kept in files', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'good.md'),
+      '---\npalee_schema: 1\npalee_id: T-good\n---\n# Good\n',
+      'utf8'
+    );
+
+    const files = [
+      path.join(tmpVault, 'good.md'),
+      path.join(tmpVault, 'locked.md'), // does not exist on disk
+    ];
+    const context = collectVault(tmpVault, {
+      files,
+      cache: new FileCache<LoadedTopic>(),
+    });
+
+    // files[] keeps every scanned path (file_count reports the whole vault)
+    assert.strictEqual(context.files.length, 2);
+    assert.deepStrictEqual(
+      context.notes.map((n) => n.relativePath),
+      ['good.md', 'locked.md']
+    );
+    const locked = context.notes.find((n) => n.relativePath === 'locked.md');
+    assert.ok(locked?.readError);
+    assert.strictEqual(locked.content, undefined);
+
+    // The read-failure signal propagates and topics exclude the unreadable file
+    assert.strictEqual(context.readIncomplete, true);
+    assert.strictEqual(context.topics.length, 1);
+    assert.strictEqual(context.topics[0].palee_id, 'T-good');
+  });
 });

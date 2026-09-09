@@ -12,7 +12,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { runRules } from '../src/validation/run-rules';
-import {
+import type {
   ValidationContext,
   ValidationIssue,
   ValidationRule,

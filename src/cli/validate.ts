@@ -82,11 +82,9 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     console.log(`Found ${uniqueTopicCount} PALEE topics in ${context.files.length} files`);
     console.log();
 
-    if (issues.length === 0) {
-      console.log('✓ Vault validation passed - no errors found');
-      return;
-    }
-
+    // Human report (or the pass line), then the --fix note for any vault
+    // state — a clean vault with --fix set still tells the user fix is a
+    // Phase-1 stub rather than silently implying fixes ran.
     console.log(formatHuman(issues));
 
     if (options.fix) {
@@ -95,7 +93,6 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
 
     if (errorCount > 0) {
       process.exitCode = ExitCode.Validation;
-      return;
     }
   } catch (e: unknown) {
     const err = e as Error;

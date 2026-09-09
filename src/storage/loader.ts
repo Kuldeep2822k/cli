@@ -208,11 +208,16 @@ export function loadTopics(
   for (const filePath of scanFiles) {
     // Snapshot injection (#25): caller-provided bytes are used verbatim —
     // no read, no cache read, no cache write — so loader and scanner
-    // observe the same content even under concurrent edits.
+    // observe the same content even under concurrent edits. Injected
+    // content must never enter the cache: it is snapshot truth, not
+    // on-disk truth, and a cached injected value would poison later
+    // non-snapshot loads against the file's real bytes.
     const injected = contents?.get(filePath);
     let content: string;
+    let fromSnapshot = false;
     if (injected !== undefined) {
       content = injected;
+      fromSnapshot = true;
     } else {
       const cached = cache.get(filePath);
       if (cached) {
@@ -272,7 +277,11 @@ export function loadTopics(
     };
 
     const fp = computeFingerprint(content);
-    cache.set(filePath, topic, fp);
+    // Snapshot-injected content never enters the cache — only bytes read
+    // from disk in THIS call are cache-worthy (see fromSnapshot above).
+    if (!fromSnapshot) {
+      cache.set(filePath, topic, fp);
+    }
     topics.push(topic);
   }
 

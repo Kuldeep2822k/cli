@@ -65,21 +65,24 @@ function collectVault(
     files: options.files,
     includeContent: true,
   });
+  // Every scanned path is retained for reporting (file_count must reflect
+  // the whole vault, including unreadable files).
   const files = notes.map((note) => note.absolutePath);
+  // The topic loader only sees readable files: a read-failure path has no
+  // snapshot bytes, so letting it through would let the loader fall back
+  // to cache/disk and admit bytes the scanner never observed. The
+  // readIncomplete flag + read-failure rule carry the exclusion signal.
+  const readableFiles: string[] = [];
   const contents = new Map<string, string>();
   for (const note of notes) {
-    // Only readable notes contribute bytes: a read-failure note has no
-    // content, and injecting empty string would tell the loader a file is
-    // blank when the truth is "could not read". Unreadable files are
-    // simply absent from the snapshot — the readIncomplete flag carries
-    // that signal to the rules.
     if (note.content !== undefined) {
+      readableFiles.push(note.absolutePath);
       contents.set(note.absolutePath, note.content);
     }
   }
 
   const topics = loadTopics(vaultPath, {
-    files,
+    files: readableFiles,
     contents,
     cache: options.cache ?? new FileCache<LoadedTopic>(),
   });
