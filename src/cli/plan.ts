@@ -7,7 +7,7 @@ import { ExitCode } from './exit-codes';
  */
 
 import { loadTopics } from '../storage';
-import { getReadyTopics } from '../engine/dependency';
+import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
 
@@ -94,8 +94,15 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return;
     }
 
-    // Get ready to learn (deps satisfied, not mastered)
-    const readyTopics = getReadyTopics(topics, MASTERY_THRESHOLD) as PlanTopic[];
+    // Quarantine cyclic components before computing readiness (#79): topics on
+    // or downstream of a dependency cycle have undefined learning order, so the
+    // ready-to-learn list is computed over the acyclic subgraph only. Reviews
+    // due (SM-2 state) stay on the full map — a quarantined topic's review
+    // schedule is still real.
+    const { acyclic: acyclicTopics, cycles: quarantinedCycles } = quarantineCyclicTopics(topics);
+
+    // Get ready to learn (deps satisfied, not mastered) — acyclic components only
+    const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
 
     const diffOrder: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
     const sortedDue = dueTopics.slice().sort((a, b) => {
@@ -131,9 +138,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           topic_mastery: t.topic_mastery,
           difficulty: t.difficulty,
         })),
+        quarantined_cycles: quarantinedCycles,
         counts: {
           due: dueTopics.length,
           ready: readyTopics.length,
+          quarantined: topics.size - acyclicTopics.size,
           mastered: masteredCount,
           learning: learningCount,
           new: newCount,
@@ -143,6 +152,16 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
 
     console.log('=== Today\'s Learning Plan ===\n');
+
+    // Section 0: Quarantined cyclic components (ready list excludes them)
+    if (quarantinedCycles.length > 0) {
+      console.log(`Quarantined Cyclic Components: ${quarantinedCycles.length}`);
+      for (const cycle of quarantinedCycles) {
+        console.warn(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
+        console.warn('    Topics on this cycle (and their dependents) are excluded from Ready to Learn.');
+      }
+      console.log();
+    }
 
     // Section 1: Due for review
     console.log(`Reviews Due: ${dueTopics.length}`);

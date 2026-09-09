@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-cycle enumeration + quarantine in the dependency engine**: `detectCycles` (new) enumerates every distinct cycle in the topic graph via a true three-color DFS (the old `detectCycle` was a two-color scan that returned only the first cycle and aborted), reporting each cyclic component's exact path in canonical rotation (lexicographically-smallest ID leads). `quarantineCyclicTopics` (new) removes every topic on or downstream of a cycle from the working graph and returns the clean acyclic subgraph plus the cycle paths, so `plan` now continues on valid acyclic components per the spec — quarantined cycles are surfaced as warnings (human mode) and a `quarantined_cycles` array + `counts.quarantined` field (JSON mode). `validateDependencyGraph` reports one error per distinct cycle instead of stopping at the first. `getReadyTopics` output is now deterministically ordered by ascending `palee_id`, independent of vault-walk insertion order. `detectCycle` keeps its signature and first-cycle-or-`null` semantics as a compatibility wrapper ([#79](https://github.com/Kuldeep2822k/cli/issues/79)).
+
 ### Performance (perf)
 
 - **Parallel test execution + categorized test scripts**: Removed the forced `--test-concurrency=1` (Node's test runner now parallelizes across CPU cores — file-level process isolation was already guaranteed since each test file runs in its own child process, and all suites use per-test `fs.mkdtempSync` temp dirs + per-process `PALEE_CONFIG_DIR`). Full suite: ~112s → ~38s locally (66% faster; acceptance target was 50%). Added `test:unit` (storage/engine/types/smoke, ~2.5s), `test:fast` (everything except the e2e tier suites and challenger1 stress, ~19s), `test:e2e` (tier suites), and `test:fuzz` (fuzz/stress) for fast inner loops. Verified deterministic across repeated runs, and `c8` coverage aggregation still reports correctly across parallel children ([#121](https://github.com/Kuldeep2822k/cli/issues/121)).

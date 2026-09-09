@@ -26,11 +26,112 @@ function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
 }
 
 /**
+ * Rotates a cycle path so its lexicographically-smallest ID leads, giving every
+ * rotation of the same loop one canonical representation.
+ *
+ * @remarks
+ * Input must start and end with the same ID (`path[0] === path[path.length - 1]`).
+ *
+ * @param path - Cycle path with repeated closing ID
+ * @returns Canonically rotated copy (same length, closing ID preserved)
+ *
+ * @example
+ * ```typescript
+ * canonicalizeCycle(['T-c', 'T-a', 'T-b', 'T-c']); // ['T-a', 'T-b', 'T-c', 'T-a']
+ * ```
+ */
+function canonicalizeCycle(path: string[]): string[] {
+  const nodes = path.slice(0, -1);
+  if (nodes.length <= 1) return path.slice();
+  let minIndex = 0;
+  for (let i = 1; i < nodes.length; i++) {
+    if (nodes[i] < nodes[minIndex]) minIndex = i;
+  }
+  return nodes.slice(minIndex).concat(nodes.slice(0, minIndex), [nodes[minIndex]]);
+}
+
+/**
+ * Traverses the dependency graph with a three-color DFS (white = unvisited,
+ * gray = on the current path, black = finished), collecting every distinct
+ * cycle in the graph.
+ *
+ * @remarks
+ * A back-edge to a gray ancestor closes a cycle; its exact path is read off
+ * the gray path stack, canonicalized so the same loop is never reported twice
+ * regardless of entry point. Unlike the legacy two-color scan, traversal does
+ * not abort on the first cycle — each cyclic component is recorded, and the
+ * DFS continues so acyclic components remain usable (spec: three-color DFS with
+ * cyclic-component quarantine, `planning/palee_cli_spec.md` §Dependency
+ * processing, `planning/invariants.md` line 37).
+ *
+ * Determinism: roots are visited in `topics` insertion order and prerequisites
+ * in declared order, so the returned cycle list is stable for a given map.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
+ */
+function detectCycles(topics: Map<string, TopicNode>): string[][] {
+  const GRAY = 1;
+  const BLACK = 2;
+
+  // White is implicit: absent from the color map.
+  const color = new Map<string, number>();
+  const pathStack: string[] = [];
+  const seen = new Set<string>();
+  const cycles: string[][] = [];
+
+  /**
+   * Recursive three-color DFS visitor.
+   *
+   * @param id - Topic identifier to visit
+   * @remarks Records a canonicalized cycle on every gray back-edge.
+   */
+  function visit(id: string): void {
+    const state = color.get(id);
+    if (state === GRAY) {
+      const cycleStart = pathStack.indexOf(id);
+      const cycle = canonicalizeCycle(pathStack.slice(cycleStart).concat(id));
+      const key = cycle.join('\u0000');
+      if (!seen.has(key)) {
+        seen.add(key);
+        cycles.push(cycle);
+      }
+      return;
+    }
+    if (state === BLACK) return;
+
+    const topic = topics.get(id);
+    if (!topic) {
+      color.set(id, BLACK);
+      return;
+    }
+
+    color.set(id, GRAY);
+    pathStack.push(id);
+
+    for (const depId of getTopicDependencies(topic)) {
+      visit(depId);
+    }
+
+    pathStack.pop();
+    color.set(id, BLACK);
+  }
+
+  for (const id of topics.keys()) {
+    visit(id);
+  }
+
+  return cycles;
+}
+
+/**
  * Detects cyclic dependencies within the topic graph using depth-first search (DFS) with a 3-color visiting state.
  *
  * @remarks
- * Recursively explores prerequisites. If an active ancestor node on the current path stack
- * is re-encountered, a cycle path is constructed and returned.
+ * Thin compatibility wrapper over {@link detectCycles}: returns the first
+ * cycle found in traversal order, or `null` when the graph is acyclic. Callers
+ * that need every cyclic component (quarantine, full validation reports) should
+ * call {@link detectCycles} directly.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Array of topic IDs representing the cycle loop (e.g. `['A', 'B', 'C', 'A']`), or `null` if acyclic
@@ -44,53 +145,105 @@ function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
  * ```
  */
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const pathStack: string[] = [];
+  const cycles = detectCycles(topics);
+  return cycles.length > 0 ? cycles[0] : null;
+}
+
+/**
+ * Collects every topic that is part of, or downstream of, a dependency cycle.
+ *
+ * @remarks
+ * A topic is cyclic-blocked if it can reach a cycle in the dependency graph —
+ * its learning order is undefined even though it is not itself on the loop.
+ * Companion topics that merely share an edge with cyclic nodes are NOT
+ * blocked: only reachability into a cycle matters.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @param cycles - Cycle paths from {@link detectCycles}
+ * @returns Set of topic IDs on or reaching any cycle
+ */
+function collectBlockedFromCycles(
+  topics: Map<string, TopicNode>,
+  cycles: string[][]
+): Set<string> {
+  const blocked = new Set<string>();
+  const onCycle = new Set<string>();
+  for (const cycle of cycles) {
+    for (const id of cycle) onCycle.add(id);
+  }
 
   /**
-   * Recursive DFS visitor function tracking visiting/visited states and current path stack.
+   * Iterative DFS marking every node whose dependency closure reaches a cycle node.
    *
-   * @param id - Topic identifier to visit
-   * @returns Cycle path array if cycle found, or null if acyclic
-   * @remarks Detects back-edges to visiting ancestors.
-   * @example
-   * ```typescript
-   * const cycle = visit('topic-a');
-   * ```
+   * @param start - Topic identifier to explore from
    */
-  function visit(id: string): string[] | null {
-    if (visiting.has(id)) {
-      // Found cycle - return path from cycle start
-      const cycleStart = pathStack.indexOf(id);
-      return pathStack.slice(cycleStart).concat(id);
+  function markReachableIntoCycle(start: string): void {
+    if (blocked.has(start)) return;
+    const stack = [start];
+    const localVisited = new Set<string>([start]);
+    let reachesCycle = onCycle.has(start);
+
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      const topic = topics.get(id);
+      if (!topic) continue;
+      for (const depId of getTopicDependencies(topic)) {
+        if (onCycle.has(depId)) reachesCycle = true;
+        if (!localVisited.has(depId)) {
+          localVisited.add(depId);
+          stack.push(depId);
+        }
+      }
     }
-    if (visited.has(id)) return null;
 
-    const topic = topics.get(id);
-    if (!topic) return null;
-
-    visiting.add(id);
-    pathStack.push(id);
-
-    const deps = getTopicDependencies(topic);
-    for (const depId of deps) {
-      const cycle = visit(depId);
-      if (cycle) return cycle;
+    if (reachesCycle) {
+      for (const id of localVisited) blocked.add(id);
     }
-
-    pathStack.pop();
-    visiting.delete(id);
-    visited.add(id);
-    return null;
   }
 
   for (const id of topics.keys()) {
-    const cycle = visit(id);
-    if (cycle) return cycle;
+    markReachableIntoCycle(id);
   }
 
-  return null;
+  return blocked;
+}
+
+/**
+ * Quarantines cyclic components from the topic graph so acyclic components keep working.
+ *
+ * @remarks
+ * Implements the spec's quarantine contract: every topic on or downstream of a
+ * dependency cycle is removed from the working graph (its learning order is
+ * undefined), while all other topics — including those in unrelated acyclic
+ * components — remain usable by `next`/`plan`. The returned `acyclic` map
+ * preserves the original insertion order of surviving topics; `cycles` carries
+ * the exact canonicalized cycle paths for reporting.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns `{ acyclic, cycles }` — the cycle-free subgraph and every distinct cycle path
+ *
+ * @example
+ * ```typescript
+ * const { acyclic, cycles } = quarantineCyclicTopics(topicMap);
+ * const ready = getReadyTopics(acyclic);
+ * ```
+ */
+function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
+  acyclic: Map<string, TopicNode>;
+  cycles: string[][];
+} {
+  const cycles = detectCycles(topics);
+  if (cycles.length === 0) {
+    return { acyclic: new Map(topics), cycles };
+  }
+
+  const blocked = collectBlockedFromCycles(topics, cycles);
+  const acyclic = new Map<string, TopicNode>();
+  for (const [id, topic] of topics) {
+    if (!blocked.has(id)) acyclic.set(id, topic);
+  }
+
+  return { acyclic, cycles };
 }
 
 /**
@@ -141,7 +294,7 @@ function areDependenciesSatisfied(
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @param threshold - Mastery threshold score (default: {@link MASTERY_THRESHOLD} = 0.70)
- * @returns Array of {@link TopicNode} objects ready for immediate learning
+ * @returns Array of {@link TopicNode} objects ready for immediate learning, sorted by `palee_id`
  *
  * @example
  * ```typescript
@@ -167,6 +320,10 @@ function getReadyTopics(
     }
   }
 
+  // Deterministic output contract (#79): ascending palee_id, independent of
+  // vault-walk insertion order. Presentation sorts (difficulty, due date)
+  // build on this stable base.
+  ready.sort((a, b) => a.palee_id.localeCompare(b.palee_id));
   return ready;
 }
 
@@ -176,7 +333,9 @@ function getReadyTopics(
  * @remarks
  * Performs two verification checks:
  * 1. Missing dependencies: Ensures all referenced prerequisite IDs exist in the vault.
- * 2. Cycles: Runs {@link detectCycle} to ensure the dependency graph is a Directed Acyclic Graph (DAG).
+ * 2. Cycles: Runs {@link detectCycles} and reports EVERY cyclic component
+ *    (one error per distinct cycle, with its exact canonicalized path) instead
+ *    of aborting at the first — acyclic components stay usable (#79).
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns {@link ValidationResult} containing boolean status and any detected {@link ValidationError} items
@@ -207,9 +366,9 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
     }
   }
 
-  // Check for cycles
-  const cycle = detectCycle(topics);
-  if (cycle) {
+  // Check for cycles — report every distinct cyclic component (#79)
+  const cycles = detectCycles(topics);
+  for (const cycle of cycles) {
     errors.push({
       type: 'cycle',
       path: cycle,
@@ -225,6 +384,8 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 
 export {
   detectCycle,
+  detectCycles,
+  quarantineCyclicTopics,
   areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,

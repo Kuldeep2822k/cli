@@ -348,6 +348,99 @@ depends_on:
     });
   });
 
+  describe('Cyclic Component Quarantine in Plan Output (#79)', () => {
+    test('plan --json quarantines cyclic topics from ready list while acyclic topics keep working', async () => {
+      // NOTE: runs against the Populated Vault beforeEach fixture (topic-1, topic-2 — acyclic).
+      // Cyclic pair: T-cycle-a ↔ T-cycle-b
+      fs.writeFileSync(
+        path.join(tmpDir, 'cycle-a.md'),
+        `---
+palee_schema: 1
+palee_id: T-cycle-a
+title: Cycle A
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-cycle-b
+---
+# Cycle A
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'cycle-b.md'),
+        `---
+palee_schema: 1
+palee_id: T-cycle-b
+title: Cycle B
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-cycle-a
+---
+# Cycle B
+`,
+        'utf8'
+      );
+      // Independent acyclic topic, unmastered and dependency-free → ready
+      fs.writeFileSync(
+        path.join(tmpDir, 'free.md'),
+        `---
+palee_schema: 1
+palee_id: T-free
+title: Free Standing Topic
+difficulty: intermediate
+topic_mastery: 0
+depends_on: []
+---
+# Free
+`,
+        'utf8'
+      );
+
+      await planCommand({ json: true });
+      const data = getLastParsedJson();
+
+      // Acyclic component keeps working: T-free is in the ready list
+      const readyIds = data.ready_to_learn.map((t: { id: string }) => t.id);
+      assert.ok(readyIds.includes('T-free'), 'acyclic topic must remain ready to learn');
+      assert.ok(!readyIds.includes('T-cycle-a'), 'cyclic topic must be quarantined from ready list');
+      assert.ok(!readyIds.includes('T-cycle-b'), 'cyclic topic must be quarantined from ready list');
+
+      // Cycle is reported with its exact canonicalized path
+      assert.strictEqual(data.quarantined_cycles.length, 1);
+      assert.deepStrictEqual(data.quarantined_cycles[0], ['T-cycle-a', 'T-cycle-b', 'T-cycle-a']);
+      assert.strictEqual(data.counts.quarantined, 2);
+
+      // Spec: plan continues on valid acyclic components — no error exit
+      assert.strictEqual(process.exitCode, 0);
+    });
+
+    test('plan --json on acyclic vault reports empty quarantine (#79)', async () => {
+      // Fresh vault with a single acyclic topic (independent of the cycle files
+      // written by the sibling test — tmpDir is per-test via beforeEach).
+      fs.writeFileSync(
+        path.join(tmpDir, 'solo.md'),
+        `---
+palee_schema: 1
+palee_id: T-solo
+title: Solo Topic
+difficulty: intermediate
+topic_mastery: 0
+depends_on: []
+---
+# Solo
+`,
+        'utf8'
+      );
+
+      await planCommand({ json: true });
+      const data = getLastParsedJson();
+      assert.deepStrictEqual(data.quarantined_cycles, []);
+      assert.strictEqual(data.counts.quarantined, 0);
+    });
+  });
+
   describe('Non-TTY (Piped/Redirected) Auto-JSON Selection', () => {
     const originalIsTTY = process.stdout.isTTY;
 
