@@ -79,9 +79,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           total_topics: 0,
           reviews_due: [],
           ready_to_learn: [],
+          quarantined_cycles: [],
           counts: {
             due: 0,
             ready: 0,
+            quarantined: 0,
             mastered: 0,
             learning: 0,
             new: 0,
@@ -157,8 +159,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     if (quarantinedCycles.length > 0) {
       console.log(`Quarantined Cyclic Components: ${quarantinedCycles.length}`);
       for (const cycle of quarantinedCycles) {
-        console.warn(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
-        console.warn('    Topics on this cycle (and their dependents) are excluded from Ready to Learn.');
+        console.log(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
+        console.log('    Topics on this cycle (and their dependents) are excluded from Ready to Learn.');
       }
       console.log();
     }

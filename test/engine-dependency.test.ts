@@ -82,6 +82,40 @@ describe('Dependency Graph', () => {
     assert.ok(keys.includes('T-b\u0000T-x\u0000T-b'));
   });
 
+  test('detectCycles reports overlapping cycles sharing an edge path (#79 review fix)', () => {
+    // greptile/kilo case: A -> [B, C], B -> A, C -> B.
+    // Both A-B-A and A-C-B-A must be reported — a plain three-color DFS
+    // misses the second because B is BLACK when reached via C.
+    const topics = new Map<string, TopicNode>([
+      ['A', { palee_id: 'A', depends_on: ['B', 'C'], topic_mastery: 0 }],
+      ['B', { palee_id: 'B', depends_on: ['A'], topic_mastery: 0 }],
+      ['C', { palee_id: 'C', depends_on: ['B'], topic_mastery: 0 }],
+    ]);
+
+    const cycles = detectCycles(topics);
+    assert.strictEqual(cycles.length, 2, 'overlapping cycles sharing nodes must both be reported');
+    const keys = cycles.map(c => c.join('\u0000')).sort();
+    assert.ok(keys.includes('A\u0000B\u0000A'));
+    assert.ok(keys.includes('A\u0000C\u0000B\u0000A'));
+  });
+
+  test('detectCycles reports both loops in a shared-back-edge diamond (#79 review fix)', () => {
+    // coderabbit case: A→B, A→C, B→D, C→D, D→A. Cycles A-B-D-A and
+    // A-C-D-A share the D→A back edge; both must be enumerated.
+    const topics = new Map<string, TopicNode>([
+      ['A', { palee_id: 'A', depends_on: ['B', 'C'], topic_mastery: 0 }],
+      ['B', { palee_id: 'B', depends_on: ['D'], topic_mastery: 0 }],
+      ['C', { palee_id: 'C', depends_on: ['D'], topic_mastery: 0 }],
+      ['D', { palee_id: 'D', depends_on: ['A'], topic_mastery: 0 }],
+    ]);
+
+    const cycles = detectCycles(topics);
+    assert.strictEqual(cycles.length, 2, 'both diamond loops must be reported');
+    const keys = cycles.map(c => c.join('\u0000')).sort();
+    assert.ok(keys.includes('A\u0000B\u0000D\u0000A'));
+    assert.ok(keys.includes('A\u0000C\u0000D\u0000A'));
+  });
+
   test('detectCycles canonicalizes rotation — smallest ID leads (#79)', () => {
     // Entry point T-z reaches the T-a→T-b→T-a loop; traversal finds it from T-z
     // first, but the canonical rotation must start at T-a.
@@ -139,6 +173,46 @@ describe('Dependency Graph', () => {
     const { acyclic, cycles } = quarantineCyclicTopics(topics);
     assert.strictEqual(cycles.length, 0);
     assert.strictEqual(acyclic.size, 2);
+  });
+
+  test('quarantineCyclicTopics preserves an acyclic sibling prerequisite of a cyclic dep (#79 review fix)', () => {
+    // coderabbit trigger: T-x depends on [T-a (cyclic), T-p (free)].
+    // T-p shares the depends_on list with a cyclic topic but never reaches
+    // a cycle itself — it must stay ready; only T-x (and the cycle) quarantines.
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-x', { palee_id: 'T-x', depends_on: ['T-a', 'T-p'], topic_mastery: 0 }],
+      ['T-p', { palee_id: 'T-p', depends_on: [], topic_mastery: 0 }],
+    ]);
+
+    const { acyclic, cycles } = quarantineCyclicTopics(topics);
+
+    assert.strictEqual(cycles.length, 1);
+    assert.strictEqual(acyclic.size, 1, 'only T-p survives');
+    assert.ok(acyclic.has('T-p'), 'acyclic sibling prerequisite must NOT be quarantined');
+    assert.ok(!acyclic.has('T-x'), 'dependent of a cyclic topic must be quarantined');
+    assert.ok(!acyclic.has('T-a') && !acyclic.has('T-b'), 'cycle members must be quarantined');
+
+    // And the surviving topic is ready to learn.
+    const ready = getReadyTopics(acyclic);
+    assert.deepStrictEqual(ready.map(t => t.palee_id), ['T-p']);
+  });
+
+  test('quarantineCyclicTopics handles a 5000-node linear chain without stack overflow (#79 review fix)', () => {
+    // greptile P2: deep dependency chains must not recurse. Build a long
+    // acyclic chain plus one cycle at the head; quarantine must complete.
+    const topics = new Map<string, TopicNode>();
+    topics.set('T-cycle-a', { palee_id: 'T-cycle-a', depends_on: ['T-cycle-b'], topic_mastery: 0 });
+    topics.set('T-cycle-b', { palee_id: 'T-cycle-b', depends_on: ['T-cycle-a'], topic_mastery: 0 });
+    for (let i = 0; i < 5000; i++) {
+      const dep = i === 0 ? 'T-cycle-b' : `T-chain-${i - 1}`;
+      topics.set(`T-chain-${i}`, { palee_id: `T-chain-${i}`, depends_on: [dep], topic_mastery: 0 });
+    }
+
+    const { acyclic, cycles } = quarantineCyclicTopics(topics);
+    assert.strictEqual(cycles.length, 1);
+    assert.strictEqual(acyclic.size, 0, 'every chain node depends on the cycle transitively');
   });
 
   // ─── #79: deterministic ready ordering ───────────────────────────────

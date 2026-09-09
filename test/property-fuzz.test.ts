@@ -145,11 +145,13 @@ describe('Property-Based & Fuzz Testing Suite', () => {
     test('quarantineCyclicTopics invariant: cycles found iff topics quarantined (#79)', () => {
       const { detectCycles, quarantineCyclicTopics } = require('../src/engine/dependency');
 
-      // Deterministic pseudo-random graphs: mix of DAG edges, cycles, downstream-of-cycle nodes
+      // Deterministic pseudo-random graphs: mix of DAG edges, cycles, downstream-of-cycle nodes.
+      // Exact 32-bit arithmetic (Math.imul + high bits) so the state never
+      // exceeds Number.MAX_SAFE_INTEGER and rounds — sizes cover 3..10.
       let seed = 42;
       const rand = (n: number): number => {
-        seed = (seed * 1103515245 + 12345) % 2147483648;
-        return seed % n;
+        seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+        return (seed >>> 16) % n;
       };
 
       for (let round = 0; round < 30; round++) {

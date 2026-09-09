@@ -106,7 +106,9 @@ describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
       assert.strictEqual(data.total_topics, 0);
       assert.deepStrictEqual(data.reviews_due, []);
       assert.deepStrictEqual(data.ready_to_learn, []);
+      assert.deepStrictEqual(data.quarantined_cycles, [], 'empty vault must report the quarantine fields too (#79 schema consistency)');
       assert.strictEqual(data.counts.due, 0);
+      assert.strictEqual(data.counts.quarantined, 0);
     });
 
     test('progress --json on empty vault produces valid JSON structure', async () => {

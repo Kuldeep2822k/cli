@@ -31,9 +31,12 @@ function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
  *
  * @remarks
  * Input must start and end with the same ID (`path[0] === path[path.length - 1]`).
+ * A malformed path (too short or not self-closing) is a caller bug — throw
+ * loudly rather than canonicalize garbage.
  *
  * @param path - Cycle path with repeated closing ID
  * @returns Canonically rotated copy (same length, closing ID preserved)
+ * @throws When the path is not a self-closing cycle of at least 2 entries
  *
  * @example
  * ```typescript
@@ -41,6 +44,11 @@ function getTopicDependencies(topic?: Partial<TopicNode> | null): string[] {
  * ```
  */
 function canonicalizeCycle(path: string[]): string[] {
+  if (path.length < 2 || path[0] !== path[path.length - 1]) {
+    throw new Error(
+      `Invalid cycle path: must start and end with the same ID (got [${path.join(', ')}])`
+    );
+  }
   const nodes = path.slice(0, -1);
   if (nodes.length <= 1) return path.slice();
   let minIndex = 0;
@@ -51,74 +59,213 @@ function canonicalizeCycle(path: string[]): string[] {
 }
 
 /**
- * Traverses the dependency graph with a three-color DFS (white = unvisited,
- * gray = on the current path, black = finished), collecting every distinct
- * cycle in the graph.
+ * Directed-edge view of the dependency graph, restricted to edges between
+ * known topics and deduplicated so parallel/identical `depends_on` entries
+ * cannot multiply traversal work.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Map of topic ID to its unique, resolvable prerequisite IDs
+ */
+function buildEdgeMap(topics: Map<string, TopicNode>): Map<string, string[]> {
+  const edges = new Map<string, string[]>();
+  for (const [id, topic] of topics) {
+    const seen = new Set<string>();
+    const deps: string[] = [];
+    for (const depId of getTopicDependencies(topic)) {
+      if (depId !== id && topics.has(depId) && !seen.has(depId)) {
+        seen.add(depId);
+        deps.push(depId);
+      }
+    }
+    edges.set(id, deps);
+  }
+  return edges;
+}
+
+/**
+ * Enumerates the simple (elementary) cycles of one strongly connected component
+ * using an explicit-stack adaptation of Johnson's algorithm.
  *
  * @remarks
- * A back-edge to a gray ancestor closes a cycle; its exact path is read off
- * the gray path stack, canonicalized so the same loop is never reported twice
- * regardless of entry point. Unlike the legacy two-color scan, traversal does
- * not abort on the first cycle — each cyclic component is recorded, and the
- * DFS continues so acyclic components remain usable (spec: three-color DFS with
- * cyclic-component quarantine, `planning/palee_cli_spec.md` §Dependency
- * processing, `planning/invariants.md` line 37).
+ * Each cycle is canonicalized by {@link canonicalizeCycle} and deduplicated,
+ * so every distinct loop inside the SCC is reported exactly once, with its
+ * exact node path — including loops that share nodes or edges. Iteration is
+ * ordered by the SCC's sorted node list, keeping the output deterministic.
  *
- * Determinism: roots are visited in `topics` insertion order and prerequisites
- * in declared order, so the returned cycle list is stable for a given map.
+ * @param scc - Nodes of one strongly connected component
+ * @param edges - Deduplicated edge map (from {@link buildEdgeMap})
+ * @param seen - Cross-call dedup set of canonicalized cycle keys
+ * @param cycles - Output accumulator for canonicalized cycle paths
+ */
+function enumerateSccCycles(
+  scc: Set<string>,
+  edges: Map<string, string[]>,
+  seen: Set<string>,
+  cycles: string[][]
+): void {
+  const order = Array.from(scc).sort();
+  for (let startIndex = 0; startIndex < order.length; startIndex++) {
+    const start = order[startIndex];
+    // Nodes at or before `startIndex` are already covered as starts of earlier
+    // scans; excluding them here prevents re-enumerating the same loops.
+    const subScc = new Set(order.slice(startIndex));
+    const blocked = new Set<string>();
+    const stackBlockedWith: Array<{ node: string; blockedWith: string[] }> = [];
+
+    /**
+     * Unblocks a node and transitively every node whose discovery depended on it.
+     *
+     * @param node - Node to unblock
+     */
+    function unblock(node: string): void {
+      blocked.delete(node);
+      while (stackBlockedWith.length > 0) {
+        const top = stackBlockedWith[stackBlockedWith.length - 1];
+        if (top.blockedWith.includes(node)) {
+          stackBlockedWith.pop();
+          if (blocked.has(top.node)) unblock(top.node);
+        } else {
+          break;
+        }
+      }
+    }
+
+    // Explicit-stack DFS from `start`; path always begins at `start`.
+    const path: string[] = [start];
+    // Per path-node iterator state so backtracking resumes where it left off.
+    const iterators = new Map<string, number>([[start, 0]]);
+
+    while (path.length > 0) {
+      const current = path[path.length - 1];
+      const neighbors = edges.get(current) ?? [];
+      let i = iterators.get(current) ?? 0;
+      let advanced = false;
+
+      while (i < neighbors.length) {
+        const next = neighbors[i];
+        i++;
+        if (next === start) {
+          // Closed a cycle through every node currently on the path.
+          const cycle = canonicalizeCycle(path.concat(start));
+          const key = cycle.join('\u0000');
+          if (!seen.has(key)) {
+            seen.add(key);
+            cycles.push(cycle);
+          }
+        } else if (subScc.has(next) && !blocked.has(next) && !path.includes(next)) {
+          // Descend: remember iterator position, mark blocked-with bookkeeping.
+          iterators.set(current, i);
+          stackBlockedWith.push({ node: next, blockedWith: Array.from(blocked) });
+          blocked.add(next);
+          path.push(next);
+          iterators.set(next, 0);
+          advanced = true;
+          break;
+        }
+      }
+
+      if (!advanced) {
+        // Exhausted `current`'s edges: backtrack and unblock it.
+        iterators.set(current, i);
+        path.pop();
+        unblock(current);
+      }
+    }
+  }
+}
+
+/**
+ * Enumerates every distinct simple cycle in the topic graph.
+ *
+ * @remarks
+ * Two-stage, recursion-free algorithm (stack-safe for deep dependency chains):
+ * 1. Strongly connected components via an iterative Tarjan pass — any topic
+ *    outside a multi-node SCC is provably cycle-free, so only cyclic SCCs are
+ *    searched.
+ * 2. Elementary-cycle enumeration inside each cyclic SCC (Johnson-style, with
+ *    explicit stacks), canonicalized so every distinct loop is reported exactly
+ *    once with its exact path — including overlapping cycles that share nodes
+ *    or edges. Acyclic components are never touched, matching the spec's
+ *    quarantine contract (`planning/palee_cli_spec.md` §Dependency processing,
+ *    `planning/invariants.md` line 37).
+ *
+ * Determinism: SCC roots and cycle enumeration follow sorted node order, so
+ * the returned list is stable for a given graph regardless of map insertion
+ * order.
+ *
+ * Complexity: O(V + E) for SCC detection plus Johnson's bound per cyclic SCC.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
  */
 function detectCycles(topics: Map<string, TopicNode>): string[][] {
-  const GRAY = 1;
-  const BLACK = 2;
+  const edges = buildEdgeMap(topics);
 
-  // White is implicit: absent from the color map.
-  const color = new Map<string, number>();
-  const pathStack: string[] = [];
-  const seen = new Set<string>();
-  const cycles: string[][] = [];
+  // ── Stage 1: iterative Tarjan SCC ──────────────────────────────────
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const tarjanStack: string[] = [];
+  const sccs: string[][] = [];
+  let counter = 0;
 
-  /**
-   * Recursive three-color DFS visitor.
-   *
-   * @param id - Topic identifier to visit
-   * @remarks Records a canonicalized cycle on every gray back-edge.
-   */
-  function visit(id: string): void {
-    const state = color.get(id);
-    if (state === GRAY) {
-      const cycleStart = pathStack.indexOf(id);
-      const cycle = canonicalizeCycle(pathStack.slice(cycleStart).concat(id));
-      const key = cycle.join('\u0000');
-      if (!seen.has(key)) {
-        seen.add(key);
-        cycles.push(cycle);
+  // Frame: [node, next-neighbor-index]. Simulates recursion explicitly.
+  const frames: Array<[string, number]> = [];
+  for (const root of edges.keys()) {
+    if (index.has(root)) continue;
+    frames.push([root, 0]);
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      const [node] = frame;
+      if (!index.has(node)) {
+        index.set(node, counter);
+        lowlink.set(node, counter);
+        counter++;
+        tarjanStack.push(node);
+        onStack.add(node);
       }
-      return;
+
+      const neighbors = edges.get(node) ?? [];
+      let descended = false;
+      while (frame[1] < neighbors.length) {
+        const next = neighbors[frame[1]];
+        frame[1]++;
+        if (!index.has(next)) {
+          frames.push([next, 0]);
+          descended = true;
+          break;
+        } else if (onStack.has(next)) {
+          lowlink.set(node, Math.min(lowlink.get(node)!, index.get(next)!));
+        }
+      }
+      if (descended) continue;
+
+      // All neighbors processed — is this an SCC root?
+      if (lowlink.get(node) === index.get(node)) {
+        const scc: string[] = [];
+        let popped: string;
+        do {
+          popped = tarjanStack.pop()!;
+          onStack.delete(popped);
+          scc.push(popped);
+        } while (popped !== node);
+        sccs.push(scc);
+      }
+      frames.pop();
+      if (frames.length > 0) {
+        const parent = frames[frames.length - 1];
+        lowlink.set(parent[0], Math.min(lowlink.get(parent[0])!, lowlink.get(node)!));
+      }
     }
-    if (state === BLACK) return;
-
-    const topic = topics.get(id);
-    if (!topic) {
-      color.set(id, BLACK);
-      return;
-    }
-
-    color.set(id, GRAY);
-    pathStack.push(id);
-
-    for (const depId of getTopicDependencies(topic)) {
-      visit(depId);
-    }
-
-    pathStack.pop();
-    color.set(id, BLACK);
   }
 
-  for (const id of topics.keys()) {
-    visit(id);
+  // ── Stage 2: enumerate cycles in each multi-node SCC ────────────────
+  const seen = new Set<string>();
+  const cycles: string[][] = [];
+  for (const scc of sccs) {
+    if (scc.length < 2) continue;
+    enumerateSccCycles(new Set(scc), edges, seen, cycles);
   }
 
   return cycles;
@@ -156,11 +303,16 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
  * A topic is cyclic-blocked if it can reach a cycle in the dependency graph —
  * its learning order is undefined even though it is not itself on the loop.
  * Companion topics that merely share an edge with cyclic nodes are NOT
- * blocked: only reachability into a cycle matters.
+ * blocked: only reverse reachability from an on-cycle node matters. A topic
+ * whose sibling prerequisite is acyclic stays usable.
+ *
+ * Computed in O(V + E): a single reverse-graph traversal (dependents →
+ * prerequisites inverted) seeded from all on-cycle nodes, instead of a
+ * per-node forward closure.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @param cycles - Cycle paths from {@link detectCycles}
- * @returns Set of topic IDs on or reaching any cycle
+ * @returns Set of topic IDs on any cycle or depending (transitively) on one
  */
 function collectBlockedFromCycles(
   topics: Map<string, TopicNode>,
@@ -171,38 +323,31 @@ function collectBlockedFromCycles(
   for (const cycle of cycles) {
     for (const id of cycle) onCycle.add(id);
   }
+  if (onCycle.size === 0) return blocked;
 
-  /**
-   * Iterative DFS marking every node whose dependency closure reaches a cycle node.
-   *
-   * @param start - Topic identifier to explore from
-   */
-  function markReachableIntoCycle(start: string): void {
-    if (blocked.has(start)) return;
-    const stack = [start];
-    const localVisited = new Set<string>([start]);
-    let reachesCycle = onCycle.has(start);
-
-    while (stack.length > 0) {
-      const id = stack.pop()!;
-      const topic = topics.get(id);
-      if (!topic) continue;
-      for (const depId of getTopicDependencies(topic)) {
-        if (onCycle.has(depId)) reachesCycle = true;
-        if (!localVisited.has(depId)) {
-          localVisited.add(depId);
-          stack.push(depId);
-        }
-      }
-    }
-
-    if (reachesCycle) {
-      for (const id of localVisited) blocked.add(id);
+  // Reverse edges: prerequisite -> dependents.
+  const dependents = new Map<string, string[]>();
+  for (const [id, topic] of topics) {
+    for (const depId of getTopicDependencies(topic)) {
+      if (!topics.has(depId) || depId === id) continue;
+      const list = dependents.get(depId);
+      if (list) list.push(id);
+      else dependents.set(depId, [id]);
     }
   }
 
-  for (const id of topics.keys()) {
-    markReachableIntoCycle(id);
+  // Seed with on-cycle nodes and walk dependents transitively: every topic
+  // that depends on a blocked topic is itself blocked.
+  const stack = Array.from(onCycle);
+  for (const id of onCycle) blocked.add(id);
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    for (const dependentId of dependents.get(id) ?? []) {
+      if (!blocked.has(dependentId)) {
+        blocked.add(dependentId);
+        stack.push(dependentId);
+      }
+    }
   }
 
   return blocked;
@@ -320,10 +465,11 @@ function getReadyTopics(
     }
   }
 
-  // Deterministic output contract (#79): ascending palee_id, independent of
-  // vault-walk insertion order. Presentation sorts (difficulty, due date)
-  // build on this stable base.
-  ready.sort((a, b) => a.palee_id.localeCompare(b.palee_id));
+  // Deterministic output contract (#79): ascending palee_id by code-unit
+  // comparison — locale-independent and stable across runtimes, matching the
+  // comparison `canonicalizeCycle` uses. Presentation sorts (difficulty, due
+  // date) build on this stable base.
+  ready.sort((a, b) => (a.palee_id < b.palee_id ? -1 : a.palee_id > b.palee_id ? 1 : 0));
   return ready;
 }
 
