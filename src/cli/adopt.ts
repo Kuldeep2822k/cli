@@ -31,21 +31,26 @@ import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 /**
  * Generates a unique topic identifier prefixed with `T-`.
  *
- * @returns Unique topic ID string formatted as `T-YYYYMMDDTHHMMSS-XXXXXXXX`
+ * @returns Unique topic ID string formatted as `T-YYYYMMDD-HHMMSS-XXXXXXXX`
  *
  * @remarks
- * Uses UTC timestamp segments followed by 4 bytes (8 hex characters) of cryptographic randomness.
+ * Uses UTC date and time segments followed by 4 bytes (8 hex characters) of
+ * cryptographic randomness. Format complies with the centralized ID policy
+ * (`src/engine/topic-id.ts`, #29): `T-` plus lowercase kebab-case segments.
  *
  * @example
  * ```typescript
- * const topicId = generateTopicId(); // "T-20260830T120000-a1b2c3d4"
+ * const topicId = generateTopicId(); // "T-20260830-120000-a1b2c3d4"
  * ```
  */
 function generateTopicId(): string {
   const now = new Date();
-  const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0]; // YYYYMMDDTHHMMSS
+  // YYYYMMDD-HHMMSS — lowercase/numeric only, matching the ID policy
+  // (pre-#29 format T-20260830T120000-hex stays valid via the legacy pattern).
+  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const time = now.toISOString().slice(11, 19).replace(/:/g, '');
   const random = crypto.randomBytes(4).toString('hex'); // 8 hex characters (32 bits of entropy)
-  return `T-${timestamp}-${random}`;
+  return `T-${date}-${time}-${random}`;
 }
 
 /**

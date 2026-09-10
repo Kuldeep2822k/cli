@@ -14,6 +14,9 @@ import { parseFrontmatterRule, readFailureRule } from '../validation/rules/parse
 import { noDuplicateTopicIdRule } from '../validation/rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from '../validation/rules/no-missing-dependency';
 import { noDependencyCycleRule } from '../validation/rules/no-dependency-cycle';
+import { validPaleeSchemaRule } from '../validation/rules/valid-palee-schema';
+import { validTopicIdFormatRule } from '../validation/rules/valid-topic-id-format';
+import { validTopicStatusRule } from '../validation/rules/valid-topic-status';
 import type { ValidationRule } from '../validation/types';
 
 /**
@@ -21,12 +24,15 @@ import type { ValidationRule } from '../validation/types';
  *
  * @remarks
  * Parse and read warnings come first (they explain why a note may be
- * missing from the collected topic set), then identity and graph checks.
- * Rule order is the deterministic output order.
+ * missing from the collected topic set), then identity and schema checks,
+ * then graph checks. Rule order is the deterministic output order.
  */
 const VALIDATION_RULES: ValidationRule[] = [
   parseFrontmatterRule,
   readFailureRule,
+  validPaleeSchemaRule,
+  validTopicIdFormatRule,
+  validTopicStatusRule,
   noDuplicateTopicIdRule,
   noMissingDependencyRule,
   noDependencyCycleRule,
