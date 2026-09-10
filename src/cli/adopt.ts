@@ -30,7 +30,7 @@ import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
 /**
  * Generates a unique topic identifier prefixed with `T-`.
  *
- * @returns Unique topic ID string formatted as `T-YYYYMMDDTHHMMSS-XXXXXXXX`
+ * @returns Unique topic ID string formatted as `T-YYYYMMDD-HHMMSS-XXXXXXXX`
  *
  * @remarks
  * Uses UTC date and time segments followed by 4 bytes (8 hex characters) of

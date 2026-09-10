@@ -5,7 +5,7 @@
  * Single source of truth for the shape of a valid PALEE topic ID
  * (`palee_id`). The policy: `T-` prefix followed by one or more
  * lowercase alphanumeric kebab segments — e.g. `T-git-rebase`,
- * `T-20260830T120000-a1b2c3d4` (the format `adopt` generates).
+ * `T-20260830-120000-a1b2c3d4` (the format `adopt` generates).
  * Roadmap imports, adoption, and validation all defer to this module so
  * they can never disagree (#29).
  */
