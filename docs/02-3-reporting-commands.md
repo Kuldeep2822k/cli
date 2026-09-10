@@ -186,11 +186,13 @@ palee validate [flags]
 
 ### Vault Structural Integrity Rules
 
-`validateCommand` constructs an in-memory graph of all topics and checks for three critical integrity errors [src/cli/validate.ts#35-109](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts#L35-L109):
+`palee validate` runs a five-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`): three error-severity graph integrity rules ported from the dependency engine, plus two warning-severity snapshot rules that explain gaps in the collected topic set.
 
-1. **Duplicate Topic IDs (`duplicate_id`)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
-2. **Missing Dependencies (`missing_dependency`)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault.
-3. **Dependency Cycles (`cycle`)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected using 3-color DFS graph traversal in the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts).
+1. **Malformed Frontmatter (`parse-frontmatter`, warning)**: A note whose YAML frontmatter cannot be parsed (including unclosed `---` fences whose body reads like YAML). The scan always continues — one bad note is a finding, never a dead validation.
+2. **Read Failures (`read-failure`, warning)**: A file that could not be read at all (locked or deleted mid-scan). Validation ran on an incomplete snapshot; the warning appears alongside any graph findings so transient conditions are visible without downgrading them.
+3. **Duplicate Topic IDs (`no-duplicate-topic-id`, error)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
+4. **Missing Dependencies (`no-missing-dependency`, error)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault. Always an error — findings never depend on unrelated vault state; if a dependency target was itself unreadable, the `read-failure` warning appears alongside explaining the transient condition, and re-running settles it.
+5. **Dependency Cycles (`no-dependency-cycle`, error)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected using 3-color DFS graph traversal in the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts).
 
 ```mermaid
 flowchart LR
@@ -199,25 +201,32 @@ flowchart LR
         FM2["Note 2 Frontmatter"]
     end
     
-    subgraph Analyzer ["Validation Engine (validateCommand)"]
-        DupCheck{"Duplicate palee_id ?"}
-        MapBuild["Build TopicNode Map"]
-        GraphCheck{"validateDependencyGraph()"}
+    subgraph Analyzer ["Validation Framework (src/validation/)"]
+        Scan["collectVault() — single-read snapshot"]
+        Runner["runRules() — every rule runs, in registration order"]
+        Rules["parse-frontmatter → read-failure → no-duplicate-topic-id → no-missing-dependency → no-dependency-cycle"]
     end
     
-    subgraph Errors ["Diagnostic Errors (Exit 3)"]
-        ErrDup["duplicate_id: [fileA, fileB]"]
-        ErrMiss["missing_dependency: topic -> target"]
-        ErrCyc["cycle: [A -> B -> C -> A]"]
+    subgraph Errors ["Errors (Exit 3)"]
+        ErrDup["duplicate_id"]
+        ErrMiss["missing_dependency"]
+        ErrCyc["cycle"]
+    end
+
+    subgraph Warnings ["Warnings (never gate the exit code)"]
+        WarnParse["malformed frontmatter"]
+        WarnRead["unreadable file (snapshot incomplete)"]
     end
     
-    Storage --> DupCheck
-    DupCheck -->|"Duplicate Found"| ErrDup
-    DupCheck -->|"Unique IDs"| MapBuild
-    MapBuild --> GraphCheck
-    GraphCheck -->|"Missing Prerequisite"| ErrMiss
-    GraphCheck -->|"Cycle Detected"| ErrCyc
-    GraphCheck -->|"All Passed"| Success["✓ 0 Errors Found (Exit 0)"]
+    Storage --> Scan
+    Scan --> Runner
+    Runner --> Rules
+    Rules -->|"duplicate IDs"| ErrDup
+    Rules -->|"dangling prerequisite"| ErrMiss
+    Rules -->|"cycle detected"| ErrCyc
+    Rules -->|"malformed YAML"| WarnParse
+    Rules -->|"read failed"| WarnRead
+    Rules -->|"no errors"| Success["✓ 0 Errors Found (Exit 0)"]
 ```
 
 ### Example Human-Readable Output (Failures Detected)
@@ -230,9 +239,11 @@ Found 18 PALEE topics in 24 files
 
 ✗ Found 2 validation error(s):
 
-  • Missing dependency: T-cloud-native depends on T-docker-missing
+  • Topic T-cloud-native depends on missing topic T-docker-missing
+    Rule: no-missing-dependency
 
-  • Dependency cycle: T-topic-a → T-topic-b → T-topic-a
+  • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
+    Rule: no-dependency-cycle
 ```
 
 ---
