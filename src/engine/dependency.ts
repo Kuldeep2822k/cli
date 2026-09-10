@@ -118,12 +118,44 @@ function enumerateSccCycles(
   const order = Array.from(scc).sort();
   for (let startIndex = 0; startIndex < order.length; startIndex++) {
     const start = order[startIndex];
-    // Nodes at or before `startIndex` are already covered as starts of earlier
-    // scans; excluding them here prevents re-enumerating the same loops.
-    const subScc = new Set(order.slice(startIndex));
+
+    // Textbook Johnson start handling: recompute SCCs of the RESIDUAL
+    // subgraph — nodes at or after `startIndex`, edges restricted to it.
+    // A cycle through `start` that avoids earlier nodes lies entirely in
+    // `start`'s residual SCC, so the walk is confined to it (smaller than
+    // the full suffix). And once the residual turns acyclic — a large ring
+    // after its only cycle was reported, say — no later start can close
+    // anything: stop instead of re-walking a dead suffix per start, which
+    // made single-cycle SCCs cost quadratic in their size.
+    const residualNodes = new Set<string>(order.slice(startIndex));
+    const residualEdges = new Map<string, string[]>();
+    for (const node of residualNodes) {
+      residualEdges.set(node, (edges.get(node) ?? []).filter(n => residualNodes.has(n)));
+    }
+    let anyCycle = false;
+    let startScc: string[] | null = null;
+    for (const r of computeSccs(residualEdges)) {
+      if (r.length > 1) {
+        anyCycle = true;
+        if (r.includes(start)) startScc = r;
+      }
+    }
+    // Self-loops of LATER residual nodes also survive this loop iteration —
+    // `break` may only fire when nothing cyclic remains at all.
+    let startSelfLoop = false;
+    for (const node of residualNodes) {
+      if ((residualEdges.get(node) ?? []).includes(node)) {
+        anyCycle = true;
+        if (node === start) startSelfLoop = true;
+      }
+    }
+    if (!anyCycle) break;
+    if (startScc === null && !startSelfLoop) continue;
+
     // Johnson's bookkeeping: `blocked` holds the current path plus every node
     // proven fruitless for it; `bSets` remembers, per node, which nodes were
     // blocked because they led into it.
+    const subScc = startScc !== null ? new Set<string>(startScc) : new Set<string>([start]);
     const blocked = new Set<string>([start]);
     const bSets = new Map<string, Set<string>>();
     // Per path entry: did this node's subtree close a cycle?
@@ -272,6 +304,13 @@ function detectCyclesBounded(
   topics: Map<string, TopicNode>,
   maxCycles: number = 1000
 ): DetectCyclesResult {
+  // The cap is this function's public contract, so it must fail loudly on
+  // impossible values instead of throwing a confusing RangeError deep inside
+  // `cycles.length = maxCycles` (Copilot #79). `0` stays valid — it is the
+  // meaningful "empty sample, flag only" case.
+  if (!Number.isInteger(maxCycles) || maxCycles < 0) {
+    throw new RangeError(`maxCycles must be a non-negative integer (got ${maxCycles})`);
+  }
   return detectCyclesCore(topics, maxCycles);
 }
 
@@ -663,11 +702,16 @@ function collectBlockedFromCycles(
  * the exact canonicalized cycle paths for reporting.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
- * @returns `{ acyclic, cycles }` — the cycle-free subgraph and every distinct cycle path
+ * @returns `{ acyclic, cycles, truncated }` — the cycle-free subgraph, a
+ * bounded sample of canonicalized cycle paths (default cap 1000), and a flag
+ * that is `true` exactly when more cycles exist beyond the cap. When
+ * `truncated` is true, `cycles` is a sample for reporting, NOT a complete
+ * enumeration — quarantine itself is unaffected either way, because
+ * membership comes from SCC analysis (`findCyclicSccNodes`), not the sample.
  *
  * @example
  * ```typescript
- * const { acyclic, cycles } = quarantineCyclicTopics(topicMap);
+ * const { acyclic, cycles, truncated } = quarantineCyclicTopics(topicMap);
  * const ready = getReadyTopics(acyclic);
  * ```
  */

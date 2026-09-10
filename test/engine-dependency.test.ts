@@ -392,6 +392,48 @@ describe('Dependency Graph', () => {
     );
   });
 
+  test('detectCyclesBounded rejects invalid caps before any enumeration (Copilot #79)', () => {
+    // Negative and fractional caps previously slipped through to
+    // `cycles.length = maxCycles`, throwing an opaque RangeError deep in
+    // the core; the public contract must fail loudly and by name. `0`
+    // stays valid — it is the "empty sample, flag only" case.
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    assert.throws(() => detectCyclesBounded(topics, -1), RangeError);
+    assert.throws(() => detectCyclesBounded(topics, 1.5), RangeError);
+    const zero = detectCyclesBounded(topics, 0);
+    assert.strictEqual(zero.cycles.length, 0);
+    assert.strictEqual(zero.truncated, true, 'cap 0 with a cyclic graph: one beyond the cap provably exists');
+    const ok = detectCyclesBounded(topics, 1);
+    assert.strictEqual(ok.cycles.length, 1);
+    assert.strictEqual(ok.truncated, false);
+  });
+
+  test('single large ring SCC is linear, not quadratic, after its only cycle (Copilot #79)', () => {
+    // A ring has exactly ONE elementary cycle, so the 1000-cycle cap never
+    // trips — yet every later start used to re-walk the dead suffix
+    // (O(V²) total). Textbook Johnson residual-SCC handling must stop the
+    // start loop once the residual turns acyclic, so a large ring stays
+    // fast: the bounded path feeds `plan`, a user-facing command.
+    const n = 4000;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      topics.set(`T-${i}`, {
+        palee_id: `T-${i}`,
+        depends_on: [`T-${(i + 1) % n}`],
+        topic_mastery: 0,
+      });
+    }
+    const started = Date.now();
+    const result = detectCyclesBounded(topics);
+    const elapsed = Date.now() - started;
+    assert.strictEqual(result.cycles.length, 1, 'ring has exactly one cycle');
+    assert.strictEqual(result.truncated, false);
+    assert.ok(elapsed < 5000, `large ring must stay fast (took ${elapsed}ms)`);
+  });
+
   test('findCyclicSccNodes reports exactly the on-cycle set', () => {
     const topics = new Map<string, TopicNode>([
       ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],

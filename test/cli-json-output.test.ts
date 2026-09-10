@@ -441,6 +441,81 @@ depends_on: []
       assert.deepStrictEqual(data.quarantined_cycles, []);
       assert.strictEqual(data.counts.quarantined, 0);
     });
+
+    test('plan human mode prints the quarantine section with canonical paths (#79)', async () => {
+      // The human-mode branch (Section 0) had no test: the cycle scenario only
+      // invoked planCommand({ json: true }), so regressions in the human
+      // cycle paths or the exclusion note would still pass the suite
+      // (Copilot review). Vault: cyclic pair + an independent ready topic.
+      fs.writeFileSync(
+        path.join(tmpDir, 'cycle-a.md'),
+        `---
+palee_schema: 1
+palee_id: T-cycle-a
+title: Cycle A
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-cycle-b
+---
+# Cycle A
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'cycle-b.md'),
+        `---
+palee_schema: 1
+palee_id: T-cycle-b
+title: Cycle B
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-cycle-a
+---
+# Cycle B
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'free.md'),
+        `---
+palee_schema: 1
+palee_id: T-free
+title: Free Standing Topic
+difficulty: intermediate
+topic_mastery: 0
+depends_on: []
+---
+# Free
+`,
+        'utf8'
+      );
+
+      await planCommand({});
+      const humanOutput = loggedOutputs.join('\n');
+
+      // Section 0: heading counts one cycle, not truncated.
+      assert.ok(humanOutput.includes('Quarantined Cycles: 1'), 'human heading must report the cycle count');
+      assert.ok(!humanOutput.includes('truncated'), 'single cycle must not claim truncation');
+      // Exact canonicalized path in the quarantine warning line.
+      assert.ok(
+        humanOutput.includes('T-cycle-a → T-cycle-b → T-cycle-a'),
+        'human output must print the canonicalized cycle path'
+      );
+      // Exclusion note present.
+      assert.ok(
+        humanOutput.includes('excluded from Ready to Learn'),
+        'human output must carry the exclusion note'
+      );
+      // Ready-to-Learn section (heading `Ready to Learn: N`) keeps the
+      // acyclic topic and drops the pair. The colon anchors on the section
+      // heading, not the exclusion note above, which also says the phrase.
+      const readySection = (humanOutput.split('Ready to Learn: ')[1] ?? '').split('Progress Summary')[0];
+      assert.ok(readySection.includes('T-free'), 'ready list must keep the independent topic');
+      assert.ok(!readySection.includes('T-cycle-a'), 'ready list must exclude the cyclic pair');
+      assert.strictEqual(process.exitCode, 0, 'plan continues on valid acyclic components');
+    });
   });
 
   describe('Non-TTY (Piped/Redirected) Auto-JSON Selection', () => {
