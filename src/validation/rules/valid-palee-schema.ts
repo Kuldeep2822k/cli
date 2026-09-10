@@ -7,6 +7,10 @@
  * unversioned or future-versioned managed data — it errors so migrations
  * and mutations can refuse to touch it. Notes that are not PALEE-managed
  * (no identity keys) are never reported.
+ *
+ * A note is managed when a managed identity KEY is present, regardless of
+ * its value type: `palee_id: 123` is malformed PALEE identity data, not a
+ * user note, so it must still fail schema validation rather than bypass it.
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
@@ -17,7 +21,9 @@ import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
  *
  * @remarks Topic notes carry `palee_id`; session notes carry `session_id`;
  * hot memory carries `memory_id`; the session index carries
- * `type: "session_index"`. Anything else is user-owned data.
+ * `type: "session_index"`. Anything else is user-owned data. Presence of
+ * the key — not its type — marks the note as managed: malformed identity
+ * values are still PALEE's data and must not slip past schema validation.
  */
 const MANAGED_KEYS = ['palee_id', 'session_id', 'memory_id'];
 
@@ -35,7 +41,7 @@ export const validPaleeSchemaRule: ValidationRule = {
       const fm = note.frontmatter as Record<string, unknown>;
 
       const isManaged =
-        MANAGED_KEYS.some((key) => typeof fm[key] === 'string') ||
+        MANAGED_KEYS.some((key) => Object.hasOwn(fm, key)) ||
         fm.type === 'session_index';
       if (!isManaged) continue;
 

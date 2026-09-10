@@ -120,6 +120,44 @@ describe('valid-palee-schema rule (#28)', () => {
     assert.deepStrictEqual(validPaleeSchemaRule.run(context), []);
   });
 
+  test('numeric palee_id still counts as managed (key presence, not type)', () => {
+    // `palee_id: 123` is malformed identity data, not a non-PALEE note: the
+    // MANAGED_KEY being present at all marks the note as PALEE-managed, so a
+    // missing/invalid schema must error rather than silently passing.
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'numid.md', frontmatter: { palee_id: 123 } })],
+    });
+
+    const issues = validPaleeSchemaRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-palee-schema');
+    assert.strictEqual(issues[0].file, 'numid.md');
+    assert.match(issues[0].message, /missing palee_schema/i);
+  });
+
+  test('null palee_id still counts as managed (key presence, not type)', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'nullid.md', frontmatter: { palee_id: null } })],
+    });
+
+    const issues = validPaleeSchemaRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].file, 'nullid.md');
+  });
+
+  test('array session_id still counts as managed', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'sess.md', frontmatter: { session_id: ['S-1'] } })],
+    });
+
+    const issues = validPaleeSchemaRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].file, 'sess.md');
+  });
+
   test('rule metadata: error severity, manual fixability', () => {
     assert.strictEqual(validPaleeSchemaRule.id, 'valid-palee-schema');
     assert.strictEqual(validPaleeSchemaRule.severity, 'error');
@@ -130,23 +168,26 @@ describe('valid-palee-schema rule (#28)', () => {
 describe('valid-topic-id-format rule (#29)', () => {
   test('T-git-rebase passes', () => {
     const context = makeContext({
-      topics: [makeTopic({ palee_id: 'T-git-rebase', id: 'T-git-rebase' })],
+      notes: [makeNote({ frontmatter: { palee_id: 'T-git-rebase' } })],
     });
 
     assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
   });
 
-  test('generated-style ID T-20260830T120000-a1b2c3d4 passes', () => {
+  test('generated-style ID T-20260830T120000-a1b2c3d4 passes (legacy adopt format)', () => {
     const context = makeContext({
-      topics: [makeTopic({ palee_id: 'T-20260830T120000-a1b2c3d4', id: 'T-20260830T120000-a1b2c3d4' })],
+      notes: [makeNote({ frontmatter: { palee_id: 'T-20260830T120000-a1b2c3d4' } })],
     });
 
     assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
   });
 
-  test('snake_case ID git_rebase is an error', () => {
+  test('numeric palee_id is an error (raw frontmatter, no loader coercion)', () => {
+    // The loader drops non-string palee_id notes from context.topics, so the
+    // rule must see them via context.notes — the acceptance criterion
+    // "missing or non-string IDs fail for topic notes" (#29).
     const context = makeContext({
-      topics: [makeTopic({ palee_id: 'git_rebase', id: 'git_rebase', path: 'old.md' })],
+      notes: [makeNote({ relativePath: 'num.md', frontmatter: { palee_id: 123 } })],
     });
 
     const issues = validTopicIdFormatRule.run(context);
@@ -154,6 +195,38 @@ describe('valid-topic-id-format rule (#29)', () => {
     assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0].ruleId, 'valid-topic-id-format');
     assert.strictEqual(issues[0].severity, 'error');
+    assert.strictEqual(issues[0].file, 'num.md');
+    assert.strictEqual(issues[0].field, 'palee_id');
+    assert.strictEqual(issues[0].details?.actual, 123);
+  });
+
+  test('null palee_id (YAML empty value) is an error', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'null.md', frontmatter: { palee_id: null } })],
+    });
+
+    const issues = validTopicIdFormatRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].details?.actual, null);
+  });
+
+  test('blank palee_id is an error', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'blank.md', frontmatter: { palee_id: '   ' } })],
+    });
+
+    assert.strictEqual(validTopicIdFormatRule.run(context).length, 1);
+  });
+
+  test('snake_case ID git_rebase is an error', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'old.md', frontmatter: { palee_id: 'git_rebase' } })],
+    });
+
+    const issues = validTopicIdFormatRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0].topicId, 'git_rebase');
     assert.strictEqual(issues[0].field, 'palee_id');
     assert.ok(issues[0].details?.expected);
@@ -161,7 +234,7 @@ describe('valid-topic-id-format rule (#29)', () => {
 
   test('empty-slug ID T- is an error', () => {
     const context = makeContext({
-      topics: [makeTopic({ palee_id: 'T-', id: 'T-' })],
+      notes: [makeNote({ frontmatter: { palee_id: 'T-' } })],
     });
 
     const issues = validTopicIdFormatRule.run(context);
@@ -172,28 +245,40 @@ describe('valid-topic-id-format rule (#29)', () => {
 
   test('uppercase in slug is an error (policy: lowercase kebab)', () => {
     const context = makeContext({
-      topics: [makeTopic({ palee_id: 'T-Git-Rebase', id: 'T-Git-Rebase' })],
+      notes: [makeNote({ frontmatter: { palee_id: 'T-Git-Rebase' } })],
     });
 
     assert.strictEqual(validTopicIdFormatRule.run(context).length, 1);
   });
 
-  test('issues are deterministic: sorted by topic ID', () => {
+  test('non-topic notes are skipped (session note carries session_id, not palee_id)', () => {
     const context = makeContext({
-      topics: [
-        makeTopic({ palee_id: 'T-valid-slug', id: 'T-valid-slug' }),
-        makeTopic({ palee_id: 'bad-two', id: 'bad-two' }),
-        makeTopic({ palee_id: 'bad-one', id: 'bad-one' }),
+      notes: [makeNote({ relativePath: 'session.md', frontmatter: { session_id: 'S-1', palee_schema: 1 } })],
+    });
+
+    assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
+  });
+
+  test('notes with parse errors are skipped (parse-frontmatter owns them)', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'broken.md', frontmatter: null, parseError: 'bad yaml' })],
+    });
+
+    assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
+  });
+
+  test('issues are deterministic: sorted by file path', () => {
+    const context = makeContext({
+      notes: [
+        makeNote({ relativePath: 'c-valid.md', frontmatter: { palee_id: 'T-valid-slug' } }),
+        makeNote({ relativePath: 'z-bad.md', frontmatter: { palee_id: 'bad-two' } }),
+        makeNote({ relativePath: 'a-bad.md', frontmatter: { palee_id: 'bad-one' } }),
       ],
     });
 
     const issues = validTopicIdFormatRule.run(context);
 
-    // Only the two invalid IDs report, in code-unit order.
-    assert.deepStrictEqual(
-      issues.map((i) => i.topicId),
-      ['bad-one', 'bad-two']
-    );
+    assert.deepStrictEqual(issues.map((i) => i.file), ['a-bad.md', 'z-bad.md']);
   });
 
   test('rule metadata: error severity, not fixable (no ID mutation)', () => {
@@ -279,6 +364,45 @@ describe('valid-topic-status rule (#31)', () => {
     });
 
     assert.deepStrictEqual(validTopicStatusRule.run(context), []);
+  });
+
+  test('null status is an error (present-but-empty is not the missing-key default)', () => {
+    // YAML `status:` (empty value) deserializes to explicit null. Unlike a
+    // missing key — the adopt default case — an explicit null is a stored
+    // defect: no PALEE writer emits it, and the null-vs-0 invariant says
+    // branch on null explicitly, never coerce it away.
+    const context = makeContext({
+      topics: [makeTopic({
+        palee_id: 'T-null',
+        status: 'not_started',
+        frontmatter: { status: null },
+      })],
+    });
+
+    const issues = validTopicStatusRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-topic-status');
+    assert.strictEqual(issues[0].topicId, 'T-null');
+    assert.strictEqual(issues[0].details?.actual, null);
+  });
+
+  test('array status fails even when its coerced form is an allowed word', () => {
+    // String(['learning']) === 'learning' — a naive String(raw) allowlist
+    // lookup passes this. The raw on-disk value is a list, and #31 says
+    // non-string status values fail.
+    const context = makeContext({
+      topics: [makeTopic({
+        palee_id: 'T-arr',
+        status: 'not_started',
+        frontmatter: { status: ['learning'] },
+      })],
+    });
+
+    const issues = validTopicStatusRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.deepStrictEqual(issues[0].details?.actual, ['learning']);
   });
 
   test('rule metadata: error severity, manual fixability', () => {
