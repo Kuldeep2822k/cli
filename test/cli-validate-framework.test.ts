@@ -174,4 +174,49 @@ describe('validate command: framework wiring (#25)', () => {
     assert.match(loggedOutputs.join('\n'), /✓ Vault validation passed - no errors found/);
     assert.strictEqual(process.exitCode, 0);
   });
+
+  test('unsupported palee_schema is an error and exits 3 (wave 4 #28)', async () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'future.md'),
+      '---\npalee_schema: 999\npalee_id: T-future\ntitle: Future\n---\n# Future\n',
+      'utf8'
+    );
+
+    await validateCommand({});
+
+    const out = loggedOutputs.join('\n');
+    assert.match(out, /valid-palee-schema/);
+    assert.match(out, /palee_schema/);
+    assert.strictEqual(process.exitCode, 3);
+  });
+
+  test('pseudo-status completed is an error and exits 3 (wave 4 #31)', async () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'done.md'),
+      '---\npalee_schema: 1\npalee_id: T-done\ntitle: Done\nstatus: completed\n---\n# Done\n',
+      'utf8'
+    );
+
+    await validateCommand({});
+
+    const out = loggedOutputs.join('\n');
+    assert.match(out, /valid-topic-status/);
+    assert.match(out, /completed/);
+    assert.strictEqual(process.exitCode, 3);
+  });
+
+  test('adopt-style topic note with no status stays clean (default policy)', async () => {
+    // adopt writes no status key; missing status is the documented default,
+    // not a defect — the vault must still validate fully clean.
+    fs.writeFileSync(
+      path.join(tmpVault, 'fresh.md'),
+      '---\npalee_schema: 1\npalee_id: T-fresh\ntitle: Fresh\n---\n# Fresh\n',
+      'utf8'
+    );
+
+    await validateCommand({});
+
+    assert.match(loggedOutputs.join('\n'), /✓ Vault validation passed - no errors found/);
+    assert.strictEqual(process.exitCode, 0);
+  });
 });
