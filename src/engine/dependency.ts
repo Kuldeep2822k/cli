@@ -235,32 +235,6 @@ function enumerateSccCycles(
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
  */
-/**
- * Enumerates every distinct simple cycle in the topic graph.
- *
- * @remarks
- * Two-stage, recursion-free algorithm (stack-safe for deep dependency chains
- * and large strongly connected components):
- * 1. Strongly connected components via an iterative Tarjan pass. Any topic
- *    outside a multi-node SCC is provably cycle-free — except a singleton
- *    with a self-edge (`T-a` depends on `T-a`), which is a one-node cycle.
- * 2. Elementary-cycle enumeration inside each multi-node SCC (Johnson-style,
- *    with explicit stacks — including the unblock cascade), canonicalized so
- *    every distinct loop is reported exactly once with its exact path —
- *    including overlapping cycles that share nodes or back edges. Acyclic
- *    components are never touched, matching the spec's quarantine contract
- *    (`planning/palee_cli_spec.md` §Dependency processing,
- *    `planning/invariants.md` line 37).
- *
- * Determinism: enumeration inside an SCC starts from sorted nodes, and the
- * final cycle list is sorted by canonical path, so the output is stable for
- * a given graph regardless of map insertion order.
- *
- * Complexity: O(V + E) for SCC detection plus Johnson's bound per cyclic SCC.
- *
- * @param topics - Map of topic ID to {@link TopicNode}
- * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
- */
 function detectCycles(topics: Map<string, TopicNode>): string[][] {
   return detectCyclesCore(topics, Number.POSITIVE_INFINITY).cycles;
 }
@@ -395,16 +369,6 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
   cycles.sort((a, b) => (a.join('\u0000') < b.join('\u0000') ? -1 : a.join('\u0000') > b.join('\u0000') ? 1 : 0));
 
   return { cycles, truncated };
-}
-
-/**
- * Result shape for bounded cycle enumeration.
- */
-export interface DetectCyclesResult {
-  /** Distinct canonicalized cycle paths, sorted; possibly truncated */
-  cycles: string[][];
-  /** True when `maxCycles` stopped the enumeration early */
-  truncated: boolean;
 }
 
 /**

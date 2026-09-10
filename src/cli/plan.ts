@@ -157,7 +157,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
 
     console.log('=== Today\'s Learning Plan ===\n');
 
-    // Section 0: Quarantined cyclic components (ready list excludes them)
+    // Section 0: Quarantined dependency cycles (ready list excludes them)
     if (quarantinedCycles.length > 0) {
       console.log(`Quarantined Cycles: ${quarantinedCycles.length}${cyclesTruncated ? ' (truncated — more cycles exist)' : ''}`);
       for (const cycle of quarantinedCycles) {

@@ -119,7 +119,7 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
 | Command | JSON Root Key(s) | Description | Key Fields |
 | :--- | :--- | :--- | :--- |
 | `palee next` | `next`, `due_count`, `total_topics` (single)<br>`due_topics[]`, `next`, `total_topics` (`--all`) | Single next topic or array of all overdue topics. | `id`, `title`, `path`, `due_at`, `mastery`, `repetition` |
-| `palee plan` | `reviews_due[]`, `ready_to_learn[]`, `quarantined_cycles[]`, `counts`, `total_topics` | Topological daily study plan; cyclic components are quarantined out of `ready_to_learn` with their exact cycle paths. | `counts: { due, ready, quarantined, mastered, learning, new }` |
+| `palee plan` | `reviews_due[]`, `ready_to_learn[]`, `quarantined_cycles[]`, `counts`, `total_topics` | Topological daily study plan; dependency cycles are quarantined out of `ready_to_learn` with their exact cycle paths. | `counts: { due, ready, quarantined, mastered, learning, new }` |
 | `palee progress` | `active_topic_count`, `archived_topic_count`, `global_mastery`, `mastery_status`, `by_difficulty`, `total_reviews`, `total_lapses` | Vault-wide learning mastery and SRS metrics. | `global_mastery: 0.0..1.0`, `by_difficulty: { beginner, intermediate, advanced }` |
 | `palee progress --topic <id>` | `id`, `title`, `path`, `mastery`, `difficulty`, `repetition`, `lapses`, `assessed_at`, `last_reviewed_at` | Detailed progress breakdown for a single topic. | `mastery: 0.0..1.0`, `repetition: number`, `lapses: number` |
 | `palee dashboard` | `total_topics`, `mastered`, `learning`, `new`, `mastered_pct`, `reviews_due`, `by_difficulty`, `next_review` | High-level vault dashboard metrics. | `mastered_pct: number`, `next_review: { id, title, mastery, due_at }` |
