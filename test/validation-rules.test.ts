@@ -264,9 +264,10 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     );
   });
 
-  test('read-incomplete snapshot downgrades missing deps to warnings (no false exit 3)', () => {
-    // Greptile re-review: a transient read failure must not produce a
-    // missing-dependency ERROR on a healthy vault.
+  test('read-incomplete snapshot keeps missing deps as errors (never downgraded)', () => {
+    // CodeRabbit final finding: findings stay ERROR always — an unrelated
+    // read failure must not downgrade a real dangling reference. The
+    // read-failure rule reports the transient condition alongside.
     const context = makeContext({
       topics: [makeTopic({ palee_id: 'T-dep', id: 'T-dep', depends_on: ['T-locked'] })],
       readIncomplete: true,
@@ -275,9 +276,9 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     const issues = noMissingDependencyRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].details?.snapshotIncomplete, true);
-    assert.match(issues[0].message, /unverified/);
+    assert.strictEqual(issues[0].severity, 'error');
+    assert.strictEqual(issues[0].details?.snapshotIncomplete, undefined);
+    assert.strictEqual(issues[0].details?.missing, 'T-locked');
   });
 });
 

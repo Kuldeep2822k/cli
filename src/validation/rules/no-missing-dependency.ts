@@ -35,24 +35,21 @@ export const noMissingDependencyRule: ValidationRule = {
       }
     }
 
+    // Findings are ALWAYS error-severity and never depend on unrelated
+    // vault state: a transient read failure elsewhere in the vault must
+    // not silently downgrade a real dangling reference. When a read
+    // failure did occur, the read-failure rule reports it alongside, so a
+    // spurious-looking error always comes with its explanation and a
+    // re-run settles it.
     const errors = findMissingDependencies(topics);
-
-    // When any file could not be read, "missing" may mean "locked or
-    // deleted mid-scan", not a real dangling reference — report warnings
-    // instead of errors so a transient read failure cannot fail validation
-    // with exit 3 on a healthy vault.
-    const severity = context.readIncomplete ? ('warning' as const) : ('error' as const);
 
     return errors
       .map((error) => ({
         ruleId: 'no-missing-dependency',
-        severity,
-        message:
-          severity === 'warning'
-            ? `${error.message} (unverified: some files could not be read — re-run validation)`
-            : error.message ?? `Topic ${error.topic} depends on missing topic ${error.missing}`,
+        severity: 'error' as const,
+        message: error.message ?? `Topic ${error.topic} depends on missing topic ${error.missing}`,
         topicId: error.topic,
-        details: { missing: error.missing, ...(severity === 'warning' ? { snapshotIncomplete: true } : {}) },
+        details: { missing: error.missing },
       }))
       // Engine reports in map insertion order; sort for determinism
       // independent of how the context was assembled.
