@@ -26,9 +26,18 @@ export const normalizeScore = mastery.normalizeScore;
 export const resolveTopicMastery = mastery.resolveTopicMastery;
 
 // Dependency exports
-/** Detects cyclic prerequisite loops in the topic graph */
+/** Detects the lexicographically-first dependency cycle via direct search — no enumeration, bounded on any graph (#79) */
 export const detectCycle = dependency.detectCycle;
-/** Evaluates prerequisite satisfaction and returns ready topics */
+/** Enumerates every distinct dependency cycle with its exact canonicalized path (#79) */
+export const detectCycles = dependency.detectCycles;
+/** Bounded cycle enumeration — capped sample plus truncation flag for interactive commands */
+export const detectCyclesBounded = dependency.detectCyclesBounded;
+/** Quarantines cyclic components so acyclic topics keep working; returns the clean subgraph, a bounded cycle sample, and a truncation flag (#79) */
+export const quarantineCyclicTopics = dependency.quarantineCyclicTopics;
+/** SCC-membership set of every node on at least one cycle — truncation-proof (#79) */
+export const findCyclicSccNodes = dependency.findCyclicSccNodes;
+export type { DetectCyclesResult } from './dependency';
+/** Evaluates prerequisite satisfaction and returns ready topics (deterministically ordered by palee_id — #79) */
 export const getReadyTopics = dependency.getReadyTopics;
 /** Checks whether all dependencies for a topic are satisfied */
 export const areDependenciesSatisfied = dependency.areDependenciesSatisfied;

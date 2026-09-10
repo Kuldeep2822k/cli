@@ -141,5 +141,53 @@ describe('Property-Based & Fuzz Testing Suite', () => {
       assert.ok(cycle !== null);
       assert.strictEqual(cycle[0], cycle[cycle.length - 1], 'Cycle path start must equal cycle path end');
     });
+
+    test('quarantineCyclicTopics invariant: cycles found iff topics quarantined (#79)', () => {
+      const { detectCycles, quarantineCyclicTopics } = require('../src/engine/dependency');
+
+      // Deterministic pseudo-random graphs: mix of DAG edges, cycles, downstream-of-cycle nodes.
+      // Exact 32-bit arithmetic (Math.imul + high bits) so the state never
+      // exceeds Number.MAX_SAFE_INTEGER and rounds — sizes cover 3..10.
+      let seed = 42;
+      const rand = (n: number): number => {
+        seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+        return (seed >>> 16) % n;
+      };
+
+      for (let round = 0; round < 30; round++) {
+        const size = 3 + rand(8); // 3..10 nodes
+        const ids = Array.from({ length: size }, (_, i) => `T-${i}`);
+        const topics = new Map<string, TopicNode>();
+        for (let i = 0; i < size; i++) {
+          const depCount = rand(3);
+          const deps: string[] = [];
+          for (let d = 0; d < depCount; d++) {
+            deps.push(ids[rand(size)]);
+          }
+          topics.set(ids[i], { palee_id: ids[i], depends_on: deps, topic_mastery: 0 });
+        }
+
+        const cycles = detectCycles(topics);
+        const { acyclic } = quarantineCyclicTopics(topics);
+
+        // Invariant 1: cycle-free graphs quarantine nothing
+        if (cycles.length === 0) {
+          assert.strictEqual(acyclic.size, topics.size, `round ${round}: acyclic graph must keep all topics`);
+        } else {
+          assert.ok(acyclic.size < topics.size, `round ${round}: cyclic graph must quarantine at least the cycle members`);
+        }
+
+        // Invariant 2: the quarantined subgraph must itself be cycle-free
+        assert.strictEqual(detectCycles(acyclic).length, 0, `round ${round}: quarantined subgraph must be acyclic`);
+
+        // Invariant 3: detectCycle stays consistent with detectCycles
+        const first = detectCycle(topics);
+        if (cycles.length === 0) {
+          assert.strictEqual(first, null, `round ${round}: detectCycle must be null when detectCycles is empty`);
+        } else {
+          assert.deepStrictEqual(first, cycles[0], `round ${round}: detectCycle must equal first detectCycles entry`);
+        }
+      }
+    });
   });
 });
