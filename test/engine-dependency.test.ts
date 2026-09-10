@@ -306,6 +306,92 @@ describe('Dependency Graph', () => {
     assert.ok(acyclic.has('T-free'), 'unrelated acyclic topic must survive');
   });
 
+  test('truncated flag is proven, not speculative: exact-count graphs are not truncated (CodeRabbit #79)', () => {
+    // Off-by-one: the old budget check tripped on the iteration AFTER the
+    // cap was reached, reporting truncated:true for graphs whose cycle
+    // count exactly equals maxCycles — no additional cycle was ever found.
+    // The probe budget (maxCycles + 1) makes truncation an existence proof.
+    const twoCycles = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-c', { palee_id: 'T-c', depends_on: ['T-d'], topic_mastery: 0 }],
+      ['T-d', { palee_id: 'T-d', depends_on: ['T-c'], topic_mastery: 0 }],
+    ]);
+
+    // Exactly 2 cycles with cap 2: every cycle fits — nothing was dropped.
+    const exact = detectCyclesBounded(twoCycles, 2);
+    assert.strictEqual(exact.cycles.length, 2);
+    assert.strictEqual(exact.truncated, false, 'exact-count graph must not claim truncation');
+
+    // Cap 1: one cycle is dropped, so one beyond the cap provably exists.
+    const cut = detectCyclesBounded(twoCycles, 1);
+    assert.strictEqual(cut.cycles.length, 1);
+    assert.strictEqual(cut.truncated, true);
+
+    // The dropped cycle is the lex-greater one; the sample is the lex-min.
+    assert.deepStrictEqual(cut.cycles[0], ['T-a', 'T-b', 'T-a']);
+
+    // Degenerate cap 0: no cycles reported, but existence still proven.
+    const zero = detectCyclesBounded(twoCycles, 0);
+    assert.strictEqual(zero.cycles.length, 0);
+    assert.strictEqual(zero.truncated, true);
+
+    // Single cycle, cap 1: the original report's exact scenario.
+    const one = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    const single = detectCyclesBounded(one, 1);
+    assert.strictEqual(single.cycles.length, 1);
+    assert.strictEqual(single.truncated, false, 'one cycle under a cap of 1 is not truncated');
+  });
+
+  test('bounded cycle sample is independent of map insertion order (CodeRabbit #79)', () => {
+    // Determinism: Tarjan roots and neighbor traversal previously followed
+    // map/depends_on order, so the SAME graph could yield different bounded
+    // samples depending on how the vault was keyed. Sorted adjacency and
+    // sorted SCC processing pin the sample to the canonical one.
+    const build = (order: 'a-first' | 'z-first'): Map<string, TopicNode> => {
+      const a = [
+        ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+        ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ] as const;
+      const z = [
+        ['T-z1', { palee_id: 'T-z1', depends_on: ['T-z2'], topic_mastery: 0 }],
+        ['T-z2', { palee_id: 'T-z2', depends_on: ['T-z1'], topic_mastery: 0 }],
+      ] as const;
+      const entries = order === 'a-first' ? [...a, ...z] : [...z, ...a];
+      return new Map<string, TopicNode>(entries as unknown as Array<[string, TopicNode]>);
+    };
+
+    const fromA = detectCyclesBounded(build('a-first'), 1);
+    const fromZ = detectCyclesBounded(build('z-first'), 1);
+    assert.strictEqual(fromA.truncated, true, 'two cycles, cap 1: one is dropped');
+    assert.deepStrictEqual(
+      fromZ.cycles,
+      fromA.cycles,
+      'bounded sample must not depend on insertion order'
+    );
+    assert.deepStrictEqual(fromA.cycles[0], ['T-a', 'T-b', 'T-a'], 'sample must be the canonical lex-min');
+
+    // depends_on ordering must not matter either: same edges, reversed lists.
+    const forward = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b', 'T-c'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-c', { palee_id: 'T-c', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    const reversed = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-c', 'T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-c', { palee_id: 'T-c', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    assert.deepStrictEqual(
+      detectCyclesBounded(reversed, 1).cycles,
+      detectCyclesBounded(forward, 1).cycles,
+      'bounded sample must not depend on depends_on order'
+    );
+  });
+
   test('findCyclicSccNodes reports exactly the on-cycle set', () => {
     const topics = new Map<string, TopicNode>([
       ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],

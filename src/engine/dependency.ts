@@ -78,6 +78,10 @@ function buildEdgeMap(topics: Map<string, TopicNode>): Map<string, string[]> {
         deps.push(depId);
       }
     }
+    // Deterministic traversal order: `depends_on` lists are user-authored,
+    // and their order must not influence which cycles a bounded sample
+    // reports (sorted adjacency = input-order-independent enumeration).
+    deps.sort();
     edges.set(id, deps);
   }
   return edges;
@@ -273,6 +277,11 @@ function detectCyclesBounded(
 
 /**
  * Core enumeration shared by the unbounded and bounded public forms.
+ *
+ * @remarks
+ * Runs stage 2 with budget `maxCycles + 1` — enumerating one cycle beyond
+ * the cap is what PROVES truncation, so `truncated` can never be reported
+ * for a graph whose cycle count happens to equal `maxCycles` exactly.
  */
 function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): DetectCyclesResult {
   const edges = buildEdgeMap(topics);
@@ -281,17 +290,15 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
   // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
   // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
   // cyclic only via a self-edge (T-a depends on T-a) — a one-node cycle.
-  // `maxCycles` bounds the work: dense SCCs contain exponentially many
-  // elementary cycles, and consumers only need a bounded sample plus the
-  // knowledge that truncation happened.
+  // The probe budget is maxCycles + 1: hitting it means at least one more
+  // distinct cycle existed beyond the cap, which is exactly the truncation
+  // claim. Dense SCCs contain exponentially many elementary cycles, and
+  // consumers only need a bounded sample plus that flag.
+  const probeBudget = maxCycles + 1;
   const seen = new Set<string>();
   const cycles: string[][] = [];
-  let truncated = false;
   for (const scc of sccs) {
-    if (cycles.length >= maxCycles) {
-      truncated = true;
-      break;
-    }
+    if (cycles.length >= probeBudget) break;
     if (scc.length === 1) {
       const node = scc[0];
       if ((edges.get(node) ?? []).includes(node)) {
@@ -299,10 +306,7 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
       }
       continue;
     }
-    if (enumerateSccCycles(new Set(scc), edges, seen, cycles, maxCycles)) {
-      truncated = true;
-      break;
-    }
+    if (enumerateSccCycles(new Set(scc), edges, seen, cycles, probeBudget)) break;
   }
 
   // Tarjan discovers SCCs in insertion-dependent order; sort the final list
@@ -317,6 +321,13 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
     const kb = sortKeys.get(b)!;
     return ka < kb ? -1 : ka > kb ? 1 : 0;
   });
+
+  // Truncation is an existence proof, not a speculation: the probe budget
+  // (cap + 1) recorded a cycle beyond the cap, so at least one more distinct
+  // cycle exists. `length > maxCycles` can only mean that — and for the
+  // unbounded form the budget is ∞, so the flag is structurally false.
+  const truncated = cycles.length > maxCycles;
+  if (truncated) cycles.length = maxCycles;
 
   return { cycles, truncated };
 }
@@ -342,7 +353,9 @@ function computeSccs(edges: Map<string, string[]>): string[][] {
   let counter = 0;
 
   const frames: Array<[string, number]> = [];
-  for (const root of edges.keys()) {
+  // Deterministic discovery: Tarjan roots follow map insertion order, which
+  // must not influence SCC processing order downstream (bounded samples).
+  for (const root of Array.from(edges.keys()).sort()) {
     if (index.has(root)) continue;
     frames.push([root, 0]);
 
