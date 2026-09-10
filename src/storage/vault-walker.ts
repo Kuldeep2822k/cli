@@ -223,4 +223,66 @@ function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
   return canonicalDir;
 }
 
-export { walkVault, ensureVaultDirectory };
+/**
+ * Computes a vault-relative POSIX-style path for an absolute file path.
+ *
+ * @param vaultPath - Vault root path as given by the caller (may itself
+ * contain symlinked segments)
+ * @param filePath - Absolute path to a file inside the vault (walked or
+ * caller-supplied)
+ * @returns POSIX-style relative path (`sub/note.md`); `..`-prefixed only
+ * when the file genuinely lies outside the vault
+ *
+ * @remarks
+ * `walkVault` resolves the vault root through `realpathSync` (#122), so
+ * walked file paths can be prefixed differently from the caller's root —
+ * the canonical macOS case is a temp vault under `/var/folders/…` where
+ * walked paths come back under `/private/var/folders/…`. A lexical
+ * `path.relative(vaultPath, filePath)` then produces garbage like
+ * `../../private/var/…/note.md`. This helper detects exactly that
+ * situation — the lexical relative path escaping the root while the file
+ * is actually inside it — and re-derives the relative path from both
+ * canonicalized endpoints. On filesystems without symlinked roots the
+ * lexical result already stays inside the vault, so no `realpath` syscall
+ * is paid and the fast path returns directly.
+ */
+function relativeVaultPath(vaultPath: string, filePath: string): string {
+  const lexical = path.relative(path.resolve(vaultPath), path.resolve(filePath)).replace(/\\/g, '/');
+  // A well-formed in-vault path never escapes the root lexically. An
+  // escaping result means the two paths disagree about symlinked segments
+  // (e.g. walked `/private/...` vs caller `/var/...`) — resolve both
+  // endpoints canonically and try again. Files that truly live outside
+  // the vault keep the escaping lexical path (truthful reporting).
+  if (
+    lexical === '' ||
+    lexical === '..' ||
+    lexical.startsWith('../') ||
+    path.isAbsolute(lexical)
+  ) {
+    try {
+      const canonicalRoot = fs.realpathSync(path.resolve(vaultPath));
+      const canonicalFile = fs.realpathSync(path.resolve(filePath));
+      const canonical = path.relative(canonicalRoot, canonicalFile).replace(/\\/g, '/');
+      // Keep the canonical result only when the file is genuinely inside
+      // the root; otherwise the file is truly outside — lexical is truth.
+      // The containment check must be exact (`..` or `../` prefix), not the
+      // broad startsWith('..'): a valid in-vault file named `..note.md`
+      // would otherwise be misclassified as parent traversal and keep the
+      // escaping lexical path (Greptile P2, #161).
+      if (
+        canonical !== '' &&
+        canonical !== '..' &&
+        !canonical.startsWith('../') &&
+        !path.isAbsolute(canonical)
+      ) {
+        return canonical;
+      }
+    } catch {
+      // realpath failed (deleted mid-scan, unreadable): the lexical path is
+      // the best available answer; report it as-is.
+    }
+  }
+  return lexical;
+}
+
+export { walkVault, ensureVaultDirectory, relativeVaultPath };

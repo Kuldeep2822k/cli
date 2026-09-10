@@ -9,8 +9,7 @@
  */
 
 import fs from 'fs';
-import path from 'path';
-import { walkVault } from './vault-walker';
+import { walkVault, relativeVaultPath } from './vault-walker';
 import { parseFrontmatter } from './frontmatter';
 import { ScannedNote } from '../types';
 
@@ -68,7 +67,7 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
       const err = e as NodeJS.ErrnoException;
       notes.push({
         absolutePath: filePath,
-        relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
+        relativePath: relativeVaultPath(vaultPath, filePath),
         frontmatter: null,
         readError: err.message,
       });
@@ -98,7 +97,7 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
 
     notes.push({
       absolutePath: filePath,
-      relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
+      relativePath: relativeVaultPath(vaultPath, filePath),
       frontmatter,
       ...(parseError ? { parseError } : {}),
       ...(options.includeContent ? { content } : {}),
