@@ -160,8 +160,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       console.log(`Quarantined Cyclic Components: ${quarantinedCycles.length}`);
       for (const cycle of quarantinedCycles) {
         console.log(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
-        console.log('    Topics on this cycle (and their dependents) are excluded from Ready to Learn.');
       }
+      console.log('  Topics on these cycles (and their dependents) are excluded from Ready to Learn.');
       console.log();
     }
 
