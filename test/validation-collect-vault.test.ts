@@ -160,4 +160,33 @@ describe('Validation vault collection', () => {
     assert.strictEqual(context.topics.length, 1);
     assert.strictEqual(context.topics[0].palee_id, 'T-good');
   });
+
+  test('a previously cached topic for a now-unreadable file never resurfaces', () => {
+    const cache = new FileCache<LoadedTopic>();
+
+    // First run while the file is readable: the topic lands in the cache.
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic.md'),
+      '---\npalee_schema: 1\npalee_id: T-cached\n---\n# Cached\n',
+      'utf8'
+    );
+    const first = collectVault(tmpVault, { cache });
+    assert.strictEqual(first.topics.length, 1);
+    assert.strictEqual(first.readIncomplete, false);
+
+    // The file becomes unreadable (deleted mid-scan). The read-failure path
+    // must exclude it from loadTopics entirely — a stale cache entry for
+    // that path can never be consulted, so no topic from bytes the scanner
+    // could not read may appear in the snapshot.
+    fs.rmSync(path.join(tmpVault, 'topic.md'));
+
+    const second = collectVault(tmpVault, {
+      files: [path.join(tmpVault, 'topic.md')],
+      cache,
+    });
+
+    assert.strictEqual(second.readIncomplete, true);
+    assert.strictEqual(second.topics.length, 0);
+    assert.ok(second.notes[0].readError);
+  });
 });

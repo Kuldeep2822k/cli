@@ -203,10 +203,8 @@ flowchart LR
     
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
-        ParseWarn{"parse-frontmatter"}
-        ReadWarn{"read-failure"}
-        DupCheck{"no-duplicate-topic-id"}
-        GraphCheck{"no-missing-dependency / no-dependency-cycle"}
+        Runner["runRules() — every rule runs, in registration order"]
+        Rules["parse-frontmatter → read-failure → no-duplicate-topic-id → no-missing-dependency → no-dependency-cycle"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
@@ -221,16 +219,14 @@ flowchart LR
     end
     
     Storage --> Scan
-    Scan --> ParseWarn
-    Scan --> ReadWarn
-    ParseWarn -->|"Malformed YAML"| WarnParse
-    ReadWarn -->|"Read failed"| WarnRead
-    Scan --> DupCheck
-    DupCheck -->|"Duplicate Found"| ErrDup
-    DupCheck -->|"Unique IDs"| GraphCheck
-    GraphCheck -->|"Missing Prerequisite"| ErrMiss
-    GraphCheck -->|"Cycle Detected"| ErrCyc
-    GraphCheck -->|"All Passed"| Success["✓ 0 Errors Found (Exit 0)"]
+    Scan --> Runner
+    Runner --> Rules
+    Rules -->|"duplicate IDs"| ErrDup
+    Rules -->|"dangling prerequisite"| ErrMiss
+    Rules -->|"cycle detected"| ErrCyc
+    Rules -->|"malformed YAML"| WarnParse
+    Rules -->|"read failed"| WarnRead
+    Rules -->|"no findings"| Success["✓ 0 Errors Found (Exit 0)"]
 ```
 
 ### Example Human-Readable Output (Failures Detected)
