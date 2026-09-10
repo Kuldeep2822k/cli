@@ -3,6 +3,8 @@ import assert from 'node:assert';
 import {
   detectCycle,
   detectCycles,
+  detectCyclesBounded,
+  findCyclicSccNodes,
   getReadyTopics,
   quarantineCyclicTopics,
   validateDependencyGraph,
@@ -174,6 +176,80 @@ describe('Dependency Graph', () => {
       ['T-a', { palee_id: 'T-a', depends_on: ['T-a'], topic_mastery: 0 }],
     ]);
     assert.deepStrictEqual(detectCycle(topics), ['T-a', 'T-a']);
+  });
+
+  test('bounded enumeration caps pathological graphs and flags truncation (CodeRabbit #79)', () => {
+    // Complete digraph on 8 nodes: every elementary cycle is distinct —
+    // K8 contains 5000+ elementary cycles; unbounded enumeration of dense
+    // but VALID vaults was the merge blocker.
+    const n = 8;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      const deps: string[] = [];
+      for (let j = 0; j < n; j++) {
+        if (j !== i) deps.push(`T-${j}`);
+      }
+      topics.set(`T-${i}`, { palee_id: `T-${i}`, depends_on: deps, topic_mastery: 0 });
+    }
+
+    const result = detectCyclesBounded(topics, 50);
+    assert.strictEqual(result.cycles.length, 50, 'enumeration must stop at the cap');
+    assert.strictEqual(result.truncated, true, 'truncation must be flagged');
+
+    // No cap on small graphs: unchanged behavior.
+    const small = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    const smallResult = detectCyclesBounded(small, 50);
+    assert.deepStrictEqual(smallResult.cycles, [['T-a', 'T-b', 'T-a']]);
+    assert.strictEqual(smallResult.truncated, false);
+  });
+
+  test('truncation never under-quarantines: SCC membership drives the blocked set (CodeRabbit #79)', () => {
+    // Dense SCC where the bounded sample cannot list every cyclic node's
+    // cycles: quarantine must still block EVERY cyclic node and dependents,
+    // because membership comes from SCC analysis, not the sampled list.
+    const n = 8;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      const deps: string[] = [];
+      for (let j = 0; j < n; j++) {
+        if (j !== i) deps.push(`T-${j}`);
+      }
+      topics.set(`T-${i}`, { palee_id: `T-${i}`, depends_on: deps, topic_mastery: 0 });
+    }
+    // A dependent downstream of the cyclic component (must be blocked too).
+    topics.set('T-downstream', { palee_id: 'T-downstream', depends_on: ['T-0'], topic_mastery: 0 });
+    // An unrelated acyclic topic (must survive).
+    topics.set('T-free', { palee_id: 'T-free', depends_on: [], topic_mastery: 0 });
+
+    const { acyclic, cycles, truncated } = quarantineCyclicTopics(topics);
+
+    assert.strictEqual(truncated, true, 'dense SCC must trip the cap');
+    assert.strictEqual(cycles.length, 1000, 'sample is capped at the default');
+
+    for (let i = 0; i < n; i++) {
+      assert.ok(!acyclic.has(`T-${i}`), `cyclic node T-${i} must be quarantined despite truncation`);
+    }
+    assert.ok(!acyclic.has('T-downstream'), 'downstream dependent must be quarantined');
+    assert.ok(acyclic.has('T-free'), 'unrelated acyclic topic must survive');
+  });
+
+  test('findCyclicSccNodes reports exactly the on-cycle set', () => {
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-c', { palee_id: 'T-c', depends_on: ['T-a'], topic_mastery: 0 }],
+      ['T-self', { palee_id: 'T-self', depends_on: ['T-self'], topic_mastery: 0 }],
+      ['T-free', { palee_id: 'T-free', depends_on: [], topic_mastery: 0 }],
+    ]);
+
+    const cyclic = findCyclicSccNodes(topics);
+    assert.ok(cyclic.has('T-a') && cyclic.has('T-b'), 'two-node cycle members');
+    assert.ok(cyclic.has('T-self'), 'self-loop node');
+    assert.ok(!cyclic.has('T-c'), 'downstream dependent is NOT on-cycle');
+    assert.ok(!cyclic.has('T-free'), 'acyclic node');
   });
 
   test('detectCycles output order is independent of map insertion order (#79 review fix)', () => {

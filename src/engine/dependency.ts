@@ -108,8 +108,9 @@ function enumerateSccCycles(
   scc: Set<string>,
   edges: Map<string, string[]>,
   seen: Set<string>,
-  cycles: string[][]
-): void {
+  cycles: string[][],
+  maxCycles: number
+): boolean {
   const order = Array.from(scc).sort();
   for (let startIndex = 0; startIndex < order.length; startIndex++) {
     const start = order[startIndex];
@@ -132,6 +133,10 @@ function enumerateSccCycles(
     const iterators = new Map<string, number>([[start, 0]]);
 
     while (path.length > 0) {
+      // Budget: stop the entire enumeration once the cap is hit. Dense
+      // SCCs can contain exponentially many elementary cycles; callers get
+      // a bounded sample plus a truncation flag instead of an unbounded wait.
+      if (cycles.length >= maxCycles) return true;
       const current = path[path.length - 1];
       const neighbors = edges.get(current) ?? [];
       let i = iterators.get(current) ?? 0;
@@ -199,6 +204,9 @@ function enumerateSccCycles(
       }
     }
   }
+
+  // Every start node was exhausted without hitting the budget.
+  return false;
 }
 
 /**
@@ -213,7 +221,33 @@ function enumerateSccCycles(
  * 2. Elementary-cycle enumeration inside each multi-node SCC (Johnson-style,
  *    with explicit stacks — including the unblock cascade), canonicalized so
  *    every distinct loop is reported exactly once with its exact path —
- *    including overlapping cycles that share nodes or edges. Acyclic
+ *    including overlapping cycles that share nodes or back edges. Acyclic
+ *    components are never touched, matching the spec's quarantine contract
+ *    (`planning/palee_cli_spec.md` §Dependency processing,
+ *    `planning/invariants.md` line 37).
+ *
+ * Determinism: enumeration inside an SCC starts from sorted nodes, and the
+ * final cycle list is sorted by canonical path, so the output is stable for
+ * a given graph regardless of map insertion order.
+ *
+ * Complexity: O(V + E) for SCC detection plus Johnson's bound per cyclic SCC.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
+ */
+/**
+ * Enumerates every distinct simple cycle in the topic graph.
+ *
+ * @remarks
+ * Two-stage, recursion-free algorithm (stack-safe for deep dependency chains
+ * and large strongly connected components):
+ * 1. Strongly connected components via an iterative Tarjan pass. Any topic
+ *    outside a multi-node SCC is provably cycle-free — except a singleton
+ *    with a self-edge (`T-a` depends on `T-a`), which is a one-node cycle.
+ * 2. Elementary-cycle enumeration inside each multi-node SCC (Johnson-style,
+ *    with explicit stacks — including the unblock cascade), canonicalized so
+ *    every distinct loop is reported exactly once with its exact path —
+ *    including overlapping cycles that share nodes or back edges. Acyclic
  *    components are never touched, matching the spec's quarantine contract
  *    (`planning/palee_cli_spec.md` §Dependency processing,
  *    `planning/invariants.md` line 37).
@@ -228,6 +262,45 @@ function enumerateSccCycles(
  * @returns Array of cycle paths (e.g. `[['T-a', 'T-b', 'T-a']]`), empty when acyclic
  */
 function detectCycles(topics: Map<string, TopicNode>): string[][] {
+  return detectCyclesCore(topics, Number.POSITIVE_INFINITY).cycles;
+}
+
+/**
+ * Result shape for bounded cycle enumeration.
+ */
+export interface DetectCyclesResult {
+  /** Distinct canonicalized cycle paths, sorted; possibly truncated */
+  cycles: string[][];
+  /** True when `maxCycles` stopped the enumeration early */
+  truncated: boolean;
+}
+
+/**
+ * Bounded cycle enumeration for user-facing commands.
+ *
+ * @remarks
+ * Same enumeration as {@link detectCycles}, capped at `maxCycles` distinct
+ * cycles (default 1000). Dense-but-valid dependency SCCs contain
+ * exponentially many elementary cycles; interactive commands (`plan`) use
+ * this form so pathological vaults produce output in bounded time with a
+ * `truncated` flag instead of an unbounded wait. Quarantine correctness is
+ * unaffected — membership comes from SCC analysis, not the sample.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @param maxCycles - Maximum distinct cycles to record (default 1000)
+ * @returns Sorted cycle list (possibly truncated) plus the truncation flag
+ */
+function detectCyclesBounded(
+  topics: Map<string, TopicNode>,
+  maxCycles: number = 1000
+): DetectCyclesResult {
+  return detectCyclesCore(topics, maxCycles);
+}
+
+/**
+ * Core enumeration shared by the unbounded and bounded public forms.
+ */
+function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): DetectCyclesResult {
   const edges = buildEdgeMap(topics);
 
   // ── Stage 1: iterative Tarjan SCC ──────────────────────────────────
@@ -292,9 +365,17 @@ function detectCycles(topics: Map<string, TopicNode>): string[][] {
   // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
   // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
   // cyclic only via a self-edge (T-a depends on T-a) — a one-node cycle.
+  // `maxCycles` bounds the work: dense SCCs contain exponentially many
+  // elementary cycles, and consumers only need a bounded sample plus the
+  // knowledge that truncation happened.
   const seen = new Set<string>();
   const cycles: string[][] = [];
+  let truncated = false;
   for (const scc of sccs) {
+    if (cycles.length >= maxCycles) {
+      truncated = true;
+      break;
+    }
     if (scc.length === 1) {
       const node = scc[0];
       if ((edges.get(node) ?? []).includes(node)) {
@@ -302,7 +383,10 @@ function detectCycles(topics: Map<string, TopicNode>): string[][] {
       }
       continue;
     }
-    enumerateSccCycles(new Set(scc), edges, seen, cycles);
+    if (enumerateSccCycles(new Set(scc), edges, seen, cycles, maxCycles)) {
+      truncated = true;
+      break;
+    }
   }
 
   // Tarjan discovers SCCs in insertion-dependent order; sort the final list
@@ -310,7 +394,17 @@ function detectCycles(topics: Map<string, TopicNode>): string[][] {
   // Each path is canonically rotated, so its joined form is a stable key.
   cycles.sort((a, b) => (a.join('\u0000') < b.join('\u0000') ? -1 : a.join('\u0000') > b.join('\u0000') ? 1 : 0));
 
-  return cycles;
+  return { cycles, truncated };
+}
+
+/**
+ * Result shape for bounded cycle enumeration.
+ */
+export interface DetectCyclesResult {
+  /** Distinct canonicalized cycle paths, sorted; possibly truncated */
+  cycles: string[][];
+  /** True when `maxCycles` stopped the enumeration early */
+  truncated: boolean;
 }
 
 /**
@@ -341,6 +435,87 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
 }
 
 /**
+ * Finds every node that sits on at least one dependency cycle.
+ *
+ * @remarks
+ * Membership is derived from strongly connected components — a node is
+ * cyclic iff it belongs to a multi-node SCC or has a self-edge — which is
+ * O(V+E) and independent of cycle ENUMERATION. This is the truncation-proof
+ * primitive: {@link detectCyclesBounded} may cap its output for pathological
+ * graphs (dense SCCs contain exponentially many elementary cycles), but
+ * quarantine membership never depends on how many cycles were listed.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns Set of IDs on at least one cycle
+ */
+function findCyclicSccNodes(topics: Map<string, TopicNode>): Set<string> {
+  const edges = buildEdgeMap(topics);
+
+  // Iterative Tarjan SCC (same frame simulation as detectCyclesCore).
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const tarjanStack: string[] = [];
+  let counter = 0;
+  const cyclic = new Set<string>();
+
+  const frames: Array<[string, number]> = [];
+  for (const root of edges.keys()) {
+    if (index.has(root)) continue;
+    frames.push([root, 0]);
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      const [node] = frame;
+      if (!index.has(node)) {
+        index.set(node, counter);
+        lowlink.set(node, counter);
+        counter++;
+        tarjanStack.push(node);
+        onStack.add(node);
+      }
+
+      const neighbors = edges.get(node) ?? [];
+      let descended = false;
+      while (frame[1] < neighbors.length) {
+        const next = neighbors[frame[1]];
+        frame[1]++;
+        if (!index.has(next)) {
+          frames.push([next, 0]);
+          descended = true;
+          break;
+        } else if (onStack.has(next)) {
+          lowlink.set(node, Math.min(lowlink.get(node)!, index.get(next)!));
+        }
+      }
+      if (descended) continue;
+
+      if (lowlink.get(node) === index.get(node)) {
+        const scc: string[] = [];
+        let popped: string;
+        do {
+          popped = tarjanStack.pop()!;
+          onStack.delete(popped);
+          scc.push(popped);
+        } while (popped !== node);
+        if (scc.length > 1) {
+          for (const id of scc) cyclic.add(id);
+        } else if ((edges.get(node) ?? []).includes(node)) {
+          cyclic.add(node); // self-loop: T-a depends on T-a
+        }
+      }
+      frames.pop();
+      if (frames.length > 0) {
+        const parent = frames[frames.length - 1];
+        lowlink.set(parent[0], Math.min(lowlink.get(parent[0])!, lowlink.get(node)!));
+      }
+    }
+  }
+
+  return cyclic;
+}
+
+/**
  * Collects every topic that is part of, or downstream of, a dependency cycle.
  *
  * @remarks
@@ -360,12 +535,19 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
  */
 function collectBlockedFromCycles(
   topics: Map<string, TopicNode>,
-  cycles: string[][]
+  cycles: string[][],
+  cyclicNodes?: Set<string>
 ): Set<string> {
   const blocked = new Set<string>();
   const onCycle = new Set<string>();
   for (const cycle of cycles) {
     for (const id of cycle) onCycle.add(id);
+  }
+  // SCC membership is the authoritative on-cycle set — every enumerated
+  // cycle only visits cyclic nodes, but the reverse does not hold when the
+  // enumeration is truncated, so seed from membership when available.
+  if (cyclicNodes !== undefined) {
+    for (const id of cyclicNodes) onCycle.add(id);
   }
   if (onCycle.size === 0) return blocked;
 
@@ -420,19 +602,27 @@ function collectBlockedFromCycles(
 function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
   acyclic: Map<string, TopicNode>;
   cycles: string[][];
+  truncated: boolean;
 } {
-  const cycles = detectCycles(topics);
-  if (cycles.length === 0) {
-    return { acyclic: new Map(topics), cycles };
+  // Membership first: SCC analysis decides WHAT to quarantine in O(V+E),
+  // independent of how many cycles the (bounded) enumeration lists.
+  const cyclicNodes = findCyclicSccNodes(topics);
+  if (cyclicNodes.size === 0) {
+    return { acyclic: new Map(topics), cycles: [], truncated: false };
   }
 
-  const blocked = collectBlockedFromCycles(topics, cycles);
+  // Display sample: bounded enumeration so pathological-but-valid vaults
+  // (dense SCCs with exponentially many elementary cycles) cannot stall
+  // `plan`; `truncated` tells callers the list is a sample, not a census.
+  const { cycles, truncated } = detectCyclesBounded(topics);
+
+  const blocked = collectBlockedFromCycles(topics, cycles, cyclicNodes);
   const acyclic = new Map<string, TopicNode>();
   for (const [id, topic] of topics) {
     if (!blocked.has(id)) acyclic.set(id, topic);
   }
 
-  return { acyclic, cycles };
+  return { acyclic, cycles, truncated };
 }
 
 /**
@@ -602,7 +792,9 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
 export {
   detectCycle,
   detectCycles,
+  detectCyclesBounded,
   quarantineCyclicTopics,
+  findCyclicSccNodes,
   areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,

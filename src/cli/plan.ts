@@ -80,6 +80,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           reviews_due: [],
           ready_to_learn: [],
           quarantined_cycles: [],
+          quarantined_cycles_truncated: false,
           counts: {
             due: 0,
             ready: 0,
@@ -101,7 +102,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // ready-to-learn list is computed over the acyclic subgraph only. Reviews
     // due (SM-2 state) stay on the full map — a quarantined topic's review
     // schedule is still real.
-    const { acyclic: acyclicTopics, cycles: quarantinedCycles } = quarantineCyclicTopics(topics);
+    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(topics);
 
     // Get ready to learn (deps satisfied, not mastered) — acyclic components only
     const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
@@ -141,6 +142,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           difficulty: t.difficulty,
         })),
         quarantined_cycles: quarantinedCycles,
+        quarantined_cycles_truncated: cyclesTruncated,
         counts: {
           due: dueTopics.length,
           ready: readyTopics.length,
@@ -157,7 +159,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
 
     // Section 0: Quarantined cyclic components (ready list excludes them)
     if (quarantinedCycles.length > 0) {
-      console.log(`Quarantined Cyclic Components: ${quarantinedCycles.length}`);
+      console.log(`Quarantined Cyclic Components: ${quarantinedCycles.length}${cyclesTruncated ? ' (truncated — more cycles exist)' : ''}`);
       for (const cycle of quarantinedCycles) {
         console.log(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
       }
