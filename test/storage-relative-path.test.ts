@@ -101,4 +101,34 @@ describe('relativeVaultPath: symlinked vault root (macOS temp-dir shape)', () =>
       fs.rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  test('valid filenames starting with .. are not misread as parent traversal (Greptile P2)', () => {
+    // A file legitimately named `..notes.md` is not a traversal attempt.
+    // Under a symlinked root with caller-supplied file paths (the files
+    // API — the walker's dot-file exclusion never runs), the containment
+    // check must accept it and return the clean canonical relative path,
+    // not mistake it for `..`/`../` and keep the escaping lexical garbage.
+    const real = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-real-dotdot-'));
+    const link = path.join(os.tmpdir(), 'palee-link-dotdot-' + Date.now());
+    fs.symlinkSync(real, link, LINK_TYPE);
+    try {
+      fs.writeFileSync(path.join(real, '..notes.md'), '# double-dot name\n', 'utf8');
+      fs.mkdirSync(path.join(real, 'sub'));
+      fs.writeFileSync(path.join(real, 'sub', '..nested.md'), '# nested\n', 'utf8');
+
+      // Direct helper, root-level and nested double-dot names.
+      assert.strictEqual(relativeVaultPath(link, path.join(real, '..notes.md')), '..notes.md');
+      assert.strictEqual(relativeVaultPath(link, path.join(real, 'sub', '..nested.md')), 'sub/..nested.md');
+
+      // Through the scanner's caller-supplied files API (symlinked root,
+      // canonical file paths — the exact P2 trigger shape).
+      const notes = scanNotes(link, {
+        files: [path.join(real, '..notes.md'), path.join(real, 'sub', '..nested.md')],
+      });
+      assert.deepStrictEqual(notes.map((n) => n.relativePath), ['..notes.md', 'sub/..nested.md']);
+    } finally {
+      fs.rmSync(link, { force: true });
+      fs.rmSync(real, { recursive: true, force: true });
+    }
+  });
 });

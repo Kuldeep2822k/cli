@@ -265,7 +265,16 @@ function relativeVaultPath(vaultPath: string, filePath: string): string {
       const canonical = path.relative(canonicalRoot, canonicalFile).replace(/\\/g, '/');
       // Keep the canonical result only when the file is genuinely inside
       // the root; otherwise the file is truly outside — lexical is truth.
-      if (canonical !== '' && !canonical.startsWith('..') && !path.isAbsolute(canonical)) {
+      // The containment check must be exact (`..` or `../` prefix), not the
+      // broad startsWith('..'): a valid in-vault file named `..note.md`
+      // would otherwise be misclassified as parent traversal and keep the
+      // escaping lexical path (Greptile P2, #161).
+      if (
+        canonical !== '' &&
+        canonical !== '..' &&
+        !canonical.startsWith('../') &&
+        !path.isAbsolute(canonical)
+      ) {
         return canonical;
       }
     } catch {
