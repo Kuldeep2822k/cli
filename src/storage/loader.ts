@@ -54,6 +54,15 @@ export interface LoadedTopic extends TopicNode {
 export interface LoadTopicsOptions {
   /** Pre-scanned array of absolute file paths (avoids duplicate vault walks) */
   files?: string[];
+  /**
+   * Caller-supplied file contents keyed by absolute path (snapshot injection).
+   *
+   * @remarks Single-read collection seam (#25): when bytes are provided for
+   * a path, they are used verbatim — no filesystem read and no cache
+   * read/write — so the loader observes the same snapshot the caller saw.
+   * Unlisted paths fall back to the normal read + cache path.
+   */
+  contents?: Map<string, string>;
   /** Cache to read from and populate; defaults to the shared `getTopicCache()` instance */
   cache?: FileCache<LoadedTopic>;
 }
@@ -188,6 +197,7 @@ export function loadTopics(
   // `files ?? walkVault` tolerated it, so null is not treated as options.
   const isOptions = arg !== undefined && arg !== null && !Array.isArray(arg);
   const files = isOptions ? (arg as LoadTopicsOptions).files : (arg as string[] | undefined);
+  const contents = isOptions ? (arg as LoadTopicsOptions).contents : undefined;
   const cache = isOptions
     ? ((arg as LoadTopicsOptions).cache ?? topicCache)
     : topicCache;
@@ -196,17 +206,30 @@ export function loadTopics(
   const topics: LoadedTopic[] = [];
 
   for (const filePath of scanFiles) {
-    const cached = cache.get(filePath);
-    if (cached) {
-      topics.push(cached);
-      continue;
-    }
-
+    // Snapshot injection (#25): caller-provided bytes are used verbatim —
+    // no read, no cache read, no cache write — so loader and scanner
+    // observe the same content even under concurrent edits. Injected
+    // content must never enter the cache: it is snapshot truth, not
+    // on-disk truth, and a cached injected value would poison later
+    // non-snapshot loads against the file's real bytes.
+    const injected = contents?.get(filePath);
     let content: string;
-    try {
-      content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+    let fromSnapshot = false;
+    if (injected !== undefined) {
+      content = injected;
+      fromSnapshot = true;
+    } else {
+      const cached = cache.get(filePath);
+      if (cached) {
+        topics.push(cached);
+        continue;
+      }
+
+      try {
+        content = fs.readFileSync(filePath, 'utf8');
+      } catch {
+        continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+      }
     }
     const { frontmatter } = parseFrontmatter(content);
 
@@ -254,7 +277,11 @@ export function loadTopics(
     };
 
     const fp = computeFingerprint(content);
-    cache.set(filePath, topic, fp);
+    // Snapshot-injected content never enters the cache — only bytes read
+    // from disk in THIS call are cache-worthy (see fromSnapshot above).
+    if (!fromSnapshot) {
+      cache.set(filePath, topic, fp);
+    }
     topics.push(topic);
   }
 

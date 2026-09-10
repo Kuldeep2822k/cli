@@ -518,6 +518,45 @@ function getReadyTopics(
 }
 
 /**
+ * Finds every dependency reference that points to a non-existent topic.
+ *
+ * @remarks
+ * The missing-dependency half of {@link validateDependencyGraph}, extracted
+ * so callers can check dangling references without also paying for cycle
+ * detection. Findings carry the engine's canonical `missing_dependency`
+ * `ValidationError` shape. Deterministic: iterates the map in insertion
+ * order, dependencies in list order.
+ *
+ * @param topics - Map of topic ID to {@link TopicNode}
+ * @returns One `missing_dependency` error per dangling reference
+ *
+ * @example
+ * ```typescript
+ * const missing = findMissingDependencies(topicMap);
+ * if (missing.length > 0) {
+ *   console.error('Dangling references:', missing.map((e) => e.missing));
+ * }
+ * ```
+ */
+function findMissingDependencies(topics: Map<string, TopicNode>): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const [id, topic] of topics) {
+    const deps = getTopicDependencies(topic);
+    for (const depId of deps) {
+      if (!topics.has(depId)) {
+        errors.push({
+          type: 'missing_dependency',
+          topic: id,
+          missing: depId,
+          message: `Topic ${id} depends on missing topic ${depId}`,
+        });
+      }
+    }
+  }
+  return errors;
+}
+
+/**
  * Validates the topological integrity of the complete dependency graph.
  *
  * @remarks
@@ -542,19 +581,7 @@ function validateDependencyGraph(topics: Map<string, TopicNode>): ValidationResu
   const errors: ValidationError[] = [];
 
   // Check for missing dependencies
-  for (const [id, topic] of topics) {
-    const deps = getTopicDependencies(topic);
-    for (const depId of deps) {
-      if (!topics.has(depId)) {
-        errors.push({
-          type: 'missing_dependency',
-          topic: id,
-          missing: depId,
-          message: `Topic ${id} depends on missing topic ${depId}`,
-        });
-      }
-    }
-  }
+  errors.push(...findMissingDependencies(topics));
 
   // Check for cycles — report every distinct cyclic component (#79)
   const cycles = detectCycles(topics);
@@ -579,5 +606,6 @@ export {
   areDependenciesSatisfied,
   getReadyTopics,
   validateDependencyGraph,
+  findMissingDependencies,
   getTopicDependencies,
 };

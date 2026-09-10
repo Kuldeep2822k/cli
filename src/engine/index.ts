@@ -40,5 +40,7 @@ export const areDependenciesSatisfied = dependency.areDependenciesSatisfied;
 export const getTopicDependencies = dependency.getTopicDependencies;
 /** Validates dependency graph integrity and absence of cycles */
 export const validateDependencyGraph = dependency.validateDependencyGraph;
+/** Finds dangling dependency references without running cycle detection */
+export const findMissingDependencies = dependency.findMissingDependencies;
 
 
