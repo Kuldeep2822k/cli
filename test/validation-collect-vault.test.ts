@@ -189,4 +189,46 @@ describe('Validation vault collection', () => {
     assert.strictEqual(second.topics.length, 0);
     assert.ok(second.notes[0].readError);
   });
+
+  test('a cache that WOULD return the topic never gets asked for read-failure paths', () => {
+    // Pins the snapshot-consistency fix directly: FileCache evicts entries
+    // on ENOENT itself, so a deleted-file test can pass without the fix.
+    // Here the cache is stubbed to hand back the topic no matter what —
+    // the only reason it stays out of context.topics is that the collector
+    // never passes the read-failure path to loadTopics.
+    const lockedPath = path.join(tmpVault, 'locked.md');
+    const staleTopic: LoadedTopic = {
+      palee_id: 'T-stale',
+      id: 'T-stale',
+      title: 'Stale',
+      path: 'locked.md',
+      filePath: lockedPath,
+      content: '---\n---\n',
+      frontmatter: { palee_id: 'T-stale' },
+      difficulty: 'beginner',
+      depends_on: [],
+      topic_mastery: 0,
+      status: 'not_started',
+    };
+    class SeededCache extends FileCache<LoadedTopic> {
+      get(filePath: string): LoadedTopic | null {
+        return filePath === lockedPath ? staleTopic : super.get(filePath);
+      }
+    }
+
+    const context = collectVault(tmpVault, {
+      files: [lockedPath], // does not exist on disk: read failure
+      cache: new SeededCache(),
+    });
+
+    assert.strictEqual(context.readIncomplete, true);
+    assert.ok(context.notes[0].readError);
+    // The seeded cache would have returned T-stale had the loader been
+    // given the path — exclusion happens in the collector, not the cache.
+    assert.strictEqual(context.topics.length, 0);
+    assert.strictEqual(
+      context.topics.some((t) => t.palee_id === 'T-stale'),
+      false
+    );
+  });
 });
