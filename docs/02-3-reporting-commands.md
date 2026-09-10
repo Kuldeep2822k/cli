@@ -213,7 +213,7 @@ flowchart LR
         ErrCyc["cycle"]
     end
 
-    subgraph Warnings ["Warnings (Exit 0)"]
+    subgraph Warnings ["Warnings (never gate the exit code)"]
         WarnParse["malformed frontmatter"]
         WarnRead["unreadable file (snapshot incomplete)"]
     end
@@ -226,7 +226,7 @@ flowchart LR
     Rules -->|"cycle detected"| ErrCyc
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
-    Rules -->|"no findings"| Success["✓ 0 Errors Found (Exit 0)"]
+    Rules -->|"no errors"| Success["✓ 0 Errors Found (Exit 0)"]
 ```
 
 ### Example Human-Readable Output (Failures Detected)
