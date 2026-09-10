@@ -276,8 +276,64 @@ function detectCyclesBounded(
  */
 function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): DetectCyclesResult {
   const edges = buildEdgeMap(topics);
+  const sccs = computeSccs(edges);
 
-  // ── Stage 1: iterative Tarjan SCC ──────────────────────────────────
+  // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
+  // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
+  // cyclic only via a self-edge (T-a depends on T-a) — a one-node cycle.
+  // `maxCycles` bounds the work: dense SCCs contain exponentially many
+  // elementary cycles, and consumers only need a bounded sample plus the
+  // knowledge that truncation happened.
+  const seen = new Set<string>();
+  const cycles: string[][] = [];
+  let truncated = false;
+  for (const scc of sccs) {
+    if (cycles.length >= maxCycles) {
+      truncated = true;
+      break;
+    }
+    if (scc.length === 1) {
+      const node = scc[0];
+      if ((edges.get(node) ?? []).includes(node)) {
+        cycles.push([node, node]);
+      }
+      continue;
+    }
+    if (enumerateSccCycles(new Set(scc), edges, seen, cycles, maxCycles)) {
+      truncated = true;
+      break;
+    }
+  }
+
+  // Tarjan discovers SCCs in insertion-dependent order; sort the final list
+  // so the contract holds — stable output regardless of map insertion order.
+  // Each path is canonically rotated, so its joined form is a stable key.
+  // Keys are computed once up front: the comparator fires O(n log n) times
+  // but each path only joins once, not twice per comparison.
+  const sortKeys = new Map<string[], string>();
+  for (const cycle of cycles) sortKeys.set(cycle, cycle.join('\u0000'));
+  cycles.sort((a, b) => {
+    const ka = sortKeys.get(a)!;
+    const kb = sortKeys.get(b)!;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+
+  return { cycles, truncated };
+}
+
+/**
+ * Iterative Tarjan strongly connected components over the dependency edge map.
+ *
+ * @remarks
+ * Shared primitive for SCC-dependent logic: cycle enumeration
+ * ({@link detectCyclesCore}), cyclic-node membership
+ * ({@link findCyclicSccNodes}), and first-cycle search
+ * ({@link detectCycle}). Simulates recursion with explicit
+ * `[node, next-neighbor-index]` frames, so deep chains cannot exhaust the
+ * call stack. Self-edges are left to the caller — a singleton with a
+ * self-edge is a one-node cycle, but SCC structure alone cannot see it.
+ */
+function computeSccs(edges: Map<string, string[]>): string[][] {
   const index = new Map<string, number>();
   const lowlink = new Map<string, number>();
   const onStack = new Set<string>();
@@ -285,7 +341,6 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
   const sccs: string[][] = [];
   let counter = 0;
 
-  // Frame: [node, next-neighbor-index]. Simulates recursion explicitly.
   const frames: Array<[string, number]> = [];
   for (const root of edges.keys()) {
     if (index.has(root)) continue;
@@ -336,51 +391,33 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
     }
   }
 
-  // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
-  // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
-  // cyclic only via a self-edge (T-a depends on T-a) — a one-node cycle.
-  // `maxCycles` bounds the work: dense SCCs contain exponentially many
-  // elementary cycles, and consumers only need a bounded sample plus the
-  // knowledge that truncation happened.
-  const seen = new Set<string>();
-  const cycles: string[][] = [];
-  let truncated = false;
-  for (const scc of sccs) {
-    if (cycles.length >= maxCycles) {
-      truncated = true;
-      break;
-    }
-    if (scc.length === 1) {
-      const node = scc[0];
-      if ((edges.get(node) ?? []).includes(node)) {
-        cycles.push([node, node]);
-      }
-      continue;
-    }
-    if (enumerateSccCycles(new Set(scc), edges, seen, cycles, maxCycles)) {
-      truncated = true;
-      break;
-    }
-  }
-
-  // Tarjan discovers SCCs in insertion-dependent order; sort the final list
-  // so the contract holds — stable output regardless of map insertion order.
-  // Each path is canonically rotated, so its joined form is a stable key.
-  cycles.sort((a, b) => (a.join('\u0000') < b.join('\u0000') ? -1 : a.join('\u0000') > b.join('\u0000') ? 1 : 0));
-
-  return { cycles, truncated };
+  return sccs;
 }
 
 /**
  * Detects cyclic dependencies within the topic graph.
  *
  * @remarks
- * Thin compatibility wrapper over {@link detectCycles}: returns the first
- * cycle in {@link detectCycles}'s sorted canonical order (lexicographically
- * smallest path first), or `null` when the graph is acyclic — including
- * self-referential topics (`T-a` depends on `T-a`), reported as
- * `['T-a', 'T-a']`. Callers that need every cyclic component (quarantine,
- * full validation reports) should call {@link detectCycles} directly.
+ * Returns the same cycle as the first entry of {@link detectCycles}'s sorted
+ * output — the lexicographically smallest canonical path — but finds it by
+ * direct search instead of enumerating every cycle, in O(V·(V+E)) worst
+ * case (cycle length × per-step feasibility scan), never exponential in the
+ * cycle count. `roadmap` and the `no-dependency-cycle` validation rule feed
+ * CLI commands, so this wrapper must stay bounded no matter how dense the
+ * graph is (#79).
+ *
+ * Why the smallest cyclic node leads: every canonical cycle is rotated to
+ * start at its minimum member, so the overall winner starts at the minimum
+ * cyclic node `A` (any cycle through `A` contains nothing smaller, and no
+ * other cycle can lead with anything smaller than `A`). From `A`, a greedy
+ * walk over ascending neighbors — advancing only while the candidate can
+ * still reach `A` without crossing the path built so far — yields the
+ * lexicographically smallest cycle through `A`; and since `A` is the
+ * smallest ID in its component, closing the walk the moment the current
+ * node has an edge back to `A` is always the lex-optimal move.
+ *
+ * Returns `null` when the graph is acyclic. Self-referential topics
+ * (`T-a` depends on `T-a`) are reported as `['T-a', 'T-a']`.
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Array of topic IDs representing the cycle loop (e.g. `['A', 'B', 'C', 'A']`), or `null` if acyclic
@@ -394,8 +431,115 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
  * ```
  */
 function detectCycle(topics: Map<string, TopicNode>): string[] | null {
-  const cycles = detectCycles(topics);
-  return cycles.length > 0 ? cycles[0] : null;
+  const edges = buildEdgeMap(topics);
+  const sccs = computeSccs(edges);
+
+  // Smallest cyclic node across all components — multi-node SCC members,
+  // plus self-loop singletons (SCC structure alone cannot see a self-edge).
+  let start: string | null = null;
+  for (const scc of sccs) {
+    if (scc.length > 1) {
+      for (const id of scc) {
+        if (start === null || id < start) start = id;
+      }
+    } else {
+      const node = scc[0];
+      if ((edges.get(node) ?? []).includes(node) && (start === null || node < start)) {
+        start = node;
+      }
+    }
+  }
+  if (start === null) return null;
+
+  // A self-loop on the minimum cyclic node beats every longer cycle through
+  // it (the joined key `A␀A` is shorter and smaller than `A␀…␀A`).
+  if ((edges.get(start) ?? []).includes(start)) return [start, start];
+
+  const scc = sccs.find(component => component.length > 1 && component.includes(start))!;
+  const sccSet = new Set<string>(scc);
+
+  // Ascending in-SCC neighbor lists — the greedy visits candidates in ID
+  // order, and `start` (the minimum ID) sorts first, so the close branch
+  // fires exactly when it is lex-optimal.
+  const neighbors = new Map<string, string[]>();
+  for (const id of scc) {
+    neighbors.set(id, (edges.get(id) ?? []).filter(n => sccSet.has(n)).sort());
+  }
+
+  // Reversed in-SCC edges for the feasibility scan (can the candidate still
+  // reach `start` without crossing the path built so far?).
+  const rev = new Map<string, string[]>();
+  for (const id of scc) {
+    for (const n of edges.get(id) ?? []) {
+      if (!sccSet.has(n)) continue;
+      const list = rev.get(n);
+      if (list) list.push(id);
+      else rev.set(n, [id]);
+    }
+  }
+
+  const path = [start];
+  const onPath = new Set<string>([start]);
+
+  for (;;) {
+    const current = path[path.length - 1];
+    let moved = false;
+    for (const next of neighbors.get(current)!) {
+      if (next === start) {
+        // Close: `start` is the smallest reachable ID, so returning to it
+        // now always beats extending the walk.
+        return path.concat(start);
+      }
+      if (onPath.has(next)) continue;
+      if (canReachAvoiding(start, next, rev, onPath)) {
+        path.push(next);
+        onPath.add(next);
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) {
+      // Unreachable: the walk's invariant (the current node can still reach
+      // `start` without crossing the path) guarantees a feasible neighbor
+      // or a closing edge at every step — fail loudly if that ever breaks.
+      throw new Error(`detectCycle: greedy walk stalled on ${current}`);
+    }
+  }
+}
+
+/**
+ * Reverse-reachability check for the lexicographic-first cycle search.
+ *
+ * @remarks
+ * Answers: can `from` reach `target` over forward edges (walked here in
+ * reverse) without passing through any `blocked` node? Used by
+ * {@link detectCycle} to keep its greedy walk extendable — a candidate is
+ * only advanced when the cycle can still be closed behind it.
+ *
+ * @param target - Walk destination (the cycle's start node)
+ * @param from - Candidate node whose feasibility is being tested
+ * @param rev - Reversed adjacency (successor → predecessors)
+ * @param blocked - Nodes already on the walk (except `target`, the source here)
+ * @returns True when a `from` → `target` path avoids every blocked node
+ */
+function canReachAvoiding(
+  target: string,
+  from: string,
+  rev: Map<string, string[]>,
+  blocked: Set<string>
+): boolean {
+  const seen = new Set<string>([target]);
+  const work = [target];
+  while (work.length > 0) {
+    const node = work.pop()!;
+    for (const prev of rev.get(node) ?? []) {
+      if (prev === from) return true;
+      if (seen.has(prev) || blocked.has(prev)) continue;
+      seen.add(prev);
+      work.push(prev);
+    }
+  }
+  return false;
 }
 
 /**
@@ -414,65 +558,16 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
  */
 function findCyclicSccNodes(topics: Map<string, TopicNode>): Set<string> {
   const edges = buildEdgeMap(topics);
+  const sccs = computeSccs(edges);
 
-  // Iterative Tarjan SCC (same frame simulation as detectCyclesCore).
-  const index = new Map<string, number>();
-  const lowlink = new Map<string, number>();
-  const onStack = new Set<string>();
-  const tarjanStack: string[] = [];
-  let counter = 0;
+  // A node is cyclic iff it is in a multi-node SCC or has a self-edge;
+  // SCC structure alone cannot see the self-loop, hence the edge check.
   const cyclic = new Set<string>();
-
-  const frames: Array<[string, number]> = [];
-  for (const root of edges.keys()) {
-    if (index.has(root)) continue;
-    frames.push([root, 0]);
-
-    while (frames.length > 0) {
-      const frame = frames[frames.length - 1];
-      const [node] = frame;
-      if (!index.has(node)) {
-        index.set(node, counter);
-        lowlink.set(node, counter);
-        counter++;
-        tarjanStack.push(node);
-        onStack.add(node);
-      }
-
-      const neighbors = edges.get(node) ?? [];
-      let descended = false;
-      while (frame[1] < neighbors.length) {
-        const next = neighbors[frame[1]];
-        frame[1]++;
-        if (!index.has(next)) {
-          frames.push([next, 0]);
-          descended = true;
-          break;
-        } else if (onStack.has(next)) {
-          lowlink.set(node, Math.min(lowlink.get(node)!, index.get(next)!));
-        }
-      }
-      if (descended) continue;
-
-      if (lowlink.get(node) === index.get(node)) {
-        const scc: string[] = [];
-        let popped: string;
-        do {
-          popped = tarjanStack.pop()!;
-          onStack.delete(popped);
-          scc.push(popped);
-        } while (popped !== node);
-        if (scc.length > 1) {
-          for (const id of scc) cyclic.add(id);
-        } else if ((edges.get(node) ?? []).includes(node)) {
-          cyclic.add(node); // self-loop: T-a depends on T-a
-        }
-      }
-      frames.pop();
-      if (frames.length > 0) {
-        const parent = frames[frames.length - 1];
-        lowlink.set(parent[0], Math.min(lowlink.get(parent[0])!, lowlink.get(node)!));
-      }
+  for (const scc of sccs) {
+    if (scc.length > 1) {
+      for (const id of scc) cyclic.add(id);
+    } else if ((edges.get(scc[0]) ?? []).includes(scc[0])) {
+      cyclic.add(scc[0]); // self-loop: T-a depends on T-a
     }
   }
 

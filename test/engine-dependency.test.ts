@@ -178,6 +178,76 @@ describe('Dependency Graph', () => {
     assert.deepStrictEqual(detectCycle(topics), ['T-a', 'T-a']);
   });
 
+  // ─── #79: detectCycle without enumeration (kilo round: CLI surfaces must stay bounded) ──
+
+  test('detectCycle matches detectCycles[0] on random graphs (no enumeration)', () => {
+    // The fuzz invariant `detectCycle === detectCycles[0]` must hold for the
+    // direct-search implementation, not just the old wrapper — thousands of
+    // seeded random graphs, including self-loops and dense SCCs.
+    let seed = 20260910;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (let round = 0; round < 3000; round++) {
+      const n = 2 + Math.floor(rand() * 6);
+      const topics = new Map<string, TopicNode>();
+      for (let i = 0; i < n; i++) {
+        const deps: string[] = [];
+        for (let j = 0; j < n; j++) {
+          if (rand() < 0.35) deps.push(`T-${j}`);
+        }
+        topics.set(`T-${i}`, { palee_id: `T-${i}`, depends_on: deps, topic_mastery: 0 });
+      }
+      const first = detectCycle(topics);
+      const all = detectCycles(topics);
+      if (all.length === 0) {
+        assert.strictEqual(first, null, `round ${round}: must be null when acyclic`);
+      } else {
+        assert.ok(first !== null, `round ${round}: must find a cycle when one exists`);
+        assert.deepStrictEqual(first, all[0], `round ${round}: detectCycle must equal detectCycles[0]`);
+      }
+    }
+  });
+
+  test('detectCycle greedy skips an infeasible smaller neighbor (feasibility gate)', () => {
+    // From T-a the walk enters T-b; T-b's smaller-ID neighbor T-c can only
+    // reach T-a back through T-b itself, which is already on the path — the
+    // feasibility gate must skip T-c and advance to T-d, closing the simple
+    // cycle. (T-b↔T-c also forms a cycle, but its canonical key sorts after
+    // the T-a-led one, so the answer is the T-a cycle.)
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-c', 'T-d'], topic_mastery: 0 }],
+      ['T-c', { palee_id: 'T-c', depends_on: ['T-b'], topic_mastery: 0 }],
+      ['T-d', { palee_id: 'T-d', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+    assert.deepStrictEqual(detectCycle(topics), ['T-a', 'T-b', 'T-d', 'T-a']);
+  });
+
+  test('detectCycle returns fast on dense graphs where enumeration would explode', () => {
+    // K12: a complete digraph on 12 nodes — 119,481,284 elementary cycles.
+    // Unbounded enumeration here was the stall surface for CLI callers
+    // (roadmap validate, no-dependency-cycle rule); direct search must find
+    // the lex-min cycle in bounded time.
+    const n = 12;
+    const topics = new Map<string, TopicNode>();
+    for (let i = 0; i < n; i++) {
+      const deps: string[] = [];
+      for (let j = 0; j < n; j++) {
+        if (j !== i) deps.push(`T-${j}`);
+      }
+      topics.set(`T-${i}`, { palee_id: `T-${i}`, depends_on: deps, topic_mastery: 0 });
+    }
+    const started = Date.now();
+    const cycle = detectCycle(topics);
+    const elapsed = Date.now() - started;
+    assert.ok(cycle !== null);
+    // K12 lex-min: every pair forms a 2-cycle; the smallest is T-0↔T-1.
+    assert.deepStrictEqual(cycle, ['T-0', 'T-1', 'T-0']);
+    assert.ok(elapsed < 5000, `dense-graph detectCycle must be fast (took ${elapsed}ms)`);
+  });
+
   test('bounded enumeration caps pathological graphs and flags truncation (CodeRabbit #79)', () => {
     // Complete digraph on 8 nodes: every elementary cycle is distinct —
     // K8 contains 5000+ elementary cycles; unbounded enumeration of dense

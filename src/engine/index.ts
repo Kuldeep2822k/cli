@@ -26,7 +26,7 @@ export const normalizeScore = mastery.normalizeScore;
 export const resolveTopicMastery = mastery.resolveTopicMastery;
 
 // Dependency exports
-/** Detects the first cyclic prerequisite loop in the topic graph (compatibility wrapper over detectCycles) */
+/** Detects the lexicographically-first dependency cycle via direct search — no enumeration, bounded on any graph (#79) */
 export const detectCycle = dependency.detectCycle;
 /** Enumerates every distinct dependency cycle with its exact canonicalized path (#79) */
 export const detectCycles = dependency.detectCycles;
