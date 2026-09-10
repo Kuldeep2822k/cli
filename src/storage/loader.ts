@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault } from './vault-walker';
+import { walkVault, relativeVaultPath } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
 import { normalizeDependencies } from './dependencies';
@@ -238,7 +238,7 @@ export function loadTopics(
     }
 
     const paleeId = frontmatter.palee_id.trim();
-    const relPath = path.relative(vaultPath, filePath).replace(/\\/g, '/');
+    const relPath = relativeVaultPath(vaultPath, filePath);
     const title = typeof frontmatter.title === 'string' && frontmatter.title.trim()
       ? frontmatter.title.trim()
       : path.basename(filePath, '.md');

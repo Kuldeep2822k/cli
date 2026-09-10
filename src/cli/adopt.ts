@@ -16,6 +16,7 @@ import {
   computeFingerprint,
   atomicWrite,
   walkVault,
+  relativeVaultPath,
   matchesPattern,
   matchesTags,
   validatePattern,
@@ -394,7 +395,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedByTag: string[] = [];
 
     for (const filePath of allFiles) {
-      const relPath = path.relative(vaultPath, filePath).replace(/\\/g, '/');
+      const relPath = relativeVaultPath(vaultPath, filePath);
       const content = fs.readFileSync(filePath, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
 

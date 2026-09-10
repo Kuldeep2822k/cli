@@ -12,7 +12,7 @@
  * - **Pattern & Roadmap Parsers**: `matchesPattern`, `matchesTags`, `parseRoadmapContent`
  */
 
-import { walkVault, ensureVaultDirectory } from './vault-walker';
+import { walkVault, ensureVaultDirectory, relativeVaultPath } from './vault-walker';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { scanNotes } from './scanner';
 import type { ScanNotesOptions } from './scanner';
@@ -49,6 +49,7 @@ export {
   // Vault operations
   walkVault,
   ensureVaultDirectory,
+  relativeVaultPath,
   loadTopics,
   getTopicCache,
   scanNotes,
