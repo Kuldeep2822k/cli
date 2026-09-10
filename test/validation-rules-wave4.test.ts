@@ -200,6 +200,46 @@ describe('valid-topic-id-format rule (#29)', () => {
     assert.strictEqual(issues[0].details?.actual, 123);
   });
 
+  test('absent palee_id on a schema-marked topic note is an error (CodeRabbit #159)', () => {
+    // #29 acceptance criteria: "missing or non-string IDs fail for topic
+    // notes." The old gate skipped notes without the palee_id KEY, so a
+    // topic note whose ID was entirely absent passed validation — the
+    // exact malformed record the rule exists to catch. Eligibility must
+    // come from managed markers (palee_schema here), never from the
+    // validated key itself.
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'absent.md', frontmatter: { palee_schema: 1, title: 'No ID' } })],
+    });
+
+    const issues = validTopicIdFormatRule.run(context);
+
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-topic-id-format');
+    assert.strictEqual(issues[0].file, 'absent.md');
+    assert.strictEqual(issues[0].field, 'palee_id');
+    assert.strictEqual(issues[0].details?.actual, undefined);
+    assert.strictEqual(issues[0].topicId, undefined, 'no topicId to attach when the key is absent');
+  });
+
+  test('schema-marked session note without palee_id stays out of scope', () => {
+    // Session notes carry palee_schema too, so the schema marker alone
+    // cannot mean "topic note" — the session_id key must keep them
+    // excluded from the topic ID policy.
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'session.md', frontmatter: { palee_schema: 1, session_id: 'S-1' } })],
+    });
+
+    assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
+  });
+
+  test('session index note (type: session_index) stays out of scope', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'index.md', frontmatter: { type: 'session_index', palee_schema: 1 } })],
+    });
+
+    assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
+  });
+
   test('null palee_id (YAML empty value) is an error', () => {
     const context = makeContext({
       notes: [makeNote({ relativePath: 'null.md', frontmatter: { palee_id: null } })],

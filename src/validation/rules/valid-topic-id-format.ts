@@ -14,10 +14,22 @@
  * validated exactly as stored, with no coercion, per the #29 acceptance
  * criteria ("missing or non-string IDs fail for topic notes"). Notes with
  * parse errors are skipped; parse-frontmatter owns those.
+ *
+ * Topic-note eligibility is decided WITHOUT consulting `palee_id`'s value:
+ * a note is a topic note when it carries `palee_schema` or `palee_id`
+ * among its keys AND is not a session note (`session_id`), hot memory
+ * (`memory_id`), or the session index (`type: "session_index"`). Using the
+ * key's presence alone as the gate would skip exactly the malformed notes
+ * the rule exists to catch (#29: missing IDs fail); using it as the only
+ * marker would swallow absent-ID topic notes. Session/hot-memory/index
+ * notes never carry topic IDs by design, so they are out of scope.
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { isValidTopicId } from '../../engine/topic-id';
+
+/** Keys that mark a note as a non-topic PALEE record (never subject to the topic ID policy). */
+const NON_TOPIC_KEYS = ['session_id', 'memory_id'] as const;
 
 /** Reports topic notes whose raw palee_id violates the ID policy. */
 export const validTopicIdFormatRule: ValidationRule = {
@@ -31,10 +43,17 @@ export const validTopicIdFormatRule: ValidationRule = {
     for (const note of context.notes) {
       if (note.parseError !== undefined || note.frontmatter === null) continue;
       const fm = note.frontmatter as Record<string, unknown>;
-      // Topic notes only — session notes (session_id), hot memory
-      // (memory_id), and the session index are not subject to the topic
-      // ID policy.
-      if (!Object.hasOwn(fm, 'palee_id')) continue;
+
+      // Topic-note eligibility, independent of palee_id's presence or
+      // value: PALEE-managed (schema or id key present) and not one of the
+      // non-topic record kinds. An absent palee_id on an eligible note is
+      // itself the #29 "missing ID" failure — it must reach the validator,
+      // not be skipped by the eligibility gate.
+      const isTopicNote =
+        (Object.hasOwn(fm, 'palee_id') || Object.hasOwn(fm, 'palee_schema')) &&
+        !NON_TOPIC_KEYS.some((key) => Object.hasOwn(fm, key)) &&
+        fm.type !== 'session_index';
+      if (!isTopicNote) continue;
 
       const raw = fm.palee_id;
       if (typeof raw === 'string' && isValidTopicId(raw)) continue;
