@@ -41,12 +41,13 @@ const VALIDATION_RULES: ValidationRule[] = [
 /**
  * CLI command handler for validating vault integrity, schema compliance, and dependency cycles.
  *
- * @param options - Validate options including `--json` and `--fix`.
+ * @param options - Validate options including `--json`, `--fix`, and `--strict`.
  * @returns Promise resolving when validation completes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
  * process.exitCode = 3 if validation errors are found in the vault,
  * and process.exitCode = 5 on unexpected exceptions.
- * Warnings never gate the exit code (adopted severity policy, #25).
+ * Warnings never gate the exit code unless `--strict` is passed
+ * (adopted severity policy, #25).
  *
  * @example
  * ```typescript
@@ -68,6 +69,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     const context = collectVault(vaultPath);
     const issues = runRules(context, VALIDATION_RULES);
     const errorCount = issues.filter((issue) => issue.severity === 'error').length;
+    const warningCount = issues.filter((issue) => issue.severity === 'warning').length;
     // Old behavior: topic_count is the number of UNIQUE palee_ids, not the
     // number of topic notes (duplicates collapse to one entry).
     const uniqueTopicCount = new Set(context.topics.map((topic) => topic.palee_id)).size;
@@ -79,7 +81,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
           fileCount: context.files.length,
         })
       );
-      if (errorCount > 0) {
+      if (errorCount > 0 || (options.strict && warningCount > 0)) {
         process.exitCode = ExitCode.Validation;
       }
       return;
@@ -97,7 +99,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
       console.log('Note: --fix is not implemented in Phase 1');
     }
 
-    if (errorCount > 0) {
+    if (errorCount > 0 || (options.strict && warningCount > 0)) {
       process.exitCode = ExitCode.Validation;
     }
   } catch (e: unknown) {

@@ -73,7 +73,7 @@ Each CLI command has a corresponding TypeScript interface that defines its accep
 | `PlanOptions` | `palee plan` | `json` (boolean) [src/types.ts#178-180](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L178-L180) |
 | `DashboardOptions` | `palee dashboard` | `json` (boolean) [src/types.ts#182-184](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L182-L184) |
 | `ProgressOptions` | `palee progress` | `topic` (string), `json` (boolean) [src/types.ts#186-189](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L186-L189) |
-| `ValidateOptions` | `palee validate` | `fix` (boolean), `json` (boolean) [src/types.ts#191-194](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L191-L194) |
+| `ValidateOptions` | `palee validate` | `fix` (boolean), `json` (boolean), `strict` (boolean) [src/types.ts#564-578](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L564-L578) |
 | `RoadmapOptions` | `palee roadmap` | `from` (string), `yes` (boolean) [src/types.ts#202-205](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L202-L205) |
 | `SessionOptions` | `palee session` | `interactive` (boolean), `topic` (string), `json` (boolean) [src/types.ts#196-200](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L196-L200) |
 
