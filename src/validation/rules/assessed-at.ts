@@ -24,9 +24,12 @@
 /**
  * Checks whether a parsed date's calendar components were normalized.
  *
- * @remarks Only exact `YYYY-MM-DD` strings are round-tripped; other
- * formats (ISO timestamps, epoch numbers) are already rejected or
- * accepted by the parse itself and pass through unchanged.
+ * @remarks Only exact `YYYY-MM-DD` strings are round-tripped. Other
+ * formats (ISO timestamps, epoch numbers) are left to the parse
+ * itself: it either rejects them (NaN) or accepts them — and an
+ * accepted ISO timestamp can silently normalize an impossible date
+ * (`2026-02-30T12:00:00Z` parses as March 2), so those values pass
+ * through without a calendar check.
  *
  * @param raw - Original raw value
  * @param parsed - The value parsed into a Date
