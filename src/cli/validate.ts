@@ -27,7 +27,7 @@ import type { ValidationRule } from '../validation/types';
  * @remarks
  * Parse and read warnings come first (they explain why a note may be
  * missing from the collected topic set), then identity and schema checks,
- * then field/assessment consistency checks, then graph checks. Rule order
+ * then graph checks, then field/assessment consistency checks. Rule order
  * is the deterministic output order.
  */
 const VALIDATION_RULES: ValidationRule[] = [

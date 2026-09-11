@@ -18,14 +18,23 @@ const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
 /**
  * Validates an `assessed_at` value: null, absent, or a parseable date.
  *
+ * @remarks
+ * YAML parses bare timestamps like `1725148800000` as numbers (ms since
+ * epoch) and quoted/unquoted date strings as strings — both are accepted
+ * storage forms. `Date` objects cannot reach this rule (frontmatter is
+ * plain YAML scalars), so they are not handled.
+ *
  * @param value - Raw frontmatter value for `assessed_at`
  * @returns True when the value is acceptable
  */
 function isValidAssessedAt(value: unknown): boolean {
   if (value === null || value === undefined) return true;
-  if (typeof value === 'string' || typeof value === 'number') {
-    const parsed = new Date(String(value));
-    return !Number.isNaN(parsed.getTime());
+  if (typeof value === 'number') {
+    // Numeric epoch timestamps (ms since epoch) are valid dates.
+    return !Number.isNaN(new Date(value).getTime());
+  }
+  if (typeof value === 'string') {
+    return !Number.isNaN(new Date(value).getTime());
   }
   return false;
 }
@@ -58,7 +67,7 @@ export const validAssessmentFieldsRule: ValidationRule = {
               file: topic.path,
               topicId: topic.palee_id,
               field,
-              details: { actual: value instanceof Date ? value.toISOString() : value },
+              details: { actual: value },
             });
           }
           continue;

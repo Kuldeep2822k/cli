@@ -29,6 +29,25 @@ const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
 const EPSILON = 1e-5;
 
 /**
+ * Shape-only mirror of #36's `assessed_at` guard (jurisdiction check).
+ *
+ * @remarks
+ * This rule must skip topics whose assessment data carries ANY shape
+ * problem that #36 reports, so a stale mastery never double-reports on
+ * top of #36's error. Duplicated deliberately — #36 owns the canonical
+ * validation; this is the skip predicate, not a second report path.
+ *
+ * @param value - Raw frontmatter value for `assessed_at`
+ * @returns True when the value's shape is acceptable for comparison
+ */
+function isValidAssessedAtShape(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'number') return !Number.isNaN(new Date(value).getTime());
+  if (typeof value === 'string') return !Number.isNaN(new Date(value).getTime());
+  return false;
+}
+
+/**
  * Checks one raw assessment score for shape validity.
  *
  * @remarks A valid score is a finite number in `[0, 1]`. Anything else —
@@ -58,24 +77,42 @@ export const validTopicMasteryRule: ValidationRule = {
     const issues: ValidationIssue[] = [];
 
     for (const topic of context.topics) {
-      const scores = SCORE_FIELDS.map((field): number | string | undefined => {
+      const scores = SCORE_FIELDS.map((field): number | undefined => {
         const value: unknown = topic.frontmatter[field];
+        // #36 reports non-numeric/out-of-range shapes; missing pillars are the
+        // documented adopt default (0) and DO feed the formula — partial
+        // assessments are valid input, not a skip condition.
         return isShapedScore(value) ? value : undefined;
       });
 
-      // #36 jurisdiction: invalid score shapes are reported there, not here.
-      if (scores.some((value) => value === undefined)) continue;
+      // #36 jurisdiction: invalid score SHAPES are reported there, not here.
+      // A present-but-malformed value is `undefined` after the guard and
+      // must skip this rule; an absent pillar normalizes to 0 below.
+      if (
+        scores.some(
+          (value, i) =>
+            value === undefined &&
+            topic.frontmatter[SCORE_FIELDS[i]] !== undefined &&
+            topic.frontmatter[SCORE_FIELDS[i]] !== null
+        )
+      ) {
+        continue;
+      }
 
-      // Newly-adopted topics: all scores are 0 and mastery is 0 — matching,
-      // so the general path covers it. But a topic with all four scores
-      // present at 0 and a NON-zero mastery is stale; do not special-case
-      // zero, the formula comparison handles it.
+      // Invalid assessed_at belongs to #36 as well — a topic whose
+      // assessment data has any shape problem is skipped here so a stale
+      // mastery never double-reports on top of #36's error.
+      if (!isValidAssessedAtShape(topic.frontmatter.assessed_at)) continue;
+
+      // Missing pillars default to 0 per the adopt policy — the same
+      // normalization the loader applies (parseScore with 0 fallback).
+      const present = scores.map((value) => value ?? 0);
 
       const expected = computeTopicMastery(
-        scores[0],
-        scores[1],
-        scores[2],
-        scores[3]
+        present[0],
+        present[1],
+        present[2],
+        present[3]
       );
       // LoadedTopic.topic_mastery is the loader-normalized value (parseScore
       // with 0 default) — the same number every runtime consumer sees.

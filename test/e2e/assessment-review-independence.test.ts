@@ -16,6 +16,8 @@
 
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createTestVault } from './test-env';
 
 describe('assessment-review independence (#40)', () => {
@@ -51,13 +53,33 @@ describe('assessment-review independence (#40)', () => {
   test('palee review preserves all assessment fields and topic_mastery', () => {
     writeAssessedTopic();
 
+    // Raw-byte snapshot of the assessment block BEFORE the review mutation —
+    // parsed-value equality would not catch a rewrite of `0.80` as `0.8`.
+    const before = fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8');
+    const beforeAssessment = before
+      .split('\n')
+      .filter((line) =>
+        /^(conceptual|practical|debug|feynman|assessed_at|topic_mastery):/.test(line)
+      );
+
     const res = env.run(['review', 'T-assessed', '4']);
     assert.strictEqual(res.status, 0);
+
+    const after = fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8');
+    const afterAssessment = after
+      .split('\n')
+      .filter((line) =>
+        /^(conceptual|practical|debug|feynman|assessed_at|topic_mastery):/.test(line)
+      );
+
+    // Byte-for-byte: the six assessment lines are unchanged, order included.
+    assert.deepStrictEqual(afterAssessment, beforeAssessment);
+    assert.ok(beforeAssessment.length >= 6, 'expected six assessment lines');
 
     const topic = env.readTopic('assessed.md');
     const fm = topic.frontmatter as Record<string, unknown>;
 
-    // Assessment fields untouched.
+    // Parsed-value assertions too (belt and braces).
     assert.strictEqual(fm.conceptual, 0.8);
     assert.strictEqual(fm.practical, 0.7);
     assert.strictEqual(fm.debug, 0.9);

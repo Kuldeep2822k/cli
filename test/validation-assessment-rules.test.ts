@@ -111,7 +111,7 @@ describe('valid-assessment-fields rule (#36)', () => {
 
   test('multiple invalid fields report multiple errors in field order', () => {
     const topics = [makeTopic({
-      frontmatter: { conceptual: 2, practical: -1, debug: 0.5, feynman: 0.5, assessed_at: 17 },
+      frontmatter: { conceptual: 2, practical: -1, debug: 0.5, feynman: 0.5, assessed_at: [2026, 9] },
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 3);
@@ -226,5 +226,65 @@ describe('valid-topic-mastery rule (#37)', () => {
     assert.strictEqual(validTopicMasteryRule.id, 'valid-topic-mastery');
     assert.strictEqual(validTopicMasteryRule.severity, 'warning');
     assert.strictEqual(validTopicMasteryRule.fixable, 'safe');
+  });
+});
+
+describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
+  test('numeric epoch timestamps are valid assessed_at (Kilo CRITICAL)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-epoch',
+      frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: 1725148800000 },
+    })];
+    assert.deepStrictEqual(validAssessmentFieldsRule.run(makeContext(topics)), []);
+  });
+
+  test('out-of-range numeric assessed_at (Infinity) is an error', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-inf',
+      frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: Number.POSITIVE_INFINITY },
+    })];
+    const issues = validAssessmentFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'assessed_at');
+  });
+
+  test('partial pillars still validate mastery (Greptile P1)', () => {
+    // Only feynman present: (0 + 0 + 0 + 2*0.9) / 5 = 0.36
+    const topics = [makeTopic({
+      palee_id: 'T-partial',
+      frontmatter: { feynman: 0.9, assessed_at: '2026-09-01' },
+      topic_mastery: 0.36,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+
+  test('partial pillars with stale mastery report drift (Greptile P1)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-partial-stale',
+      frontmatter: { feynman: 0.9, assessed_at: '2026-09-01' },
+      topic_mastery: 0.1,
+    })];
+    const issues = validTopicMasteryRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].topicId, 'T-partial-stale');
+    assert.strictEqual(issues[0].details?.expected, 0.36);
+  });
+
+  test('invalid assessed_at skips mastery rule — no double report (Greptile P2)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-bad-date',
+      frontmatter: { conceptual: 0.8, practical: 0.7, debug: 0.9, feynman: 0.85, assessed_at: 'not-a-date' },
+      topic_mastery: 0.5,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+
+  test('out-of-range score still skips mastery rule (no double report)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-oor',
+      frontmatter: { conceptual: 2, practical: 0.7, debug: 0.9, feynman: 0.85, assessed_at: '2026-09-01' },
+      topic_mastery: 0.5,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 });
