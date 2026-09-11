@@ -21,31 +21,13 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { computeTopicMastery } from '../../engine/mastery';
+import { isValidAssessedAt } from './assessed-at';
 
 /** Assessment score fields consumed by the mastery formula. */
 const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
 
 /** Epsilon for serialized-float drift (4-decimal canonical precision). */
 const EPSILON = 1e-5;
-
-/**
- * Shape-only mirror of #36's `assessed_at` guard (jurisdiction check).
- *
- * @remarks
- * This rule must skip topics whose assessment data carries ANY shape
- * problem that #36 reports, so a stale mastery never double-reports on
- * top of #36's error. Duplicated deliberately — #36 owns the canonical
- * validation; this is the skip predicate, not a second report path.
- *
- * @param value - Raw frontmatter value for `assessed_at`
- * @returns True when the value's shape is acceptable for comparison
- */
-function isValidAssessedAtShape(value: unknown): boolean {
-  if (value === null || value === undefined) return true;
-  if (typeof value === 'number') return !Number.isNaN(new Date(value).getTime());
-  if (typeof value === 'string') return !Number.isNaN(new Date(value).getTime());
-  return false;
-}
 
 /**
  * Checks one raw assessment score for shape validity.
@@ -101,8 +83,10 @@ export const validTopicMasteryRule: ValidationRule = {
 
       // Invalid assessed_at belongs to #36 as well — a topic whose
       // assessment data has any shape problem is skipped here so a stale
-      // mastery never double-reports on top of #36's error.
-      if (!isValidAssessedAtShape(topic.frontmatter.assessed_at)) continue;
+      // mastery never double-reports on top of #36's error. Shared
+      // calendar-strict validator: both rules agree on what a valid
+      // assessed_at is (impossible dates like 2026-02-30 included).
+      if (!isValidAssessedAt(topic.frontmatter.assessed_at)) continue;
 
       // Missing pillars default to 0 per the adopt policy — the same
       // normalization the loader applies (parseScore with 0 fallback).

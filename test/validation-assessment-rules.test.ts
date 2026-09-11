@@ -288,3 +288,40 @@ describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
     assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 });
+
+describe('assessed_at calendar strictness (PR #163 round 2)', () => {
+  test('impossible calendar dates are errors, not normalized (CodeRabbit)', () => {
+    for (const bad of ['2026-02-30', '2026-04-31', '2026-06-31', '2026-09-31', '2026-02-31']) {
+      const topics = [makeTopic({
+        palee_id: 'T-cal',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: bad },
+      })];
+      const issues = validAssessmentFieldsRule.run(makeContext(topics));
+      assert.strictEqual(issues.length, 1, `expected ${bad} to be rejected`);
+      assert.strictEqual(issues[0].field, 'assessed_at');
+    }
+  });
+
+  test('real calendar dates including leap-day boundaries still pass', () => {
+    for (const good of ['2026-02-28', '2024-02-29', '2026-04-30', '2026-12-31', '2026-09-01']) {
+      const topics = [makeTopic({
+        palee_id: 'T-cal-ok',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: good },
+      })];
+      assert.deepStrictEqual(
+        validAssessmentFieldsRule.run(makeContext(topics)),
+        [],
+        `expected ${good} to pass`
+      );
+    }
+  });
+
+  test('mastery rule skips topics with impossible assessed_at (same calendar policy)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-cal-skip',
+      frontmatter: { conceptual: 0.8, practical: 0.7, debug: 0.9, feynman: 0.85, assessed_at: '2026-02-30' },
+      topic_mastery: 0.5,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+});

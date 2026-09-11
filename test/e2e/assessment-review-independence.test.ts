@@ -50,31 +50,54 @@ describe('assessment-review independence (#40)', () => {
     );
   }
 
-  test('palee review preserves all assessment fields and topic_mastery', () => {
-    writeAssessedTopic();
+  /** The seven SM-2 review fields palee review is allowed to mutate. */
+  const SM2_FIELDS =
+    /^(last_quality|last_reviewed_at|due_at|ease_factor|interval_days|repetition|lapses):/;
 
-    // Raw-byte snapshot of the assessment block BEFORE the review mutation —
-    // parsed-value equality would not catch a rewrite of `0.80` as `0.8`.
-    const before = fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8');
-    const beforeAssessment = before
-      .split('\n')
-      .filter((line) =>
-        /^(conceptual|practical|debug|feynman|assessed_at|topic_mastery):/.test(line)
-      );
+  /**
+   * Strips the seven SM-2 lines from a raw note so the remainder can be
+   * compared byte-for-byte. Everything else — title, status, depends_on,
+   * assessment fields, comments, frontmatter order, the body — must
+   * survive a review mutation unchanged.
+   */
+  function withoutSm2(raw: string): string[] {
+    return raw.split('\n').filter((line) => !SM2_FIELDS.test(line));
+  }
+
+  test('palee review preserves all assessment fields and topic_mastery', () => {
+    // Noncanonical numeric forms on purpose (0.80, not 0.8): if the review
+    // path renormalizes pillar values on write, this test catches the
+    // rewrite, because the full-file comparison (minus SM-2 lines only)
+    // includes these exact lines.
+    const rawNote =
+      '---\n' +
+      'palee_schema: 1\n' +
+      'palee_id: T-assessed\n' +
+      'title: Assessed Topic\n' +
+      'difficulty: intermediate\n' +
+      'depends_on: []\n' +
+      'status: learning\n' +
+      'conceptual: 0.80\n' +
+      'practical: 0.70\n' +
+      'debug: 0.90\n' +
+      'feynman: 0.85\n' +
+      'assessed_at: "2026-09-01"\n' +
+      'topic_mastery: 0.82\n' +
+      '---\n' +
+      '# Assessed Topic\n\n' +
+      'Pre-existing notes with assessment data. #assessment #wip\n';
+    fs.writeFileSync(path.join(env.vaultDir, 'assessed.md'), rawNote, 'utf8');
+
+    const before = withoutSm2(fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8'));
 
     const res = env.run(['review', 'T-assessed', '4']);
     assert.strictEqual(res.status, 0);
 
-    const after = fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8');
-    const afterAssessment = after
-      .split('\n')
-      .filter((line) =>
-        /^(conceptual|practical|debug|feynman|assessed_at|topic_mastery):/.test(line)
-      );
+    const after = withoutSm2(fs.readFileSync(path.join(env.vaultDir, 'assessed.md'), 'utf8'));
 
-    // Byte-for-byte: the six assessment lines are unchanged, order included.
-    assert.deepStrictEqual(afterAssessment, beforeAssessment);
-    assert.ok(beforeAssessment.length >= 6, 'expected six assessment lines');
+    // The entire file except the seven SM-2 lines is byte-identical:
+    // frontmatter (order, comments, numeric spellings), body, everything.
+    assert.deepStrictEqual(after, before);
 
     const topic = env.readTopic('assessed.md');
     const fm = topic.frontmatter as Record<string, unknown>;
