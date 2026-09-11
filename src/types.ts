@@ -566,6 +566,15 @@ export interface ValidateOptions {
   fix?: boolean;
   /** Output validation report as JSON */
   json?: boolean;
+  /**
+   * Escalate warnings to a non-zero exit code.
+   *
+   * @remarks
+   * Without `--strict`, warnings never gate the exit code (adopted severity
+   * policy, #25). With `--strict`, a warnings-only vault exits `3` like an
+   * errors vault, matching ESLint/Ruff `--strict` conventions.
+   */
+  strict?: boolean;
 }
 
 /**

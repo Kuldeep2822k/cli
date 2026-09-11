@@ -88,6 +88,7 @@ program
   .description('Validate vault integrity')
   .option('--fix', 'Attempt to fix validation errors')
   .option('--json', 'Output in JSON format')
+  .option('--strict', 'Exit non-zero on warnings as well as errors')
   .action(validateCommand);
 
 // palee roadmap
