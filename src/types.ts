@@ -572,7 +572,8 @@ export interface ValidateOptions {
    * @remarks
    * Without `--strict`, warnings never gate the exit code (adopted severity
    * policy, #25). With `--strict`, a warnings-only vault exits `3` like an
-   * errors vault, matching ESLint/Ruff `--strict` conventions.
+   * errors vault — the same zero-tolerance stance other linters express
+   * through `--max-warnings 0`-style flags.
    */
   strict?: boolean;
 }
