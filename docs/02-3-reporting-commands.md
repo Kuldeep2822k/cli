@@ -219,7 +219,7 @@ flowchart LR
         ErrCyc["cycle"]
     end
 
-    subgraph Warnings ["Warnings (never gate the exit code)"]
+    subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
         WarnParse["malformed frontmatter"]
         WarnRead["unreadable file (snapshot incomplete)"]
     end
