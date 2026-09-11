@@ -187,7 +187,7 @@ palee validate [flags]
 
 ### Vault Structural Integrity Rules
 
-`palee validate` runs an eight-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): three error-severity graph integrity rules ported from the dependency engine, three error-severity schema and identity rules, plus two warning-severity snapshot rules that explain gaps in the collected topic set.
+`palee validate` runs a ten-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): three error-severity graph integrity rules ported from the dependency engine, five error-severity schema, identity, and assessment rules, plus two warning-severity rules — snapshot rules that explain gaps in the collected topic set, and the mastery-drift rule that keeps stored derived data honest.
 
 1. **Malformed Frontmatter (`parse-frontmatter`, warning)**: A note whose YAML frontmatter cannot be parsed (including unclosed `---` fences whose body reads like YAML). The scan always continues — one bad note is a finding, never a dead validation.
 2. **Read Failures (`read-failure`, warning)**: A file that could not be read at all (locked or deleted mid-scan). Validation ran on an incomplete snapshot; the warning appears alongside any graph findings so transient conditions are visible without downgrading them.
@@ -197,6 +197,8 @@ palee validate [flags]
 6. **Duplicate Topic IDs (`no-duplicate-topic-id`, error)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
 7. **Missing Dependencies (`no-missing-dependency`, error)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault. Always an error — findings never depend on unrelated vault state; if a dependency target was itself unreadable, the `read-failure` warning appears alongside explaining the transient condition, and re-running settles it.
 8. **Dependency Cycles (`no-dependency-cycle`, error)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected using 3-color DFS graph traversal in the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts).
+9. **Assessment Fields (`valid-assessment-fields`, error)**: Assessment scores (`conceptual`, `practical`, `debug`, `feynman`) must be finite numbers within `[0.0, 1.0]` as stored on disk, and `assessed_at` must be `null` or a parseable date. The rule reads raw frontmatter values — the loader clamps and coerces during normalization, so this rule exposes real vault corruption instead of silently blessing it. Missing assessment fields follow the documented default policy (they are the newly-adopted state) and pass.
+10. **Topic Mastery Drift (`valid-topic-mastery`, warning)**: When a topic's assessment fields are shape-valid, stored `topic_mastery` must equal the engine formula `round((conceptual + practical + debug + 2*feynman) / 5, 4)` — recomputed with `computeTopicMastery` from [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts). Drift reports a warning with `details.actual` (stored) and `details.expected` (computed). Topics whose assessment fields fail rule 9 are skipped (no double-reporting), missing assessment data never crashes the rule, and archived topics are still checked — internal consistency matters for any stored topic. A warning only, so `--strict` gates it.
 
 ```mermaid
 flowchart LR
@@ -208,7 +210,7 @@ flowchart LR
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
         Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → no-missing-dependency → no-dependency-cycle"]
+        Rules["parse-frontmatter → read-failure → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
@@ -249,6 +251,12 @@ Found 18 PALEE topics in 24 files
   • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
     Rule: no-dependency-cycle
 ```
+
+---
+
+### Assessment-Review Independence (enforced by regression tests, #40)
+
+Assessment fields (`conceptual`, `practical`, `debug`, `feynman`, `assessed_at`, `topic_mastery`) and SM-2 review fields (`last_quality`, `last_reviewed_at`, `due_at`, `ease_factor`, `interval_days`, `repetition`, `lapses`) are independent state. Per the #40 design, independence is **not** a static vault rule — command-level mutation tests are the enforcement mechanism, because independence is about what commands write, not what the vault looks like. `test/e2e/assessment-review-independence.test.ts` pins the contract: `palee review` updates only SM-2 fields and preserves assessment data (including non-zero `topic_mastery`) byte-for-byte; future assessment/test flows must preserve review state unless an explicit confirmed review mutation is added.
 
 ---
 

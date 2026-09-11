@@ -23,7 +23,7 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
       assert.strictEqual(typeof validation.formatJson, 'function');
     });
 
-    it('exports all eight registered rules as ValidationRule objects', () => {
+    it('exports all ten registered rules as ValidationRule objects', () => {
       const rules: unknown[] = [
         validation.parseFrontmatterRule,
         validation.readFailureRule,
@@ -33,6 +33,8 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
         validation.noDuplicateTopicIdRule,
         validation.noMissingDependencyRule,
         validation.noDependencyCycleRule,
+        validation.validAssessmentFieldsRule,
+        validation.validTopicMasteryRule,
       ];
       // Rules are object literals implementing ValidationRule — assert
       // presence (not undefined) and let the contract-shape test pin the rest.
@@ -54,6 +56,8 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
         validation.noDuplicateTopicIdRule,
         validation.noMissingDependencyRule,
         validation.noDependencyCycleRule,
+        validation.validAssessmentFieldsRule,
+        validation.validTopicMasteryRule,
       ];
       for (const rule of rules) {
         assert.strictEqual(typeof rule.id, 'string');

@@ -20,6 +20,8 @@ import { parseFrontmatterRule, readFailureRule } from './rules/parse-frontmatter
 import { validPaleeSchemaRule } from './rules/valid-palee-schema';
 import { validTopicIdFormatRule } from './rules/valid-topic-id-format';
 import { validTopicStatusRule } from './rules/valid-topic-status';
+import { validAssessmentFieldsRule } from './rules/valid-assessment-fields';
+import { validTopicMasteryRule } from './rules/valid-topic-mastery';
 import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from './rules/no-missing-dependency';
 import { noDependencyCycleRule } from './rules/no-dependency-cycle';
@@ -49,6 +51,8 @@ export {
   noDuplicateTopicIdRule,
   noMissingDependencyRule,
   noDependencyCycleRule,
+  validAssessmentFieldsRule,
+  validTopicMasteryRule,
 };
 
 export type {
