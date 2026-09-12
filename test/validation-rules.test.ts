@@ -56,6 +56,9 @@ function makeContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     topics: [],
     notes: [],
     readIncomplete: false,
+    sessions: [],
+    sessionIndex: { state: 'missing', refs: null },
+    hotMemory: { state: 'missing', frontmatter: null, body: '' },
     ...overrides,
   };
 }
@@ -276,6 +279,9 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     const context = makeContext({
       topics: [makeTopic({ palee_id: 'T-dep', id: 'T-dep', depends_on: ['T-locked'] })],
       readIncomplete: true,
+      sessions: [],
+      sessionIndex: { state: 'missing', refs: null },
+      hotMemory: { state: 'missing', frontmatter: null, body: '' },
     });
 
     const issues = noMissingDependencyRule.run(context);

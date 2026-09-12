@@ -40,7 +40,7 @@
 | 4 | 4 | #28 + #29 + #31 | `valid-palee-schema`, `valid-topic-id-format`, `valid-topic-status` | **Merged (PR #159)** |
 | | 5 | #36 + #37 + #40 | `valid-assessment-fields`, `valid-topic-mastery`, assessment/review independence tests | **Merged (PR #163)** |
 | 5 | 6 | #38 + #39 | `valid-review-fields`, `valid-review-dates` — SM-2 adjacent, pin tests carefully | **Merged (with #33 in one PR)** |
-| 6 | 7 | #41 + #42 + #44 | Session schema, orphan sessions, session index — one PR, shared session loader | After Wave 1 |
+| 6 | 7 | #41 + #42 + #44 (+ #27) | Session schema, orphan sessions, session index — one PR, shared session loader | **Merged (PR #166, includes #27)** |
 | | 8 | #43 + #45 | `valid-hot-memory` (word limit, `MAX_HOT_WORDS`), `safe-vault-paths` | After Wave 1 |
 | 7 | 9 | #73 | Hierarchical auto-chaining + wikilink graph resolution, on top of #79's engine | After Waves 2–3 |
 | 8 | 10 | #65 + #66 | Extract app logic from CLI handlers + split domain types — **last consolidation pass** | After all rule PRs |

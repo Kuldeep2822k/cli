@@ -17,6 +17,8 @@
 import { loadTopics } from '../storage/loader';
 import { scanNotes } from '../storage/scanner';
 import { FileCache } from '../storage/cache';
+import { loadSessions, readSessionIndex } from '../storage/sessions';
+import { readHotMemory } from '../storage/memory';
 import type { LoadedTopic } from '../storage/loader';
 import type { ValidationContext } from './types';
 
@@ -87,12 +89,30 @@ function collectVault(
     cache: options.cache ?? new FileCache<LoadedTopic>(),
   });
 
+  // Memory subsystem snapshot (#41/#42/#44): sessions, the derived
+  // index, and hot memory are read in the same collection pass so a
+  // concurrent `session end` cannot make rules observe mismatched
+  // halves of the memory subsystem. All three tolerate absence — a
+  // fresh vault has an empty memory subsystem and every memory rule
+  // must pass on it.
+  const sessions = loadSessions(vaultPath);
+  const sessionIndex = readSessionIndex(vaultPath);
+  const hotMemory = readHotMemory(vaultPath);
+
   return {
     vaultPath,
     files,
     topics,
     notes,
-    readIncomplete: notes.some((note) => note.readError !== undefined),
+    sessions,
+    sessionIndex,
+    hotMemory,
+    readIncomplete:
+      notes.some((note) => note.readError !== undefined) ||
+      // An unreadable session note means the index/unknown-topic
+      // rules see an incomplete session set — same provisional-scan
+      // caveat as unreadable topic notes.
+      sessions.some((session) => session.parseError === undefined && session.frontmatter === null),
   };
 }
 

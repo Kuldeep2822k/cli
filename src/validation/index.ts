@@ -25,6 +25,10 @@ import { validTopicMasteryRule } from './rules/valid-topic-mastery';
 import { validReviewFieldsRule } from './rules/valid-review-fields';
 import { validReviewDatesRule } from './rules/valid-review-dates';
 import { validDependencyListRule } from './rules/valid-dependency-list';
+import { validManagedNoteKindRule } from './rules/valid-managed-note-kind';
+import { validSessionSchemaRule } from './rules/valid-session-schema';
+import { noSessionUnknownTopicRule } from './rules/no-session-unknown-topic';
+import { validSessionIndexRule } from './rules/valid-session-index';
 import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from './rules/no-missing-dependency';
 import { noDependencyCycleRule } from './rules/no-dependency-cycle';
@@ -59,6 +63,10 @@ export {
   validReviewFieldsRule,
   validReviewDatesRule,
   validDependencyListRule,
+  validManagedNoteKindRule,
+  validSessionSchemaRule,
+  noSessionUnknownTopicRule,
+  validSessionIndexRule,
 };
 
 export type {

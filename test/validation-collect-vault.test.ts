@@ -231,4 +231,73 @@ describe('Validation vault collection', () => {
       false
     );
   });
+
+  test('memory subsystem is collected in the same snapshot (#41/#42/#44)', () => {
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'DRAFT-S-1a2b3c4d.md'),
+      '---\npalee_schema: 1\nsession_id: DRAFT-S-1a2b3c4d\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: null\nstatus: draft\n---\n# Draft\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-bad.md'),
+      '---\nsession_id: [unclosed\n---\n# Broken\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n- [[S-gone]] - Topic: T-a (2026-09-12)\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'hot.md'),
+      '---\npalee_schema: 1\nmemory_id: H-active\nlast_session: S-20260912T100000-abcd\nactive_topic: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nupdated_at: 2026-09-12\n---\nStudied A.\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    // Sessions: sorted by filename, drafts flagged, parse outcomes kept.
+    assert.strictEqual(context.sessions.length, 3);
+    assert.deepStrictEqual(
+      context.sessions.map((s) => s.sessionId),
+      ['DRAFT-S-1a2b3c4d', 'S-20260912T100000-abcd', 'S-bad']
+    );
+    const draft = context.sessions[0];
+    assert.strictEqual(draft.isDraft, true);
+    assert.strictEqual(draft.frontmatter?.status, 'draft');
+    const bad = context.sessions[2];
+    assert.strictEqual(bad.frontmatter, null);
+    assert.ok(bad.parseError !== undefined);
+
+    // Index: parsed with refs in first-seen order.
+    assert.strictEqual(context.sessionIndex.state, 'ok');
+    assert.deepStrictEqual((context.sessionIndex as { refs: string[] }).refs, [
+      'S-20260912T100000-abcd',
+      'S-gone',
+    ]);
+
+    // Hot memory: classified ok.
+    assert.strictEqual(context.hotMemory.state, 'ok');
+    assert.strictEqual(context.hotMemory.frontmatter?.active_topic, 'T-a');
+
+    // The broken session note (frontmatter null but READ fine — the
+    // parse failed, not the read) must NOT set readIncomplete: parse
+    // failures are schema-rule findings, not provisional-scan signals.
+    assert.strictEqual(context.readIncomplete, false);
+  });
+
+  test('fresh vault has an empty memory subsystem and every memory rule passes', () => {
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.deepStrictEqual(context.sessions, []);
+    assert.strictEqual(context.sessionIndex.state, 'missing');
+    assert.strictEqual(context.hotMemory.state, 'missing');
+    assert.strictEqual(context.readIncomplete, false);
+  });
 });

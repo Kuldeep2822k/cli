@@ -59,6 +59,9 @@ function makeContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     topics: [],
     notes: [],
     readIncomplete: false,
+    sessions: [],
+    sessionIndex: { state: 'missing', refs: null },
+    hotMemory: { state: 'missing', frontmatter: null, body: '' },
     ...overrides,
   };
 }
