@@ -208,6 +208,23 @@ describe('valid-review-fields rule (#38)', () => {
     );
   });
 
+  test('non-finite numbers report with explicit spellings, not JSON null (CodeRabbit)', () => {
+    // JSON.stringify(NaN/Infinity) === null — the diagnostic must name
+    // the actual stored value, not misreport it as a literal null.
+    const topics = [makeTopic({
+      frontmatter: { ...ADOPT_REVIEW_STATE, ease_factor: NaN, repetition: Infinity, lapses: -Infinity },
+    })];
+    const issues = validReviewFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 3);
+    assert.strictEqual(issues[0].field, 'ease_factor');
+    assert.strictEqual(issues[0].details?.actual, 'NaN');
+    assert.match(issues[0].message, /NaN/);
+    assert.strictEqual(issues[1].field, 'repetition');
+    assert.strictEqual(issues[1].details?.actual, 'Infinity');
+    assert.strictEqual(issues[2].field, 'lapses');
+    assert.strictEqual(issues[2].details?.actual, '-Infinity');
+  });
+
   test('rule metadata: id, error severity, manual fixability', () => {
     assert.strictEqual(validReviewFieldsRule.id, 'valid-review-fields');
     assert.strictEqual(validReviewFieldsRule.severity, 'error');

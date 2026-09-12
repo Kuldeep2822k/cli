@@ -43,6 +43,22 @@ const NUMERIC_FIELDS = [
 ] as const;
 
 /**
+ * Renders a value for diagnostics without JSON.stringify's non-finite
+ * quirk.
+ *
+ * @remarks `JSON.stringify(NaN)` and `JSON.stringify(Infinity)` both
+ * produce `null` — an invalid non-finite number would be misreported as
+ * a literal null (a DIFFERENT invalid value). Keep the spelling
+ * explicit so the finding names what is actually stored.
+ */
+function displayValue(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return String(value);
+  }
+  return value;
+}
+
+/**
  * Reports SM-2 review state fields that violate the engine contract.
  */
 export const validReviewFieldsRule: ValidationRule = {
@@ -71,11 +87,11 @@ export const validReviewFieldsRule: ValidationRule = {
           issues.push({
             ruleId: 'valid-review-fields',
             severity: 'error',
-            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}, got ${JSON.stringify(value)}`,
+            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}, got ${JSON.stringify(displayValue(value))}`,
             file: topic.path,
             topicId: topic.palee_id,
             field,
-            details: { actual: value },
+            details: { actual: displayValue(value) },
           });
         }
       }
@@ -94,11 +110,11 @@ export const validReviewFieldsRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-review-fields',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${JSON.stringify(quality)}`,
+          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${JSON.stringify(displayValue(quality))}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'last_quality',
-          details: { actual: quality },
+          details: { actual: displayValue(quality) },
         });
       }
     }
