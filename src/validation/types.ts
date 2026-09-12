@@ -11,6 +11,8 @@
  */
 
 import type { LoadedTopic } from '../storage/loader';
+import type { LoadedSession, SessionIndexRead } from '../storage/sessions';
+import type { HotMemoryRead } from '../storage/memory';
 import type { ScannedNote } from '../types';
 
 /** Severity classification of a reported validation issue. */
@@ -78,9 +80,40 @@ export interface ValidationContext {
    * @remarks Graph rules must treat findings as provisional when set: the
    * missing-topic set is computed from an incomplete snapshot, so a
    * missing-dependency report could be a transient read failure, not a
-   * real dangling reference.
+   * real dangling reference. The same caveat applies to the session
+   * set: an unreadable session note makes unknown-topic and index
+   * findings provisional.
    */
   readIncomplete: boolean;
+  /**
+   * Canonical session notes (`.palee/sessions/S-*.md` and
+   * `DRAFT-S-*.md`) with per-file parse outcomes, sorted by filename.
+   *
+   * @remarks Empty on a fresh vault (no `.palee/sessions/` yet) — a
+   * valid state every memory rule must pass on. Malformed notes are
+   * included with `frontmatter: null` so `valid-session-schema` can
+   * report them; the schema rule owns parse findings, downstream
+   * memory rules skip unparseable notes (no double-reporting).
+   */
+  sessions: LoadedSession[];
+  /**
+   * Classified read of the derived session index (`.palee/index.md`).
+   *
+   * @remarks `missing` is a valid state — the index is a rebuildable
+   * projection (VERDICT decision 4), never a source of truth; its
+   * absence is never reported. `corrupt` carries the parser error for
+   * the index rule to report.
+   */
+  sessionIndex: SessionIndexRead;
+  /**
+   * Tolerant read of `.palee/hot.md` (classification states owned by
+   * `readHotMemory`, #130 read-state contract).
+   *
+   * @remarks Reserved for the hot-memory cluster (#43): collected in
+   * the same single-read snapshot so future rules observe the same
+   * vault instant as everything else.
+   */
+  hotMemory: HotMemoryRead;
 }
 
 /**

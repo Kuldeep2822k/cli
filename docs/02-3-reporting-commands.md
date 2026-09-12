@@ -187,7 +187,7 @@ palee validate [flags]
 
 ### Vault Structural Integrity Rules
 
-`palee validate` runs a thirteen-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): nine error-default rules (the graph integrity ports minus missing-dependency, the schema/identity rules, and the assessment and review-state rules) and four warning-default rules — the two snapshot rules that explain gaps in the collected topic set, the mastery-drift rule that keeps stored derived data honest, and missing-dependency findings (the engine quarantines the dependent topic instead of failing the scan; `roadmap --from` pre-validation keeps its own separate error path). `valid-dependency-list` is error-default but emits its duplicate-entry findings as warnings. Errors exit 3; warnings exit 0 unless `--strict` escalates them to 3.
+`palee validate` runs a seventeen-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): ten error-default rules (the graph integrity ports minus missing-dependency, the schema/identity rules, and the assessment, review-state, and session-schema rules) and seven warning-default rules — the two snapshot rules that explain gaps in the collected topic set, the mastery-drift rule, missing-dependency findings (the engine quarantines the dependent topic instead of failing the scan; `roadmap --from` pre-validation keeps its own separate error path), the ambiguous-kind rule for managed notes, the session-unknown-topic rule, and the session-index rule. `valid-dependency-list` is error-default but emits its duplicate-entry findings as warnings. Errors exit 3; warnings exit 0 unless `--strict` escalates them to 3. The memory subsystem (`.palee/sessions/*`, `.palee/index.md`, `.palee/hot.md`) is collected in the same single-read snapshot as the topic vault; a fresh vault with no memory subsystem validates clean.
 
 1. **Malformed Frontmatter (`parse-frontmatter`, warning)**: A note whose YAML frontmatter cannot be parsed (including unclosed `---` fences whose body reads like YAML). The scan always continues — one bad note is a finding, never a dead validation.
 2. **Read Failures (`read-failure`, warning)**: A file that could not be read at all (locked or deleted mid-scan). Validation ran on an incomplete snapshot; the warning appears alongside any graph findings so transient conditions are visible without downgrading them.
@@ -202,6 +202,10 @@ palee validate [flags]
 11. **Topic Mastery Drift (`valid-topic-mastery`, warning)**: When a topic's assessment fields are shape-valid, stored `topic_mastery` must equal the engine formula `round((conceptual + practical + debug + 2*feynman) / 5, 4)` — recomputed with `computeTopicMastery` from [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts). Drift reports a warning with `details.actual` (stored) and `details.expected` (computed); a present-but-malformed stored value (non-numeric, non-finite) is itself a mismatch — the loader would coerce it to 0 at runtime, so the rule reads the raw value to expose that. Topics whose assessment fields fail rule 10 are skipped (no double-reporting), topics with all four pillars absent are the newly-adopted default state and never report, missing assessment data never crashes the rule, and archived topics are still checked — internal consistency matters for any stored topic. A warning only, so `--strict` gates it.
 12. **Review Fields (`valid-review-fields`, error)**: SM-2 review state must match the engine contract as stored on disk: `ease_factor` a finite number `>= 1.3` (the SM-2 floor), `interval_days` an integer `>= 1`, `repetition`/`lapses` integers `>= 0`, and `last_quality` `null` or an integer `0-5`. The rule reads raw frontmatter (the loader's `parseNumber`/`parseInteger` coercion would silently accept stringified or fractional values), so values no PALEE writer could produce — stringified numbers, `null` numeric state, fractional counters — are exposed as errors. Missing keys are the adopt-default state and pass.
 13. **Review Dates (`valid-review-dates`, error)**: `last_reviewed_at` and `due_at` must be `null` (newly adopted) or strict zero-padded date-only `YYYY-MM-DD` strings naming real calendar dates — the exact shape `formatLocalDateOnly` persists. Full ISO timestamps fail (date-only is the product contract: review scheduling compares local calendar days), impossible calendars fail (`2026-02-31` is not normalized into March), and when both fields are valid, `due_at` earlier than `last_reviewed_at` reports the inversion. Validation is pure component analysis shared with the `assessed_at` policy — no timezone-dependent parsing.
+14. **Managed Note Kind (`valid-managed-note-kind`, warning)**: A note declaring `palee_schema` asserts PALEE owns part of its frontmatter — it must carry exactly one recognizable identity: `palee_id` (topic), `session_id` (session), `memory_id` (hot memory), or `type: session_index` (index). A versioned note with no identity, or one claiming two kinds at once (e.g. `palee_id` + `session_id`), reports a warning — a human decides what the note is; guessing is unsafe for validation and migration. Runs before the schema rules so kind-specific errors are read with the kind in hand.
+15. **Session Schema (`valid-session-schema`, error)**: Canonical session notes under `.palee/sessions/` — the durable learning history that `hot.md` and `index.md` rebuild from — must carry the full schema: required fields (`session_id`, `topic_id`, `started_at`, `ended_at`), `status` of `completed` or `draft` coherent with the `S-`/`DRAFT-S-` filename convention, `session_id` matching the filename stem (the rebuild paths key on it), parseable ISO timestamps with `ended_at` not preceding `started_at`, `ended_at: null` for drafts and a timestamp for completed sessions. Malformed YAML is one error, never a silently skipped note. Reads raw frontmatter — the rebuild paths cast with `as string`, so shape drift is silent at runtime and validation is the only place it surfaces.
+16. **Session Unknown Topic (`no-session-unknown-topic`, warning)**: A session's `topic_id` must reference a topic that exists in the vault — a session pointing at a missing topic cannot be connected back to the learning graph. The historical `T-general` phantom sessions (from the pre-hot-memory `session end` fallback) are reported like any other unknown topic unless a real topic with that ID exists; no special case hides the bug the rule exists to surface. Drafts follow the same policy; sessions whose frontmatter failed `valid-session-schema` are skipped (no double-reporting). A warning while existing vaults may still contain legacy `T-general` sessions; `--strict` escalates.
+17. **Session Index (`valid-session-index`, warning)**: The derived `.palee/index.md` must parse, and its `[[S-…]]` session references must point at existing confirmed session notes. A stale or broken entry reports the missing session ID; the index is a rebuildable projection (canonical session notes are the source of truth — VERDICT decision 4), so findings never gate the exit code and a rebuild restores correctness. A missing index never reports (fresh vaults have none), and an empty index is legal even when sessions exist (staleness-by-omission is deferred until the index format is finalized per the issue).
 
 ```mermaid
 flowchart LR
@@ -213,7 +217,7 @@ flowchart LR
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
         Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates"]
+        Rules["parse-frontmatter → read-failure → valid-managed-note-kind → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates → valid-session-schema → no-session-unknown-topic → valid-session-index"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
@@ -225,6 +229,7 @@ flowchart LR
         ErrStatus["bad status"]
         ErrAssess["bad assessment fields / assessed_at"]
         ErrReview["SM-2 review state or dates invalid"]
+        ErrSession["session schema invalid"]
     end
 
     subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
@@ -233,6 +238,9 @@ flowchart LR
         WarnMastery["topic_mastery drift"]
         WarnMiss["missing dependency (quarantined, not fatal)"]
         WarnDepDup["duplicate depends_on entry"]
+        WarnKind["ambiguous managed note kind"]
+        WarnSessionTopic["session references unknown topic"]
+        WarnIndex["stale or broken session index"]
     end
     
     Storage --> Scan
@@ -248,6 +256,10 @@ flowchart LR
     Rules -->|"score/date shape invalid"| ErrAssess
     Rules -->|"SM-2 bounds / date contract violated"| ErrReview
     Rules -->|"duplicate dependency entry"| WarnDepDup
+    Rules -->|"managed note kind ambiguous / conflicting"| WarnKind
+    Rules -->|"session schema invalid"| ErrSession
+    Rules -->|"session references unknown topic"| WarnSessionTopic
+    Rules -->|"stale / broken session index"| WarnIndex
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
     Rules -->|"stale derived data"| WarnMastery
