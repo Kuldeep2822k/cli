@@ -472,9 +472,25 @@ describe('valid-dependency-list rule (#33)', () => {
     assert.strictEqual(issues[0].details?.actual, 'T-a');
   });
 
-  test('rule metadata: id, error severity (mixed rule), safe fixability', () => {
+  test('padded self-dependency reports an error (loader-trim semantics)', () => {
+    // Greptile P2: `' T-self '` trims to a real self-reference during
+    // loader normalization — strict Array.includes would miss it.
+    const topics = [makeTopic({
+      palee_id: 'T-self',
+      frontmatter: { depends_on: [' T-self '] },
+    })];
+    const issues = validDependencyListRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
+    assert.strictEqual(issues[0].severity, 'error');
+    assert.match(issues[0].message, /itself/);
+  });
+
+  test('rule metadata: id, error severity (mixed rule), manual fixability', () => {
     assert.strictEqual(validDependencyListRule.id, 'valid-dependency-list');
     assert.strictEqual(validDependencyListRule.severity, 'error');
-    assert.strictEqual(validDependencyListRule.fixable, 'safe');
+    // Manual, not safe: only duplicate findings are safely dedupable;
+    // shape errors and self-references need human judgment (Greptile).
+    assert.strictEqual(validDependencyListRule.fixable, 'manual');
   });
 });

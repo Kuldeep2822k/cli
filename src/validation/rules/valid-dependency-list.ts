@@ -32,10 +32,12 @@
  *   structural mistake; the cycle rule reports the same fact as a
  *   graph finding (no double-reporting suppression: the two findings
  *   carry different rule IDs and different locator detail).
- * - Duplicate entries: `warning` (fixable: safe) — the loader
- *   dedupes, so scheduling is unaffected; the note is just noisier
- *   than its meaning. Reported once per duplicated ID with the
- *   offending list.
+ * - Duplicate entries: `warning` (dedup is the safe fix — the loader
+ *   already dedupes, so scheduling is unaffected; the note is just
+ *   noisier than its meaning). Reported once per duplicated ID with the
+ *   offending list. Rule-level fixability stays `manual` because only
+ *   the duplicate findings are safely fixable — shape errors and
+ *   self-references need a human decision.
  *
  * The legacy `dependencies` alias is NOT consulted: storage parsing
  * tolerates it defensively (normalized since #126), but the
@@ -55,7 +57,12 @@ export const validDependencyListRule: ValidationRule = {
   description:
     'depends_on must be an array of non-empty string IDs without self-references or duplicates',
   severity: 'error',
-  fixable: 'safe', // duplicate findings are safely dedupable; shape errors stay manual
+  // `manual`, not `safe`: only the duplicate-entry findings are safely
+  // dedupable; shape errors and self-references need a human decision
+  // (what the author MEANT cannot be derived). VERDICT scopes safe-fix
+  // to "safe (dedup)" — the rule-level flag must stay conservative
+  // because it classifies every finding the rule reports.
+  fixable: 'manual',
   run(context) {
     const issues: ValidationIssue[] = [];
 
@@ -94,7 +101,11 @@ export const validDependencyListRule: ValidationRule = {
       }
 
       // Self-reference: structural error (one-node cycle in the graph).
-      if (raw.includes(topic.palee_id)) {
+      // Trim before comparing: the loader trims each entry during
+      // normalization, so a padded `' T-x '` IS a self-reference the
+      // engine would act on — `Array.includes` alone (strict equality)
+      // would miss it.
+      if (raw.some((item) => typeof item === 'string' && item.trim() === topic.palee_id)) {
         issues.push({
           ruleId: 'valid-dependency-list',
           severity: 'error',
