@@ -22,6 +22,10 @@ import { validTopicMasteryRule } from '../validation/rules/valid-topic-mastery';
 import { validReviewFieldsRule } from '../validation/rules/valid-review-fields';
 import { validReviewDatesRule } from '../validation/rules/valid-review-dates';
 import { validDependencyListRule } from '../validation/rules/valid-dependency-list';
+import { validManagedNoteKindRule } from '../validation/rules/valid-managed-note-kind';
+import { validSessionSchemaRule } from '../validation/rules/valid-session-schema';
+import { noSessionUnknownTopicRule } from '../validation/rules/no-session-unknown-topic';
+import { validSessionIndexRule } from '../validation/rules/valid-session-index';
 import type { ValidationRule } from '../validation/types';
 
 /**
@@ -36,6 +40,10 @@ import type { ValidationRule } from '../validation/types';
 const VALIDATION_RULES: ValidationRule[] = [
   parseFrontmatterRule,
   readFailureRule,
+  // Kind classification (#27) before the schema rule: it explains
+  // WHICH managed entity each note is; schema errors then read with
+  // the kind in hand.
+  validManagedNoteKindRule,
   validPaleeSchemaRule,
   validTopicIdFormatRule,
   validTopicStatusRule,
@@ -52,6 +60,12 @@ const VALIDATION_RULES: ValidationRule[] = [
   // (R13 #38 → R14 #39): numeric shape first, then dates.
   validReviewFieldsRule,
   validReviewDatesRule,
+  // Memory subsystem (#41/#42/#44): schema shape first, then
+  // cross-references — #42 skips sessions #41 already reported, and
+  // the index rule never gates (derived view, VERDICT decision 4).
+  validSessionSchemaRule,
+  noSessionUnknownTopicRule,
+  validSessionIndexRule,
 ];
 
 /**

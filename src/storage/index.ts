@@ -43,6 +43,12 @@ import {
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
 import { loadTopics, getTopicCache, type LoadedTopic, type LoadTopicsOptions } from './loader';
+import {
+  loadSessions,
+  readSessionIndex,
+  type LoadedSession,
+  type SessionIndexRead,
+} from './sessions';
 import type { HotMemoryRead, HotMemoryReadState } from './memory';
 
 export {
@@ -53,6 +59,10 @@ export {
   loadTopics,
   getTopicCache,
   scanNotes,
+
+  // Memory subsystem reads (session notes, index, hot memory)
+  loadSessions,
+  readSessionIndex,
 
   // Pattern and Tag Matching
   matchesPattern,
@@ -101,6 +111,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions };
+export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead };
 
 

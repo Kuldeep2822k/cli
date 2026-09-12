@@ -48,6 +48,9 @@ function makeContext(
     topics,
     notes,
     readIncomplete: false,
+    sessions: [],
+    sessionIndex: { state: 'missing', refs: null },
+    hotMemory: { state: 'missing', frontmatter: null, body: '' },
   };
 }
 

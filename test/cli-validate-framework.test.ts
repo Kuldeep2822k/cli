@@ -246,4 +246,57 @@ describe('validate command: framework wiring (#25)', () => {
     assert.match(loggedOutputs.join('\n'), /✓ Vault validation passed - no errors found/);
     assert.strictEqual(process.exitCode, 0);
   });
+
+  test('memory subsystem is validated through the CLI (#41/#42/#44)', async () => {
+    // A session note with an unknown topic and a stale index entry:
+    // both are warnings; a session note with an invalid status is an
+    // error. Topic note keeps the vault otherwise clean.
+    writeTopic('topic.md', 'T-topic');
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-1.md'),
+      '---\npalee_schema: 1\nsession_id: S-1\ntopic_id: T-ghost\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# S1\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# Index\n\n- [[S-gone]]\n',
+      'utf8'
+    );
+
+    await validateCommand({ json: true });
+
+    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    // Errors: none — the session's shape is valid; its topic ref and
+    // the index entries are warnings.
+    assert.strictEqual(data.error_count, 0);
+    assert.strictEqual(data.valid, true);
+    const ruleIds = data.warnings.map((w: { rule_id: string }) => w.rule_id).sort();
+    assert.deepStrictEqual(ruleIds, ['no-session-unknown-topic', 'valid-session-index']);
+    assert.strictEqual(process.exitCode, 0);
+
+    // …and --strict escalates the two memory warnings.
+    process.exitCode = 0;
+    await validateCommand({ json: true, strict: true });
+    assert.strictEqual(process.exitCode, 3);
+  });
+
+  test('session note with invalid status is an error and exits 3 (#41)', async () => {
+    writeTopic('topic.md', 'T-topic');
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-1.md'),
+      '---\npalee_schema: 1\nsession_id: S-1\ntopic_id: T-topic\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: null\nstatus: finished\n---\n# S1\n',
+      'utf8'
+    );
+
+    await validateCommand({ json: true });
+
+    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    assert.strictEqual(data.valid, false);
+    assert.strictEqual(data.errors[0].rule_id, 'valid-session-schema');
+    assert.strictEqual(process.exitCode, 3);
+  });
 });
