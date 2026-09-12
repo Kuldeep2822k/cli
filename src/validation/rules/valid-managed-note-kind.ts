@@ -21,14 +21,19 @@
  * carrying both `palee_id` and `session_id` claims to be two kinds
  * at once, and no kind-specific rule can be trusted to apply.
  *
- * Scope: this rule sees the WALKED note set (vault root, excluding
- * dot-directories) — the same set `valid-palee-schema` sees.
- * `.palee/` internal notes (sessions, index, hot) are validated by
- * the memory rules through the collected `sessions`/`sessionIndex`/
- * `hotMemory` snapshot instead. A `palee_schema` note inside the
- * walked set with no identity is the ambiguity this rule reports;
- * severity is `warning` (issue #27: never a fatal command error —
- * the note is still versioned data; a human decides its kind).
+ * Scope: the WALKED note set (vault root, excluding dot-directories —
+ * the same set `valid-palee-schema` sees) gets the full classification
+ * (no identity, or conflicting kinds, both warn). `.palee/` internal
+ * notes never reach the walker, so this rule also classifies them from
+ * the collected `sessions`/`sessionIndex`/`hotMemory` snapshot: their
+ * kind is fixed by location, so only CROSS-KIND identity conflicts are
+ * findings there (a session note also carrying `palee_id`, hot.md
+ * carrying `session_id`, the index carrying any identity key) —
+ * kind-specific field/shape defects stay with the memory rules
+ * (`valid-session-schema` owns session shape; the schema-version
+ * policy is `valid-palee-schema`'s pattern, session-side). Severity is
+ * `warning` (issue #27: never a fatal command error — the note is
+ * still versioned data; a human decides its kind).
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';

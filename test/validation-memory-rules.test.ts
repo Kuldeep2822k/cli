@@ -632,16 +632,34 @@ describe('valid-session-schema rule (#41)', () => {
     }
   });
 
-  test('timestamps must be canonical toISOString() output (CodeRabbit)', () => {
-    // Writers emit toISOString(): 2026-09-12T10:00:00.000Z. Date-only
-    // strings, timezone-less strings, and other Date-parseable but
-    // noncanonical shapes must fail — new Date() accepts them, the
-    // rebuild paths' as-string casts do not.
+  test('timestamps must be ISO 8601 with an explicit timezone (CodeRabbit + Greptile)', () => {
+    // Writers emit toISOString() (Z form), but writeSessionNote persists
+    // caller-supplied strings unchanged and its own tests use offset
+    // forms like +05:30 — both are valid ISO 8601 instants. Date-only
+    // strings, timezone-less strings, and human-readable dates fail.
+    const good = [
+      '2026-09-12T10:00:00.000Z', // toISOString() output
+      '2026-08-08T18:00:00+05:30', // offset form used by the storage tests
+      '2026-09-12T10:00:00Z', // no milliseconds
+      '2026-09-12T10:00:00.123-07:00', // negative offset with ms
+    ];
+    for (const value of good) {
+      const session = makeSession({
+        sessionId: 'S-1',
+        frontmatter: { ...confirmedFrontmatter('S-1', 'T-topic'), started_at: value },
+      });
+      const issues = validSessionSchemaRule.run(makeContext({ sessions: [session] }));
+      assert.strictEqual(
+        issues.filter((i) => i.field === 'started_at').length,
+        0,
+        `started_at ${JSON.stringify(value)} is a valid ISO instant and must pass`
+      );
+    }
     const badTimestamps = [
       '2026-09-12', // date-only
       '2026-09-12T10:00:00.000', // timezone-less
-      '2026-09-12T10:00:00+00:00', // offset instead of Z
       'September 12, 2026', // parseable junk
+      '2026-13-45T99:99:99Z', // designator present but impossible instant
     ];
     for (const bad of badTimestamps) {
       const session = makeSession({
@@ -655,10 +673,10 @@ describe('valid-session-schema rule (#41)', () => {
       assert.strictEqual(
         issues.filter((i) => i.field === 'started_at').length,
         1,
-        `started_at ${JSON.stringify(bad)} must be rejected as noncanonical`
+        `started_at ${JSON.stringify(bad)} must be rejected`
       );
     }
-    // ended_at is held to the same canonical shape.
+    // ended_at is held to the same shape.
     const badEnd = makeSession({
       sessionId: 'S-1',
       frontmatter: {
@@ -668,6 +686,17 @@ describe('valid-session-schema rule (#41)', () => {
     });
     const endIssues = validSessionSchemaRule.run(makeContext({ sessions: [badEnd] }));
     assert.strictEqual(endIssues.filter((i) => i.field === 'ended_at').length, 1);
+    // Chronology compares instants across designators (Z vs offset).
+    const inverted = makeSession({
+      sessionId: 'S-1',
+      frontmatter: {
+        ...confirmedFrontmatter('S-1', 'T-topic'),
+        started_at: '2026-09-12T18:00:00.000Z',
+        ended_at: '2026-09-12T10:00:00.000Z',
+      },
+    });
+    const invIssues = validSessionSchemaRule.run(makeContext({ sessions: [inverted] }));
+    assert.strictEqual(invIssues.filter((i) => i.field === 'ended_at').length, 1);
   });
 });
 

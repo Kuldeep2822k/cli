@@ -21,9 +21,12 @@
  * - Draft/filename coherence: a `S-*.md` file whose frontmatter
  *   says `draft` (or vice versa) is reported — the two naming
  *   conventions drive different lifecycle behavior.
- * - Timestamps: `started_at`/`ended_at` must be parseable ISO
- *   timestamps (the writers emit `toISOString()` output); for
- *   completed sessions `ended_at` must not precede `started_at`.
+ * - Timestamps: `started_at`/`ended_at` must be ISO 8601 strings
+ *   with an explicit timezone designator (`Z` or `±HH:MM` — the
+ *   writers emit `toISOString()`'s `Z` form; `writeSessionNote`
+ *   persists caller-supplied strings and its tests use offset forms);
+ *   date-only and timezone-less strings fail. For completed sessions
+ *   `ended_at` must not precede `started_at` (compared as instants).
  *
  * The rule reads RAW frontmatter (no normalization — the rebuild
  * paths cast with `as string`, so any shape drift is silent at
@@ -106,17 +109,22 @@ export function isSessionSchemaClean(session: LoadedSession): boolean {
   return true;
 }
 
-/** True when the value is a canonical ISO timestamp — exact `toISOString()` output. */
+/** True when the value is a strict ISO 8601 timestamp with an explicit timezone. */
 function isCanonicalTimestamp(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '') return false;
   // `Date.parse` accepts date-only strings, timezone-less strings, and
-  // human-readable dates — none of which any PALEE writer emits
-  // (`started_at`/`ended_at` persist `new Date().toISOString()`). A
-  // round-trip through the formatter is the exact-shape test: only
-  // `YYYY-MM-DDTHH:MM:SS.sssZ` normalizes to itself.
-  const time = new Date(value).getTime();
+  // human-readable dates — none of which any writer emits. But the
+  // strict surface is ISO 8601 WITH a timezone designator (`Z` or
+  // `±HH:MM`), not only `toISOString()`'s `…Z` form: `writeSessionNote`
+  // persists caller-supplied strings unchanged and its own tests use
+  // offset forms like `2026-08-08T18:00:00+05:30` (Greptile). Only
+  // strings whose parse succeeds AND that carry an explicit designator
+  // pass; the time is compared as an instant (Date), never as text.
+  const trimmed = value.trim();
+  const time = new Date(trimmed).getTime();
   if (Number.isNaN(time)) return false;
-  return new Date(time).toISOString() === value;
+  // Explicit timezone designator: trailing Z/z, or ±HH:MM / ±HHMM offset.
+  return /(?:Z|z)$|[+-]\d{2}:?\d{2}$/.test(trimmed);
 }
 
 /**
@@ -320,7 +328,7 @@ export const validSessionSchemaRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-session-schema',
           severity: 'error',
-          message: `Session note ${session.path}: ended_at must be a canonical ISO timestamp (YYYY-MM-DDTHH:MM:SS.sssZ) or null, got ${JSON.stringify(displayValue(ended))}`,
+          message: `Session note ${session.path}: ended_at must be an ISO 8601 timestamp with an explicit timezone (Z or ±HH:MM, e.g. 2026-09-12T10:00:00.000Z) or null, got ${JSON.stringify(displayValue(ended))}`,
           file: session.path,
           sessionId: session.sessionId,
           field: 'ended_at',
@@ -334,7 +342,7 @@ export const validSessionSchemaRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-session-schema',
           severity: 'error',
-          message: `Session note ${session.path}: started_at must be a canonical ISO timestamp (YYYY-MM-DDTHH:MM:SS.sssZ), got ${JSON.stringify(displayValue(started))}`,
+          message: `Session note ${session.path}: started_at must be an ISO 8601 timestamp with an explicit timezone (Z or ±HH:MM, e.g. 2026-09-12T10:00:00.000Z), got ${JSON.stringify(displayValue(started))}`,
           file: session.path,
           sessionId: session.sessionId,
           field: 'started_at',
