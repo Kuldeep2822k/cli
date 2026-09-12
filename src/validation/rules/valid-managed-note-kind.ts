@@ -95,6 +95,78 @@ export const validManagedNoteKindRule: ValidationRule = {
       }
     }
 
+    // Internal notes (`.palee/…`) never reach the walker, so the kind
+    // rule classifies them from the collected memory snapshot. Their
+    // KIND is fixed by location — the ambiguity #27 reports there is
+    // a note claiming SEVERAL kinds at once (e.g. a session note also
+    // carrying `palee_id`, or the index also carrying `session_id`),
+    // which no kind-specific rule could be trusted to apply. Missing
+    // identity/shape defects stay with the memory rules (#41 owns
+    // session shape; #28-style version policy is the schema rules').
+    const internal: Array<{
+      fm: Record<string, unknown>;
+      path: string;
+      indexMarker: boolean;
+    }> = [];
+    for (const session of context.sessions) {
+      if (session.readError !== undefined || session.frontmatter === null) continue;
+      internal.push({
+        fm: session.frontmatter,
+        path: session.path,
+        indexMarker: session.frontmatter.type === INDEX_TYPE,
+      });
+    }
+    if (context.sessionIndex.state === 'ok' && context.sessionIndex.frontmatter) {
+      const indexFm = context.sessionIndex.frontmatter;
+      internal.push({
+        fm: indexFm,
+        path: '.palee/index.md',
+        indexMarker: indexFm.type === INDEX_TYPE,
+      });
+    }
+    if (context.hotMemory.state === 'ok' && context.hotMemory.frontmatter) {
+      internal.push({
+        fm: context.hotMemory.frontmatter as Record<string, unknown>,
+        path: '.palee/hot.md',
+        indexMarker:
+          (context.hotMemory.frontmatter as Record<string, unknown>).type === INDEX_TYPE,
+      });
+    }
+    for (const note of internal) {
+      const identities = IDENTITY_KEYS.filter((key) => Object.hasOwn(note.fm, key));
+      // The index is the only internal note where the type marker IS
+      // its identity; a session/hot note also carrying the marker, or
+      // the index carrying an identity key, is a conflict.
+      const kinds = identities.length + (note.indexMarker && note.path !== '.palee/index.md' ? 1 : 0);
+      if (note.path === '.palee/index.md') {
+        // Index: marker is its identity; ANY identity key conflicts.
+        if (identities.length > 0) {
+          issues.push({
+            ruleId: 'valid-managed-note-kind',
+            severity: 'warning',
+            message: `Managed note ${note.path} declares conflicting identities (${[...identities, 'type: session_index'].join(', ')}); kind cannot be determined`,
+            file: note.path,
+            field: 'palee_schema',
+            details: { identities: [...identities], indexMarker: true },
+          });
+        }
+        continue;
+      }
+      if (kinds > 1) {
+        issues.push({
+          ruleId: 'valid-managed-note-kind',
+          severity: 'warning',
+          message: `Managed note ${note.path} declares conflicting identities (${[...identities, note.indexMarker ? 'type: session_index' : ''].filter(Boolean).join(', ')}); kind cannot be determined`,
+          file: note.path,
+          field: 'palee_schema',
+          details: {
+            identities: [...identities],
+            indexMarker: note.indexMarker,
+          },
+        });
+      }
+    }
+
     return issues.sort((a, b) => (a.file! < b.file! ? -1 : a.file! > b.file! ? 1 : 0));
   },
 };

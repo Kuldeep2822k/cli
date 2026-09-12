@@ -23,9 +23,11 @@ import { validManagedNoteKindRule } from '../src/validation/rules/valid-managed-
 import { validSessionSchemaRule } from '../src/validation/rules/valid-session-schema';
 import { noSessionUnknownTopicRule } from '../src/validation/rules/no-session-unknown-topic';
 import { validSessionIndexRule } from '../src/validation/rules/valid-session-index';
+import { readFailureRule } from '../src/validation/rules/parse-frontmatter';
 import type { ValidationContext } from '../src/validation/types';
 import type { LoadedTopic } from '../src/storage/loader';
 import type { LoadedSession, SessionIndexRead } from '../src/storage/sessions';
+import type { HotMemoryRead } from '../src/storage/memory';
 import type { ScannedNote } from '../src/types';
 
 /** Minimal topic builder (kept for the unknown-topic rule). */
@@ -104,6 +106,7 @@ function makeContext(overrides: Partial<ValidationContext> = {}): ValidationCont
     sessions: [],
     sessionIndex: { state: 'missing', refs: null },
     hotMemory: { state: 'missing', frontmatter: null, body: '' },
+    memoryReadErrors: [],
     readIncomplete: false,
     ...overrides,
   };
@@ -198,6 +201,151 @@ describe('valid-managed-note-kind rule (#27)', () => {
     assert.strictEqual(validManagedNoteKindRule.id, 'valid-managed-note-kind');
     assert.strictEqual(validManagedNoteKindRule.severity, 'warning');
     assert.strictEqual(validManagedNoteKindRule.fixable, 'manual');
+  });
+
+  test('internal session notes with conflicting identities are reported (#27 scope)', () => {
+    // Greptile: the kind rule examined only context.notes — internal
+    // session notes bypassed the conflict check. The collected session
+    // notes must be classified too.
+    const conflicting = makeSession({
+      frontmatter: {
+        ...confirmedFrontmatter('S-1', 'T-topic'),
+        palee_id: 'T-x',
+      } as Record<string, unknown>,
+    });
+    const context = makeContext({ sessions: [conflicting] });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+    assert.strictEqual(issues[0].file, conflicting.path);
+  });
+
+  test('internal session note with exactly one identity passes', () => {
+    const context = makeContext({ sessions: [makeSession()] });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('internal session note with no identity is not #27\'s finding', () => {
+    // A session note missing session_id is #41's missing-required-field
+    // error; the location (.palee/sessions/) already determines the
+    // kind. #27 reports only IDENTITY CONFLICTS on internal notes.
+    const fm = confirmedFrontmatter('S-1', 'T-topic');
+    delete fm.session_id;
+    const orphan = makeSession({ frontmatter: { ...fm, palee_schema: 1 } as Record<string, unknown> });
+    const context = makeContext({ sessions: [orphan] });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('session note with palee_schema but unparseable frontmatter is skipped', () => {
+    const context = makeContext({
+      sessions: [makeSession({ frontmatter: null, parseError: 'bad yaml' })],
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('session read failure is skipped (read-failure rule owns it)', () => {
+    const context = makeContext({
+      sessions: [makeSession({ frontmatter: null, readError: 'EBUSY' })],
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('index note with palee_schema and only the type marker passes', () => {
+    const context = makeContext({
+      sessionIndex: {
+        state: 'ok',
+        refs: [],
+        frontmatter: { palee_schema: 1, type: 'session_index' },
+      } as SessionIndexRead,
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('index note with an identity key plus the marker reports a conflict', () => {
+    const context = makeContext({
+      sessionIndex: {
+        state: 'ok',
+        refs: [],
+        frontmatter: {
+          palee_schema: 1,
+          type: 'session_index',
+          session_id: 'S-1',
+        },
+      } as SessionIndexRead,
+    });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+    assert.strictEqual(issues[0].file, '.palee/index.md');
+  });
+
+  test('index note with palee_schema but no identity is not #27\'s finding', () => {
+    // The index's KIND is fixed by its location (`.palee/index.md`) and
+    // its schema version is #28's concern. #27 reports only identity
+    // CONFLICTS on internal notes — a missing identity there is not
+    // an ambiguity about what the note IS.
+    const context = makeContext({
+      sessionIndex: {
+        state: 'ok',
+        refs: [],
+        frontmatter: { palee_schema: 1, title: 'hand-edited' },
+      } as SessionIndexRead,
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('corrupt or missing index is never classified', () => {
+    const corrupt = makeContext({
+      sessionIndex: { state: 'corrupt', refs: null, parseError: 'bad' } as SessionIndexRead,
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(corrupt), []);
+    const missing = makeContext();
+    assert.deepStrictEqual(validManagedNoteKindRule.run(missing), []);
+  });
+
+  test('hot memory with palee_schema and memory_id passes', () => {
+    const context = makeContext({
+      hotMemory: {
+        state: 'ok',
+        frontmatter: {
+          palee_schema: 1,
+          memory_id: 'H-active',
+          last_session: null,
+          active_topic: null,
+          updated_at: '2026-09-12',
+        },
+        body: '',
+      },
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
+  test('hot memory with conflicting identities reports a conflict', () => {
+    const context = makeContext({
+      hotMemory: {
+        state: 'ok',
+        frontmatter: {
+          palee_schema: 1,
+          memory_id: 'H-active',
+          palee_id: 'T-x',
+          last_session: null,
+          active_topic: null,
+          updated_at: '2026-09-12',
+        } as unknown as HotMemoryRead['frontmatter'],
+        body: '',
+      },
+    });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+    assert.strictEqual(issues[0].file, '.palee/hot.md');
+  });
+
+  test('unparseable or missing hot memory is never classified', () => {
+    const corrupt = makeContext({
+      hotMemory: { state: 'corrupt', frontmatter: null, body: '' },
+    });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(corrupt), []);
   });
 });
 
@@ -356,6 +504,59 @@ describe('valid-session-schema rule (#41)', () => {
     assert.strictEqual(validSessionSchemaRule.severity, 'error');
     assert.strictEqual(validSessionSchemaRule.fixable, 'manual');
   });
+
+  test('missing palee_schema reports an error (writer always emits it)', () => {
+    const noSchema = makeSession({
+      frontmatter: (() => {
+        const fm = confirmedFrontmatter('S-20260912T100000-abcd', 'T-topic');
+        delete fm.palee_schema;
+        return fm;
+      })(),
+    });
+    const context = makeContext({ sessions: [noSchema] });
+    const issues = validSessionSchemaRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-session-schema');
+    assert.strictEqual(issues[0].severity, 'error');
+    assert.strictEqual(issues[0].field, 'palee_schema');
+    assert.match(issues[0].message, /missing palee_schema/);
+  });
+
+  test('non-integer palee_schema reports an error', () => {
+    const bad = makeSession({
+      frontmatter: {
+        ...confirmedFrontmatter('S-20260912T100000-abcd', 'T-topic'),
+        palee_schema: 'one',
+      },
+    });
+    const context = makeContext({ sessions: [bad] });
+    const issues = validSessionSchemaRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'palee_schema');
+    assert.match(issues[0].message, /Invalid palee_schema/);
+  });
+
+  test('unsupported palee_schema version reports an error', () => {
+    const future = makeSession({
+      frontmatter: {
+        ...confirmedFrontmatter('S-20260912T100000-abcd', 'T-topic'),
+        palee_schema: 2,
+      },
+    });
+    const context = makeContext({ sessions: [future] });
+    const issues = validSessionSchemaRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'palee_schema');
+    assert.match(issues[0].message, /Unsupported palee_schema/);
+  });
+
+  test('read-failed session notes are skipped by the schema rule', () => {
+    // A note that could not be READ (locked/deleted mid-scan) is not a
+    // schema finding — the read-failure rule owns it.
+    const locked = makeSession({ frontmatter: null, readError: 'EBUSY' });
+    const context = makeContext({ sessions: [locked] });
+    assert.deepStrictEqual(validSessionSchemaRule.run(context), []);
+  });
 });
 
 describe('no-session-unknown-topic rule (#42)', () => {
@@ -391,7 +592,7 @@ describe('no-session-unknown-topic rule (#42)', () => {
   test('phantom T-general session reports like any other unknown topic', () => {
     const context = makeContext({
       topics: [],
-      sessions: [makeSession({ frontmatter: confirmedFrontmatter('S-1', 'T-general') })],
+      sessions: [makeSession({ sessionId: 'S-1', frontmatter: confirmedFrontmatter('S-1', 'T-general') })],
     });
     const issues = noSessionUnknownTopicRule.run(context);
     assert.strictEqual(issues.length, 1);
@@ -401,7 +602,7 @@ describe('no-session-unknown-topic rule (#42)', () => {
   test('T-general passes when a real topic with that ID exists', () => {
     const context = makeContext({
       topics: [makeTopic({ palee_id: 'T-general', id: 'T-general' })],
-      sessions: [makeSession({ frontmatter: confirmedFrontmatter('S-1', 'T-general') })],
+      sessions: [makeSession({ sessionId: 'S-1', frontmatter: confirmedFrontmatter('S-1', 'T-general') })],
     });
     assert.deepStrictEqual(noSessionUnknownTopicRule.run(context), []);
   });
@@ -434,6 +635,52 @@ describe('no-session-unknown-topic rule (#42)', () => {
     assert.strictEqual(noSessionUnknownTopicRule.id, 'no-session-unknown-topic');
     assert.strictEqual(noSessionUnknownTopicRule.severity, 'warning');
     assert.strictEqual(noSessionUnknownTopicRule.fixable, 'manual');
+  });
+
+  test('schema-invalid sessions are skipped, not just topic_id-shape-invalid ones', () => {
+    // Greptile P2: isJudgable only checked topic_id's shape. A session
+    // failing any #41 check (bad status, unparseable timestamp, stem
+    // mismatch, missing ended_at) must not ALSO get an unknown-topic
+    // warning — #41 owns the finding, #42's double-report is noise.
+    const context = makeContext({
+      topics: [],
+      sessions: [
+        // invalid status + unknown topic → #41 only
+        makeSession({
+          sessionId: 'S-1',
+          frontmatter: { ...confirmedFrontmatter('S-1', 'T-ghost'), status: 'finished' },
+        }),
+        // stem mismatch + unknown topic → #41 only
+        makeSession({
+          frontmatter: confirmedFrontmatter('S-OTHER', 'T-ghost'),
+        }),
+        // unparseable started_at + unknown topic → #41 only
+        makeSession({
+          sessionId: 'S-2',
+          frontmatter: { ...confirmedFrontmatter('S-2', 'T-ghost'), started_at: 'yesterday' },
+        }),
+        // read-failed note → read-failure rule owns it
+        makeSession({ frontmatter: null, readError: 'EBUSY' }),
+      ],
+    });
+    assert.deepStrictEqual(noSessionUnknownTopicRule.run(context), []);
+  });
+
+  test('schema-valid session with unknown topic still reports', () => {
+    // The guard tightening must not over-suppress: a fully valid session
+    // (all #41 checks pass) with a dangling topic_id still warns.
+    const context = makeContext({
+      topics: [],
+      sessions: [
+        makeSession({
+          sessionId: 'S-1',
+          frontmatter: confirmedFrontmatter('S-1', 'T-missing'),
+        }),
+      ],
+    });
+    const issues = noSessionUnknownTopicRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].topicId, 'T-missing');
   });
 });
 
@@ -509,9 +756,63 @@ describe('valid-session-index rule (#44)', () => {
     );
   });
 
+  test('topic wikilinks in the index are never session refs', () => {
+    // Greptile P2 / Kilo: readSessionIndex collected ALL wikilinks, so an
+    // editable index linking a topic ([[T-typescript]]) was reported as
+    // an unknown session. Only [[S-…]]-shaped refs are session refs —
+    // non-session links are ignored, per the reader's own contract.
+    const context = makeContext({
+      sessions: [makeSession({ sessionId: 'S-1' })],
+      sessionIndex: {
+        state: 'ok',
+        refs: ['S-1', 'T-typescript', 'Some Note Title'],
+      } as SessionIndexRead,
+    });
+    assert.deepStrictEqual(validSessionIndexRule.run(context), []);
+  });
+
   test('rule metadata: id, warning severity, safe fixability (rebuildable)', () => {
     assert.strictEqual(validSessionIndexRule.id, 'valid-session-index');
     assert.strictEqual(validSessionIndexRule.severity, 'warning');
     assert.strictEqual(validSessionIndexRule.fixable, 'safe');
+  });
+});
+
+describe('read-failure rule over the memory subsystem', () => {
+  test('session note read failures are reported with the session path', () => {
+    const context = makeContext({
+      sessions: [makeSession({ frontmatter: null, readError: 'EBUSY: locked' })],
+    });
+    const issues = readFailureRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'read-failure');
+    assert.strictEqual(issues[0].severity, 'warning');
+    assert.strictEqual(issues[0].file, '.palee/sessions/S-20260912T100000-abcd.md');
+    assert.match(issues[0].message, /EBUSY: locked/);
+  });
+
+  test('memory component read failures are reported', () => {
+    const context = makeContext({
+      memoryReadErrors: [{ path: '.palee/sessions/', readError: 'EPERM: denied' }],
+    });
+    const issues = readFailureRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].file, '.palee/sessions/');
+    assert.match(issues[0].message, /EPERM: denied/);
+  });
+
+  test('note and memory read failures merge and sort by file', () => {
+    const context = makeContext({
+      notes: [makeNote({ relativePath: 'z.md', readError: 'x' })],
+      sessions: [makeSession({ frontmatter: null, readError: 'y' })],
+      memoryReadErrors: [{ path: '.palee/hot.md', readError: 'z' }],
+    });
+    const issues = readFailureRule.run(context);
+    assert.strictEqual(issues.length, 3);
+    assert.deepStrictEqual(issues.map((i) => i.file), [
+      '.palee/hot.md',
+      '.palee/sessions/S-20260912T100000-abcd.md',
+      'z.md',
+    ]);
   });
 });

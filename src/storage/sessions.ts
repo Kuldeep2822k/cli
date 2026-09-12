@@ -23,6 +23,23 @@ import { relativeVaultPath } from './vault-walker';
 import { readHotMemory } from './memory';
 
 /**
+ * A memory-subsystem component that could not be read during a scan.
+ *
+ * @remarks Component-level failures: the sessions directory could not
+ * be enumerated, or `index.md`/`hot.md` exist but could not be read.
+ * Distinct from a session note that failed to read (that failure is
+ * retained on the {@link LoadedSession} entry). The validation
+ * collector threads these into its context so the `read-failure`
+ * rule can report the provisional snapshot.
+ */
+export interface MemoryReadError {
+  /** Relative POSIX path of the component that failed to read */
+  path: string;
+  /** Read failure message */
+  readError: string;
+}
+
+/**
  * A single session note read from `.palee/sessions/`, with its raw
  * parse outcome.
  *
@@ -31,6 +48,10 @@ import { readHotMemory } from './memory';
  * filename/ID disagree — which `valid-session-schema` reports
  * separately); `frontmatter` carries the raw parsed values, or null
  * when the YAML failed to parse (`parseError` says why).
+ * `readError` is set when the file could not be read at all (locked
+ * mid-scan, deleted concurrently) — the note stays in the list so
+ * the collector's `readIncomplete` signal and a read-failure finding
+ * can report the provisional snapshot; rules skip read-failed notes.
  */
 export interface LoadedSession {
   /** Session ID derived from the filename (`S-…` / `DRAFT-S-…` stem) */
@@ -41,10 +62,12 @@ export interface LoadedSession {
   path: string;
   /** Absolute filesystem path to the note */
   filePath: string;
-  /** Raw parsed frontmatter; null when parsing failed */
+  /** Raw parsed frontmatter; null when parsing failed or reading failed */
   frontmatter: Record<string, unknown> | null;
   /** Frontmatter parse error message; undefined when parsing succeeded */
   parseError?: string;
+  /** Read failure message; undefined when the file read succeeded */
+  readError?: string;
 }
 
 /**
@@ -52,14 +75,18 @@ export interface LoadedSession {
  *
  * @remarks `missing` and `corrupt` carry `null` fields — the index is
  * a rebuildable projection, so absence is a state, not an error
- * (VERDICT decision 4); `refs` holds every `[[S-…]]` wikilink in
- * body order, deduplicated, so `valid-session-index` can check each
- * against the confirmed-session set.
+ * (VERDICT decision 4); `refs` holds every session-shaped
+ * `[[S-…]]`/`[[DRAFT-S-…]]` wikilink in body order, deduplicated, so
+ * `valid-session-index` can check each against the confirmed-session
+ * set. Non-session wikilinks (topic links, plain note titles) are
+ * ignored — the index is editable Markdown and only session-shaped
+ * links are index entries. `frontmatter` carries the parsed index
+ * frontmatter (null when none) for the kind rule's conflict checks.
  */
 export type SessionIndexRead =
-  | { state: 'ok'; refs: string[] }
-  | { state: 'missing'; refs: null }
-  | { state: 'corrupt'; refs: null; parseError: string };
+  | { state: 'ok'; refs: string[]; frontmatter?: Record<string, unknown> | null }
+  | { state: 'missing'; refs: null; frontmatter?: null }
+  | { state: 'corrupt'; refs: null; frontmatter?: null; parseError: string };
 
 /** Directory (relative to vault root) holding canonical session notes. */
 const SESSIONS_DIR_SEGMENTS = ['.palee', 'sessions'];
@@ -75,20 +102,40 @@ const INDEX_REF_PATTERN = /\[\[([^\]]+)\]\]/g;
  * are deterministic regardless of OS readdir order. Notes that fail
  * to parse are returned (not skipped) with `frontmatter: null` and
  * `parseError` set — the schema rule reports them; unreadable files
- * are excluded but surface through the caller's read-incomplete
- * signal. When the sessions directory does not exist, returns `[]`
- * (an empty memory subsystem is the fresh-vault state).
+ * are returned with `readError` set (the read-failure rule reports
+ * them; the schema and downstream rules skip them) so a locked or
+ * concurrently-deleted note never silently vanishes from the snapshot.
+ * When the sessions directory does not exist, returns `[]` (an empty
+ * memory subsystem is the fresh-vault state); a directory that EXISTS
+ * but cannot be enumerated is reported through `readErrors`, never
+ * silently treated as empty.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param readErrors - Collector-owned list to append component read failures to
  * @returns Session notes with parse outcomes, sorted by filename
  */
-function loadSessions(vaultPath: string): LoadedSession[] {
+function loadSessions(
+  vaultPath: string,
+  readErrors: MemoryReadError[] = []
+): LoadedSession[] {
   const sessionsDir = path.join(vaultPath, ...SESSIONS_DIR_SEGMENTS);
   let files: string[];
   try {
     files = fs.readdirSync(sessionsDir);
-  } catch {
-    return []; // no .palee/sessions yet — fresh vault, not an error
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return []; // no .palee/sessions yet — fresh vault, not an error
+    }
+    // The path exists but cannot be enumerated (ENOTDIR: something
+    // replaced the directory with a file; EPERM/EACCES: permissions) —
+    // existing-but-unreadable is never the same as absent, and the
+    // caller's readErrors entry reports the provisional snapshot.
+    readErrors.push({
+      path: '.palee/sessions/',
+      readError: err instanceof Error ? err.message : String(err),
+    });
+    return [];
   }
 
   const sessions: LoadedSession[] = [];
@@ -108,10 +155,21 @@ function loadSessions(vaultPath: string): LoadedSession[] {
     let content: string;
     try {
       content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      // Unreadable (locked mid-scan): excluded from the loaded set —
-      // the memory snapshot is incomplete and the caller's
-      // read-incomplete signal reports it (same policy as topics).
+    } catch (err: unknown) {
+      // Unreadable (locked mid-scan, deleted concurrently): the note
+      // STAYS in the list with readError set — the collector threads
+      // it into readIncomplete so the provisional scan is visible,
+      // and rules skip read-failed notes. Silently dropping it would
+      // hide the incomplete snapshot (Greptile P1 / Kilo CRITICAL).
+      const readError = err instanceof Error ? err.message : String(err);
+      sessions.push({
+        sessionId,
+        isDraft,
+        path: relPath,
+        filePath,
+        frontmatter: null,
+        readError,
+      });
       continue;
     }
 
@@ -137,36 +195,61 @@ function loadSessions(vaultPath: string): LoadedSession[] {
  * (fresh vault or not yet regenerated — a rebuildable projection's
  * absence is never an error), `corrupt` with the parser message when
  * its frontmatter cannot be parsed, `ok` with every deduplicated
- * `[[S-…]]` wikilink reference in first-seen order otherwise.
- * Non-session wikilinks (`[[T-…]]` topic links) are ignored — the
- * index format only guarantees session links.
+ * session-shaped `[[S-…]]`/`[[DRAFT-S-…]]` wikilink in first-seen
+ * order otherwise. Non-session wikilinks (`[[T-…]]` topic links,
+ * plain note titles) are ignored — the index is editable Markdown
+ * and only session-shaped links are index entries. A read failure on
+ * an existing index (locked mid-scan, EISDIR) is appended to
+ * `readErrors` and the read is classified `missing` — the index rule
+ * never reports on it, the read-failure rule does.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param readErrors - Collector-owned list to append component read failures to
  * @returns Classified index read with references when parseable
  */
-function readSessionIndex(vaultPath: string): SessionIndexRead {
+function readSessionIndex(
+  vaultPath: string,
+  readErrors: MemoryReadError[] = []
+): SessionIndexRead {
   const indexPath = path.join(vaultPath, '.palee', 'index.md');
   let content: string;
   try {
     content = fs.readFileSync(indexPath, 'utf8');
-  } catch {
-    return { state: 'missing', refs: null };
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      // Exists but unreadable — the provisional snapshot is reported
+      // by the read-failure rule; the index rule sees a missing index
+      // (a legal state it never reports on).
+      readErrors.push({
+        path: '.palee/index.md',
+        readError: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return { state: 'missing', refs: null, frontmatter: null };
   }
 
-  const { body, error } = parseFrontmatter(content);
+  const { frontmatter, body, error } = parseFrontmatter(content);
   if (error !== undefined) {
-    return { state: 'corrupt', refs: null, parseError: error };
+    return { state: 'corrupt', refs: null, frontmatter: null, parseError: error };
   }
 
   const refs: string[] = [];
   const seen = new Set<string>();
   for (const match of body.matchAll(INDEX_REF_PATTERN)) {
     const ref = match[1].trim();
-    if (ref.length === 0 || seen.has(ref)) continue;
+    // Only session-shaped links are index entries; a topic link or a
+    // hand-added note link in the editable body is not a session ref.
+    if (ref.length === 0 || !(ref.startsWith('S-') || ref.startsWith('DRAFT-S-'))) continue;
+    if (seen.has(ref)) continue;
     seen.add(ref);
     refs.push(ref);
   }
-  return { state: 'ok', refs };
+  return {
+    state: 'ok',
+    refs,
+    frontmatter: (frontmatter as Record<string, unknown> | null) ?? null,
+  };
 }
 
 /**

@@ -300,4 +300,91 @@ describe('Validation vault collection', () => {
     assert.strictEqual(context.hotMemory.state, 'missing');
     assert.strictEqual(context.readIncomplete, false);
   });
+
+  test('unreadable session note is retained with readError and marks the snapshot incomplete', () => {
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T110000-ffff.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T110000-ffff\ntopic_id: T-a\nstarted_at: 2026-09-12T11:00:00.000Z\nended_at: 2026-09-12T11:30:00.000Z\nstatus: completed\n---\n# Session 2\n',
+      'utf8'
+    );
+
+    // Make the second session unreadable on Windows: a directory named
+    // like the file makes readFileSync fail with EISDIR — deterministic
+    // and cross-platform (no ACL games).
+    fs.rmSync(path.join(sessionsDir, 'S-20260912T110000-ffff.md'));
+    fs.mkdirSync(path.join(sessionsDir, 'S-20260912T110000-ffff.md'));
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.sessions.length, 2);
+    const locked = context.sessions.find(
+      (s) => s.sessionId === 'S-20260912T110000-ffff'
+    );
+    assert.ok(locked, 'unreadable session must survive collection');
+    assert.ok(locked.readError);
+    assert.strictEqual(locked.frontmatter, null);
+    assert.strictEqual(locked.parseError, undefined);
+    // The readable session is still fully collected.
+    const healthy = context.sessions.find(
+      (s) => s.sessionId === 'S-20260912T100000-abcd'
+    );
+    assert.ok(healthy);
+    assert.strictEqual(healthy.readError, undefined);
+    assert.strictEqual(healthy.frontmatter?.status, 'completed');
+    // Kilo CRITICAL: the incomplete snapshot must be signalled.
+    assert.strictEqual(context.readIncomplete, true);
+    assert.deepStrictEqual(context.memoryReadErrors, []);
+  });
+
+  test('sessions dir replaced by a file is reported, not treated as a fresh vault', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee'));
+    fs.writeFileSync(path.join(tmpVault, '.palee', 'sessions'), 'not a dir');
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.deepStrictEqual(context.sessions, []);
+    assert.strictEqual(context.readIncomplete, true);
+    assert.strictEqual(context.memoryReadErrors.length, 1);
+    assert.strictEqual(context.memoryReadErrors[0].path, '.palee/sessions/');
+    assert.match(context.memoryReadErrors[0].readError, /ENOTDIR/);
+  });
+
+  test('index.md unreadable (EISDIR) is reported as a component read error', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee', 'index.md'), { recursive: true });
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.readIncomplete, true);
+    const indexErr = context.memoryReadErrors.find((e) => e.path === '.palee/index.md');
+    assert.ok(indexErr, 'index read failure must be captured');
+    assert.match(indexErr.readError, /EISDIR/);
+    // The index read state stays missing-shaped — the index rule still
+    // never reports on it (missing is a legal state); the read-failure
+    // warning carries the failure.
+    assert.strictEqual(context.sessionIndex.state, 'missing');
+  });
+
+  test('topic wikilinks in the index body are not session refs', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n- [[T-typescript]] - related topic\n- [[Some Note]] - explanation\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.sessionIndex.state, 'ok');
+    assert.deepStrictEqual(
+      (context.sessionIndex as { refs: string[] }).refs,
+      ['S-20260912T100000-abcd']
+    );
+  });
 });

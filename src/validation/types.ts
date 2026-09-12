@@ -11,9 +11,15 @@
  */
 
 import type { LoadedTopic } from '../storage/loader';
-import type { LoadedSession, SessionIndexRead } from '../storage/sessions';
+import type {
+  LoadedSession,
+  SessionIndexRead,
+  MemoryReadError,
+} from '../storage/sessions';
 import type { HotMemoryRead } from '../storage/memory';
 import type { ScannedNote } from '../types';
+
+export type { MemoryReadError };
 
 /** Severity classification of a reported validation issue. */
 export type ValidationSeverity = 'error' | 'warning';
@@ -86,6 +92,16 @@ export interface ValidationContext {
    */
   readIncomplete: boolean;
   /**
+   * Memory-subsystem read failures captured during collection.
+   *
+   * @remarks Component-level failures: the sessions directory could not
+   * be enumerated, or `index.md`/`hot.md` exist but could not be read.
+   * Session-note read failures are retained on the session entries
+   * themselves; this list carries the component-level gaps so the
+   * `read-failure` rule can report the provisional snapshot.
+   */
+  memoryReadErrors: MemoryReadError[];
+  /**
    * Canonical session notes (`.palee/sessions/S-*.md` and
    * `DRAFT-S-*.md`) with per-file parse outcomes, sorted by filename.
    *
@@ -93,7 +109,11 @@ export interface ValidationContext {
    * valid state every memory rule must pass on. Malformed notes are
    * included with `frontmatter: null` so `valid-session-schema` can
    * report them; the schema rule owns parse findings, downstream
-   * memory rules skip unparseable notes (no double-reporting).
+   * memory rules skip unparseable notes (no double-reporting). Notes
+   * that failed to READ (locked, deleted mid-scan) are included with
+   * `readError` set and `frontmatter: null` — the schema rule and
+   * downstream rules skip them, and the collector's `readIncomplete`
+   * signal plus the `read-failure` rule report the provisional state.
    */
   sessions: LoadedSession[];
   /**

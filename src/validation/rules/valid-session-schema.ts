@@ -31,6 +31,8 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
+import type { LoadedSession } from '../../storage/sessions';
 
 /** Required fields every session note must carry. */
 const REQUIRED_FIELDS = ['session_id', 'topic_id', 'started_at'] as const;
@@ -42,6 +44,66 @@ const ALLOWED_STATUSES = ['completed', 'draft'] as const;
 function displayValue(value: unknown): unknown {
   if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
   return value;
+}
+
+/**
+ * True when a session note carries no OTHER schema defect besides its
+ * `topic_id` reference — the shape contract #41 enforces, evaluated
+ * without the required-field loop so #42 can skip notes #41 already
+ * reported (no double-reporting).
+ *
+ * @remarks A session failing any #41 check has an unreliable view of
+ * its own topic reference; reporting a dangling topic on top of the
+ * schema error would be noise. `topic_id` itself is checked by the
+ * caller (a missing/blank/non-string topic_id is #41's finding too).
+ */
+export function isSessionSchemaClean(session: LoadedSession): boolean {
+  if (session.readError !== undefined) return false; // read-failure rule's finding
+  if (session.frontmatter === null) return false; // #41's parse finding
+  const fm: Record<string, unknown> = session.frontmatter;
+
+  // palee_schema: integer 1 (the version check above).
+  const schemaVersion = fm.palee_schema;
+  if (
+    typeof schemaVersion !== 'number' ||
+    !Number.isInteger(schemaVersion) ||
+    schemaVersion !== SUPPORTED_SCHEMA_VERSION
+  ) {
+    return false;
+  }
+
+  // session_id: non-empty string matching the filename stem.
+  const idValue = fm.session_id;
+  if (typeof idValue !== 'string' || idValue.trim() === '' || idValue !== session.sessionId) {
+    return false;
+  }
+
+  // status: a lifecycle value coherent with the filename convention.
+  const status = fm.status;
+  if (
+    status !== 'completed' &&
+    status !== 'draft'
+  ) {
+    return false;
+  }
+  if ((session.isDraft && status === 'completed') || (!session.isDraft && status === 'draft')) {
+    return false;
+  }
+
+  // started_at: parseable ISO timestamp (presence is #41's).
+  const started = fm.started_at;
+  if (typeof started !== 'string' || !isParseableTimestamp(started)) return false;
+
+  // ended_at: null for drafts, a parseable timestamp for completed.
+  const ended = fm.ended_at;
+  if (status === 'draft') {
+    if (ended !== null) return false;
+  } else {
+    if (typeof ended !== 'string' || !isParseableTimestamp(ended)) return false;
+    if (new Date(ended).getTime() < new Date(started).getTime()) return false;
+  }
+
+  return true;
 }
 
 /** True when the value is a parseable ISO-family timestamp string. */
@@ -67,6 +129,10 @@ export const validSessionSchemaRule: ValidationRule = {
       // Deterministic per-note report order: parse, required fields,
       // session_id match, status, timestamps.
 
+      // Read failures are the read-failure rule's findings — the note
+      // was never read, so its frontmatter cannot be schema-judged.
+      if (session.readError !== undefined) continue;
+
       if (session.frontmatter === null) {
         issues.push({
           ruleId: 'valid-session-schema',
@@ -79,6 +145,46 @@ export const validSessionSchemaRule: ValidationRule = {
         continue;
       }
       const fm = session.frontmatter;
+
+      // Schema version: the canonical writers emit `palee_schema: 1`
+      // and the rebuild paths default missing versions silently —
+      // validation is the only place a foreign/missing version on
+      // canonical data becomes visible (#28 policy, session side).
+      const schemaVersion = fm.palee_schema;
+      if (schemaVersion === undefined || schemaVersion === null) {
+        issues.push({
+          ruleId: 'valid-session-schema',
+          severity: 'error',
+          message: `Session note ${session.path} is missing palee_schema (expected ${SUPPORTED_SCHEMA_VERSION})`,
+          file: session.path,
+          sessionId: session.sessionId,
+          field: 'palee_schema',
+          details: { actual: null },
+        });
+      } else if (
+        typeof schemaVersion !== 'number' ||
+        !Number.isInteger(schemaVersion)
+      ) {
+        issues.push({
+          ruleId: 'valid-session-schema',
+          severity: 'error',
+          message: `Invalid palee_schema on ${session.path}: expected integer ${SUPPORTED_SCHEMA_VERSION}, got ${JSON.stringify(displayValue(schemaVersion))}`,
+          file: session.path,
+          sessionId: session.sessionId,
+          field: 'palee_schema',
+          details: { actual: displayValue(schemaVersion) },
+        });
+      } else if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+        issues.push({
+          ruleId: 'valid-session-schema',
+          severity: 'error',
+          message: `Unsupported palee_schema ${schemaVersion} on ${session.path} (supported: ${SUPPORTED_SCHEMA_VERSION})`,
+          file: session.path,
+          sessionId: session.sessionId,
+          field: 'palee_schema',
+          details: { actual: schemaVersion },
+        });
+      }
 
       for (const field of REQUIRED_FIELDS) {
         if (!Object.hasOwn(fm, field) || fm[field] === undefined) {

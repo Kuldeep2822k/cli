@@ -67,6 +67,11 @@ export const validSessionIndexRule: ValidationRule = {
     );
 
     for (const ref of index.refs) {
+      // Reader-level contract: only session-shaped refs reach this
+      // list; the filter here is defense-in-depth against a context
+      // assembled by hand (a topic or note-title link is not an index
+      // entry — reporting it as an unknown session is false noise).
+      if (!(ref.startsWith('S-') || ref.startsWith('DRAFT-S-'))) continue;
       if (confirmed.has(ref)) continue;
       issues.push({
         ruleId: 'valid-session-index',

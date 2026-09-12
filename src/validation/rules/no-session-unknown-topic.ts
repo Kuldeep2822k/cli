@@ -31,12 +31,21 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { isSessionSchemaClean } from './valid-session-schema';
 import type { LoadedSession } from '../../storage/sessions';
 
-/** True when the session's topic_id is shape-safe enough to judge. */
+/**
+ * True when the session's topic reference is safe to judge.
+ *
+ * @remarks Requires BOTH a well-shaped `topic_id` (non-empty string —
+ * missing/malformed is #41's finding) AND a schema-clean note: a
+ * session failing any other #41 check (bad status, unparseable
+ * timestamp, stem mismatch) has an unreliable view of its own data;
+ * #42 skips it so #41's finding stands alone (no double-reporting).
+ */
 function isJudgable(session: LoadedSession): boolean {
-  if (session.frontmatter === null) return false;
-  const topicId = session.frontmatter.topic_id;
+  if (!isSessionSchemaClean(session)) return false;
+  const topicId = session.frontmatter?.topic_id;
   return typeof topicId === 'string' && topicId.trim() !== '';
 }
 

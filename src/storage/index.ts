@@ -48,6 +48,7 @@ import {
   readSessionIndex,
   type LoadedSession,
   type SessionIndexRead,
+  type MemoryReadError,
 } from './sessions';
 import type { HotMemoryRead, HotMemoryReadState } from './memory';
 
@@ -111,6 +112,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead };
+export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError };
 
 

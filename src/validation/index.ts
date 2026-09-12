@@ -38,6 +38,7 @@ import type {
   ValidationIssue,
   ValidationContext,
   ValidationRule,
+  MemoryReadError,
 } from './types';
 
 export {
@@ -75,6 +76,7 @@ export type {
   ValidationIssue,
   ValidationContext,
   ValidationRule,
+  MemoryReadError,
   CollectVaultOptions,
   FormatCounts,
 };

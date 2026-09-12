@@ -17,8 +17,8 @@
 import { loadTopics } from '../storage/loader';
 import { scanNotes } from '../storage/scanner';
 import { FileCache } from '../storage/cache';
-import { loadSessions, readSessionIndex } from '../storage/sessions';
-import { readHotMemory } from '../storage/memory';
+import { loadSessions, readSessionIndex, readHotMemoryForValidation, type MemoryReadError } from '../storage/sessions';
+import type { HotMemoryRead } from '../storage/memory';
 import type { LoadedTopic } from '../storage/loader';
 import type { ValidationContext } from './types';
 
@@ -94,10 +94,25 @@ function collectVault(
   // concurrent `session end` cannot make rules observe mismatched
   // halves of the memory subsystem. All three tolerate absence — a
   // fresh vault has an empty memory subsystem and every memory rule
-  // must pass on it.
-  const sessions = loadSessions(vaultPath);
-  const sessionIndex = readSessionIndex(vaultPath);
-  const hotMemory = readHotMemory(vaultPath);
+  // must pass on it. Component-level read failures (sessions dir not
+  // enumerable, index/hot unreadable) land in memoryReadErrors —
+  // the read-failure rule reports them.
+  const memoryReadErrors: MemoryReadError[] = [];
+  const sessions = loadSessions(vaultPath, memoryReadErrors);
+  const sessionIndex = readSessionIndex(vaultPath, memoryReadErrors);
+  // Hot memory is a tolerant read with its own state contract (#130)
+  // — only a non-ENOENT filesystem failure throws, which becomes a
+  // component read error here instead of aborting the whole scan.
+  let hotMemory: HotMemoryRead;
+  try {
+    hotMemory = readHotMemoryForValidation(vaultPath);
+  } catch (err: unknown) {
+    hotMemory = { state: 'missing', frontmatter: null, body: '' };
+    memoryReadErrors.push({
+      path: '.palee/hot.md',
+      readError: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return {
     vaultPath,
@@ -107,12 +122,14 @@ function collectVault(
     sessions,
     sessionIndex,
     hotMemory,
+    memoryReadErrors,
     readIncomplete:
       notes.some((note) => note.readError !== undefined) ||
       // An unreadable session note means the index/unknown-topic
       // rules see an incomplete session set — same provisional-scan
       // caveat as unreadable topic notes.
-      sessions.some((session) => session.parseError === undefined && session.frontmatter === null),
+      sessions.some((session) => session.readError !== undefined) ||
+      memoryReadErrors.length > 0,
   };
 }
 
