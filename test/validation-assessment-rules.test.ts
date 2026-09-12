@@ -325,3 +325,97 @@ describe('assessed_at calendar strictness (PR #163 round 2)', () => {
     assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 });
+
+describe('assessed_at timezone and ISO strictness (PR #163 round 3)', () => {
+  test('valid date-only strings pass regardless of host timezone (Greptile P1)', () => {
+    // The calendar round-trip constructs the written components as a LOCAL
+    // date and reads them back with LOCAL getters — no UTC-midnight parse
+    // is ever compared against local-time components, so the result cannot
+    // depend on the host zone (the old comparison falsely rejected valid
+    // dates in zones west of UTC). This asserts the runner's zone; the
+    // construction invariant itself is zone-neutral by design.
+    for (const good of ['2026-09-01', '2024-02-29', '2026-01-31', '2026-12-31']) {
+      const topics = [makeTopic({
+        palee_id: 'T-tz',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: good },
+      })];
+      assert.deepStrictEqual(
+        validAssessmentFieldsRule.run(makeContext(topics)),
+        [],
+        `expected ${good} to pass in any timezone`
+      );
+    }
+  });
+
+  test('impossible ISO timestamps are errors, not normalized (Greptile P1)', () => {
+    // `new Date('2026-02-30T12:00:00Z')` silently rolls to March 2 —
+    // the written calendar must be checked on every ISO-family form.
+    for (const bad of [
+      '2026-02-30T12:00:00Z',
+      '2026-04-31T00:00:00Z',
+      '2026-02-30T12:00:00+05:00',
+      '2026-02-30T12:00:00', // local-time ISO form
+      '2026-02-30t12:00:00z', // lowercase separators
+      '2026-02-30Z', // date-only with Z
+      '2026-2-30', // single-digit month/day
+    ]) {
+      const topics = [makeTopic({
+        palee_id: 'T-iso-bad',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: bad },
+      })];
+      const issues = validAssessmentFieldsRule.run(makeContext(topics));
+      assert.strictEqual(issues.length, 1, `expected ${bad} to be rejected`);
+      assert.strictEqual(issues[0].field, 'assessed_at');
+    }
+  });
+
+  test('real ISO timestamps with valid calendars still pass', () => {
+    for (const good of [
+      '2026-09-01T12:00:00Z',
+      '2024-02-29T00:00:00Z',
+      '2026-09-01T12:00:00+05:00',
+      '2026-09-01 12:00:00',
+      '2026-09-01Z',
+    ]) {
+      const topics = [makeTopic({
+        palee_id: 'T-iso-ok',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: good },
+      })];
+      assert.deepStrictEqual(
+        validAssessmentFieldsRule.run(makeContext(topics)),
+        [],
+        `expected ${good} to pass`
+      );
+    }
+  });
+
+  test('mastery rule skips impossible-ISO topics (shared validator)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-iso-skip',
+      frontmatter: { conceptual: 0.8, practical: 0.7, debug: 0.9, feynman: 0.85, assessed_at: '2026-02-30T12:00:00Z' },
+      topic_mastery: 0.5,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+
+  test('two-digit years keep their century through the round-trip', () => {
+    // The Date constructor maps years 0-99 to 1900+year; the validator
+    // re-pins them with setFullYear (same convention as computeDueDate),
+    // so an ISO 0026-02-28 round-trips as year 26, not 1926.
+    const good = [makeTopic({
+      palee_id: 'T-yy-ok',
+      frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: '0026-02-28' },
+    })];
+    assert.deepStrictEqual(validAssessmentFieldsRule.run(makeContext(good)), []);
+
+    // Year 26 is not a leap year — and the constructor remap must not
+    // turn an impossible date into a possible 1926 one either.
+    const bad = [makeTopic({
+      palee_id: 'T-yy-bad',
+      frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: '0026-02-29' },
+    })];
+    const issues = validAssessmentFieldsRule.run(makeContext(bad));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'assessed_at');
+  });
+});
