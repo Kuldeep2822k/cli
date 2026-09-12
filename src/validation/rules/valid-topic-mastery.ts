@@ -14,9 +14,13 @@
  *   `assessed_at` is invalid), this rule skips the topic rather than
  *   reporting a mastery warning on top of #36's errors.
  * - Missing assessment data (the newly-adopted default state) has nothing to
- *   compare against and never reports.
+ *   compare against and never reports — that includes legacy topics whose
+ *   pre-adoption `topic_mastery` predates the assessment formula.
  * - Archived topics are still checked: internal consistency matters for any
  *   topic the vault still stores.
+ * - The stored value is read raw from frontmatter: the loader coerces
+ *   present-but-malformed mastery to 0, which would silently bless garbage
+ *   whenever the computed value is also 0.
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
@@ -59,6 +63,20 @@ export const validTopicMasteryRule: ValidationRule = {
     const issues: ValidationIssue[] = [];
 
     for (const topic of context.topics) {
+      // All four pillars absent: the newly-adopted default state has no
+      // assessment data to derive mastery from. A stored non-zero legacy
+      // mastery here is pre-adoption data, not drift against this
+      // formula — comparing it against computed 0 would be a false
+      // warning (escalated to exit 3 by --strict). Partial assessments
+      // remain eligible: present pillars feed the formula with the
+      // documented 0 default for absent ones.
+      const allPillarsAbsent = SCORE_FIELDS.every(
+        (field) =>
+          topic.frontmatter[field] === undefined ||
+          topic.frontmatter[field] === null
+      );
+      if (allPillarsAbsent) continue;
+
       const scores = SCORE_FIELDS.map((field): number | undefined => {
         const value: unknown = topic.frontmatter[field];
         // #36 reports non-numeric/out-of-range shapes; missing pillars are the
@@ -98,8 +116,33 @@ export const validTopicMasteryRule: ValidationRule = {
         present[2],
         present[3]
       );
-      // LoadedTopic.topic_mastery is the loader-normalized value (parseScore
-      // with 0 default) — the same number every runtime consumer sees.
+      // Raw on-disk mastery, not the loader-normalized value: parseScore
+      // coerces present-but-malformed values to 0, which would silently
+      // bless garbage mastery whenever the computed value is also 0. A
+      // present value that is not a finite number is a mismatch by
+      // definition — the stored derived data is not the formula output.
+      const rawStored: unknown = topic.frontmatter.topic_mastery;
+      const malformed =
+        rawStored !== undefined &&
+        rawStored !== null &&
+        !(typeof rawStored === 'number' && Number.isFinite(rawStored));
+      if (malformed) {
+        issues.push({
+          ruleId: 'valid-topic-mastery',
+          severity: 'warning',
+          message: `Topic ${topic.palee_id}: stored topic_mastery ${JSON.stringify(rawStored)} does not match computed ${expected} from assessment scores`,
+          file: topic.path,
+          topicId: topic.palee_id,
+          field: 'topic_mastery',
+          details: { actual: rawStored, expected },
+        });
+        continue;
+      }
+
+      // Finite raw values compare through the loader-normalized
+      // LoadedTopic.topic_mastery — the same number every runtime
+      // consumer sees (parseScore clamps and rounds); absent mastery
+      // loads as the documented 0 default.
       const actual = topic.topic_mastery;
 
       if (Math.abs(actual - expected) > EPSILON) {

@@ -12,9 +12,11 @@
  *   read the components back) rejects roll-overs.
  * - **Timezone skew**: ISO date-only strings parse at UTC midnight, but
  *   local-time getters then read the previous calendar day in zones west
- *   of UTC. All calendar round-trips here use local-time constructors
- *   and local getters together, so no valid date depends on the host
- *   timezone — and no invalid date sneaks through in any zone either.
+ *   of UTC. All calendar round-trips here use UTC setters and UTC
+ *   getters together, so no valid date depends on the host timezone —
+ *   even in zones whose local calendar skipped the written date
+ *   (`Pacific/Apia` has no local 2011-12-30) — and no invalid date
+ *   sneaks through in any zone either.
  * - **Number coercion**: YAML parses bare epoch timestamps as numbers;
  *   numbers must reach `new Date(value)` (epoch-ms), never
  *   `new Date(String(value))` — stringified epoch digits are not a
@@ -29,13 +31,14 @@
 /**
  * Checks whether a written date is a real calendar date.
  *
- * @remarks Constructs the written components as a local calendar date
- * and reads them back — `new Date(2026, 1, 30)` rolls over to March 2,
- * so a mismatch means the written day does not exist. Pure local-time
- * arithmetic: both construction and read-back are local, so the result
- * is identical in every timezone (no UTC-midnight vs local-day skew).
- * Years 0-99 are re-pinned with `setFullYear` (the constructor maps them
- * to 1900+year) — the same convention as `computeDueDate` in the engine.
+ * @remarks Constructs the written components with UTC setters and reads
+ * them back with UTC getters — `setUTCFullYear(2026, 1, 30)` rolls over
+ * to March 2, so a mismatch means the written day does not exist. Pure
+ * UTC arithmetic: both construction and read-back are UTC, so the result
+ * is identical in every timezone — including zones whose local calendar
+ * skipped the written date (`Pacific/Apia` has no local 2011-12-30).
+ * `setUTCFullYear` also preserves years 0-99 as written (the constructor
+ * maps them to 1900+year).
  *
  * @param year - Written year
  * @param month - Written month, 1-based (1 = January)
@@ -43,14 +46,13 @@
  * @returns True when the components form a real calendar date
  */
 function isRealCalendarDate(year: number, month: number, day: number): boolean {
-  const constructed = new Date(year, month - 1, day);
-  if (year >= 0 && year < 100) {
-    constructed.setFullYear(year);
-  }
+  const constructed = new Date(0);
+  constructed.setUTCFullYear(year, month - 1, day);
+  constructed.setUTCHours(0, 0, 0, 0);
   return (
-    constructed.getFullYear() === year &&
-    constructed.getMonth() === month - 1 &&
-    constructed.getDate() === day
+    constructed.getUTCFullYear() === year &&
+    constructed.getUTCMonth() === month - 1 &&
+    constructed.getUTCDate() === day
   );
 }
 

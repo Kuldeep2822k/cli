@@ -172,6 +172,44 @@ describe('valid-topic-mastery rule (#37)', () => {
     assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 
+  test('all pillars absent never reports, even with legacy stored mastery (CodeRabbit)', () => {
+    // Pre-adoption topics may carry a legacy topic_mastery with no
+    // assessment pillars; comparing it against computed 0 is a false
+    // warning (escalated to exit 3 by --strict).
+    const topics = [makeTopic({
+      palee_id: 'T-legacy',
+      frontmatter: { topic_mastery: 0.7 },
+      topic_mastery: 0.7,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+
+  test('present-but-malformed stored mastery is a mismatch (CodeRabbit)', () => {
+    // The loader coerces garbage mastery to 0; the rule reads the raw
+    // value so 'high' is reported even when the computed value is 0.
+    const topics = [makeTopic({
+      palee_id: 'T-garbage',
+      frontmatter: { conceptual: 0, practical: 0, debug: 0, feynman: 0, topic_mastery: 'high' },
+      topic_mastery: 0, // what parseScore would load
+    })];
+    const issues = validTopicMasteryRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].topicId, 'T-garbage');
+    assert.strictEqual(issues[0].details?.actual, 'high');
+    assert.strictEqual(issues[0].details?.expected, 0);
+  });
+
+  test('absent stored mastery adopts the documented 0 default', () => {
+    // No stored mastery at all + all-zero pillars: the adopt default
+    // (0) matches the computed 0 — no warning.
+    const topics = [makeTopic({
+      palee_id: 'T-adopt',
+      frontmatter: { conceptual: 0, practical: 0, debug: 0, feynman: 0 },
+      topic_mastery: 0,
+    })];
+    assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
+  });
+
   test('invalid assessment fields are left to valid-assessment-fields (no mastery report)', () => {
     const topics = [makeTopic({
       frontmatter: { conceptual: 2, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: null },
@@ -328,12 +366,13 @@ describe('assessed_at calendar strictness (PR #163 round 2)', () => {
 
 describe('assessed_at timezone and ISO strictness (PR #163 round 3)', () => {
   test('valid date-only strings pass regardless of host timezone (Greptile P1)', () => {
-    // The calendar round-trip constructs the written components as a LOCAL
-    // date and reads them back with LOCAL getters — no UTC-midnight parse
-    // is ever compared against local-time components, so the result cannot
-    // depend on the host zone (the old comparison falsely rejected valid
-    // dates in zones west of UTC). This asserts the runner's zone; the
-    // construction invariant itself is zone-neutral by design.
+    // The calendar round-trip constructs the written components with UTC
+    // setters and reads them back with UTC getters — no UTC-midnight
+    // parse is ever compared against local-time components, and the
+    // local calendar is never consulted (zones like Pacific/Apia lack
+    // 2011-12-30 entirely), so the result cannot depend on the host
+    // zone. This asserts the runner's zone; the construction invariant
+    // itself is zone-neutral by design.
     for (const good of ['2026-09-01', '2024-02-29', '2026-01-31', '2026-12-31']) {
       const topics = [makeTopic({
         palee_id: 'T-tz',
@@ -399,22 +438,50 @@ describe('assessed_at timezone and ISO strictness (PR #163 round 3)', () => {
   });
 
   test('two-digit years keep their century through the round-trip', () => {
-    // The Date constructor maps years 0-99 to 1900+year; the validator
-    // re-pins them with setFullYear (same convention as computeDueDate),
-    // so an ISO 0026-02-28 round-trips as year 26, not 1926.
+    // A Date constructor maps years 0-99 to 1900+year; the validator
+    // builds the calendar with setUTCFullYear, which preserves the
+    // written year — so an ISO 0026-02-28 round-trips as year 26.
     const good = [makeTopic({
       palee_id: 'T-yy-ok',
       frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: '0026-02-28' },
     })];
     assert.deepStrictEqual(validAssessmentFieldsRule.run(makeContext(good)), []);
 
-    // Year 26 is not a leap year — and the constructor remap must not
-    // turn an impossible date into a possible 1926 one either.
+    // Year 26 is not a leap year — the century must not be remapped
+    // into a leap year like 2000 either.
     const bad = [makeTopic({
       palee_id: 'T-yy-bad',
       frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: '0026-02-29' },
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(bad));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'assessed_at');
+  });
+});
+
+describe('assessed_at UTC round-trip (PR #163 round 4)', () => {
+  test('calendar checks never consult the local calendar (CodeRabbit)', () => {
+    // Pacific/Apia skipped 2011-12-30 entirely — a local-constructor
+    // round-trip falsely rejects that valid date there. The check
+    // builds and reads the calendar in UTC, so the result is identical
+    // in every zone, including zones whose local calendar lacks the day.
+    for (const good of ['2011-12-30', '2011-12-31', '2012-01-01']) {
+      const topics = [makeTopic({
+        palee_id: 'T-apia',
+        frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: good },
+      })];
+      assert.deepStrictEqual(
+        validAssessmentFieldsRule.run(makeContext(topics)),
+        [],
+        `expected ${good} to pass regardless of local calendar gaps`
+      );
+    }
+    // And impossible dates stay impossible in every zone.
+    const topics = [makeTopic({
+      palee_id: 'T-apia-bad',
+      frontmatter: { conceptual: 0.5, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: '2011-02-30' },
+    })];
+    const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0].field, 'assessed_at');
   });
