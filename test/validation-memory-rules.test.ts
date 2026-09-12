@@ -176,6 +176,62 @@ describe('valid-managed-note-kind rule (#27)', () => {
     assert.strictEqual(issues.length, 1);
   });
 
+  test('session note carrying only palee_id conflicts with its location (Greptile P1)', () => {
+    // A session note whose ONLY identity marker is palee_id (no
+    // session_id at all) is a cross-kind claim: location says session,
+    // the marker says topic. The location-implied kind must count as a
+    // claim so the conflict reports.
+    const session = makeSession({
+      sessionId: 'S-1',
+      frontmatter: (() => {
+        const fm = confirmedFrontmatter('S-1', 'T-topic');
+        delete fm.session_id;
+        fm.palee_id = 'T-x';
+        return fm;
+      })(),
+    });
+    const context = makeContext({ sessions: [session] });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+  });
+
+  test('session note carrying only the index marker conflicts with its location', () => {
+    const fm = confirmedFrontmatter('S-1', 'T-topic');
+    delete fm.session_id;
+    fm.type = 'session_index';
+    const session = makeSession({ sessionId: 'S-1', frontmatter: fm });
+    const context = makeContext({ sessions: [session] });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+  });
+
+  test('hot memory carrying only session_id conflicts with its location', () => {
+    const context = makeContext({
+      hotMemory: {
+        state: 'ok',
+        frontmatter: {
+          palee_schema: 1,
+          session_id: 'S-1',
+          last_session: null,
+          active_topic: null,
+          updated_at: '2026-09-12',
+        } as unknown as HotMemoryRead['frontmatter'],
+        body: '',
+      },
+    });
+    const issues = validManagedNoteKindRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.match(issues[0].message, /conflicting identities/);
+    assert.strictEqual(issues[0].file, '.palee/hot.md');
+  });
+
+  test('session note carrying only session_id is the canonical shape (no finding)', () => {
+    const context = makeContext({ sessions: [makeSession()] });
+    assert.deepStrictEqual(validManagedNoteKindRule.run(context), []);
+  });
+
   test('user notes without palee_schema are never reported', () => {
     const context = makeContext({
       notes: [
@@ -556,6 +612,62 @@ describe('valid-session-schema rule (#41)', () => {
     const locked = makeSession({ frontmatter: null, readError: 'EBUSY' });
     const context = makeContext({ sessions: [locked] });
     assert.deepStrictEqual(validSessionSchemaRule.run(context), []);
+  });
+
+  test('topic_id must be a non-empty string (CodeRabbit)', () => {
+    // Presence alone is not enough: topic_id null/empty/non-string must
+    // error in #41 — #42 skips malformed topic refs, so without this
+    // check the defect would produce NO finding anywhere.
+    for (const bad of [null, '', '   ', 42] as unknown[]) {
+      const session = makeSession({
+        sessionId: 'S-1',
+        frontmatter: { ...confirmedFrontmatter('S-1', 'T-topic'), topic_id: bad },
+      });
+      const issues = validSessionSchemaRule.run(makeContext({ sessions: [session] }));
+      assert.strictEqual(
+        issues.filter((i) => i.field === 'topic_id').length,
+        1,
+        `topic_id ${JSON.stringify(bad)} must produce exactly one topic_id finding`
+      );
+    }
+  });
+
+  test('timestamps must be canonical toISOString() output (CodeRabbit)', () => {
+    // Writers emit toISOString(): 2026-09-12T10:00:00.000Z. Date-only
+    // strings, timezone-less strings, and other Date-parseable but
+    // noncanonical shapes must fail — new Date() accepts them, the
+    // rebuild paths' as-string casts do not.
+    const badTimestamps = [
+      '2026-09-12', // date-only
+      '2026-09-12T10:00:00.000', // timezone-less
+      '2026-09-12T10:00:00+00:00', // offset instead of Z
+      'September 12, 2026', // parseable junk
+    ];
+    for (const bad of badTimestamps) {
+      const session = makeSession({
+        sessionId: 'S-1',
+        frontmatter: {
+          ...confirmedFrontmatter('S-1', 'T-topic'),
+          started_at: bad,
+        },
+      });
+      const issues = validSessionSchemaRule.run(makeContext({ sessions: [session] }));
+      assert.strictEqual(
+        issues.filter((i) => i.field === 'started_at').length,
+        1,
+        `started_at ${JSON.stringify(bad)} must be rejected as noncanonical`
+      );
+    }
+    // ended_at is held to the same canonical shape.
+    const badEnd = makeSession({
+      sessionId: 'S-1',
+      frontmatter: {
+        ...confirmedFrontmatter('S-1', 'T-topic'),
+        ended_at: '2026-09-12',
+      },
+    });
+    const endIssues = validSessionSchemaRule.run(makeContext({ sessions: [badEnd] }));
+    assert.strictEqual(endIssues.filter((i) => i.field === 'ended_at').length, 1);
   });
 });
 

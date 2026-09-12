@@ -133,34 +133,42 @@ export const validManagedNoteKindRule: ValidationRule = {
       });
     }
     for (const note of internal) {
-      const identities = IDENTITY_KEYS.filter((key) => Object.hasOwn(note.fm, key));
-      // The index is the only internal note where the type marker IS
-      // its identity; a session/hot note also carrying the marker, or
-      // the index carrying an identity key, is a conflict.
-      const kinds = identities.length + (note.indexMarker && note.path !== '.palee/index.md' ? 1 : 0);
-      if (note.path === '.palee/index.md') {
-        // Index: marker is its identity; ANY identity key conflicts.
-        if (identities.length > 0) {
+      // The note's location implies exactly one kind: a session note is
+      // a session, hot.md is hot memory, the index is the index. The
+      // expected key for that kind MERGES with the location (a session
+      // note carrying only `session_id` is canonical); every OTHER
+      // identity key, or the index marker on a non-index note, is a
+      // cross-kind claim that conflicts with the location.
+      const isIndex = note.path === '.palee/index.md';
+      const expectedKey = isIndex ? null : note.path === '.palee/hot.md' ? 'memory_id' : 'session_id';
+      const foreign = IDENTITY_KEYS.filter(
+        (key) => Object.hasOwn(note.fm, key) && key !== expectedKey
+      );
+      if (isIndex) {
+        // Index: the marker IS its identity; ANY identity key conflicts.
+        if (foreign.length > 0) {
           issues.push({
             ruleId: 'valid-managed-note-kind',
             severity: 'warning',
-            message: `Managed note ${note.path} declares conflicting identities (${[...identities, 'type: session_index'].join(', ')}); kind cannot be determined`,
+            message: `Managed note ${note.path} declares conflicting identities (${[...foreign, 'type: session_index'].join(', ')}); kind cannot be determined`,
             file: note.path,
             field: 'palee_schema',
-            details: { identities: [...identities], indexMarker: true },
+            details: { identities: [...foreign], indexMarker: true },
           });
         }
         continue;
       }
-      if (kinds > 1) {
+      if (foreign.length > 0 || note.indexMarker) {
+        const claims: string[] = [...foreign];
+        if (note.indexMarker) claims.push('type: session_index');
         issues.push({
           ruleId: 'valid-managed-note-kind',
           severity: 'warning',
-          message: `Managed note ${note.path} declares conflicting identities (${[...identities, note.indexMarker ? 'type: session_index' : ''].filter(Boolean).join(', ')}); kind cannot be determined`,
+          message: `Managed note ${note.path} declares conflicting identities (${claims.join(', ')}); kind cannot be determined`,
           file: note.path,
           field: 'palee_schema',
           details: {
-            identities: [...identities],
+            identities: [...foreign],
             indexMarker: note.indexMarker,
           },
         });

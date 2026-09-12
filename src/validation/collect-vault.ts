@@ -98,8 +98,15 @@ function collectVault(
   // enumerable, index/hot unreadable) land in memoryReadErrors —
   // the read-failure rule reports them.
   const memoryReadErrors: MemoryReadError[] = [];
-  const sessions = loadSessions(vaultPath, memoryReadErrors);
+  // Read order matters under a concurrent `session end`: the confirmed
+  // note is written BEFORE the index is regenerated. Reading the index
+  // FIRST closes the interleaving window — every index ref observed at
+  // t1 implies its session note already existed on disk, and the
+  // sessions read at t2 > t1 must see it (CodeRabbit). The reverse
+  // order could observe a regenerated index referencing a note the
+  // earlier sessions read missed → false unknown-session warning.
   const sessionIndex = readSessionIndex(vaultPath, memoryReadErrors);
+  const sessions = loadSessions(vaultPath, memoryReadErrors);
   // Hot memory is a tolerant read with its own state contract (#130)
   // — only a non-ENOENT filesystem failure throws, which becomes a
   // component read error here instead of aborting the whole scan.

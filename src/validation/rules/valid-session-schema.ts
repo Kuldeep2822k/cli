@@ -92,24 +92,31 @@ export function isSessionSchemaClean(session: LoadedSession): boolean {
 
   // started_at: parseable ISO timestamp (presence is #41's).
   const started = fm.started_at;
-  if (typeof started !== 'string' || !isParseableTimestamp(started)) return false;
+  if (typeof started !== 'string' || !isCanonicalTimestamp(started)) return false;
 
   // ended_at: null for drafts, a parseable timestamp for completed.
   const ended = fm.ended_at;
   if (status === 'draft') {
     if (ended !== null) return false;
   } else {
-    if (typeof ended !== 'string' || !isParseableTimestamp(ended)) return false;
+    if (typeof ended !== 'string' || !isCanonicalTimestamp(ended)) return false;
     if (new Date(ended).getTime() < new Date(started).getTime()) return false;
   }
 
   return true;
 }
 
-/** True when the value is a parseable ISO-family timestamp string. */
-function isParseableTimestamp(value: unknown): value is string {
+/** True when the value is a canonical ISO timestamp — exact `toISOString()` output. */
+function isCanonicalTimestamp(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '') return false;
-  return !Number.isNaN(new Date(value).getTime());
+  // `Date.parse` accepts date-only strings, timezone-less strings, and
+  // human-readable dates — none of which any PALEE writer emits
+  // (`started_at`/`ended_at` persist `new Date().toISOString()`). A
+  // round-trip through the formatter is the exact-shape test: only
+  // `YYYY-MM-DDTHH:MM:SS.sssZ` normalizes to itself.
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return false;
+  return new Date(time).toISOString() === value;
 }
 
 /**
@@ -198,6 +205,23 @@ export const validSessionSchemaRule: ValidationRule = {
             details: { actual: undefined },
           });
         }
+      }
+
+      // topic_id must be a well-shaped non-empty string: #42 skips
+      // sessions whose topic reference is malformed, so without this
+      // check a null/empty/non-string topic_id would produce no
+      // finding anywhere (CodeRabbit).
+      const topicValue = fm.topic_id;
+      if (topicValue !== undefined && !(typeof topicValue === 'string' && topicValue.trim() !== '')) {
+        issues.push({
+          ruleId: 'valid-session-schema',
+          severity: 'error',
+          message: `Session note ${session.path}: topic_id must be a non-empty string, got ${JSON.stringify(displayValue(topicValue))}`,
+          file: session.path,
+          sessionId: session.sessionId,
+          field: 'topic_id',
+          details: { actual: displayValue(topicValue) },
+        });
       }
 
       // session_id must exist as a string and match the filename stem.
@@ -292,11 +316,11 @@ export const validSessionSchemaRule: ValidationRule = {
           field: 'ended_at',
           details: { actual: displayValue(ended) },
         });
-      } else if (!isParseableTimestamp(ended)) {
+      } else if (!isCanonicalTimestamp(ended)) {
         issues.push({
           ruleId: 'valid-session-schema',
           severity: 'error',
-          message: `Session note ${session.path}: ended_at must be a parseable ISO timestamp or null, got ${JSON.stringify(displayValue(ended))}`,
+          message: `Session note ${session.path}: ended_at must be a canonical ISO timestamp (YYYY-MM-DDTHH:MM:SS.sssZ) or null, got ${JSON.stringify(displayValue(ended))}`,
           file: session.path,
           sessionId: session.sessionId,
           field: 'ended_at',
@@ -306,11 +330,11 @@ export const validSessionSchemaRule: ValidationRule = {
 
       // started_at shape (presence was checked above).
       const started = fm.started_at;
-      if (started !== undefined && !isParseableTimestamp(started)) {
+      if (started !== undefined && !isCanonicalTimestamp(started)) {
         issues.push({
           ruleId: 'valid-session-schema',
           severity: 'error',
-          message: `Session note ${session.path}: started_at must be a parseable ISO timestamp, got ${JSON.stringify(displayValue(started))}`,
+          message: `Session note ${session.path}: started_at must be a canonical ISO timestamp (YYYY-MM-DDTHH:MM:SS.sssZ), got ${JSON.stringify(displayValue(started))}`,
           file: session.path,
           sessionId: session.sessionId,
           field: 'started_at',
@@ -321,8 +345,8 @@ export const validSessionSchemaRule: ValidationRule = {
       // Chronology: only decidable when both timestamps are valid.
       if (
         status === 'completed' &&
-        isParseableTimestamp(started) &&
-        isParseableTimestamp(ended) &&
+        isCanonicalTimestamp(started) &&
+        isCanonicalTimestamp(ended) &&
         new Date(ended).getTime() < new Date(started).getTime()
       ) {
         issues.push({

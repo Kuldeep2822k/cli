@@ -387,4 +387,48 @@ describe('Validation vault collection', () => {
       ['S-20260912T100000-abcd']
     );
   });
+
+  test('index is read before the sessions dir (no unknown-session false positive under concurrent session end)', () => {
+    // CodeRabbit race: `session end` writes the confirmed note BEFORE
+    // regenerating the index. Reading sessions first and the index
+    // second can observe the index already referencing a note the
+    // sessions read missed — a false unknown-session warning. Reading
+    // the INDEX first closes the window: an index ref observed at t1
+    // implies its session note was written before t1, and the sessions
+    // read at t2 > t1 sees it.
+    // Pin the read ORDER: a ref in the index must also be in the
+    // session set when the note exists on disk.
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.strictEqual(context.sessions.length, 1);
+    assert.strictEqual((context.sessionIndex as { refs: string[] }).refs.length, 1);
+
+    // Order contract: readSessionIndex is called before loadSessions
+    // (observable through the memoryReadErrors order when both fail —
+    // the index error is appended first).
+    const tmpVault2 = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-order-'));
+    try {
+      fs.mkdirSync(path.join(tmpVault2, '.palee', 'index.md'), { recursive: true });
+      fs.writeFileSync(path.join(tmpVault2, '.palee', 'sessions'), 'not a dir');
+      const ctx2 = collectVault(tmpVault2, { cache: new FileCache<LoadedTopic>() });
+      assert.deepStrictEqual(
+        ctx2.memoryReadErrors.map((e) => e.path),
+        ['.palee/index.md', '.palee/sessions/']
+      );
+    } finally {
+      fs.rmSync(tmpVault2, { recursive: true, force: true });
+    }
+  });
 });
