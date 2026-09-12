@@ -15,8 +15,8 @@ interval_days: 1
 repetition: 1
 lapses: 0
 last_quality: 4
-last_reviewed_at: 2026-08-09T13:19:21.059Z
-due_at: 2026-08-10T13:19:21.059Z
+last_reviewed_at: 2026-08-09
+due_at: 2026-08-10
 ---
 
 # Docker Fundamentals
