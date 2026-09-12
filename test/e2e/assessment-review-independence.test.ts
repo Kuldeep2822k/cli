@@ -8,6 +8,11 @@
  *   `palee review` untouched.
  * - Existing `topic_mastery` survives `palee review` untouched, including a
  *   non-zero value (the regression case the issue calls out).
+ * - The reverse direction: a curriculum write path (`palee roadmap` import,
+ *   which writes assessment fields through resolveTopicUpdates) preserves
+ *   existing SM-2 review state — future assessment/test flows must not
+ *   clobber review state unless an explicit confirmed review mutation is
+ *   added.
  *
  * Assessment fields: conceptual, practical, debug, feynman, assessed_at,
  * topic_mastery. Review fields: last_quality, last_reviewed_at, due_at,
@@ -167,5 +172,138 @@ describe('assessment-review independence (#40)', () => {
     assert.strictEqual(fm.conceptual, 0.6);
     assert.strictEqual(fm.topic_mastery, 0.6);
     assert.strictEqual(fm.repetition, 1);
+  });
+});
+
+describe('assessment-review independence, reverse direction (#40)', () => {
+  let env: ReturnType<typeof createTestVault>;
+
+  beforeEach(() => {
+    env = createTestVault('palee-independence-rev-');
+  });
+
+  afterEach(() => {
+    env.cleanup();
+  });
+
+  /** The seven SM-2 review fields a curriculum write must never touch. */
+  const SM2_FIELDS =
+    /^(last_quality|last_reviewed_at|due_at|ease_factor|interval_days|repetition|lapses):/;
+
+  /**
+   * Extracts the seven SM-2 lines from a raw note, in order, for
+   * byte-level comparison across an assessment-path mutation. The
+   * curriculum import legitimately rewrites metadata lines (title,
+   * difficulty, depends_on, palee_id), so only these seven lines are
+   * comparable byte-for-byte.
+   */
+  function sm2Lines(raw: string): string[] {
+    return raw.split('\n').filter((line) => SM2_FIELDS.test(line));
+  }
+
+  test('roadmap import preserves all seven SM-2 review fields on a reviewed topic', () => {
+    // A topic that has been through real reviews: its SM-2 state is
+    // non-default on every field (two reviews of quality 5, then 3).
+    env.createTopic(
+      'reviewed.md',
+      {
+        palee_id: 'T-reviewed',
+        title: 'Reviewed Topic',
+        difficulty: 'beginner',
+      },
+      'Notes before import.'
+    );
+    const r1 = env.run(['review', 'T-reviewed', '5']);
+    assert.strictEqual(r1.status, 0);
+    const r2 = env.run(['review', 'T-reviewed', '3']);
+    assert.strictEqual(r2.status, 0);
+
+    const reviewedRaw = fs.readFileSync(path.join(env.vaultDir, 'reviewed.md'), 'utf8');
+    const reviewedFm = env.readTopic('reviewed.md').frontmatter as Record<string, unknown>;
+    // Real, non-default SM-2 state on disk before the import.
+    assert.ok(reviewedFm.last_quality !== undefined && reviewedFm.last_quality !== null);
+    assert.ok(typeof reviewedFm.last_reviewed_at === 'string');
+    assert.ok(typeof reviewedFm.due_at === 'string');
+    assert.ok(typeof reviewedFm.ease_factor === 'number');
+    assert.ok(typeof reviewedFm.interval_days === 'number');
+    assert.strictEqual(reviewedFm.repetition, 2);
+    assert.strictEqual(reviewedFm.lapses, 0);
+
+    // The curriculum write path: a roadmap import targets the same note
+    // (by palee_id + path) and rewrites metadata including assessment
+    // fields through resolveTopicUpdates.
+    const roadmapFile = path.join(env.tempDir, 'update-roadmap.yaml');
+    fs.writeFileSync(
+      roadmapFile,
+      'topics:\n' +
+      '  - id: T-reviewed\n' +
+      '    title: Reviewed Topic (Curriculum Update)\n' +
+      '    path: reviewed.md\n',
+      'utf8'
+    );
+    const res = env.run(['roadmap', '--from', roadmapFile, '--yes']);
+    assert.strictEqual(res.status, 0, `roadmap import failed: ${res.stderr}`);
+
+    const importedRaw = fs.readFileSync(path.join(env.vaultDir, 'reviewed.md'), 'utf8');
+    const importedFm = env.readTopic('reviewed.md').frontmatter as Record<string, unknown>;
+
+    // The seven SM-2 fields survive with their exact values.
+    assert.strictEqual(importedFm.last_quality, reviewedFm.last_quality);
+    assert.strictEqual(importedFm.last_reviewed_at, reviewedFm.last_reviewed_at);
+    assert.strictEqual(importedFm.due_at, reviewedFm.due_at);
+    assert.strictEqual(importedFm.ease_factor, reviewedFm.ease_factor);
+    assert.strictEqual(importedFm.interval_days, reviewedFm.interval_days);
+    assert.strictEqual(importedFm.repetition, reviewedFm.repetition);
+    assert.strictEqual(importedFm.lapses, reviewedFm.lapses);
+
+    // And byte-for-byte: the seven SM-2 lines are identical in content,
+    // order, and spelling (the import rewrites metadata lines like title,
+    // so only the SM-2 block is byte-comparable).
+    assert.deepStrictEqual(sm2Lines(importedRaw), sm2Lines(reviewedRaw));
+
+    // The import DID rewrite curriculum metadata (proof the mutation ran).
+    assert.strictEqual(importedFm.title, 'Reviewed Topic (Curriculum Update)');
+  });
+
+  test('roadmap import preserves SM-2 state even on topics with failed-recall lapses', () => {
+    // The lapse path is the richest SM-2 state (interval reset to 1,
+    // lapses incremented) — the strongest preservation assertion.
+    env.createTopic(
+      'lapsed.md',
+      {
+        palee_id: 'T-lapsed',
+        title: 'Lapsed Topic',
+      },
+      'Notes.'
+    );
+    const ok = env.run(['review', 'T-lapsed', '5']);
+    assert.strictEqual(ok.status, 0);
+    const fail = env.run(['review', 'T-lapsed', '1']);
+    assert.strictEqual(fail.status, 0);
+
+    const beforeFm = env.readTopic('lapsed.md').frontmatter as Record<string, unknown>;
+    assert.strictEqual(beforeFm.lapses, 1);
+
+    const roadmapFile = path.join(env.tempDir, 'lapse-roadmap.yaml');
+    fs.writeFileSync(
+      roadmapFile,
+      'topics:\n' +
+      '  - id: T-lapsed\n' +
+      '    title: Lapsed Topic (Curriculum Update)\n' +
+      '    path: lapsed.md\n',
+      'utf8'
+    );
+    const res = env.run(['roadmap', '--from', roadmapFile, '--yes']);
+    assert.strictEqual(res.status, 0, `roadmap import failed: ${res.stderr}`);
+
+    const afterFm = env.readTopic('lapsed.md').frontmatter as Record<string, unknown>;
+    // Failed-recall state survives a curriculum write untouched.
+    assert.strictEqual(afterFm.lapses, 1);
+    assert.strictEqual(afterFm.repetition, beforeFm.repetition);
+    assert.strictEqual(afterFm.ease_factor, beforeFm.ease_factor);
+    assert.strictEqual(afterFm.interval_days, 1);
+    assert.strictEqual(afterFm.last_quality, beforeFm.last_quality);
+    assert.strictEqual(afterFm.last_reviewed_at, beforeFm.last_reviewed_at);
+    assert.strictEqual(afterFm.due_at, beforeFm.due_at);
   });
 });
