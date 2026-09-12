@@ -22,6 +22,9 @@ import { validTopicIdFormatRule } from './rules/valid-topic-id-format';
 import { validTopicStatusRule } from './rules/valid-topic-status';
 import { validAssessmentFieldsRule } from './rules/valid-assessment-fields';
 import { validTopicMasteryRule } from './rules/valid-topic-mastery';
+import { validReviewFieldsRule } from './rules/valid-review-fields';
+import { validReviewDatesRule } from './rules/valid-review-dates';
+import { validDependencyListRule } from './rules/valid-dependency-list';
 import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from './rules/no-missing-dependency';
 import { noDependencyCycleRule } from './rules/no-dependency-cycle';
@@ -53,6 +56,9 @@ export {
   noDependencyCycleRule,
   validAssessmentFieldsRule,
   validTopicMasteryRule,
+  validReviewFieldsRule,
+  validReviewDatesRule,
+  validDependencyListRule,
 };
 
 export type {

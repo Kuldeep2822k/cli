@@ -42,7 +42,9 @@ const CYCLE_ISSUE: ValidationIssue = {
 
 const MISSING_DEP_ISSUE: ValidationIssue = {
   ruleId: 'no-missing-dependency',
-  severity: 'error',
+  // Vault-scan severity policy (#34 / VERDICT decision 1): missing
+  // dependencies warn; roadmap pre-validation keeps its own error path.
+  severity: 'warning',
   message: 'Topic T-broken depends on missing topic T-x',
   topicId: 'T-broken',
   details: { missing: 'T-x' },
@@ -77,12 +79,16 @@ describe('Human formatter (#25)', () => {
     assert.ok(errorIndex < warningIndex, 'errors must print before warnings');
   });
 
-  test('renders all three error kinds: duplicate, missing dep, cycle', () => {
+  test('renders duplicate, missing dep, and cycle findings across severity blocks', () => {
     const out = formatHuman([ERROR_ISSUE, MISSING_DEP_ISSUE, CYCLE_ISSUE]);
 
     assert.match(out, /Duplicate topic ID: T-dup/);
     assert.match(out, /T-broken depends on missing topic T-x/);
     assert.match(out, /T-a -> T-b -> T-a/);
+    // Missing dep is a warning now: it renders in the warning block
+    // while the true errors keep the error block.
+    assert.match(out, /✗ Found 2 validation error\(s\)/);
+    assert.match(out, /⚠ Found 1 validation warning\(s\)/);
   });
 
   test('no ANSI color codes in output', () => {

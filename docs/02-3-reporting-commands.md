@@ -187,7 +187,7 @@ palee validate [flags]
 
 ### Vault Structural Integrity Rules
 
-`palee validate` runs a ten-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): three error-severity graph integrity rules ported from the dependency engine, four error-severity schema, identity, and assessment rules, plus three warning-severity rules — the two snapshot rules that explain gaps in the collected topic set, and the mastery-drift rule that keeps stored derived data honest.
+`palee validate` runs a thirteen-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): nine error-default rules (the graph integrity ports minus missing-dependency, the schema/identity rules, and the assessment and review-state rules) and four warning-default rules — the two snapshot rules that explain gaps in the collected topic set, the mastery-drift rule that keeps stored derived data honest, and missing-dependency findings (the engine quarantines the dependent topic instead of failing the scan; `roadmap --from` pre-validation keeps its own separate error path). `valid-dependency-list` is error-default but emits its duplicate-entry findings as warnings. Errors exit 3; warnings exit 0 unless `--strict` escalates them to 3.
 
 1. **Malformed Frontmatter (`parse-frontmatter`, warning)**: A note whose YAML frontmatter cannot be parsed (including unclosed `---` fences whose body reads like YAML). The scan always continues — one bad note is a finding, never a dead validation.
 2. **Read Failures (`read-failure`, warning)**: A file that could not be read at all (locked or deleted mid-scan). Validation ran on an incomplete snapshot; the warning appears alongside any graph findings so transient conditions are visible without downgrading them.
@@ -195,10 +195,13 @@ palee validate [flags]
 4. **Topic ID Format (`valid-topic-id-format`, error)**: Topic IDs must match the centralized policy in `src/engine/topic-id.ts` — `T-` plus lowercase kebab-case segments; the exact legacy adopt-generated format stays valid.
 5. **Topic Status (`valid-topic-status`, error)**: Status must be one of `not_started` | `learning` | `paused` | `archived`; missing status is tolerated as the adopt default.
 6. **Duplicate Topic IDs (`no-duplicate-topic-id`, error)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
-7. **Missing Dependencies (`no-missing-dependency`, error)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault. Always an error — findings never depend on unrelated vault state; if a dependency target was itself unreadable, the `read-failure` warning appears alongside explaining the transient condition, and re-running settles it.
-8. **Dependency Cycles (`no-dependency-cycle`, error)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected using 3-color DFS graph traversal in the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts).
-9. **Assessment Fields (`valid-assessment-fields`, error)**: Assessment scores (`conceptual`, `practical`, `debug`, `feynman`) must be finite numbers within `[0.0, 1.0]` as stored on disk, and `assessed_at` must be `null` or a real calendar date — date-only strings (`YYYY-MM-DD`) and ISO timestamps (`2026-02-30T12:00:00Z`) alike are rejected when their written calendar rolls over (`2026-02-30` is not normalized into March). The rule reads raw frontmatter values — the loader clamps and coerces during normalization, so this rule exposes real vault corruption instead of silently blessing it. Missing assessment fields follow the documented default policy (they are the newly-adopted state) and pass.
-10. **Topic Mastery Drift (`valid-topic-mastery`, warning)**: When a topic's assessment fields are shape-valid, stored `topic_mastery` must equal the engine formula `round((conceptual + practical + debug + 2*feynman) / 5, 4)` — recomputed with `computeTopicMastery` from [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts). Drift reports a warning with `details.actual` (stored) and `details.expected` (computed); a present-but-malformed stored value (non-numeric, non-finite) is itself a mismatch — the loader would coerce it to 0 at runtime, so the rule reads the raw value to expose that. Topics whose assessment fields fail rule 9 are skipped (no double-reporting), topics with all four pillars absent are the newly-adopted default state and never report, missing assessment data never crashes the rule, and archived topics are still checked — internal consistency matters for any stored topic. A warning only, so `--strict` gates it.
+7. **Dependency List Shape (`valid-dependency-list`, error)**: `depends_on` must be an array of non-empty topic-ID strings — a bare string, a non-string item (numbers, booleans, nulls), or an empty-string slot is a shape error, and a self-reference (`T-a` depending on `T-a`) is a structural error. Duplicate entries are a separate warning: the loader dedupes them, so scheduling is unaffected. Missing or null `depends_on` is the documented empty-list default and never reports. The rule runs before the graph rules and reads raw frontmatter (pre-normalization) so defects the loader's coercion would hide are exposed.
+8. **Missing Dependencies (`no-missing-dependency`, warning)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault. A warning in vault scans (the engine quarantines the dependent topic from `plan`/`next` instead of failing the scan — incrementally-written vaults are the norm, and a note mid-flight must not fail a whole validation run); `roadmap --from` pre-validation keeps its own separate hard-error path, so an import-time dangling reference still blocks the import. Findings never depend on unrelated vault state; if a dependency target was itself unreadable, the `read-failure` warning appears alongside explaining the transient condition, and re-running settles it. `--strict` escalates the warning for CI use.
+9. **Dependency Cycles (`no-dependency-cycle`, error)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected by the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) (iterative Tarjan SCC analysis with a lexicographic-first cycle search; the rule reports the exact path).
+10. **Assessment Fields (`valid-assessment-fields`, error)**: Assessment scores (`conceptual`, `practical`, `debug`, `feynman`) must be finite numbers within `[0.0, 1.0]` as stored on disk, and `assessed_at` must be `null` or a real calendar date — date-only strings (`YYYY-MM-DD`) and ISO timestamps (`2026-02-30T12:00:00Z`) alike are rejected when their written calendar rolls over (`2026-02-30` is not normalized into March). The rule reads raw frontmatter values — the loader clamps and coerces during normalization, so this rule exposes real vault corruption instead of silently blessing it. Missing assessment fields follow the documented default policy (they are the newly-adopted state) and pass.
+11. **Topic Mastery Drift (`valid-topic-mastery`, warning)**: When a topic's assessment fields are shape-valid, stored `topic_mastery` must equal the engine formula `round((conceptual + practical + debug + 2*feynman) / 5, 4)` — recomputed with `computeTopicMastery` from [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts). Drift reports a warning with `details.actual` (stored) and `details.expected` (computed); a present-but-malformed stored value (non-numeric, non-finite) is itself a mismatch — the loader would coerce it to 0 at runtime, so the rule reads the raw value to expose that. Topics whose assessment fields fail rule 10 are skipped (no double-reporting), topics with all four pillars absent are the newly-adopted default state and never report, missing assessment data never crashes the rule, and archived topics are still checked — internal consistency matters for any stored topic. A warning only, so `--strict` gates it.
+12. **Review Fields (`valid-review-fields`, error)**: SM-2 review state must match the engine contract as stored on disk: `ease_factor` a finite number `>= 1.3` (the SM-2 floor), `interval_days` an integer `>= 1`, `repetition`/`lapses` integers `>= 0`, and `last_quality` `null` or an integer `0-5`. The rule reads raw frontmatter (the loader's `parseNumber`/`parseInteger` coercion would silently accept stringified or fractional values), so values no PALEE writer could produce — stringified numbers, `null` numeric state, fractional counters — are exposed as errors. Missing keys are the adopt-default state and pass.
+13. **Review Dates (`valid-review-dates`, error)**: `last_reviewed_at` and `due_at` must be `null` (newly adopted) or strict zero-padded date-only `YYYY-MM-DD` strings naming real calendar dates — the exact shape `formatLocalDateOnly` persists. Full ISO timestamps fail (date-only is the product contract: review scheduling compares local calendar days), impossible calendars fail (`2026-02-31` is not normalized into March), and when both fields are valid, `due_at` earlier than `last_reviewed_at` reports the inversion. Validation is pure component analysis shared with the `assessed_at` policy — no timezone-dependent parsing.
 
 ```mermaid
 flowchart LR
@@ -210,35 +213,41 @@ flowchart LR
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
         Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery"]
+        Rules["parse-frontmatter → read-failure → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
         ErrDup["duplicate_id"]
-        ErrMiss["missing_dependency"]
+        ErrDepShape["depends_on shape invalid / self-reference"]
         ErrCyc["cycle"]
         ErrSchema["invalid palee_schema"]
         ErrId["bad topic ID format"]
         ErrStatus["bad status"]
         ErrAssess["bad assessment fields / assessed_at"]
+        ErrReview["SM-2 review state or dates invalid"]
     end
 
     subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
         WarnParse["malformed frontmatter"]
         WarnRead["unreadable file (snapshot incomplete)"]
         WarnMastery["topic_mastery drift"]
+        WarnMiss["missing dependency (quarantined, not fatal)"]
+        WarnDepDup["duplicate depends_on entry"]
     end
     
     Storage --> Scan
     Scan --> Runner
     Runner --> Rules
     Rules -->|"duplicate IDs"| ErrDup
-    Rules -->|"dangling prerequisite"| ErrMiss
+    Rules -->|"dangling prerequisite"| WarnMiss
+    Rules -->|"depends_on shape invalid / self-reference"| ErrDepShape
     Rules -->|"cycle detected"| ErrCyc
     Rules -->|"unknown schema version"| ErrSchema
     Rules -->|"malformed topic ID"| ErrId
     Rules -->|"unknown status"| ErrStatus
     Rules -->|"score/date shape invalid"| ErrAssess
+    Rules -->|"SM-2 bounds / date contract violated"| ErrReview
+    Rules -->|"duplicate dependency entry"| WarnDepDup
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
     Rules -->|"stale derived data"| WarnMastery
@@ -253,13 +262,15 @@ Validating vault: /Users/dev/ObsidianVault
 
 Found 18 PALEE topics in 24 files
 
-✗ Found 2 validation error(s):
-
-  • Topic T-cloud-native depends on missing topic T-docker-missing
-    Rule: no-missing-dependency
+✗ Found 1 validation error(s):
 
   • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
     Rule: no-dependency-cycle
+
+⚠ Found 1 validation warning(s):
+
+  • Topic T-cloud-native depends on missing topic T-docker-missing
+    Rule: no-missing-dependency
 ```
 
 ---

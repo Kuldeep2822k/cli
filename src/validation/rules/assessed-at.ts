@@ -45,7 +45,7 @@
  * @param day - Written day
  * @returns True when the components form a real calendar date
  */
-function isRealCalendarDate(year: number, month: number, day: number): boolean {
+export function isRealCalendarDate(year: number, month: number, day: number): boolean {
   const constructed = new Date(0);
   constructed.setUTCFullYear(year, month - 1, day);
   constructed.setUTCHours(0, 0, 0, 0);
@@ -55,6 +55,10 @@ function isRealCalendarDate(year: number, month: number, day: number): boolean {
     constructed.getUTCDate() === day
   );
 }
+
+// NOTE: `isRealCalendarDate` is also consumed by `review-dates.ts` (#39)
+// so the `assessed_at` and review-date policies share one calendar
+// round-trip and can never disagree about what a real date is.
 
 /**
  * Extracts leading calendar components from a date string.
