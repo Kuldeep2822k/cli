@@ -139,11 +139,17 @@ export const validTopicMasteryRule: ValidationRule = {
         continue;
       }
 
-      // Finite raw values compare through the loader-normalized
-      // LoadedTopic.topic_mastery — the same number every runtime
-      // consumer sees (parseScore clamps and rounds); absent mastery
-      // loads as the documented 0 default.
-      const actual = topic.topic_mastery;
+      // Finite raw values compare directly against the expected value,
+      // before any loader normalization: parseScore clamps (stored 2 → 1)
+      // and rounds, which would hide drift whenever the computed value
+      // matches the normalized form (stored 2 vs computed 1). Every
+      // legitimate write path stores the formula's own 4-decimal output,
+      // so the epsilon (1e-5) still absorbs serialized-float drift.
+      // Absent mastery loads as the documented 0 default.
+      const actual =
+        typeof rawStored === 'number' && Number.isFinite(rawStored)
+          ? rawStored
+          : topic.topic_mastery;
 
       if (Math.abs(actual - expected) > EPSILON) {
         issues.push({

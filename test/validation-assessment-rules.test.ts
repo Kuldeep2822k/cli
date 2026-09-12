@@ -210,6 +210,35 @@ describe('valid-topic-mastery rule (#37)', () => {
     assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 
+  test('out-of-range stored mastery warns even when clamping hides it (CodeRabbit)', () => {
+    // The loader clamps stored 2 to 1; the raw comparison still
+    // reports the drift against computed 1.
+    const topics = [makeTopic({
+      palee_id: 'T-clamped',
+      frontmatter: { conceptual: 1, practical: 1, debug: 1, feynman: 1, topic_mastery: 2 },
+      topic_mastery: 1, // what parseScore would load
+    })];
+    const issues = validTopicMasteryRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].topicId, 'T-clamped');
+    assert.strictEqual(issues[0].details?.actual, 2);
+    assert.strictEqual(issues[0].details?.expected, 1);
+  });
+
+  test('negative out-of-range stored mastery warns against the raw value', () => {
+    // Same hole on the other side: stored -0.5 clamps to 0, so a
+    // computed 0 vault would otherwise look consistent.
+    const topics = [makeTopic({
+      palee_id: 'T-negative',
+      frontmatter: { conceptual: 0, practical: 0, debug: 0, feynman: 0, topic_mastery: -0.5 },
+      topic_mastery: 0, // what parseScore would load
+    })];
+    const issues = validTopicMasteryRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].details?.actual, -0.5);
+    assert.strictEqual(issues[0].details?.expected, 0);
+  });
+
   test('invalid assessment fields are left to valid-assessment-fields (no mastery report)', () => {
     const topics = [makeTopic({
       frontmatter: { conceptual: 2, practical: 0.5, debug: 0.5, feynman: 0.5, assessed_at: null },
