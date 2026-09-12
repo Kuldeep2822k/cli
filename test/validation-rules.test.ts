@@ -241,7 +241,11 @@ describe('no-missing-dependency rule (ported from engine)', () => {
 
     assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0].ruleId, 'no-missing-dependency');
-    assert.strictEqual(issues[0].severity, 'error');
+    // Vault-scan severity policy (VERDICT decision 1 / #34): missing
+    // dependencies warn — the engine quarantines the dependent topic
+    // instead of failing the scan; roadmap pre-validation keeps its own
+    // separate error path.
+    assert.strictEqual(issues[0].severity, 'warning');
     assert.strictEqual(issues[0].topicId, 'T-broken');
     assert.strictEqual(issues[0].details?.missing, 'T-does-not-exist');
     assert.match(issues[0].message, /T-broken/);
@@ -264,9 +268,10 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     );
   });
 
-  test('read-incomplete snapshot keeps missing deps as errors (never downgraded)', () => {
-    // CodeRabbit final finding: findings stay ERROR always — an unrelated
-    // read failure must not downgrade a real dangling reference. The
+  test('read-incomplete snapshot keeps missing deps reported (never suppressed)', () => {
+    // A read failure elsewhere in the vault must not hide a real dangling
+    // reference — the finding still reports (warning severity per the #34
+    // scan policy), with no speculative incompleteness marker; the
     // read-failure rule reports the transient condition alongside.
     const context = makeContext({
       topics: [makeTopic({ palee_id: 'T-dep', id: 'T-dep', depends_on: ['T-locked'] })],
@@ -276,9 +281,15 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     const issues = noMissingDependencyRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'error');
+    assert.strictEqual(issues[0].severity, 'warning');
     assert.strictEqual(issues[0].details?.snapshotIncomplete, undefined);
     assert.strictEqual(issues[0].details?.missing, 'T-locked');
+  });
+
+  test('rule metadata: id, warning severity per the #34 scan policy, not fixable', () => {
+    assert.strictEqual(noMissingDependencyRule.id, 'no-missing-dependency');
+    assert.strictEqual(noMissingDependencyRule.severity, 'warning');
+    assert.strictEqual(noMissingDependencyRule.fixable, false);
   });
 });
 

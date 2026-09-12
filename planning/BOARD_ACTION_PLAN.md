@@ -34,12 +34,12 @@
 
 | Wave | PR | Issues | Content | State |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | 1 | #25 + #26 + #30 | Validation framework (`src/validation/`), `parse-frontmatter`, `no-duplicate-topic-id`, port missing-dep + cycle as rules | **In progress** |
-| 2 | 2 | #79 | Dependency engine rework: 3-color DFS quarantine + deterministic ready ordering | Blocked by Wave 1 |
-| 3 | 3 | #33 + #34 + #35 | `valid-dependency-list`, `no-missing-dependency` (severity flip per decision 1), `no-dependency-cycle` — ported onto final engine shape | Blocked by #79 |
-| 4 | 4 | #28 + #29 + #31 | `valid-palee-schema`, `valid-topic-id-format`, `valid-topic-status` | After Wave 1 |
-| | 5 | #36 + #37 + #40 | `valid-assessment-fields`, `valid-topic-mastery`, assessment/review independence tests | After Wave 1 |
-| 5 | 6 | #38 + #39 | `valid-review-fields`, `valid-review-dates` — SM-2 adjacent, pin tests carefully | After Wave 1 |
+| 1 | 1 | #25 + #26 + #30 | Validation framework (`src/validation/`), `parse-frontmatter`, `no-duplicate-topic-id`, port missing-dep + cycle as rules | **Merged (PR #158, #162)** |
+| 2 | 2 | #79 | Dependency engine rework: 3-color DFS quarantine + deterministic ready ordering | **Merged (PR #157)** |
+| 3 | 3 | #33 + #34 + #35 | `valid-dependency-list`, `no-missing-dependency` (severity flip per decision 1), `no-dependency-cycle` — ported onto final engine shape | **Merged** (#34/#35 via PR #158; #33 + severity flip in the Wave 5 PR) |
+| 4 | 4 | #28 + #29 + #31 | `valid-palee-schema`, `valid-topic-id-format`, `valid-topic-status` | **Merged (PR #159)** |
+| | 5 | #36 + #37 + #40 | `valid-assessment-fields`, `valid-topic-mastery`, assessment/review independence tests | **Merged (PR #163)** |
+| 5 | 6 | #38 + #39 | `valid-review-fields`, `valid-review-dates` — SM-2 adjacent, pin tests carefully | **Merged (with #33 in one PR)** |
 | 6 | 7 | #41 + #42 + #44 | Session schema, orphan sessions, session index — one PR, shared session loader | After Wave 1 |
 | | 8 | #43 + #45 | `valid-hot-memory` (word limit, `MAX_HOT_WORDS`), `safe-vault-paths` | After Wave 1 |
 | 7 | 9 | #73 | Hierarchical auto-chaining + wikilink graph resolution, on top of #79's engine | After Waves 2–3 |

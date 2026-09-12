@@ -110,15 +110,38 @@ describe('validate command: framework wiring (#25)', () => {
   });
 
   test('error vault exits 3 in JSON mode; errors keep legacy type keys', async () => {
-    writeTopic('broken-dep.md', 'T-broken', ['T-does-not-exist']);
+    // Missing dependency is a WARNING since the #34 severity policy
+    // (VERDICT decision 1) — a duplicate ID is the pinned error here.
+    writeTopic('a.md', 'T-dup');
+    writeTopic('b.md', 'T-dup');
 
     await validateCommand({ json: true });
 
     const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
     assert.strictEqual(data.valid, false);
     assert.strictEqual(data.error_count, 1);
-    assert.strictEqual(data.errors[0].type, 'missing_dependency');
-    assert.strictEqual(data.errors[0].rule_id, 'no-missing-dependency');
+    assert.strictEqual(data.errors[0].type, 'duplicate_id');
+    assert.strictEqual(data.errors[0].rule_id, 'no-duplicate-topic-id');
+    assert.strictEqual(process.exitCode, 3);
+  });
+
+  test('missing dependency is a warning and never gates the exit code (#34 policy)', async () => {
+    writeTopic('broken-dep.md', 'T-broken', ['T-does-not-exist']);
+
+    await validateCommand({ json: true });
+
+    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.error_count, 0);
+    assert.strictEqual(data.warning_count, 1);
+    assert.strictEqual(data.warnings[0].rule_id, 'no-missing-dependency');
+    assert.strictEqual(data.warnings[0].type, 'missing_dependency');
+    assert.strictEqual(data.warnings[0].topic, 'T-broken');
+    assert.strictEqual(process.exitCode, 0);
+
+    // …and --strict escalates it (the same vault, the CI stance).
+    process.exitCode = 0;
+    await validateCommand({ json: true, strict: true });
     assert.strictEqual(process.exitCode, 3);
   });
 
@@ -136,7 +159,10 @@ describe('validate command: framework wiring (#25)', () => {
   });
 
   test('mixed errors and warnings: exit 3, errors print before warnings', async () => {
-    writeTopic('broken-dep.md', 'T-broken', ['T-x']);
+    // Missing dependency is a warning since #34 — a duplicate ID plus a
+    // malformed note gives the mixed errors+warnings vault.
+    writeTopic('a.md', 'T-dup');
+    writeTopic('b.md', 'T-dup');
     fs.writeFileSync(
       path.join(tmpVault, 'bad-yaml.md'),
       '---\ntags: [broken\n---\n# Personal\n',
@@ -155,11 +181,12 @@ describe('validate command: framework wiring (#25)', () => {
   });
 
   test('--fix stays a non-mutating stub', async () => {
-    writeTopic('broken-dep.md', 'T-broken', ['T-x']);
+    writeTopic('a.md', 'T-dup');
+    writeTopic('b.md', 'T-dup');
 
-    const before = fs.readFileSync(path.join(tmpVault, 'broken-dep.md'), 'utf8');
+    const before = fs.readFileSync(path.join(tmpVault, 'a.md'), 'utf8');
     await validateCommand({ fix: true });
-    const after = fs.readFileSync(path.join(tmpVault, 'broken-dep.md'), 'utf8');
+    const after = fs.readFileSync(path.join(tmpVault, 'a.md'), 'utf8');
 
     assert.strictEqual(before, after);
     assert.match(loggedOutputs.join('\n'), /--fix is not implemented/);

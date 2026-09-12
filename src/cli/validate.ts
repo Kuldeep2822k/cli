@@ -19,6 +19,9 @@ import { validTopicIdFormatRule } from '../validation/rules/valid-topic-id-forma
 import { validTopicStatusRule } from '../validation/rules/valid-topic-status';
 import { validAssessmentFieldsRule } from '../validation/rules/valid-assessment-fields';
 import { validTopicMasteryRule } from '../validation/rules/valid-topic-mastery';
+import { validReviewFieldsRule } from '../validation/rules/valid-review-fields';
+import { validReviewDatesRule } from '../validation/rules/valid-review-dates';
+import { validDependencyListRule } from '../validation/rules/valid-dependency-list';
 import type { ValidationRule } from '../validation/types';
 
 /**
@@ -37,10 +40,18 @@ const VALIDATION_RULES: ValidationRule[] = [
   validTopicIdFormatRule,
   validTopicStatusRule,
   noDuplicateTopicIdRule,
+  // Shape gate before the graph rules (#33): the graph rules receive
+  // whatever the loader normalized; this rule reports the raw-shape
+  // defects the loader's coercion would have hidden.
+  validDependencyListRule,
   noMissingDependencyRule,
   noDependencyCycleRule,
   validAssessmentFieldsRule,
   validTopicMasteryRule,
+  // SM-2 state after the assessment pair, in VERDICT tier order
+  // (R13 #38 → R14 #39): numeric shape first, then dates.
+  validReviewFieldsRule,
+  validReviewDatesRule,
 ];
 
 /**

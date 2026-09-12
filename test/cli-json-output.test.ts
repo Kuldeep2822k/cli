@@ -167,7 +167,7 @@ difficulty: beginner
 topic_mastery: 0.8
 repetition: 3
 lapses: 0
-due_at: 2020-01-01T00:00:00.000Z
+due_at: 2020-01-01
 depends_on: []
 ---
 # Intro
@@ -186,7 +186,7 @@ difficulty: 5
 topic_mastery: 0.2
 repetition: 1
 lapses: 1
-due_at: 2099-01-01T00:00:00.000Z
+due_at: 2099-01-01
 depends_on:
   - T-topic-1
 ---
@@ -312,17 +312,29 @@ depends_on: []
     });
 
     test('validate --json on invalid vault returns errors and sets exitCode 3', async () => {
-      // Create missing dependency topic
+      // Missing dependency is a warning since the #34 severity policy —
+      // a duplicate ID is the pinned error fixture.
       fs.writeFileSync(
-        path.join(tmpDir, 'broken-topic.md'),
+        path.join(tmpDir, 'dup-a.md'),
         `---
 palee_schema: 1
-palee_id: T-broken
-title: Broken Topic
-depends_on:
-  - T-does-not-exist
+palee_id: T-dup
+title: Dup A
+depends_on: []
 ---
-# Broken
+# Dup A
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'dup-b.md'),
+        `---
+palee_schema: 1
+palee_id: T-dup
+title: Dup B
+depends_on: []
+---
+# Dup B
 `,
         'utf8'
       );
@@ -331,7 +343,7 @@ depends_on:
       const data = getLastParsedJson();
       assert.strictEqual(data.valid, false);
       assert.strictEqual(data.error_count, 1);
-      assert.strictEqual(data.errors[0].type, 'missing_dependency');
+      assert.strictEqual(data.errors[0].type, 'duplicate_id');
       assert.strictEqual(process.exitCode, 3);
     });
 
@@ -536,7 +548,7 @@ difficulty: beginner
 topic_mastery: 0.5
 repetition: 1
 lapses: 0
-due_at: 2020-01-01T00:00:00.000Z
+due_at: 2020-01-01
 depends_on: []
 ---
 # TTY
