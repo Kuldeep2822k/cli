@@ -93,7 +93,7 @@ Phase 1 implements a set of deterministic commands designed for both human use a
 
 ### Topic Identification Logic
 
-The system uses a stable `palee_id` as the primary identifier. Resolution precedence is exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match [planning/invariants.md#42](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L42-L42), with the interactive disambiguation contract specified in [planning/palee_cli_spec.md#203](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L203-L203)
+The system uses a stable `palee_id` as the primary identifier. The resolution implemented in Phase 1 matches an exact ID, a partial ID substring, or a case-insensitive title substring (`src/cli/review.ts`, `src/cli/progress.ts`, `resolveSessionTopic`). The full precedence ladder — exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match — is the specified contract [planning/invariants.md#42](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L42-L42) with the interactive disambiguation contract in [planning/palee_cli_spec.md#203](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L203-L203), and is tracked as Planned in [08-2](https://github.com/Kuldeep2822k/cli/blob/main/docs/08-2-future-ai-module-and-phase-2-design.md)
 
 Entity Mapping: Natural Language to Code
 
