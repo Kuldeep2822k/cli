@@ -74,6 +74,8 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
         validation.validSessionSchemaRule,
         validation.noSessionUnknownTopicRule,
         validation.validSessionIndexRule,
+        validation.validHotMemoryRule,
+        validation.safeVaultPathsRule,
       ];
       for (const rule of rules) {
         assert.strictEqual(typeof rule.id, 'string');

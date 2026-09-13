@@ -36,6 +36,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { MAX_HOT_WORDS, countWords } from '../../storage/memory';
+import { displayValue } from './diagnostic-value';
 
 /** Fixed identifier the hot-memory writer stamps (`H-active`). */
 const MEMORY_ID = 'H-active';
@@ -64,7 +65,7 @@ export const validHotMemoryRule: ValidationRule = {
         )}); it is a rebuildable derived view — run a session end or rebuild to regenerate it`,
         file: '.palee/hot.md',
         field: 'palee_schema',
-        details: { actual: hot.frontmatter?.palee_schema ?? null },
+        details: { actual: displayValue(hot.frontmatter?.palee_schema ?? null) },
       });
       return issues;
     }
@@ -82,10 +83,10 @@ export const validHotMemoryRule: ValidationRule = {
       issues.push({
         ruleId: 'valid-hot-memory',
         severity: 'warning',
-        message: `.palee/hot.md must carry memory_id ${JSON.stringify(MEMORY_ID)}, got ${JSON.stringify(memoryId ?? null)}`,
+        message: `.palee/hot.md must carry memory_id ${JSON.stringify(MEMORY_ID)}, got ${JSON.stringify(displayValue(memoryId ?? null))}`,
         file: '.palee/hot.md',
         field: 'memory_id',
-        details: { actual: memoryId ?? null, expected: MEMORY_ID },
+        details: { actual: displayValue(memoryId ?? null), expected: MEMORY_ID },
       });
     }
 

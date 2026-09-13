@@ -155,6 +155,22 @@ describe('valid-hot-memory rule (#43)', () => {
     assert.strictEqual(issues[0].details?.expected, 'H-active');
   });
 
+  test('non-finite memory_id renders its spelling, not null (CodeRabbit)', () => {
+    // YAML .nan/.inf reach hot.md frontmatter as NaN/Infinity; the
+    // identity finding must name the value in both message and
+    // details.actual — JSON.stringify alone would render null.
+    const context = makeContext({
+      sessions: [makeSession()],
+      topics: [makeTopic()],
+      hotMemory: makeHot({ memory_id: NaN }),
+    });
+    const issues = validHotMemoryRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'memory_id');
+    assert.match(issues[0].message, /got "NaN"/);
+    assert.strictEqual(issues[0].details?.actual, 'NaN');
+  });
+
   test('unknown last_session reference reports a warning', () => {
     const context = makeContext({
       sessions: [], // S-1 does not exist
