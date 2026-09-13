@@ -26,6 +26,8 @@ import { validManagedNoteKindRule } from '../validation/rules/valid-managed-note
 import { validSessionSchemaRule } from '../validation/rules/valid-session-schema';
 import { noSessionUnknownTopicRule } from '../validation/rules/no-session-unknown-topic';
 import { validSessionIndexRule } from '../validation/rules/valid-session-index';
+import { validHotMemoryRule } from '../validation/rules/valid-hot-memory';
+import { safeVaultPathsRule } from '../validation/rules/safe-vault-paths';
 import type { ValidationRule } from '../validation/types';
 
 /**
@@ -66,6 +68,12 @@ const VALIDATION_RULES: ValidationRule[] = [
   validSessionSchemaRule,
   noSessionUnknownTopicRule,
   validSessionIndexRule,
+  // Hot memory closes the memory cluster (#43): same derived-view
+  // policy as the index rule — never gates, rebuild restores it.
+  validHotMemoryRule,
+  // Path boundary audit (#45) last: it reads the collected paths of
+  // every managed entity (notes, topics, sessions) in one pass.
+  safeVaultPathsRule,
 ];
 
 /**

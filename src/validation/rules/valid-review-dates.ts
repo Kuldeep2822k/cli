@@ -27,6 +27,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { displayValue } from './diagnostic-value';
 import { isValidReviewDate, parseDateOnly } from './review-dates';
 
 /**
@@ -56,22 +57,22 @@ export const validReviewDatesRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-review-dates',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: last_reviewed_at must be null or a YYYY-MM-DD calendar date, got ${JSON.stringify(lastReviewed)}`,
+          message: `Topic ${topic.palee_id}: last_reviewed_at must be null or a YYYY-MM-DD calendar date, got ${JSON.stringify(displayValue(lastReviewed))}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'last_reviewed_at',
-          details: { actual: lastReviewed },
+          details: { actual: displayValue(lastReviewed) },
         });
       }
       if (!dueAtValid) {
         issues.push({
           ruleId: 'valid-review-dates',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: due_at must be null or a YYYY-MM-DD calendar date, got ${JSON.stringify(dueAt)}`,
+          message: `Topic ${topic.palee_id}: due_at must be null or a YYYY-MM-DD calendar date, got ${JSON.stringify(displayValue(dueAt))}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'due_at',
-          details: { actual: dueAt },
+          details: { actual: displayValue(dueAt) },
         });
       }
 
