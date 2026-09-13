@@ -7,7 +7,7 @@
  * shape. No console output happens here — formatters return strings so the
  * CLI handler owns all printing, and exit-code policy stays in the handler.
  *
- * Severity policy (adopted from `planning/VALIDATION_FRAMEWORK_VERDICT.md`):
+ * Severity policy (ADR-0008, decision 3):
  * errors gate the exit code; warnings never do. Human output lists errors
  * before warnings; JSON keeps the documented contract keys and adds
  * `warning_count`/`warnings[]` additively.

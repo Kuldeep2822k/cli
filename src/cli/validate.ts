@@ -64,7 +64,7 @@ const VALIDATION_RULES: ValidationRule[] = [
   validReviewDatesRule,
   // Memory subsystem (#41/#42/#44): schema shape first, then
   // cross-references — #42 skips sessions #41 already reported, and
-  // the index rule never gates (derived view, VERDICT decision 4).
+  // the index rule never gates (derived view, ADR-0008 decision 4).
   validSessionSchemaRule,
   noSessionUnknownTopicRule,
   validSessionIndexRule,

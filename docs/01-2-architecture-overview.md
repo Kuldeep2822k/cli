@@ -4,11 +4,9 @@
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
-- [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
-- [planning/TRIGGER_TRACKER.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/TRIGGER_TRACKER.md?plain=1)
-- [planning/VALIDATION_FRAMEWORK_VERDICT.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/VALIDATION_FRAMEWORK_VERDICT.md?plain=1)
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
+- [docs/adr/0008-validation-framework-decisions.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 
 </details>
 
@@ -81,7 +79,7 @@ flowchart LR
     I -.-> L
 ```
 
-Sources:[src/types.ts#5-60](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L5-L60)[src/engine/sm2.ts#1-40](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L1-L40)[planning/palee_cli_spec.md#50-64](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L50-L64)[planning/TRIGGER_TRACKER.md#43-45](https://github.com/Kuldeep2822k/cli/blob/main/planning/TRIGGER_TRACKER.md?plain=1#L43-L45)
+Sources:[src/types.ts#5-60](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L5-L60)[src/engine/sm2.ts#1-40](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L1-L40)[planning/palee_cli_spec.md#50-64](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L50-L64)
 
 ---
 

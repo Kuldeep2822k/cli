@@ -42,7 +42,7 @@ const CYCLE_ISSUE: ValidationIssue = {
 
 const MISSING_DEP_ISSUE: ValidationIssue = {
   ruleId: 'no-missing-dependency',
-  // Vault-scan severity policy (#34 / VERDICT decision 1): missing
+  // Vault-scan severity policy (#34 / ADR-0008 decision 1): missing
   // dependencies warn; roadmap pre-validation keeps its own error path.
   severity: 'warning',
   message: 'Topic T-broken depends on missing topic T-x',

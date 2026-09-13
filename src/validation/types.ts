@@ -120,7 +120,7 @@ export interface ValidationContext {
    * Classified read of the derived session index (`.palee/index.md`).
    *
    * @remarks `missing` is a valid state — the index is a rebuildable
-   * projection (VERDICT decision 4), never a source of truth; its
+   * projection (ADR-0008 decision 4), never a source of truth; its
    * absence is never reported. `corrupt` carries the parser error for
    * the index rule to report.
    */

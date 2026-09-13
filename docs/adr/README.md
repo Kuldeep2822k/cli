@@ -11,4 +11,5 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0005: Concurrency-Hardened Storage and Automated Schema Migration](./0005-concurrency-storage-and-schema-migration.md)
 - [ADR-0006: Phase 1 Concurrency Resilience, Storage Layer Isolation & Session Duration Tracking](./0006-phase-1-concurrency-resilience-and-storage-isolation.md)
 - [ADR-0007: Hot-Memory Read-State Contract](./0007-hot-memory-read-state-contract.md)
+- [ADR-0008: Validation Rule Framework — Architecture and Product Decisions](./0008-validation-framework-decisions.md)
 

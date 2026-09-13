@@ -9,7 +9,7 @@
  * {@link findMissingDependencies} finds (without paying for the
  * cycle detection that `validateDependencyGraph` also runs).
  *
- * Severity (VERDICT decision 1, `planning/invariants.md`: "Missing
+ * Severity (ADR-0008 decision 1, `planning/invariants.md`: "Missing
  * dependencies block a topic and produce a warning"): `warning` in
  * vault scans. The engine treats a missing prerequisite as having
  * 0.0 mastery, which gracefully quarantines the dependent topic from

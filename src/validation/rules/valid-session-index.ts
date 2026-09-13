@@ -5,7 +5,7 @@
  * Validates `.palee/index.md` as a rebuildable derived view of the
  * canonical sessions. The index helps navigation, but the session
  * notes under `.palee/sessions/` remain the source of truth
- * (VERDICT decision 4: derived-view problems are ALWAYS `warning`,
+ * (ADR-0008 decision 4: derived-view problems are ALWAYS `warning`,
  * never `error` — `session end` self-heals the index via
  * `regenerateIndex`, and a corrupt or stale projection must never
  * gate validation).

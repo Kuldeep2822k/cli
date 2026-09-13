@@ -75,7 +75,7 @@ export interface LoadedSession {
  *
  * @remarks `missing` and `corrupt` carry `null` fields — the index is
  * a rebuildable projection, so absence is a state, not an error
- * (VERDICT decision 4); `refs` holds every session-shaped
+ * (ADR-0008 decision 4); `refs` holds every session-shaped
  * `[[S-…]]`/`[[DRAFT-S-…]]` wikilink in body order, deduplicated, so
  * `valid-session-index` can check each against the confirmed-session
  * set. Non-session wikilinks (topic links, plain note titles) are

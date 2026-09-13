@@ -3,11 +3,10 @@
 <summary><b>Relevant Source Files</b></summary>
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
-- [planning/PHASE_1_CHECKLIST.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1)
-- [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
+- [CHANGELOG.md](https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md?plain=1)
+- [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
-- [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 </details>
 
@@ -88,13 +87,13 @@ Phase 1 implements a set of deterministic commands designed for both human use a
 | Command | Purpose | Output/Contract |
 | --- | --- | --- |
 | `adopt` | Injects `palee_id` and schema into a note. | Adds `palee_schema: 1`[planning/palee_cli_spec.md#122-125](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L122-L125) |
-| `next` | Suggests the next topic based on due date and dependencies. | Supports `--json` for automation [planning/PHASE_1_ISSUES.md#10-12](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L10-L12) |
+| `next` | Suggests the next topic based on due date and dependencies. | Supports `--json` for automation [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1) |
 | `plan` | Generates an ordered study session. | Respects `depends_on` graph [planning/palee_cli_spec.md#70](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L70-L70) |
 | `validate` | Checks for cycles and missing dependencies. | Reports exact cycle paths [planning/invariants.md#37](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L37-L37) |
 
 ### Topic Identification Logic
 
-The system uses a stable `palee_id` as the primary identifier. In Phase 1, resolution uses substring matching, with a more robust resolution engine (ID > Title > Slug) scheduled for Phase 2 [planning/PHASE_1_ISSUES.md#16-20](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L16-L20)
+The system uses a stable `palee_id` as the primary identifier. Topic matching implemented in Phase 1 is per-command: `review` matches an exact ID, a partial ID substring, or a case-insensitive title substring and requires a unique match — multiple candidates error with exit code 2 (`src/cli/review.ts`); `progress` matches the same way but takes the first match (`src/cli/progress.ts`). `session start`/`session end` do not match at all: `--topic` is accepted verbatim (trimmed; `(none)` means no active topic), with hot memory's `active_topic` as the fallback when the flag is omitted (`resolveSessionTopic` in `src/cli/session.ts`). The full precedence ladder — exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match — is the specified contract [planning/invariants.md#42](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L42-L42) with the interactive disambiguation contract in [planning/palee_cli_spec.md#203](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L203-L203), and is tracked as Planned in [08-2](https://github.com/Kuldeep2822k/cli/blob/main/docs/08-2-future-ai-module-and-phase-2-design.md)
 
 Entity Mapping: Natural Language to Code
 
@@ -128,15 +127,15 @@ All Phase 1 gates have been verified as of August 2026.
 
 ### Resolved Issues & Implemented Features
 
-- JSON Support: Implemented across all reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`) [planning/PHASE_1_ISSUES.md#7-13](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L7-L13)
+- JSON Support: Implemented across all reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`) [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - Batch Adoption: Fully implemented in `palee adopt` with `--all`, `--include`, `--exclude`, `--tag`, and `--dry-run` [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - Markdown Roadmap Import: Supports importing from `.md` files containing YAML frontmatter or YAML code fences [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts)
-- Difficulty Normalization: A runtime helper now maps numeric (1-5) and string inputs to the `Difficulty` enum [planning/PHASE_1_ISSUES.md#39-44](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L39-L44)
-- Empty States: Actionable onboarding guidance replaces empty terminal dumps [planning/PHASE_1_ISSUES.md#24-29](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L24-L29)
+- Difficulty Normalization: A runtime helper now maps numeric (1-5) and string inputs to the `Difficulty` enum [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Empty States: Actionable onboarding guidance replaces empty terminal dumps [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 ### Known Gaps (Phase 2)
 
 - AI Integration: `test` and `tutor` commands remain stubs until Phase 2 AI module implementation [planning/PHASE_2_GAPS.md#112-128](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L128)
-- Transactional Auto-Fix: `validate --fix` remains a future enhancement [planning/PHASE_1_ISSUES.md#64-67](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L64-L67)
+- Transactional Auto-Fix: `validate --fix` remains a future enhancement — fixability is modeled in rule metadata (`fixable`), the engine itself is deferred per [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 
-Sources: [planning/PHASE_1_CHECKLIST.md#114-123](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1#L114-L123)[planning/PHASE_1_ISSUES.md#71-83](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L71-L83)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)
+Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)
