@@ -7,7 +7,6 @@
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
-- [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 </details>
 
@@ -94,7 +93,7 @@ Phase 1 implements a set of deterministic commands designed for both human use a
 
 ### Topic Identification Logic
 
-The system uses a stable `palee_id` as the primary identifier. In Phase 1, resolution uses substring matching, with a more robust resolution engine (ID > Title > Slug) scheduled for Phase 2 [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
+The system uses a stable `palee_id` as the primary identifier. Resolution precedence is exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match [planning/invariants.md#42](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L42-L42), with the interactive disambiguation contract specified in [planning/palee_cli_spec.md#203](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L203-L203)
 
 Entity Mapping: Natural Language to Code
 
@@ -137,6 +136,6 @@ All Phase 1 gates have been verified as of August 2026.
 ### Known Gaps (Phase 2)
 
 - AI Integration: `test` and `tutor` commands remain stubs until Phase 2 AI module implementation [planning/PHASE_2_GAPS.md#112-128](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L128)
-- Transactional Auto-Fix: `validate --fix` remains a future enhancement [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
+- Transactional Auto-Fix: `validate --fix` remains a future enhancement — fixability is modeled in rule metadata (`fixable`), the engine itself is deferred per [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 
-Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)
+Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)

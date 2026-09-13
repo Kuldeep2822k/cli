@@ -18,10 +18,10 @@ Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 p
 ### Framework architecture
 
 - **Pure visitor rules.** Every rule is a small, named, testable function implementing `ValidationRule` (`id`, `description`, `severity`, `fixable?`, `run(context)`) over a fully collected `ValidationContext`. Rules never read config, touch the filesystem, prompt, or call the network — collection and exit-code policy live in the CLI/collector layers.
-- **Single-read snapshot.** `collectVault` reads each file exactly once; the same bytes feed parse outcomes, topic normalization, and the memory-subsystem snapshot (sessions, index, hot memory), so a concurrent edit cannot make different rules observe different vault versions. Read failures anywhere in the snapshot are retained and reported (`read-failure`) and mark the scan provisional (`readIncomplete`) — a partial snapshot can never silently validate clean.
+- **Single-read topic snapshot.** `collectVault` reads each file exactly once; the same captured bytes feed the per-file parse outcomes and topic normalization, so a concurrent edit cannot make different topic rules observe different versions of the same note. The memory subsystem (sessions, index, hot memory) is read in the same collection pass, but as its own reads — consistency there is handled by read ordering (the index is read before the sessions directory, closing the concurrent-`session end` interleaving window), not by byte sharing. Read failures anywhere in the snapshot are retained and reported (`read-failure`) and mark the scan provisional (`readIncomplete`) — a partial snapshot can never silently validate clean.
 - **Raw-frontmatter reads.** Rules read pre-normalization values, because the loader coerces and clamps during normalization — validation is where hand-authored corruption becomes visible instead of being silently blessed.
 - **Deterministic output.** Rules run in registration order; findings sort deterministically; scans visit files in sorted order — output is stable across platforms.
-- **One bad note = one finding.** Malformed frontmatter is a warning per file and never aborts the scan (the `planning/invariants.md` resilience rule).
+- **One bad topic note = one finding.** Malformed YAML frontmatter on a walked note is a warning per file (`parse-frontmatter`) and never aborts the scan (the `planning/invariants.md` resilience rule). Session notes carry a stricter contract by design: a malformed session note is an `error` from `valid-session-schema` (the rebuild paths key on its shape), and a parseable session with several defects can produce several findings.
 - **Fixability modeled, `--fix` deferred.** Every rule declares `fixable: false | 'safe' | 'manual'`; the fix engine itself is intentionally deferred until read-only validation is stable (the ESLint serial non-overlapping fixer is the reference design).
 
 ### Decision 1: Missing dependencies are `warning` in vault scans (issue #34)
@@ -42,9 +42,9 @@ A warnings-only vault exits `0` by default and `3` with `palee validate --strict
 
 **Why:** Matches the ESLint/TypeScript/Ruff convention — non-fatal advisories (stale derived views, duplicate array entries, missing prerequisites) do not block local workflows, while CI pipelines requiring zero warnings opt in explicitly. Delivered in #162.
 
-### Decision 4: Derived-view findings never gate (issues #43, #44)
+### Decision 4: Derived-view findings never become errors (issues #43, #44)
 
-Findings on rebuildable projections — `.palee/hot.md` (`valid-hot-memory`) and `.palee/index.md` (`valid-session-index`) — are ALWAYS `warning`, never `error`.
+Findings on rebuildable projections — `.palee/hot.md` (`valid-hot-memory`) and `.palee/index.md` (`valid-session-index`) — are ALWAYS `warning`, never `error`. They never gate the exit code by default: a vault whose only findings are derived-view warnings exits `0`. `--strict` escalates ALL warnings — these included — to exit `3`, per decision 3's opt-in contract; the guarantee is the severity classification (never an error, never a hard validation failure), not immunity from `--strict`.
 
 **Why:** Topic notes and canonical session records are the sole sources of truth (`planning/storage_design.md`, ADR-0007's read-state contract); the derived views are ephemeral projections that `session end`/`rebuildHotAndIndex` regenerate. Crashing validation on self-healing projections would violate storage resilience. A missing index/hot memory is additionally a legal fresh-vault state and never reports. Delivered in #168/#169.
 
