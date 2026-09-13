@@ -132,7 +132,10 @@ const ISO_TIMESTAMP_PATTERN =
 /** True when the value is a strict ISO 8601 timestamp with a real calendar date. */
 function isCanonicalTimestamp(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '') return false;
-  const match = ISO_TIMESTAMP_PATTERN.exec(value.trim());
+  // Raw, unnormalized validation: match and parse the value EXACTLY as
+  // stored — no writer emits padded timestamps, so padding is drift and
+  // must fail, not be normalized away (CodeRabbit).
+  const match = ISO_TIMESTAMP_PATTERN.exec(value);
   if (match === null) return false;
   // Impossible calendar dates (2026-02-30) and rolled-over times
   // (hour 24, minute 60) are normalized by Date — reject them with the
@@ -151,7 +154,7 @@ function isCanonicalTimestamp(value: unknown): value is string {
   // digits but not a real instant — a final Date parse catches it
   // (everything else is already validated, so this cannot normalize a
   // rejected form into passing).
-  return !Number.isNaN(new Date(value.trim()).getTime());
+  return !Number.isNaN(new Date(value).getTime());
 }
 
 /**

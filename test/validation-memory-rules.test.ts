@@ -683,6 +683,8 @@ describe('valid-session-schema rule (#41)', () => {
       '2026-09-12T24:00:00Z', // hour 24 (Date normalizes to next day)
       '2026-09-12T10:00:00+99:99', // out-of-range offset
       '2026-09-12T10:00:00+0530', // basic offset form (extended ±HH:MM only)
+      ' 2026-09-12T10:00:00.000Z', // whitespace-padded (raw values are validated as stored)
+      '2026-09-12T10:00:00.000Z ', // trailing padding
     ];
     for (const bad of badTimestamps) {
       const session = makeSession({
@@ -699,12 +701,12 @@ describe('valid-session-schema rule (#41)', () => {
         `started_at ${JSON.stringify(bad)} must be rejected`
       );
     }
-    // ended_at is held to the same shape.
+    // ended_at is held to the same shape (including the padded form).
     const badEnd = makeSession({
       sessionId: 'S-1',
       frontmatter: {
         ...confirmedFrontmatter('S-1', 'T-topic'),
-        ended_at: '2026-09-12',
+        ended_at: ' 2026-09-12T10:30:00.000Z',
       },
     });
     const endIssues = validSessionSchemaRule.run(makeContext({ sessions: [badEnd] }));
