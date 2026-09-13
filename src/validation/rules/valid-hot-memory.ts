@@ -126,14 +126,21 @@ export const validHotMemoryRule: ValidationRule = {
     }
 
     const activeTopic = fm.active_topic;
-    if (typeof activeTopic === 'string' && activeTopic.trim() !== '' && !topicIds.has(activeTopic)) {
+    if (
+      typeof activeTopic === 'string' &&
+      activeTopic.trim() !== '' &&
+      // The consumer (resolveActiveTopic) treats any casing of "(none)"
+      // as the idle state — no active topic — never as a reference.
+      activeTopic.trim().toLowerCase() !== '(none)' &&
+      !topicIds.has(activeTopic.trim())
+    ) {
       issues.push({
         ruleId: 'valid-hot-memory',
         severity: 'warning',
-        message: `Hot memory references unknown topic ${activeTopic} (no topic note exists; hot.md is rebuildable from canonical sessions)`,
+        message: `Hot memory references unknown topic ${activeTopic.trim()} (no topic note exists; hot.md is rebuildable from canonical sessions)`,
         file: '.palee/hot.md',
         field: 'active_topic',
-        details: { missingTopic: activeTopic },
+        details: { missingTopic: activeTopic.trim() },
       });
     }
 

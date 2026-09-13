@@ -234,6 +234,7 @@ flowchart LR
         ErrAssess["bad assessment fields / assessed_at"]
         ErrReview["SM-2 review state or dates invalid"]
         ErrSession["session schema invalid"]
+        ErrPaths["vault path escape"]
     end
 
     subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
@@ -246,7 +247,6 @@ flowchart LR
         WarnSessionTopic["session references unknown topic"]
         WarnIndex["stale or broken session index"]
         WarnHot["hot memory drifted"]
-        ErrPaths["vault path escape"]
     end
     
     Storage --> Scan

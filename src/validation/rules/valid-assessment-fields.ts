@@ -68,7 +68,7 @@ export const validAssessmentFieldsRule: ValidationRule = {
             file: topic.path,
             topicId: topic.palee_id,
             field,
-            details: { actual: value },
+            details: { actual: displayValue(value) },
           });
         }
       }

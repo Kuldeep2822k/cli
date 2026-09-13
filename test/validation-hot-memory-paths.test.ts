@@ -232,6 +232,47 @@ describe('valid-hot-memory rule (#43)', () => {
     assert.deepStrictEqual(validHotMemoryRule.run(context), []);
   });
 
+  test('padded active_topic resolves like the consumer (trim before matching)', () => {
+    // resolveActiveTopic trims before use; a padded " T-topic " is the
+    // same reference to the consumer and must not warn here either.
+    const context = makeContext({
+      sessions: [makeSession()],
+      topics: [makeTopic()], // T-topic exists
+      hotMemory: makeHot({ active_topic: ' T-topic ' }),
+    });
+    assert.deepStrictEqual(validHotMemoryRule.run(context), []);
+  });
+
+  test('case-insensitive (none) active_topic is the idle state, never a warning', () => {
+    // The consumer treats any casing of "(none)" as no active topic
+    // (resolveActiveTopic); the rule must not report it as a reference.
+    for (const idle of ['(none)', '(None)', '(NONE)']) {
+      const context = makeContext({
+        sessions: [makeSession()],
+        topics: [], // no topics exist
+        hotMemory: makeHot({ active_topic: idle }),
+      });
+      assert.deepStrictEqual(
+        validHotMemoryRule.run(context),
+        [],
+        `active_topic ${idle} is the idle state and must never warn`
+      );
+    }
+  });
+
+  test('padded last_session still reports (the consumer does not trim it)', () => {
+    // session.ts reads last_session without trimming — a padded
+    // reference is genuinely broken for the consumer too.
+    const context = makeContext({
+      sessions: [makeSession()], // S-1 exists unpadded
+      topics: [makeTopic()], // T-topic resolves (active_topic default)
+      hotMemory: makeHot({ last_session: ' S-1 ' }),
+    });
+    const issues = validHotMemoryRule.run(context);
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].field, 'last_session');
+  });
+
   test('rule metadata: id, warning severity, safe fixability (rebuildable)', () => {
     assert.strictEqual(validHotMemoryRule.id, 'valid-hot-memory');
     assert.strictEqual(validHotMemoryRule.severity, 'warning');
@@ -371,5 +412,29 @@ describe('diagnostic-value helper (#166)', () => {
     assert.ok(issues.length >= 1, 'NaN assessed_at must produce a finding');
     assert.match(issues[0].message, /got "NaN"/);
     assert.strictEqual(issues[0].details?.actual, 'NaN');
+  });
+
+  test('score findings keep the non-finite distinction in details.actual (Greptile)', async () => {
+    // The score branch must render NaN in BOTH the message and the
+    // machine-readable details.actual — a JSON consumer reading only
+    // details.actual must not see null (Greptile P2).
+    const context = makeContext({
+      topics: [makeTopic({
+        palee_id: 'T-nan',
+        path: 'nan.md',
+        frontmatter: { palee_id: 'T-nan', conceptual: NaN, practical: Infinity },
+      })],
+      hotMemory: { state: 'missing', frontmatter: null, body: '' },
+    });
+    const { validAssessmentFieldsRule } = await import('../src/validation/rules/valid-assessment-fields');
+    const issues = validAssessmentFieldsRule.run(context);
+    assert.strictEqual(issues.length, 2);
+    const byField = new Map(issues.map((i) => [i.field, i]));
+    assert.strictEqual(byField.get('conceptual')?.details?.actual, 'NaN');
+    assert.match(byField.get('conceptual')?.message ?? '', /got "NaN"/);
+    assert.strictEqual(byField.get('practical')?.details?.actual, 'Infinity');
+    // JSON round-trip keeps the distinction (the original bug: null).
+    const serialized = JSON.parse(JSON.stringify(issues.map((i) => i.details?.actual)));
+    assert.deepStrictEqual(serialized, ['NaN', 'Infinity']);
   });
 });
