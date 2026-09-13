@@ -111,7 +111,7 @@ describe('validate command: framework wiring (#25)', () => {
 
   test('error vault exits 3 in JSON mode; errors keep legacy type keys', async () => {
     // Missing dependency is a WARNING since the #34 severity policy
-    // (VERDICT decision 1) — a duplicate ID is the pinned error here.
+    // (ADR-0008 decision 1) — a duplicate ID is the pinned error here.
     writeTopic('a.md', 'T-dup');
     writeTopic('b.md', 'T-dup');
 

@@ -245,7 +245,7 @@ describe('no-missing-dependency rule (ported from engine)', () => {
 
     assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0].ruleId, 'no-missing-dependency');
-    // Vault-scan severity policy (VERDICT decision 1 / #34): missing
+    // Vault-scan severity policy (ADR-0008 decision 1 / #34): missing
     // dependencies warn — the engine quarantines the dependent topic
     // instead of failing the scan; roadmap pre-validation keeps its own
     // separate error path.

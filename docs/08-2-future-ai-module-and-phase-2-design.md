@@ -3,7 +3,7 @@
 <summary><b>Relevant Source Files</b></summary>
 
 - [agent.md](https://github.com/Kuldeep2822k/cli/blob/main/agent.md?plain=1)
-- [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
+- [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
 - [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
@@ -182,7 +182,7 @@ Based on `PHASE_2_GAPS.md`, the remaining CLI and AI enhancements are scheduled 
 | Markdown Roadmaps | **Completed** | Support roadmap definitions inside `.md` files using frontmatter or YAML fences [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts) | `roadmap.ts` |
 | Batch Adopt | **Completed** | `palee adopt --all` (plus `--include`, `--exclude`, `--tag`) to scan and adopt untracked notes [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) | `adopt.ts` |
 | Auto-ID Generation | Planned | Generate `T-` prefixed IDs from filenames (e.g., `Docker.md` -> `T-docker`) [planning/PHASE_2_GAPS.md#91-102](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L91-L102) | `src/types.ts` |
-| Topic Resolution | Planned | Advanced matching: exact ID → title → slug → token distance [planning/PHASE_1_ISSUES.md#16-20](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L16-L20) | `src/engine/index.ts` |
-| Transactional Fixes | Planned | Implementation of `validate --fix` to resolve broken dependencies or missing fields [planning/PHASE_1_ISSUES.md#64-67](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L64-L67) | `validate.ts` |
+| Topic Resolution | Planned | Advanced matching: exact ID → title → slug → token distance [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1) | `src/engine/index.ts` |
+| Transactional Fixes | Planned | Implementation of `validate --fix` to resolve broken dependencies or missing fields [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1) | `validate.ts` |
 
-Sources:[planning/PHASE_2_GAPS.md#1-110](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L110)[planning/PHASE_1_ISSUES.md#1-83](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1#L1-L83)
+Sources:[planning/PHASE_2_GAPS.md#1-110](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L110)[planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)

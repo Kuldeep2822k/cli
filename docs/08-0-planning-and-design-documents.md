@@ -2,11 +2,8 @@
 <details>
 <summary><b>Relevant Source Files</b></summary>
 
-- [planning/PHASE_1_CHECKLIST.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1)
-- [planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
-- [planning/TRIGGER_TRACKER.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/TRIGGER_TRACKER.md?plain=1)
-- [planning/VALIDATION_FRAMEWORK_VERDICT.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/VALIDATION_FRAMEWORK_VERDICT.md?plain=1)
+- [docs/adr/0008-validation-framework-decisions.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
 - [planning/cicd_dependency_management_proposal.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/cicd_dependency_management_proposal.md?plain=1)
 - [planning/example_workflows.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/example_workflows.md?plain=1)
@@ -32,7 +29,7 @@ Phase 1 focuses on the deterministic core of PALEE: the storage layer, the SM-2 
 
 ### Implementation Tracking
 
-The implementation was managed through a gate-controlled checklist, ensuring Gate 0 (Setup) through Gate 5 (Packaging) met all acceptance criteria before proceeding [planning/PHASE_1_CHECKLIST.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_CHECKLIST.md?plain=1) Current execution is driven by a Trigger Tracker, which prioritizes tasks from Invariant Violations (Trigger 1) to Spikes/Research (Trigger 5) [planning/TRIGGER_TRACKER.md#8-16](https://github.com/Kuldeep2822k/cli/blob/main/planning/TRIGGER_TRACKER.md?plain=1#L8-L16)
+The implementation was managed through a gate-controlled checklist, ensuring Gate 0 (Setup) through Gate 5 (Packaging) met all acceptance criteria before proceeding [CHANGELOG.md](https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md?plain=1) The sprint-scoped planning logs that tracked day-to-day execution (trigger tracker, issue log, phase checklist) were removed once Phase 1 completed — the durable records are [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1), `docs/adr/`, and the closed issue/PR history.
 
 For details, see [Phase 1 Specification and Invariants](./08-1-phase-1-specification-and-invariants.md)
 
@@ -175,6 +172,6 @@ Sources:[planning/memory_design.md#91-100](https://github.com/Kuldeep2822k/cli/b
 | `ai_module_design.md` | AI Integration | `Tool-Calling Loop`, `Assessment Proposal` |
 | `memory_design.md` | Continuity | `hot.md`, `DRAFT-S-*`, `250-word cap` |
 | `roadmap_design.md` | Curriculum | `Topic DAG`, `R-` prefix, `Guided Interview` |
-| `PHASE_1_ISSUES.md` | Bug Tracking | `Topic Resolution`, `Difficulty Mismatch` |
+| ~~`PHASE_1_ISSUES.md`~~ (removed) | Bug Tracking | Superseded by the GitHub issue tracker and closed-issue history |
 
-Sources:[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)[planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)[planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)[planning/PHASE_1_ISSUES.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_1_ISSUES.md?plain=1)
+Sources:[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)[planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)[planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)

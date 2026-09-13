@@ -83,4 +83,4 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.
 - No native modules, no SQLite addons; prod deps pure JS (`commander` + `yaml` only — don't add runtime deps casually).
 - Preserve `bin/palee.ts` shebang and the `./dist/bin/palee.js` bin path. Keep rootDir `./` implications in mind (test/ compiles into dist; tarball forbids shipping it).
 
-Reference docs for design intent: `planning/palee_cli_spec.md`, `planning/invariants.md` (authoritative acceptance criteria), `planning/storage_design.md`, `planning/memory_design.md`, `planning/PHASE_2_GAPS.md`, `planning/TRIGGER_TRACKER.md`.
+Reference docs for design intent: `planning/palee_cli_spec.md`, `planning/invariants.md` (authoritative acceptance criteria), `planning/storage_design.md`, `planning/memory_design.md`, `planning/PHASE_2_GAPS.md`.

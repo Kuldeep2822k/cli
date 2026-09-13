@@ -6,7 +6,7 @@
  * learning context — the note that orients `session start` when the
  * user resumes. The canonical session notes and topic notes are the
  * source of truth; hot memory is a projection, so findings are
- * `warning` and never gate the exit code (VERDICT decision 4 — the
+ * `warning` and never gate the exit code (ADR-0008 decision 4 — the
  * same derived-view policy as `valid-session-index` #44). A rebuild
  * (`rebuildHotAndIndex`) restores correctness from canonical data.
  *
