@@ -35,6 +35,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
+import { isRealCalendarDate } from './assessed-at';
 import type { LoadedSession } from '../../storage/sessions';
 
 /** Required fields every session note must carry. */
@@ -62,7 +63,10 @@ function displayValue(value: unknown): unknown {
  */
 export function isSessionSchemaClean(session: LoadedSession): boolean {
   if (session.readError !== undefined) return false; // read-failure rule's finding
-  if (session.frontmatter === null) return false; // #41's parse finding
+  // Parse failures are #41's findings: check parseError explicitly, not
+  // only frontmatter === null, so a future parse path that leaves
+  // partial values alongside an error can never be schema-judged (Kilo).
+  if (session.parseError !== undefined || session.frontmatter === null) return false;
   const fm: Record<string, unknown> = session.frontmatter;
 
   // palee_schema: integer 1 (the version check above).
@@ -109,22 +113,45 @@ export function isSessionSchemaClean(session: LoadedSession): boolean {
   return true;
 }
 
-/** True when the value is a strict ISO 8601 timestamp with an explicit timezone. */
+/**
+ * Strict ISO 8601 timestamp shape: `YYYY-MM-DDTHH:MM:SS(.sss)?(Z|±HH:MM)`.
+ *
+ * @remarks `new Date()` accepts far more than ISO 8601 — space
+ * separators, human-readable strings, `GMT+…` forms — and silently
+ * normalizes impossible calendar dates and hour 24 into valid instants
+ * (Greptile P1 / CodeRabbit). The writers only ever produce strict
+ * ISO (the `Z` form from `toISOString()`, or caller-supplied offset
+ * forms persisted unchanged). The check therefore (a) pins the exact
+ * syntactic shape, (b) validates the calendar date is real via the
+ * shared `isRealCalendarDate` (same policy as the #39/#36 date rules),
+ * and (c) requires an explicit timezone designator.
+ */
+const ISO_TIMESTAMP_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+
+/** True when the value is a strict ISO 8601 timestamp with a real calendar date. */
 function isCanonicalTimestamp(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '') return false;
-  // `Date.parse` accepts date-only strings, timezone-less strings, and
-  // human-readable dates — none of which any writer emits. But the
-  // strict surface is ISO 8601 WITH a timezone designator (`Z` or
-  // `±HH:MM`), not only `toISOString()`'s `…Z` form: `writeSessionNote`
-  // persists caller-supplied strings unchanged and its own tests use
-  // offset forms like `2026-08-08T18:00:00+05:30` (Greptile). Only
-  // strings whose parse succeeds AND that carry an explicit designator
-  // pass; the time is compared as an instant (Date), never as text.
-  const trimmed = value.trim();
-  const time = new Date(trimmed).getTime();
-  if (Number.isNaN(time)) return false;
-  // Explicit timezone designator: trailing Z/z, or ±HH:MM / ±HHMM offset.
-  return /(?:Z|z)$|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  const match = ISO_TIMESTAMP_PATTERN.exec(value.trim());
+  if (match === null) return false;
+  // Impossible calendar dates (2026-02-30) and rolled-over times
+  // (hour 24, minute 60) are normalized by Date — reject them with the
+  // shared real-calendar validator and explicit range checks instead.
+  const [year, month, day, hour, minute, second] = [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+    Number(match[6]),
+  ];
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  if (!isRealCalendarDate(year, month, day)) return false;
+  // Last guard: an out-of-range offset (+99:99) is syntactically two
+  // digits but not a real instant — a final Date parse catches it
+  // (everything else is already validated, so this cannot normalize a
+  // rejected form into passing).
+  return !Number.isNaN(new Date(value.trim()).getTime());
 }
 
 /**
@@ -350,7 +377,9 @@ export const validSessionSchemaRule: ValidationRule = {
         });
       }
 
-      // Chronology: only decidable when both timestamps are valid.
+      // Chronology: only decidable when both timestamps are valid
+      // (both are strict ISO at this point, so the Date comparison is
+      // safe — the strict-shape check already rejected normalized forms).
       if (
         status === 'completed' &&
         isCanonicalTimestamp(started) &&

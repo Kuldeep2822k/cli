@@ -143,9 +143,10 @@ function loadSessions(
     if (!file.endsWith('.md')) continue;
     const isDraft = file.startsWith('DRAFT-S-');
     const isConfirmed = file.startsWith('S-');
-    // Stray non-session markdown in the sessions dir: read it too so
-    // the schema rule can report it rather than silently ignoring
-    // misplaced managed data. The stem is still the ID signal.
+    // Stray non-session markdown in the sessions dir (backups, editor
+    // droppage) is NOT canonical session data — excluded from the
+    // loaded set here and never schema-judged. Only S-*/DRAFT-S-*
+    // filenames are session notes; the stem is the ID signal.
     if (!isDraft && !isConfirmed) continue;
 
     const filePath = path.join(sessionsDir, file);

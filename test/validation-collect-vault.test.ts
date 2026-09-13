@@ -388,6 +388,30 @@ describe('Validation vault collection', () => {
     );
   });
 
+  test('stray non-session markdown in the sessions dir is skipped, not validated (Kilo)', () => {
+    // The sessions directory is PALEE-managed storage: only S-*/DRAFT-S-*
+    // files are canonical session data. A stray file (backup, editor
+    // droppage) is not session data — excluded from the loaded set and
+    // never schema-judged. Pins the loader's filter so the comment and
+    // the code can never drift apart again.
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'backup-copy.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-zzz\nstarted_at: garbage\n---\n# Stray\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.strictEqual(context.sessions.length, 1);
+    assert.strictEqual(context.sessions[0].sessionId, 'S-20260912T100000-abcd');
+  });
+
   test('index is read before the sessions dir (no unknown-session false positive under concurrent session end)', () => {
     // CodeRabbit race: `session end` writes the confirmed note BEFORE
     // regenerating the index. Reading sessions first and the index

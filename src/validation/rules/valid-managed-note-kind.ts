@@ -130,11 +130,14 @@ export const validManagedNoteKindRule: ValidationRule = {
       });
     }
     if (context.hotMemory.state === 'ok' && context.hotMemory.frontmatter) {
+      // Type-safe access: `ok` state guarantees frontmatter is non-null
+      // (the guard above narrows it), and HotMemoryData's fields are a
+      // subset of Record<string, unknown> — read `type` without a cast.
+      const hotFm: Record<string, unknown> = { ...context.hotMemory.frontmatter };
       internal.push({
-        fm: context.hotMemory.frontmatter as Record<string, unknown>,
+        fm: hotFm,
         path: '.palee/hot.md',
-        indexMarker:
-          (context.hotMemory.frontmatter as Record<string, unknown>).type === INDEX_TYPE,
+        indexMarker: hotFm.type === INDEX_TYPE,
       });
     }
     for (const note of internal) {

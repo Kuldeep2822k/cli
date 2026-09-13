@@ -555,6 +555,23 @@ describe('valid-session-schema rule (#41)', () => {
     assert.strictEqual(issues[0].field, 'started_at');
   });
 
+  test('parsed session with malformed frontmatter is not schema-clean (parseError explicit)', () => {
+    // isSessionSchemaClean must reject on an explicit parseError, not
+    // only on frontmatter === null — a future parse path that leaves
+    // partial frontmatter alongside an error must still be #41's
+    // finding, never judged by #42.
+    const context = makeContext({
+      topics: [],
+      sessions: [
+        makeSession({
+          frontmatter: { ...confirmedFrontmatter('S-1', 'T-ghost') },
+          parseError: 'parser reported errors but left values',
+        }),
+      ],
+    });
+    assert.deepStrictEqual(noSessionUnknownTopicRule.run(context), []);
+  });
+
   test('rule metadata: id, error severity, manual fixability', () => {
     assert.strictEqual(validSessionSchemaRule.id, 'valid-session-schema');
     assert.strictEqual(validSessionSchemaRule.severity, 'error');
@@ -660,6 +677,12 @@ describe('valid-session-schema rule (#41)', () => {
       '2026-09-12T10:00:00.000', // timezone-less
       'September 12, 2026', // parseable junk
       '2026-13-45T99:99:99Z', // designator present but impossible instant
+      '2026-02-30T10:00:00Z', // calendar rollover (Date normalizes to March 2)
+      '2026-09-12 10:00:00Z', // space separator (Date accepts, ISO does not)
+      'Sat Sep 12 2026 10:00:00 GMT+0530', // human-readable form with offset
+      '2026-09-12T24:00:00Z', // hour 24 (Date normalizes to next day)
+      '2026-09-12T10:00:00+99:99', // out-of-range offset
+      '2026-09-12T10:00:00+0530', // basic offset form (extended ±HH:MM only)
     ];
     for (const bad of badTimestamps) {
       const session = makeSession({
