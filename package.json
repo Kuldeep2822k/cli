@@ -15,6 +15,7 @@
   "files": [
     "dist/src",
     "dist/bin",
+    "dist/package.json",
     "CHANGELOG.md"
   ],
   "scripts": {
