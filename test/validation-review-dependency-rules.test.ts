@@ -55,7 +55,11 @@ function makeContext(
     files: notes.map((n) => n.absolutePath),
     topics,
     notes,
+    memoryReadErrors: [],
     readIncomplete: false,
+    sessions: [],
+    sessionIndex: { state: 'missing', refs: null },
+    hotMemory: { state: 'missing', frontmatter: null, body: '' },
   };
 }
 

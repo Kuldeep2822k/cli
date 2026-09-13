@@ -35,6 +35,10 @@ export const parseFrontmatterRule: ValidationRule = {
  * @remarks Distinct from parse failures: a read failure means validation
  * ran on an incomplete snapshot — the note might be perfectly healthy but
  * locked or deleted mid-scan. Warning-only, never gates the exit code.
+ * Covers every layer of the snapshot: walked notes, session notes
+ * (`.palee/sessions/`), and memory-subsystem components (the sessions
+ * directory itself, `index.md`, `hot.md`) — a partial snapshot is
+ * reported wherever it was discovered, never silently passed over.
  */
 export const readFailureRule: ValidationRule = {
   id: 'read-failure',
@@ -42,7 +46,7 @@ export const readFailureRule: ValidationRule = {
   severity: 'warning',
   fixable: false,
   run(context) {
-    return context.notes
+    const noteFailures = context.notes
       .filter((note) => note.readError !== undefined)
       .map((note) => ({
         ruleId: 'read-failure',
@@ -50,7 +54,25 @@ export const readFailureRule: ValidationRule = {
         message: `Could not read ${note.relativePath}: ${note.readError} (validation ran on an incomplete snapshot)`,
         file: note.relativePath,
         details: { readError: note.readError },
-      }))
-      .sort((a, b) => (a.file! < b.file! ? -1 : a.file! > b.file! ? 1 : 0));
+      }));
+    const sessionFailures = context.sessions
+      .filter((session) => session.readError !== undefined)
+      .map((session) => ({
+        ruleId: 'read-failure',
+        severity: 'warning' as const,
+        message: `Could not read ${session.path}: ${session.readError} (validation ran on an incomplete snapshot)`,
+        file: session.path,
+        details: { readError: session.readError },
+      }));
+    const componentFailures = context.memoryReadErrors.map((error) => ({
+      ruleId: 'read-failure',
+      severity: 'warning' as const,
+      message: `Could not read ${error.path}: ${error.readError} (validation ran on an incomplete snapshot)`,
+      file: error.path,
+      details: { readError: error.readError },
+    }));
+    return [...noteFailures, ...sessionFailures, ...componentFailures].sort((a, b) =>
+      a.file! < b.file! ? -1 : a.file! > b.file! ? 1 : 0
+    );
   },
 };

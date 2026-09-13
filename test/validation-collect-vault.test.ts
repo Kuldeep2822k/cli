@@ -231,4 +231,228 @@ describe('Validation vault collection', () => {
       false
     );
   });
+
+  test('memory subsystem is collected in the same snapshot (#41/#42/#44)', () => {
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'DRAFT-S-1a2b3c4d.md'),
+      '---\npalee_schema: 1\nsession_id: DRAFT-S-1a2b3c4d\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: null\nstatus: draft\n---\n# Draft\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-bad.md'),
+      '---\nsession_id: [unclosed\n---\n# Broken\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n- [[S-gone]] - Topic: T-a (2026-09-12)\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'hot.md'),
+      '---\npalee_schema: 1\nmemory_id: H-active\nlast_session: S-20260912T100000-abcd\nactive_topic: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nupdated_at: 2026-09-12\n---\nStudied A.\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    // Sessions: sorted by filename, drafts flagged, parse outcomes kept.
+    assert.strictEqual(context.sessions.length, 3);
+    assert.deepStrictEqual(
+      context.sessions.map((s) => s.sessionId),
+      ['DRAFT-S-1a2b3c4d', 'S-20260912T100000-abcd', 'S-bad']
+    );
+    const draft = context.sessions[0];
+    assert.strictEqual(draft.isDraft, true);
+    assert.strictEqual(draft.frontmatter?.status, 'draft');
+    const bad = context.sessions[2];
+    assert.strictEqual(bad.frontmatter, null);
+    assert.ok(bad.parseError !== undefined);
+
+    // Index: parsed with refs in first-seen order.
+    assert.strictEqual(context.sessionIndex.state, 'ok');
+    assert.deepStrictEqual((context.sessionIndex as { refs: string[] }).refs, [
+      'S-20260912T100000-abcd',
+      'S-gone',
+    ]);
+
+    // Hot memory: classified ok.
+    assert.strictEqual(context.hotMemory.state, 'ok');
+    assert.strictEqual(context.hotMemory.frontmatter?.active_topic, 'T-a');
+
+    // The broken session note (frontmatter null but READ fine — the
+    // parse failed, not the read) must NOT set readIncomplete: parse
+    // failures are schema-rule findings, not provisional-scan signals.
+    assert.strictEqual(context.readIncomplete, false);
+  });
+
+  test('fresh vault has an empty memory subsystem and every memory rule passes', () => {
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.deepStrictEqual(context.sessions, []);
+    assert.strictEqual(context.sessionIndex.state, 'missing');
+    assert.strictEqual(context.hotMemory.state, 'missing');
+    assert.strictEqual(context.readIncomplete, false);
+  });
+
+  test('unreadable session note is retained with readError and marks the snapshot incomplete', () => {
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T110000-ffff.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T110000-ffff\ntopic_id: T-a\nstarted_at: 2026-09-12T11:00:00.000Z\nended_at: 2026-09-12T11:30:00.000Z\nstatus: completed\n---\n# Session 2\n',
+      'utf8'
+    );
+
+    // Make the second session unreadable on Windows: a directory named
+    // like the file makes readFileSync fail with EISDIR — deterministic
+    // and cross-platform (no ACL games).
+    fs.rmSync(path.join(sessionsDir, 'S-20260912T110000-ffff.md'));
+    fs.mkdirSync(path.join(sessionsDir, 'S-20260912T110000-ffff.md'));
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.sessions.length, 2);
+    const locked = context.sessions.find(
+      (s) => s.sessionId === 'S-20260912T110000-ffff'
+    );
+    assert.ok(locked, 'unreadable session must survive collection');
+    assert.ok(locked.readError);
+    assert.strictEqual(locked.frontmatter, null);
+    assert.strictEqual(locked.parseError, undefined);
+    // The readable session is still fully collected.
+    const healthy = context.sessions.find(
+      (s) => s.sessionId === 'S-20260912T100000-abcd'
+    );
+    assert.ok(healthy);
+    assert.strictEqual(healthy.readError, undefined);
+    assert.strictEqual(healthy.frontmatter?.status, 'completed');
+    // Kilo CRITICAL: the incomplete snapshot must be signalled.
+    assert.strictEqual(context.readIncomplete, true);
+    assert.deepStrictEqual(context.memoryReadErrors, []);
+  });
+
+  test('sessions dir replaced by a file is reported, not treated as a fresh vault', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee'));
+    fs.writeFileSync(path.join(tmpVault, '.palee', 'sessions'), 'not a dir');
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.deepStrictEqual(context.sessions, []);
+    assert.strictEqual(context.readIncomplete, true);
+    assert.strictEqual(context.memoryReadErrors.length, 1);
+    assert.strictEqual(context.memoryReadErrors[0].path, '.palee/sessions/');
+    assert.match(context.memoryReadErrors[0].readError, /ENOTDIR/);
+  });
+
+  test('index.md unreadable (EISDIR) is reported as a component read error', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee', 'index.md'), { recursive: true });
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.readIncomplete, true);
+    const indexErr = context.memoryReadErrors.find((e) => e.path === '.palee/index.md');
+    assert.ok(indexErr, 'index read failure must be captured');
+    assert.match(indexErr.readError, /EISDIR/);
+    // The index read state stays missing-shaped — the index rule still
+    // never reports on it (missing is a legal state); the read-failure
+    // warning carries the failure.
+    assert.strictEqual(context.sessionIndex.state, 'missing');
+  });
+
+  test('topic wikilinks in the index body are not session refs', () => {
+    fs.mkdirSync(path.join(tmpVault, '.palee'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n- [[T-typescript]] - related topic\n- [[Some Note]] - explanation\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    assert.strictEqual(context.sessionIndex.state, 'ok');
+    assert.deepStrictEqual(
+      (context.sessionIndex as { refs: string[] }).refs,
+      ['S-20260912T100000-abcd']
+    );
+  });
+
+  test('stray non-session markdown in the sessions dir is skipped, not validated (Kilo)', () => {
+    // The sessions directory is PALEE-managed storage: only S-*/DRAFT-S-*
+    // files are canonical session data. A stray file (backup, editor
+    // droppage) is not session data — excluded from the loaded set and
+    // never schema-judged. Pins the loader's filter so the comment and
+    // the code can never drift apart again.
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, 'backup-copy.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-zzz\nstarted_at: garbage\n---\n# Stray\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.strictEqual(context.sessions.length, 1);
+    assert.strictEqual(context.sessions[0].sessionId, 'S-20260912T100000-abcd');
+  });
+
+  test('index is read before the sessions dir (no unknown-session false positive under concurrent session end)', () => {
+    // CodeRabbit race: `session end` writes the confirmed note BEFORE
+    // regenerating the index. Reading sessions first and the index
+    // second can observe the index already referencing a note the
+    // sessions read missed — a false unknown-session warning. Reading
+    // the INDEX first closes the window: an index ref observed at t1
+    // implies its session note was written before t1, and the sessions
+    // read at t2 > t1 sees it.
+    // Pin the read ORDER: a ref in the index must also be in the
+    // session set when the note exists on disk.
+    const sessionsDir = path.join(tmpVault, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'S-20260912T100000-abcd.md'),
+      '---\npalee_schema: 1\nsession_id: S-20260912T100000-abcd\ntopic_id: T-a\nstarted_at: 2026-09-12T10:00:00.000Z\nended_at: 2026-09-12T10:30:00.000Z\nstatus: completed\n---\n# Session\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, '.palee', 'index.md'),
+      '---\npalee_schema: 1\ntype: session_index\n---\n# PALEE Session Index\n\n- [[S-20260912T100000-abcd]] - Topic: T-a (2026-09-12)\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+    assert.strictEqual(context.sessions.length, 1);
+    assert.strictEqual((context.sessionIndex as { refs: string[] }).refs.length, 1);
+
+    // Order contract: readSessionIndex is called before loadSessions
+    // (observable through the memoryReadErrors order when both fail —
+    // the index error is appended first).
+    const tmpVault2 = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-order-'));
+    try {
+      fs.mkdirSync(path.join(tmpVault2, '.palee', 'index.md'), { recursive: true });
+      fs.writeFileSync(path.join(tmpVault2, '.palee', 'sessions'), 'not a dir');
+      const ctx2 = collectVault(tmpVault2, { cache: new FileCache<LoadedTopic>() });
+      assert.deepStrictEqual(
+        ctx2.memoryReadErrors.map((e) => e.path),
+        ['.palee/index.md', '.palee/sessions/']
+      );
+    } finally {
+      fs.rmSync(tmpVault2, { recursive: true, force: true });
+    }
+  });
 });

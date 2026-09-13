@@ -17,6 +17,8 @@
 import { loadTopics } from '../storage/loader';
 import { scanNotes } from '../storage/scanner';
 import { FileCache } from '../storage/cache';
+import { loadSessions, readSessionIndex, readHotMemoryForValidation, type MemoryReadError } from '../storage/sessions';
+import type { HotMemoryRead } from '../storage/memory';
 import type { LoadedTopic } from '../storage/loader';
 import type { ValidationContext } from './types';
 
@@ -87,12 +89,54 @@ function collectVault(
     cache: options.cache ?? new FileCache<LoadedTopic>(),
   });
 
+  // Memory subsystem snapshot (#41/#42/#44): sessions, the derived
+  // index, and hot memory are read in the same collection pass so a
+  // concurrent `session end` cannot make rules observe mismatched
+  // halves of the memory subsystem. All three tolerate absence — a
+  // fresh vault has an empty memory subsystem and every memory rule
+  // must pass on it. Component-level read failures (sessions dir not
+  // enumerable, index/hot unreadable) land in memoryReadErrors —
+  // the read-failure rule reports them.
+  const memoryReadErrors: MemoryReadError[] = [];
+  // Read order matters under a concurrent `session end`: the confirmed
+  // note is written BEFORE the index is regenerated. Reading the index
+  // FIRST closes the interleaving window — every index ref observed at
+  // t1 implies its session note already existed on disk, and the
+  // sessions read at t2 > t1 must see it (CodeRabbit). The reverse
+  // order could observe a regenerated index referencing a note the
+  // earlier sessions read missed → false unknown-session warning.
+  const sessionIndex = readSessionIndex(vaultPath, memoryReadErrors);
+  const sessions = loadSessions(vaultPath, memoryReadErrors);
+  // Hot memory is a tolerant read with its own state contract (#130)
+  // — only a non-ENOENT filesystem failure throws, which becomes a
+  // component read error here instead of aborting the whole scan.
+  let hotMemory: HotMemoryRead;
+  try {
+    hotMemory = readHotMemoryForValidation(vaultPath);
+  } catch (err: unknown) {
+    hotMemory = { state: 'missing', frontmatter: null, body: '' };
+    memoryReadErrors.push({
+      path: '.palee/hot.md',
+      readError: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   return {
     vaultPath,
     files,
     topics,
     notes,
-    readIncomplete: notes.some((note) => note.readError !== undefined),
+    sessions,
+    sessionIndex,
+    hotMemory,
+    memoryReadErrors,
+    readIncomplete:
+      notes.some((note) => note.readError !== undefined) ||
+      // An unreadable session note means the index/unknown-topic
+      // rules see an incomplete session set — same provisional-scan
+      // caveat as unreadable topic notes.
+      sessions.some((session) => session.readError !== undefined) ||
+      memoryReadErrors.length > 0,
   };
 }
 
