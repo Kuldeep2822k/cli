@@ -13,6 +13,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { isValidAssessedAt } from './assessed-at';
+import { displayValue } from './diagnostic-value';
 
 /** Assessment score fields covered by this rule. */
 const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
@@ -41,11 +42,11 @@ export const validAssessmentFieldsRule: ValidationRule = {
             issues.push({
               ruleId: 'valid-assessment-fields',
               severity: 'error',
-              message: `Topic ${topic.palee_id}: assessed_at must be null or a valid date, got ${JSON.stringify(value)}`,
+              message: `Topic ${topic.palee_id}: assessed_at must be null or a valid date, got ${JSON.stringify(displayValue(value))}`,
               file: topic.path,
               topicId: topic.palee_id,
               field,
-              details: { actual: value },
+              details: { actual: displayValue(value) },
             });
           }
           continue;
@@ -63,11 +64,11 @@ export const validAssessmentFieldsRule: ValidationRule = {
           issues.push({
             ruleId: 'valid-assessment-fields',
             severity: 'error',
-            message: `Topic ${topic.palee_id}: assessment field ${field} must be a number within 0.0-1.0, got ${JSON.stringify(value)}`,
+            message: `Topic ${topic.palee_id}: assessment field ${field} must be a number within 0.0-1.0, got ${JSON.stringify(displayValue(value))}`,
             file: topic.path,
             topicId: topic.palee_id,
             field,
-            details: { actual: value },
+            details: { actual: displayValue(value) },
           });
         }
       }

@@ -187,7 +187,7 @@ palee validate [flags]
 
 ### Vault Structural Integrity Rules
 
-`palee validate` runs a seventeen-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): ten error-default rules (the graph integrity ports minus missing-dependency, the schema/identity rules, and the assessment, review-state, and session-schema rules) and seven warning-default rules — the two snapshot rules that explain gaps in the collected topic set (`read-failure` covers walked notes, session notes, and memory-subsystem components alike — a partial snapshot is reported wherever it was discovered), the mastery-drift rule, missing-dependency findings (the engine quarantines the dependent topic instead of failing the scan; `roadmap --from` pre-validation keeps its own separate error path), the ambiguous-kind rule for managed notes, the session-unknown-topic rule, and the session-index rule. `valid-dependency-list` is error-default but emits its duplicate-entry findings as warnings. Errors exit 3; warnings exit 0 unless `--strict` escalates them to 3. The memory subsystem (`.palee/sessions/*`, `.palee/index.md`, `.palee/hot.md`) is collected in the same single-read snapshot as the topic vault; a fresh vault with no memory subsystem validates clean.
+`palee validate` runs a nineteen-rule validation framework (rules live under [src/validation/rules/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/rules/), registered in `src/cli/validate.ts`, exported through the [src/validation/](https://github.com/Kuldeep2822k/cli/blob/main/src/validation/index.ts) barrel): eleven error-default rules (the graph integrity ports minus missing-dependency, the schema/identity rules, the assessment, review-state, session-schema, and vault-path-boundary rules) and eight warning-default rules — the two snapshot rules that explain gaps in the collected topic set (`read-failure` covers walked notes, session notes, and memory-subsystem components alike — a partial snapshot is reported wherever it was discovered), the mastery-drift rule, missing-dependency findings (the engine quarantines the dependent topic instead of failing the scan; `roadmap --from` pre-validation keeps its own separate error path), the ambiguous-kind rule for managed notes, the session-unknown-topic rule, the session-index rule, and the hot-memory rule. `valid-dependency-list` is error-default but emits its duplicate-entry findings as warnings. Errors exit 3; warnings exit 0 unless `--strict` escalates them to 3. The memory subsystem (`.palee/sessions/*`, `.palee/index.md`, `.palee/hot.md`) is collected in the same single-read snapshot as the topic vault; a fresh vault with no memory subsystem validates clean.
 
 1. **Malformed Frontmatter (`parse-frontmatter`, warning)**: A note whose YAML frontmatter cannot be parsed (including unclosed `---` fences whose body reads like YAML). The scan always continues — one bad note is a finding, never a dead validation.
 2. **Read Failures (`read-failure`, warning)**: A file that could not be read at all (locked or deleted mid-scan). Validation ran on an incomplete snapshot; the warning appears alongside any graph findings so transient conditions are visible without downgrading them.
@@ -207,6 +207,10 @@ palee validate [flags]
 16. **Session Unknown Topic (`no-session-unknown-topic`, warning)**: A session's `topic_id` must reference a topic that exists in the vault — a session pointing at a missing topic cannot be connected back to the learning graph. The historical `T-general` phantom sessions (from the pre-hot-memory `session end` fallback) are reported like any other unknown topic unless a real topic with that ID exists; no special case hides the bug the rule exists to surface. Drafts follow the same policy; sessions whose frontmatter failed `valid-session-schema` are skipped (no double-reporting). A warning while existing vaults may still contain legacy `T-general` sessions; `--strict` escalates.
 17. **Session Index (`valid-session-index`, warning)**: The derived `.palee/index.md` must parse, and its `[[S-…]]` session references must point at existing confirmed session notes. A stale or broken entry reports the missing session ID; the index is a rebuildable projection (canonical session notes are the source of truth — VERDICT decision 4), so findings never gate the exit code and a rebuild restores correctness. Only session-shaped `[[S-…]]`/`[[DRAFT-S-…]]` links are index entries — a topic link or hand-added note link in the editable body is never treated as a session reference. A missing index never reports (fresh vaults have none), and an empty index is legal even when sessions exist (staleness-by-omission is deferred until the index format is finalized per the issue). An unreadable index (locked mid-scan) is reported by `read-failure`, not here.
 
+18. **Hot Memory (`valid-hot-memory`, warning)**: The derived `.palee/hot.md` — the note that orients `session start` when the learner resumes — must carry the writer's identity (`memory_id: H-active`), its body must stay within the 250-word cap (`MAX_HOT_WORDS`, counted with the same whitespace-delimited `countWords` the writer's truncation uses, frontmatter excluded), and its `last_session`/`active_topic` references must point at existing session/topic notes. A missing hot memory never reports (fresh vault), an unparsable one is rebuilt rather than diagnosed field-by-field, and reference findings are suppressed on a read-incomplete snapshot (the referenced note may be exactly the one that failed to read). Findings never gate the exit code — hot memory is a rebuildable projection (VERDICT decision 4); a rebuild restores correctness.
+
+19. **Safe Vault Paths (`safe-vault-paths`, error)**: Every PALEE-managed path in the collected snapshot — topic notes, scanned notes, and session notes — must resolve inside the configured vault. Paths normalize (`\` → `/`) before validation so Windows separators validate identically; parent-directory traversal (`../outside.md`, including mid-path `a/../../escape.md`), absolute POSIX paths, and absolute Windows drive paths (`C:/…`) are boundary escapes and report as errors. This mirrors the containment policy the vault walker and roadmap import already enforce, making the write boundary explicit in validation output; symlink resolution itself stays owned by the walker.
+
 ```mermaid
 flowchart LR
     subgraph Storage ["Vault Storage (.md Files)"]
@@ -217,7 +221,7 @@ flowchart LR
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
         Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-managed-note-kind → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates → valid-session-schema → no-session-unknown-topic → valid-session-index"]
+        Rules["parse-frontmatter → read-failure → valid-managed-note-kind → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates → valid-session-schema → no-session-unknown-topic → valid-session-index → valid-hot-memory → safe-vault-paths"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
@@ -230,6 +234,7 @@ flowchart LR
         ErrAssess["bad assessment fields / assessed_at"]
         ErrReview["SM-2 review state or dates invalid"]
         ErrSession["session schema invalid"]
+        ErrPaths["vault path escape"]
     end
 
     subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
@@ -241,6 +246,7 @@ flowchart LR
         WarnKind["ambiguous managed note kind"]
         WarnSessionTopic["session references unknown topic"]
         WarnIndex["stale or broken session index"]
+        WarnHot["hot memory drifted"]
     end
     
     Storage --> Scan
@@ -260,6 +266,8 @@ flowchart LR
     Rules -->|"session schema invalid"| ErrSession
     Rules -->|"session references unknown topic"| WarnSessionTopic
     Rules -->|"stale / broken session index"| WarnIndex
+    Rules -->|"hot memory identity / cap / broken reference"| WarnHot
+    Rules -->|"managed path escapes the vault"| ErrPaths
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
     Rules -->|"stale derived data"| WarnMastery

@@ -26,6 +26,7 @@
 import type { ValidationRule, ValidationIssue } from '../types';
 import { computeTopicMastery } from '../../engine/mastery';
 import { isValidAssessedAt } from './assessed-at';
+import { displayValue } from './diagnostic-value';
 
 /** Assessment score fields consumed by the mastery formula. */
 const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
@@ -130,11 +131,11 @@ export const validTopicMasteryRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-topic-mastery',
           severity: 'warning',
-          message: `Topic ${topic.palee_id}: stored topic_mastery ${JSON.stringify(rawStored)} does not match computed ${expected} from assessment scores`,
+          message: `Topic ${topic.palee_id}: stored topic_mastery ${JSON.stringify(displayValue(rawStored))} does not match computed ${expected} from assessment scores`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'topic_mastery',
-          details: { actual: rawStored, expected },
+          details: { actual: displayValue(rawStored), expected },
         });
         continue;
       }

@@ -29,6 +29,8 @@ import { validManagedNoteKindRule } from './rules/valid-managed-note-kind';
 import { validSessionSchemaRule } from './rules/valid-session-schema';
 import { noSessionUnknownTopicRule } from './rules/no-session-unknown-topic';
 import { validSessionIndexRule } from './rules/valid-session-index';
+import { validHotMemoryRule } from './rules/valid-hot-memory';
+import { safeVaultPathsRule } from './rules/safe-vault-paths';
 import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
 import { noMissingDependencyRule } from './rules/no-missing-dependency';
 import { noDependencyCycleRule } from './rules/no-dependency-cycle';
@@ -68,6 +70,8 @@ export {
   validSessionSchemaRule,
   noSessionUnknownTopicRule,
   validSessionIndexRule,
+  validHotMemoryRule,
+  safeVaultPathsRule,
 };
 
 export type {

@@ -47,6 +47,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { displayValue } from './diagnostic-value';
 
 /**
  * Reports `depends_on` fields that are not a clean array of distinct
@@ -76,11 +77,11 @@ export const validDependencyListRule: ValidationRule = {
         issues.push({
           ruleId: 'valid-dependency-list',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: depends_on must be an array of topic IDs, got ${JSON.stringify(raw)}`,
+          message: `Topic ${topic.palee_id}: depends_on must be an array of topic IDs, got ${JSON.stringify(displayValue(raw))}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'depends_on',
-          details: { actual: raw },
+          details: { actual: displayValue(raw) },
         });
         continue;
       }
@@ -91,11 +92,11 @@ export const validDependencyListRule: ValidationRule = {
           issues.push({
             ruleId: 'valid-dependency-list',
             severity: 'error',
-            message: `Topic ${topic.palee_id}: every depends_on entry must be a non-empty topic ID string, got ${JSON.stringify(item)}`,
+            message: `Topic ${topic.palee_id}: every depends_on entry must be a non-empty topic ID string, got ${JSON.stringify(displayValue(item))}`,
             file: topic.path,
             topicId: topic.palee_id,
             field: 'depends_on',
-            details: { actual: item },
+            details: { actual: displayValue(item) },
           });
         }
       }
