@@ -19,7 +19,7 @@ import {
   loadTopics,
   ensureVaultDirectory,
 } from '../storage';
-import { detectCycle } from '../engine/dependency';
+import { detectCycles } from '../engine/dependency';
 import { RoadmapOptions, TopicNode, ResolvedTopicUpdates } from '../types';
 
 /**
@@ -226,8 +226,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
     }
 
-    const cycle = detectCycle(topicsMap);
-    if (cycle) {
+    const cycles = detectCycles(topicsMap);
+    for (const cycle of cycles) {
       errors.push(`Dependency cycle detected: ${cycle.join(' → ')}`);
     }
 
