@@ -486,8 +486,8 @@ export interface TopicNode {
   lapses?: number;
   /** Quality rating from previous review */
   last_quality?: number | null;
-  /** Last assessment timestamp */
-  assessed_at?: string | null;
+  /** Last assessment timestamp — string (ISO 8601) or number (epoch-ms) or null */
+  assessed_at?: string | number | null;
   /** Last review timestamp */
   last_reviewed_at?: string | null;
   /** Due date for next review */

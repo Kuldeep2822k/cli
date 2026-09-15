@@ -271,7 +271,9 @@ export function loadTopics(
       last_quality: typeof frontmatter.last_quality === 'number' && Number.isFinite(frontmatter.last_quality)
         ? Math.floor(frontmatter.last_quality)
         : null,
-      assessed_at: frontmatter.assessed_at ? String(frontmatter.assessed_at) : null,
+      assessed_at: (typeof frontmatter.assessed_at === 'string' || typeof frontmatter.assessed_at === 'number')
+        ? frontmatter.assessed_at
+        : null,
       last_reviewed_at: frontmatter.last_reviewed_at ? String(frontmatter.last_reviewed_at) : null,
       due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
     };

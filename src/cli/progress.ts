@@ -20,7 +20,7 @@ interface ProgressTopic {
   mastery: number;
   repetition: number;
   lapses: number;
-  assessed_at: string | null;
+  assessed_at: string | number | null;
   last_reviewed_at: string | null;
   difficulty: Difficulty;
 }
