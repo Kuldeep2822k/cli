@@ -25,6 +25,19 @@ This is the body.`;
     assert.strictEqual(result.body, content);
   });
 
+  test('strips leading BOM (U+FEFF) before parsing frontmatter', () => {
+    // Windows editors emit a leading BOM; the spec for #26 requires
+    // BOM stripping. Without it the `^---` regex fails and the note
+    // silently vanishes from the topic snapshot with no finding.
+    const content = '\uFEFF---\npalee_id: T-bom\ntitle: BOM test\n---\n# body';
+    const result = parseFrontmatter(content);
+    assert.strictEqual(result.frontmatter!.palee_id, 'T-bom');
+    assert.strictEqual(result.frontmatter!.title, 'BOM test');
+    assert.strictEqual(result.body, '# body');
+    assert.strictEqual(result.body.startsWith('\uFEFF'), false);
+    assert.strictEqual(result.error, undefined);
+  });
+
   test('handles malformed YAML gracefully', () => {
     // YAML parser is forgiving - use truly invalid syntax
     const content = `---
