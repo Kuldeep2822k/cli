@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided.
+Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided. Decision 5 (backlog-to-catalog reconciliation) was added 2026-09-15.
 
 ## Context
 
-`palee validate` began as three hardcoded checks (duplicate topic IDs, missing dependencies, dependency cycles) inside the CLI handler, with a narrow `ValidationError` union, no warning/error distinction, no machine-readable output, and a parser that could abort the whole scan on one malformed note. Issue #25 proposed an ESLint/Ruff-style rule framework plus a 20-rule backlog (issues #26–#45) and left four product decisions explicitly open:
+`palee validate` began as three hardcoded checks (duplicate topic IDs, missing dependencies, dependency cycles) inside the CLI handler, with a narrow `ValidationError` union, no warning/error distinction, no machine-readable output, and a parser that could abort the whole scan on one malformed note. Issue #25 proposed an ESLint/Ruff-style rule framework plus a 20-item backlog (issues #26–#45) and left four product decisions explicitly open:
 
 1. Should missing dependencies be `warning` or `error`?
 2. Should difficulty remain string-based or move to numeric `1..5` (older design docs showed both)?
@@ -47,6 +47,18 @@ A warnings-only vault exits `0` by default and `3` with `palee validate --strict
 Findings on rebuildable projections — `.palee/hot.md` (`valid-hot-memory`) and `.palee/index.md` (`valid-session-index`) — are ALWAYS `warning`, never `error`. They never gate the exit code by default: a vault whose only findings are derived-view warnings exits `0`. `--strict` escalates ALL warnings — these included — to exit `3`, per decision 3's opt-in contract; the guarantee is the severity classification (never an error, never a hard validation failure), not immunity from `--strict`.
 
 **Why:** Topic notes and canonical session records are the sole sources of truth (`planning/storage_design.md`, ADR-0007's read-state contract); the derived views are ephemeral projections that `session end`/`rebuildHotAndIndex` regenerate. Crashing validation on self-healing projections would violate storage resilience. A missing index/hot memory is additionally a legal fresh-vault state and never reports. Delivered in #168/#169.
+
+### Decision 5: Two backlog items are intentionally not registered rules (issues #32, #40)
+
+The 20-item #25 backlog (#26–#45) reconciles to **nineteen registered rules**. Two items are enforced outside the rule set, and one item contributed two rules:
+
+- **#32 `valid-difficulty` — dissolved, not registered.** Decision 2 replaced the `number`-typed `Topic.difficulty` with the 3-tier string enum at the type level (PR #56), removing the mismatch the rule was meant to expose. A dedicated rule would have nothing left to detect.
+- **#40 `assessment-review-independence` — enforced by command-level mutation tests, not a static vault rule.** Independence is a property of what commands write, not of what the vault looks like: no static snapshot of a note can distinguish "assessment state survived a review mutation" from "assessment state was never touched." The contract is pinned in both directions by `test/e2e/assessment-review-independence.test.ts` — `palee review` updates only SM-2 fields and preserves assessment data (including non-zero `topic_mastery`) byte-for-byte, and the `palee roadmap` import path preserves all seven SM-2 fields on reviewed topics. A rule cannot express this; the regression test is the enforcement mechanism.
+- **#26 `parse-frontmatter` — contributed two rules.** The item's scope covers both malformed-YAML reporting (`parse-frontmatter`) and unreadable-file reporting (`read-failure`), both exported from `src/validation/rules/parse-frontmatter.ts`.
+
+No rule is silently missing: every other backlog item (#27–#31, #33–#39, #41–#45) maps one-to-one to a registered rule, and the count is pinned by `test/validation-barrel-census.test.ts`.
+
+**Why:** Registering a rule for either #32 or #40 would produce a rule that can never fire on real vault data (a false catalog entry), or duplicate an enforcement path that already exists at a lower layer. The catalog stays honest by documenting the exceptions here and in the `palee validate` rule list.
 
 ## Consequences
 
