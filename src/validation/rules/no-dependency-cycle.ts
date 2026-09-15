@@ -2,16 +2,18 @@
  * no-dependency-cycle rule (#35 prerequisite — behavior-preserving port)
  *
  * @remarks
- * Ports the engine's cycle finding into the rule framework. `detectCycle`
- * stays the single source of truth for cycle semantics: this rule feeds it
- * the collected topics and reports the exact repeated-start path it returns.
+ * Reports every distinct dependency cycle in the topic graph, one finding
+ * per cycle, with its exact canonicalized path — matching the engine's
+ * `detectCycles` enumeration rather than `detectCycle`'s first-only search.
+ * Issue #171 finding 3 requires exhaustive cycle reporting: a graph with
+ * two disjoint loops must surface both, not just the lex-first one.
  */
 
 import type { ValidationRule } from '../types';
-import { detectCycle } from '../../engine/dependency';
+import { detectCycles } from '../../engine/dependency';
 import type { TopicNode } from '../../types';
 
-/** Reports the first dependency cycle found in the topic graph. */
+/** Reports every dependency cycle in the topic graph as a distinct finding. */
 export const noDependencyCycleRule: ValidationRule = {
   id: 'no-dependency-cycle',
   description: 'Dependency graph must not contain cycles',
@@ -29,19 +31,13 @@ export const noDependencyCycleRule: ValidationRule = {
       }
     }
 
-    const cycle = detectCycle(topics);
-    if (!cycle) {
-      return [];
-    }
-
-    return [
-      {
-        ruleId: 'no-dependency-cycle',
-        severity: 'error' as const,
-        message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
-        topicId: cycle[0],
-        details: { path: cycle },
-      },
-    ];
+    const cycles = detectCycles(topics);
+    return cycles.map((cycle) => ({
+      ruleId: 'no-dependency-cycle',
+      severity: 'error' as const,
+      message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
+      topicId: cycle[0],
+      details: { path: cycle },
+    }));
   },
 };

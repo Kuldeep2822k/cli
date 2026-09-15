@@ -367,4 +367,53 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     assert.ok(path.includes('T-a'));
     assert.ok(path.includes('T-b'));
   });
+
+  test('two disjoint cycles each report a distinct finding (#171 finding 3)', () => {
+    // Two independent cyclic components: T-x <-> T-y  and  T-p <-> T-q.
+    // The pre-fix rule used detectCycle (first-only) and reported exactly 1
+    // finding; criterion #3 of issue #171 requires every distinct cycle.
+    const context = makeContext({
+      topics: [
+        makeTopic({ palee_id: 'T-x', id: 'T-x', depends_on: ['T-y'] }),
+        makeTopic({ palee_id: 'T-y', id: 'T-y', depends_on: ['T-x'] }),
+        makeTopic({ palee_id: 'T-p', id: 'T-p', depends_on: ['T-q'] }),
+        makeTopic({ palee_id: 'T-q', id: 'T-q', depends_on: ['T-p'] }),
+      ],
+    });
+
+    const issues = noDependencyCycleRule.run(context);
+
+    assert.strictEqual(issues.length, 2, 'each disjoint cycle must produce one finding');
+    assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
+    assert.strictEqual(issues[1].ruleId, 'no-dependency-cycle');
+    // Findings carry the exact cycle path and deterministic ordering.
+    const paths = issues.map(i => (i.details?.path as string[]).join(' -> ')).sort();
+    assert.deepStrictEqual(
+      paths,
+      ['T-p -> T-q -> T-p', 'T-x -> T-y -> T-x']
+    );
+    // Each finding is anchored to a node in its own cycle.
+    const anchors = new Set(issues.map(i => i.topicId));
+    assert.ok(anchors.has('T-p') || anchors.has('T-q'));
+    assert.ok(anchors.has('T-x') || anchors.has('T-y'));
+  });
+
+  test('overlapping cycles sharing a node each report a distinct finding', () => {
+    // Triangle: T-a -> T-b -> T-c -> T-a  (one cycle, 3 nodes).
+    // Plus self-loop: T-a -> T-a  (a second, independent cycle sharing T-a).
+    // Both must be reported, not just the first.
+    const context = makeContext({
+      topics: [
+        makeTopic({ palee_id: 'T-a', id: 'T-a', depends_on: ['T-b', 'T-a'] }),
+        makeTopic({ palee_id: 'T-b', id: 'T-b', depends_on: ['T-c'] }),
+        makeTopic({ palee_id: 'T-c', id: 'T-c', depends_on: ['T-a'] }),
+      ],
+    });
+
+    const issues = noDependencyCycleRule.run(context);
+
+    assert.ok(issues.length >= 2, 'both the triangle and the self-loop must be reported');
+    const hasSelfLoop = issues.some(i => (i.details?.path as string[])[0] === (i.details?.path as string[])[1]);
+    assert.ok(hasSelfLoop, 'self-loop cycle T-a -> T-a must appear as a finding');
+  });
 });
