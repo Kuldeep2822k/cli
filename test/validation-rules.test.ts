@@ -441,9 +441,19 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     const context = makeContext({ topics });
     const issues = noDependencyCycleRule.run(context);
 
-    // Must have cycle findings AND the truncation finding.
+    // Exactly 1000 bounded cycle findings, each with a path, plus exactly
+    // one truncation finding — a result with only the truncation finding
+    // (or more/less than 1000 cycles) would fail this assertion.
+    const cycleFindings = issues.filter((i) => !i.details?.truncated);
     const truncation = issues.find((i) => i.details?.truncated === true);
+
+    assert.strictEqual(cycleFindings.length, 1000,
+      'bounded enumeration must cap at exactly 1000 cycle findings');
     assert.ok(truncation, 'truncated graph must produce a truncation finding');
+    assert.strictEqual(issues.length, 1001,
+      'total findings = 1000 cycles + 1 truncation');
+    assert.ok(cycleFindings.every((i) => Array.isArray(i.details?.path)),
+      'every cycle finding must carry a path');
     assert.strictEqual(
       truncation.message,
       'Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist'
