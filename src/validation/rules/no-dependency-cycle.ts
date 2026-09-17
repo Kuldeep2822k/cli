@@ -9,11 +9,19 @@
  * two disjoint loops must surface both, not just the lex-first one.
  */
 
-import type { ValidationRule } from '../types';
-import { detectCycles } from '../../engine/dependency';
+import type { ValidationRule, ValidationIssue } from '../types';
+import { detectCyclesBounded } from '../../engine/dependency';
 import type { TopicNode } from '../../types';
 
-/** Reports every dependency cycle in the topic graph as a distinct finding. */
+/**
+ * Reports every dependency cycle in the topic graph as a distinct finding.
+ *
+ * @remarks
+ * Uses the bounded enumeration (detectCyclesBounded, cap 1000) so dense-but-
+ * valid graphs cannot stall validation. When enumeration is truncated, a
+ * separate finding is emitted so callers cannot mistake the sample for
+ * completeness.
+ */
 export const noDependencyCycleRule: ValidationRule = {
   id: 'no-dependency-cycle',
   description: 'Dependency graph must not contain cycles',
@@ -31,13 +39,25 @@ export const noDependencyCycleRule: ValidationRule = {
       }
     }
 
-    const cycles = detectCycles(topics);
-    return cycles.map((cycle) => ({
+    const { cycles, truncated } = detectCyclesBounded(topics);
+    const findings: ValidationIssue[] = cycles.map((cycle) => ({
       ruleId: 'no-dependency-cycle',
       severity: 'error' as const,
       message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
       topicId: cycle[0],
       details: { path: cycle },
     }));
+
+    if (truncated) {
+      findings.push({
+        ruleId: 'no-dependency-cycle',
+        severity: 'error' as const,
+        message: 'Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist',
+        topicId: cycles.length > 0 ? cycles[0][0] : context.topics[0]?.palee_id || '',
+        details: { truncated: true },
+      });
+    }
+
+    return findings;
   },
 };
