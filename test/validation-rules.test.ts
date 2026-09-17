@@ -419,4 +419,36 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     );
     assert.deepStrictEqual(issues.map(i => i.topicId), ['T-a', 'T-a']);
   });
+
+  test('dense graph exceeding 1000 cycles emits truncation finding', () => {
+    // K8 complete digraph: every node depends on every other node.
+    // Produces exponentially many elementary cycles (>1000), triggering
+    // the bounded enumeration's truncation path in the rule itself.
+    const topics: LoadedTopic[] = [];
+    for (let i = 0; i < 8; i++) {
+      const deps = Array.from({ length: 8 }, (_, j) => 'T-' + j).filter((d) => d !== `T-${i}`);
+      topics.push(
+        makeTopic({
+          palee_id: `T-${i}`,
+          id: `T-${i}`,
+          title: `Node ${i}`,
+          path: `n${i}.md`,
+          depends_on: deps,
+          difficulty: 'intermediate',
+        })
+      );
+    }
+    const context = makeContext({ topics });
+    const issues = noDependencyCycleRule.run(context);
+
+    // Must have cycle findings AND the truncation finding.
+    const truncation = issues.find((i) => i.details?.truncated === true);
+    assert.ok(truncation, 'truncated graph must produce a truncation finding');
+    assert.strictEqual(
+      truncation.message,
+      'Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist'
+    );
+    assert.strictEqual(truncation.ruleId, 'no-dependency-cycle');
+    assert.strictEqual(truncation.severity, 'error');
+  });
 });
