@@ -386,16 +386,14 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     assert.strictEqual(issues.length, 2, 'each disjoint cycle must produce one finding');
     assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
     assert.strictEqual(issues[1].ruleId, 'no-dependency-cycle');
-    // Findings carry the exact cycle path and deterministic ordering.
-    const paths = issues.map(i => (i.details?.path as string[]).join(' -> ')).sort();
+    // detectCycles sorts canonicalized cycle paths lexicographically; assert the
+    // exact order rather than sorting, so ordering regressions are caught.
     assert.deepStrictEqual(
-      paths,
+      issues.map(i => (i.details?.path as string[]).join(' -> ')),
       ['T-p -> T-q -> T-p', 'T-x -> T-y -> T-x']
     );
     // Each finding is anchored to a node in its own cycle.
-    const anchors = new Set(issues.map(i => i.topicId));
-    assert.ok(anchors.has('T-p') || anchors.has('T-q'));
-    assert.ok(anchors.has('T-x') || anchors.has('T-y'));
+    assert.deepStrictEqual(issues.map(i => i.topicId), ['T-p', 'T-x']);
   });
 
   test('overlapping cycles sharing a node each report a distinct finding', () => {
@@ -412,8 +410,13 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
 
     const issues = noDependencyCycleRule.run(context);
 
-    assert.ok(issues.length >= 2, 'both the triangle and the self-loop must be reported');
-    const hasSelfLoop = issues.some(i => (i.details?.path as string[])[0] === (i.details?.path as string[])[1]);
-    assert.ok(hasSelfLoop, 'self-loop cycle T-a -> T-a must appear as a finding');
+    // detectCycles returns canonical cycles sorted by path key; the
+    // self-loop (T-a -> T-a) sorts before the triangle (T-a -> T-b -> T-c -> T-a).
+    assert.strictEqual(issues.length, 2, 'triangle and self-loop must both be reported');
+    assert.deepStrictEqual(
+      issues.map(i => (i.details?.path as string[]).join(' -> ')),
+      ['T-a -> T-a', 'T-a -> T-b -> T-c -> T-a']
+    );
+    assert.deepStrictEqual(issues.map(i => i.topicId), ['T-a', 'T-a']);
   });
 });

@@ -249,6 +249,28 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       assert.strictEqual(process.exitCode, 3);
     });
 
+    test('with two disjoint cycles each emits a separate diagnostic', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const cycleRoadmap = path.join(tempDir, 'multi-cycle-roadmap.yaml');
+      fs.writeFileSync(
+        cycleRoadmap,
+        'topics:\n  - id: T-x\n    title: X\n    path: x.md\n    depends_on: [T-y]\n  - id: T-y\n    title: Y\n    path: y.md\n    depends_on: [T-x]\n  - id: T-p\n    title: P\n    path: p.md\n    depends_on: [T-q]\n  - id: T-q\n    title: Q\n    path: q.md\n    depends_on: [T-p]\n'
+      );
+      const errorLogs: string[] = [];
+      const origError = console.error;
+      console.error = (...args: unknown[]) => {
+        errorLogs.push(args.map(a => String(a)).join(' '));
+      };
+      try {
+        await roadmapCommand({ from: cycleRoadmap });
+      } finally {
+        console.error = origError;
+      }
+      assert.strictEqual(process.exitCode, 3);
+      const cycleCount = errorLogs.join('\n').match(/Dependency cycle detected/g)?.length ?? 0;
+      assert.strictEqual(cycleCount, 2, 'two disjoint cycles should each produce a diagnostic');
+    });
+
     test('roadmapCommand without configured vault sets exitCode 2', async () => {
       saveConfig({});
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');
