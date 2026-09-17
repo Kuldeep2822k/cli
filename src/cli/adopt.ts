@@ -22,7 +22,7 @@ import {
   validatePattern,
 } from '../storage';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
-import { AdoptOptions, Difficulty, normalizeDifficulty } from '../types';
+import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt } from '../types';
 
 
 
@@ -324,7 +324,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         difficulty,
         depends_on: dependsOn,
         topic_mastery: topicMastery,
-        assessed_at: frontmatter?.assessed_at ? String(frontmatter.assessed_at) : null,
+        assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         conceptual,
         practical,
         debug,
@@ -538,7 +538,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         difficulty,
         depends_on: [],
         topic_mastery: topicMastery,
-        assessed_at: frontmatter?.assessed_at ? String(frontmatter.assessed_at) : null,
+        assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         conceptual,
         practical,
         debug,
