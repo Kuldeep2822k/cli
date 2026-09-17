@@ -299,4 +299,25 @@ describe('validate command: framework wiring (#25)', () => {
     assert.strictEqual(data.errors[0].rule_id, 'valid-session-schema');
     assert.strictEqual(process.exitCode, 3);
   });
+
+  test('BOM-prefixed topic note is collected, not silently dropped (#171 finding 1)', async () => {
+    // Windows editors emit \uFEFF before the first ---. Without BOM
+    // stripping, parseFrontmatter's `^---` regex fails and the note
+    // vanishes from the snapshot with zero findings — silent data loss.
+    fs.writeFileSync(
+      path.join(tmpVault, 'bom.md'),
+      '\uFEFF---\npalee_schema: 1\npalee_id: T-bom\ntitle: BOM Topic\ndifficulty: beginner\ndepends_on: []\n---\n# BOM Topic\n',
+      'utf8'
+    );
+
+    await validateCommand({ json: true });
+
+    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    // The BOM'd topic IS in the snapshot — it would otherwise vanish
+    // (topic_count would be 0 with a clean pass and zero findings).
+    assert.strictEqual(data.topic_count, 1);
+    assert.strictEqual(data.error_count, 0);
+    assert.strictEqual(data.valid, true);
+    assert.strictEqual(process.exitCode, 0);
+  });
 });

@@ -28,17 +28,23 @@ import { FrontmatterResult, NodeError } from '../types';
  * ```
  */
 function parseFrontmatter(content: string): FrontmatterResult {
+  // Strip a single leading BOM (U+FEFF) emitted by Windows editors.
+  // Without this, the `^---` regex below cannot anchor and a valid
+  // topic note silently vanishes from the snapshot with no finding.
+  // Spec requirement: issue #26 / audit #171 finding #1.
+  const stripped = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+
   // Case 1: Empty frontmatter fences with no intermediate content (---\n---)
-  const emptyMatch = content.match(/^---\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  const emptyMatch = stripped.match(/^---\r?\n---(?:\r?\n)?([\s\S]*)$/);
   if (emptyMatch) {
     return { frontmatter: null, body: emptyMatch[1], raw: '' };
   }
 
   // Case 2: Populated frontmatter with mandatory newline before closing fence
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  const fmMatch = stripped.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
 
   if (!fmMatch) {
-    return { frontmatter: null, body: content, raw: null };
+    return { frontmatter: null, body: stripped, raw: null };
   }
 
   const raw = fmMatch[1];
