@@ -540,4 +540,34 @@ describe('Memory System', () => {
     assert.ok(!content.includes('DRAFT-S-id-only'));
     assert.ok(!content.includes('T-id-skip'));
   });
+
+  test('regenerateIndex preserves 0-byte session files on disk', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Plant a 0-byte session file — a derived-view rebuild must NOT delete it.
+    const zeroByteFile = path.join(sessionsDir, 'S-preserve-zero-byte.md');
+    fs.writeFileSync(zeroByteFile, '');
+    assert.ok(fs.existsSync(zeroByteFile));
+
+    await regenerateIndex(testVaultPath);
+
+    // File must still exist post-rebuild (data safety invariant).
+    assert.ok(fs.existsSync(zeroByteFile), '0-byte session file should survive regenerateIndex');
+    assert.strictEqual(fs.statSync(zeroByteFile).size, 0);
+  });
+
+  test('rebuildHotAndIndex preserves 0-byte session files on disk', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Plant a 0-byte session file — a derived-view rebuild must NOT delete it.
+    const zeroByteFile = path.join(sessionsDir, 'S-preserve-rhi-zero.md');
+    fs.writeFileSync(zeroByteFile, '');
+
+    await rebuildHotAndIndex(testVaultPath);
+
+    assert.ok(fs.existsSync(zeroByteFile), '0-byte session file should survive rebuildHotAndIndex');
+    assert.strictEqual(fs.statSync(zeroByteFile).size, 0);
+  });
 });

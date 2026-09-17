@@ -429,7 +429,6 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
         try {
           const stat = fs.statSync(filePath);
           if (stat.size === 0) {
-            try { fs.unlinkSync(filePath); } catch {}
             continue;
           }
           const content = fs.readFileSync(filePath, 'utf8');
@@ -450,9 +449,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
             });
           }
         } catch (e: any) {
-          if (e && !e.code) {
-            try { fs.unlinkSync(filePath); } catch {}
-          }
+          // Never delete or mutate session files during index rebuild.
         }
       }
     }
@@ -524,7 +521,6 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
         try {
           const stat = fs.statSync(filePath);
           if (stat.size === 0) {
-            try { fs.unlinkSync(filePath); } catch {}
             continue;
           }
           const content = fs.readFileSync(filePath, 'utf8');
@@ -537,9 +533,7 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
             }
           }
         } catch (e: any) {
-          if (e && !e.code) {
-            try { fs.unlinkSync(filePath); } catch {}
-          }
+          // Never delete or mutate session files during hot/index rebuild.
         }
       }
     }
