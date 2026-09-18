@@ -14,7 +14,7 @@
  * @remarks On Windows, config lives in %LOCALAPPDATA%/palee; we override
  * via PALEE_CONFIG_DIR so the test is platform-independent.
  */
-import { describe, it, beforeEach, afterEach, before, after } from 'node:test';
+import { describe, it, beforeEach, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
@@ -100,7 +100,11 @@ describe('assessed_at adopt round-trip (#171 finding 4 / #179)', () => {
 
   it('adopted note with numeric assessed_at normalizes to ISO 8601', async () => {
     // Write a note with a numeric assessed_at that adopt should normalize.
-    const preContent = `---\nassessed_at: ${epochMs}\n---\n# Epoch Topic\n`;
+    const preContent = `---
+assessed_at: ${epochMs}
+---
+# Epoch Topic
+`;
     fs.writeFileSync(path.join(vaultDir, 'pre-epoch.md'), preContent, 'utf8');
 
     const { default: adoptCommand } = await import('../src/cli/adopt');
@@ -128,6 +132,44 @@ describe('assessed_at adopt round-trip (#171 finding 4 / #179)', () => {
     // Run the actual `palee validate` flow on the adopted vault and assert
     // zero validation errors — this catches writer/validator contract breaks
     // (issue #179) that the frontmatter-only checks above would miss.
+    const validateResult = await runValidateJson();
+    assert.strictEqual(validateResult.valid, true,
+      `validate must pass on adopted vault; errors: ${JSON.stringify(validateResult.errors)}`);
+    assert.strictEqual(validateResult.error_count, 0,
+      'adopted vault must produce zero validation errors');
+  });
+
+  it('adopted note with fractional assessed_at normalizes to clipped ISO 8601', async () => {
+    // Fractional epoch-ms: Date clips sub-millisecond precision but the
+    // value must NOT be discarded — it should be serialized to its
+    // millisecond ISO value. See CodeRabbit finding on normalizeAssessedAt.
+    const fractionalEpoch = 1771075200000.5;
+    const expectedFractionalIso = new Date(fractionalEpoch).toISOString();
+    const preContent = `---
+assessed_at: ${fractionalEpoch}
+---
+# Fractional Topic
+`;
+    fs.writeFileSync(path.join(vaultDir, 'pre-fractional.md'), preContent, 'utf8');
+
+    const { default: adoptCommand } = await import('../src/cli/adopt');
+    await adoptCommand('pre-fractional.md', { yes: true });
+
+    const adopted = fs.readFileSync(path.join(vaultDir, 'pre-fractional.md'), 'utf8');
+    const { frontmatter } = parseFrontmatter(adopted);
+    assert.ok(frontmatter, 'adopted note must have frontmatter');
+
+    assert.strictEqual(frontmatter.assessed_at, expectedFractionalIso,
+      `fractional epoch ${fractionalEpoch} must be clipped to ${expectedFractionalIso} (not null)`);
+    assert.strictEqual(isValidAssessedAt(frontmatter.assessed_at), true,
+      `frontmatter assessed_at=${frontmatter.assessed_at} must pass rule`);
+
+    const topics = loadTopics(vaultDir);
+    const topic = topics.find((t) => t.palee_id === frontmatter.palee_id);
+    assert.ok(topic, 'adopted topic should load');
+    assert.strictEqual(isValidAssessedAt(topic.assessed_at), true,
+      `loaded assessed_at=${topic.assessed_at} must pass rule`);
+
     const validateResult = await runValidateJson();
     assert.strictEqual(validateResult.valid, true,
       `validate must pass on adopted vault; errors: ${JSON.stringify(validateResult.errors)}`);
