@@ -273,6 +273,47 @@ export type SessionRecord = CompletedSessionRecord | DraftSessionRecord;
  */
 export type DraftRecoveryAction = 'resume' | 'save' | 'discard' | 'ignore';
 
+/**
+ * Normalizes a raw `assessed_at` value into a canonical ISO 8601 string or null.
+ *
+ * @remarks
+ * - String values are returned verbatim if non-empty (assumed already ISO 8601).
+ * - Finite numeric values are treated as epoch-milliseconds and converted via
+ *   `new Date(value).toISOString()`.
+ * - Empty strings, non-finite numbers, and any other type yield `null`.
+ *
+ * This implements the #179 contract: `assessed_at` must always be stored as an
+ * ISO 8601 string so downstream consumers (progress, validation rules) need no
+ * additional coercion.
+ *
+ * @param raw - Raw frontmatter value
+ * @returns ISO 8601 string or null
+ *
+ * @example
+ * ```typescript
+ * normalizeAssessedAt('2026-08-30T10:00:00Z'); // '2026-08-30T10:00:00Z'
+ * normalizeAssessedAt(1771075200000);          // '2026-02-14T...Z'
+ * normalizeAssessedAt(null);                    // null
+ * ```
+ */
+export function normalizeAssessedAt(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    return raw.trim() ? raw : null;
+  }
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return null;
+    const date = new Date(raw);
+    // Reject out-of-range finite numbers: new Date() produces an invalid
+    // time value (NaN) for timestamps beyond ±8.64e15 ms, which would
+    // throw on toISOString(). Finite fractional epochs are clipped to
+    // millisecond precision by Date but still valid — keep those.
+    const time = date.getTime();
+    if (!Number.isFinite(time)) return null;
+    return date.toISOString();
+  }
+  return null;
+}
+
 // ─── Config ─────────────────────────────────────────────────────────
 
 /**
@@ -486,7 +527,7 @@ export interface TopicNode {
   lapses?: number;
   /** Quality rating from previous review */
   last_quality?: number | null;
-  /** Last assessment timestamp */
+  /** Last assessment timestamp — ISO 8601 string or null */
   assessed_at?: string | null;
   /** Last review timestamp */
   last_reviewed_at?: string | null;

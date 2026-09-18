@@ -19,7 +19,7 @@ import {
   loadTopics,
   ensureVaultDirectory,
 } from '../storage';
-import { detectCycle } from '../engine/dependency';
+import { detectCyclesBounded } from '../engine/dependency';
 import { RoadmapOptions, TopicNode, ResolvedTopicUpdates } from '../types';
 
 /**
@@ -226,9 +226,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       }
     }
 
-    const cycle = detectCycle(topicsMap);
-    if (cycle) {
+    const { cycles, truncated } = detectCyclesBounded(topicsMap);
+    for (const cycle of cycles) {
       errors.push(`Dependency cycle detected: ${cycle.join(' → ')}`);
+    }
+    if (truncated) {
+      errors.push('Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist');
     }
 
     if (errors.length > 0) {

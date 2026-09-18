@@ -249,6 +249,61 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       assert.strictEqual(process.exitCode, 3);
     });
 
+    test('with two disjoint cycles each emits a separate diagnostic', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const cycleRoadmap = path.join(tempDir, 'multi-cycle-roadmap.yaml');
+      fs.writeFileSync(
+        cycleRoadmap,
+        'topics:\n  - id: T-x\n    title: X\n    path: x.md\n    depends_on: [T-y]\n  - id: T-y\n    title: Y\n    path: y.md\n    depends_on: [T-x]\n  - id: T-p\n    title: P\n    path: p.md\n    depends_on: [T-q]\n  - id: T-q\n    title: Q\n    path: q.md\n    depends_on: [T-p]\n'
+      );
+      const errorLogs: string[] = [];
+      const origError = console.error;
+      console.error = (...args: unknown[]) => {
+        errorLogs.push(args.map(a => String(a)).join(' '));
+      };
+      try {
+        await roadmapCommand({ from: cycleRoadmap });
+      } finally {
+        console.error = origError;
+      }
+      assert.strictEqual(process.exitCode, 3);
+      const cycleCount = errorLogs.join('\n').match(/Dependency cycle detected/g)?.length ?? 0;
+      assert.strictEqual(cycleCount, 2, 'two disjoint cycles should each produce a diagnostic');
+    });
+
+    test('with dense graph exceeding 1000 cycles surfaces truncation diagnostic', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      // Complete digraph K8: every node depends on every other node.
+      // K8 contains exponentially many elementary cycles — well over the
+      // detectCyclesBounded default cap of 1000. Roadmap must report a
+      // bounded sample AND surface the truncation warning (roadmap.ts:233-235).
+      let yaml = 'topics:\n';
+      for (let i = 0; i < 8; i++) {
+        const deps = Array.from({ length: 8 }, (_, j) => 'T-' + j).filter((d) => d !== `T-${i}`);
+        yaml += `  - id: T-${i}\n    title: Node ${i}\n    path: n${i}.md\n    depends_on: [${deps.join(', ')}]\n`;
+      }
+      const denseRoadmap = path.join(tempDir, 'dense-cycle-roadmap.yaml');
+      fs.writeFileSync(denseRoadmap, yaml);
+
+      const errorLogs: string[] = [];
+      const origError = console.error;
+      console.error = (...args: unknown[]) => {
+        errorLogs.push(args.map(a => String(a)).join(' '));
+      };
+      try {
+        await roadmapCommand({ from: denseRoadmap });
+      } finally {
+        console.error = origError;
+      }
+
+      assert.strictEqual(process.exitCode, 3, 'dense cycle graph should fail validation');
+      const combined = errorLogs.join('\n');
+      assert.ok(
+        combined.includes('Dependency cycle enumeration truncated at 1000 cycles'),
+        'truncation diagnostic must appear when cycle count exceeds the cap'
+      );
+    });
+
     test('roadmapCommand without configured vault sets exitCode 2', async () => {
       saveConfig({});
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');

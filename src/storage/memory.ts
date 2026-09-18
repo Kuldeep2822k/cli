@@ -429,7 +429,6 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
         try {
           const stat = fs.statSync(filePath);
           if (stat.size === 0) {
-            try { fs.unlinkSync(filePath); } catch {}
             continue;
           }
           const content = fs.readFileSync(filePath, 'utf8');
@@ -450,9 +449,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
             });
           }
         } catch (e: any) {
-          if (e && !e.code) {
-            try { fs.unlinkSync(filePath); } catch {}
-          }
+          // Never delete or mutate session files during index rebuild.
         }
       }
     }
@@ -524,12 +521,19 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
         try {
           const stat = fs.statSync(filePath);
           if (stat.size === 0) {
-            try { fs.unlinkSync(filePath); } catch {}
             continue;
           }
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter, body } = parseFrontmatter(content);
-          if (frontmatter && frontmatter.session_id) {
+          // Match the confirmed-session eligibility predicate from regenerateIndex:
+          // reject DRAFT-* session IDs and sessions with status: draft so that
+          // incomplete sessions are never selected as the "newest" session.
+          if (
+            frontmatter &&
+            frontmatter.session_id &&
+            !String(frontmatter.session_id).startsWith('DRAFT-') &&
+            frontmatter.status !== 'draft'
+          ) {
             const time = new Date((frontmatter.started_at as string) || 0).getTime();
             if (time >= newestTime) {
               newestTime = time;
@@ -537,9 +541,7 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
             }
           }
         } catch (e: any) {
-          if (e && !e.code) {
-            try { fs.unlinkSync(filePath); } catch {}
-          }
+          // Never delete or mutate session files during hot/index rebuild.
         }
       }
     }

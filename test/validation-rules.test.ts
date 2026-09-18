@@ -367,4 +367,98 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     assert.ok(path.includes('T-a'));
     assert.ok(path.includes('T-b'));
   });
+
+  test('two disjoint cycles each report a distinct finding (#171 finding 3)', () => {
+    // Two independent cyclic components: T-x <-> T-y  and  T-p <-> T-q.
+    // The pre-fix rule used detectCycle (first-only) and reported exactly 1
+    // finding; criterion #3 of issue #171 requires every distinct cycle.
+    const context = makeContext({
+      topics: [
+        makeTopic({ palee_id: 'T-x', id: 'T-x', depends_on: ['T-y'] }),
+        makeTopic({ palee_id: 'T-y', id: 'T-y', depends_on: ['T-x'] }),
+        makeTopic({ palee_id: 'T-p', id: 'T-p', depends_on: ['T-q'] }),
+        makeTopic({ palee_id: 'T-q', id: 'T-q', depends_on: ['T-p'] }),
+      ],
+    });
+
+    const issues = noDependencyCycleRule.run(context);
+
+    assert.strictEqual(issues.length, 2, 'each disjoint cycle must produce one finding');
+    assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
+    assert.strictEqual(issues[1].ruleId, 'no-dependency-cycle');
+    // detectCycles sorts canonicalized cycle paths lexicographically; assert the
+    // exact order rather than sorting, so ordering regressions are caught.
+    assert.deepStrictEqual(
+      issues.map(i => (i.details?.path as string[]).join(' -> ')),
+      ['T-p -> T-q -> T-p', 'T-x -> T-y -> T-x']
+    );
+    // Each finding is anchored to a node in its own cycle.
+    assert.deepStrictEqual(issues.map(i => i.topicId), ['T-p', 'T-x']);
+  });
+
+  test('overlapping cycles sharing a node each report a distinct finding', () => {
+    // Triangle: T-a -> T-b -> T-c -> T-a  (one cycle, 3 nodes).
+    // Plus self-loop: T-a -> T-a  (a second, independent cycle sharing T-a).
+    // Both must be reported, not just the first.
+    const context = makeContext({
+      topics: [
+        makeTopic({ palee_id: 'T-a', id: 'T-a', depends_on: ['T-b', 'T-a'] }),
+        makeTopic({ palee_id: 'T-b', id: 'T-b', depends_on: ['T-c'] }),
+        makeTopic({ palee_id: 'T-c', id: 'T-c', depends_on: ['T-a'] }),
+      ],
+    });
+
+    const issues = noDependencyCycleRule.run(context);
+
+    // detectCycles returns canonical cycles sorted by path key; the
+    // self-loop (T-a -> T-a) sorts before the triangle (T-a -> T-b -> T-c -> T-a).
+    assert.strictEqual(issues.length, 2, 'triangle and self-loop must both be reported');
+    assert.deepStrictEqual(
+      issues.map(i => (i.details?.path as string[]).join(' -> ')),
+      ['T-a -> T-a', 'T-a -> T-b -> T-c -> T-a']
+    );
+    assert.deepStrictEqual(issues.map(i => i.topicId), ['T-a', 'T-a']);
+  });
+
+  test('dense graph exceeding 1000 cycles emits truncation finding', () => {
+    // K8 complete digraph: every node depends on every other node.
+    // Produces exponentially many elementary cycles (>1000), triggering
+    // the bounded enumeration's truncation path in the rule itself.
+    const topics: LoadedTopic[] = [];
+    for (let i = 0; i < 8; i++) {
+      const deps = Array.from({ length: 8 }, (_, j) => 'T-' + j).filter((d) => d !== `T-${i}`);
+      topics.push(
+        makeTopic({
+          palee_id: `T-${i}`,
+          id: `T-${i}`,
+          title: `Node ${i}`,
+          path: `n${i}.md`,
+          depends_on: deps,
+          difficulty: 'intermediate',
+        })
+      );
+    }
+    const context = makeContext({ topics });
+    const issues = noDependencyCycleRule.run(context);
+
+    // Exactly 1000 bounded cycle findings, each with a path, plus exactly
+    // one truncation finding — a result with only the truncation finding
+    // (or more/less than 1000 cycles) would fail this assertion.
+    const cycleFindings = issues.filter((i) => !i.details?.truncated);
+    const truncation = issues.find((i) => i.details?.truncated === true);
+
+    assert.strictEqual(cycleFindings.length, 1000,
+      'bounded enumeration must cap at exactly 1000 cycle findings');
+    assert.ok(truncation, 'truncated graph must produce a truncation finding');
+    assert.strictEqual(issues.length, 1001,
+      'total findings = 1000 cycles + 1 truncation');
+    assert.ok(cycleFindings.every((i) => Array.isArray(i.details?.path)),
+      'every cycle finding must carry a path');
+    assert.strictEqual(
+      truncation.message,
+      'Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist'
+    );
+    assert.strictEqual(truncation.ruleId, 'no-dependency-cycle');
+    assert.strictEqual(truncation.severity, 'error');
+  });
 });
