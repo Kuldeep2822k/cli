@@ -315,6 +315,57 @@ describe('Memory System', () => {
     assert.strictEqual(frontmatter!.active_topic, 'T-docker-basics');
   });
 
+  test('rebuildHotAndIndex excludes draft sessions from newest selection', async () => {
+    // Create a confirmed session and a draft-status session (stored under an
+    // S-* file name with status: draft). The draft has a NEWER timestamp.
+    // The draft must NOT be selected as newest — matching regenerateIndex
+    // behavior. We use fixed future timestamps so this test's sessions are
+    // definitively the newest, regardless of other tests running in the same
+    // shared vault directory.
+    const confirmedId = generateSessionId();
+    const confirmedTime = new Date(Date.now() + 86400000).toISOString(); // 1 day future
+    const draftSessionId = generateDraftId();
+    const draftTime = new Date(Date.now() + 172800000).toISOString(); // 2 days future
+
+    await writeSessionNote(testVaultPath, {
+      session_id: confirmedId,
+      topic_id: 'T-confirmed',
+      started_at: confirmedTime,
+      ended_at: confirmedTime,
+    }, 'Confirmed session body.');
+
+    // Manually write an S-* file with a DRAFT session_id and status: draft
+    const draftSessionFile = `${draftSessionId}.md`.replace('DRAFT-S-', 'S-');
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
+    const draftFilePath = path.join(sessionsDir, draftSessionFile);
+    const draftContent = `---
+palee_schema: 1
+session_id: ${draftSessionId}
+topic_id: T-draft
+started_at: ${draftTime}
+ended_at: null
+status: draft
+---
+Draft status session with newer timestamp.
+`;
+    fs.writeFileSync(draftFilePath, draftContent, 'utf8');
+
+    const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+    if (fs.existsSync(hotPath)) fs.unlinkSync(hotPath);
+
+    await rebuildHotAndIndex(testVaultPath);
+
+    const hotContent = fs.readFileSync(hotPath, 'utf8');
+    const { frontmatter } = parseFrontmatter(hotContent);
+    // The draft-status session has a NEWER timestamp but must be excluded
+    // from selection. Assert the confirmed session is selected directly.
+    assert.strictEqual(frontmatter!.last_session, confirmedId,
+      'draft-status session must not be selected as newest session');
+    assert.strictEqual(frontmatter!.active_topic, 'T-confirmed',
+      'active_topic must come from the newest confirmed session');
+  });
+
   test('writeDraftCheckpoint writes DRAFT-S-*.md file', async () => {
     const draftId = generateDraftId();
     const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
@@ -539,5 +590,35 @@ describe('Memory System', () => {
     assert.ok(!content.includes('T-status-skip'));
     assert.ok(!content.includes('DRAFT-S-id-only'));
     assert.ok(!content.includes('T-id-skip'));
+  });
+
+  test('regenerateIndex preserves 0-byte session files on disk', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Plant a 0-byte session file — a derived-view rebuild must NOT delete it.
+    const zeroByteFile = path.join(sessionsDir, 'S-preserve-zero-byte.md');
+    fs.writeFileSync(zeroByteFile, '');
+    assert.ok(fs.existsSync(zeroByteFile));
+
+    await regenerateIndex(testVaultPath);
+
+    // File must still exist post-rebuild (data safety invariant).
+    assert.ok(fs.existsSync(zeroByteFile), '0-byte session file should survive regenerateIndex');
+    assert.strictEqual(fs.statSync(zeroByteFile).size, 0);
+  });
+
+  test('rebuildHotAndIndex preserves 0-byte session files on disk', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Plant a 0-byte session file — a derived-view rebuild must NOT delete it.
+    const zeroByteFile = path.join(sessionsDir, 'S-preserve-rhi-zero.md');
+    fs.writeFileSync(zeroByteFile, '');
+
+    await rebuildHotAndIndex(testVaultPath);
+
+    assert.ok(fs.existsSync(zeroByteFile), '0-byte session file should survive rebuildHotAndIndex');
+    assert.strictEqual(fs.statSync(zeroByteFile).size, 0);
   });
 });
