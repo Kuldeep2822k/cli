@@ -129,14 +129,14 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       console.log(`Difficulty: ${match.difficulty}`);
       console.log(`Repetitions: ${match.repetition}`);
       console.log(`Lapses: ${match.lapses}`);
-      if (match.assessed_at) {
+      if (match.assessed_at != null) {
         const d = new Date(match.assessed_at);
         const formatted = !Number.isNaN(d.getTime())
           ? d.toISOString().split('T')[0]
           : match.assessed_at;
         console.log(`Last Assessed: ${formatted}`);
       }
-      if (match.last_reviewed_at) {
+      if (match.last_reviewed_at != null) {
         const d = new Date(match.last_reviewed_at);
         const formatted = !Number.isNaN(d.getTime())
           ? d.toISOString().split('T')[0]
