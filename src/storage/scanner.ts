@@ -64,11 +64,6 @@ function hasBodyTextLines(raw: string): boolean {
         // Top-level sequence item
         continue;
       }
-      // YAML flow collections ({key: value} or [item, ...]) are valid
-      // syntax, not Markdown body text.
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        continue;
-      }
       const colonIndex = trimmed.indexOf(':');
       if (colonIndex !== -1) {
         let keyPart = trimmed.slice(0, colonIndex).trim();
@@ -142,9 +137,7 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     // Validate parsed frontmatter keys and detect body content parsed as YAML (#171.11)
     if (!parseError && raw !== null && raw !== '') {
       if (frontmatter === null || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
-        // Non-mapping YAML between fences (e.g. a scalar like "Intro" in
-        // ---\nIntro\n---\nMore) is most likely a thematic-break pair, not
-        // malformed frontmatter. Silently treat as "no frontmatter."
+        parseError = 'Frontmatter is not a valid YAML mapping';
         frontmatter = null;
       } else if (hasBodyTextLines(raw)) {
         parseError =
