@@ -141,10 +141,10 @@ Tests in `test/smoke.test.ts` (2 tests) provide lightweight sanity verification 
 
 | Command | Subprocess Tests (`cli-commands`, `cli-adopt-batch`) | In-Process Exit Codes (`cli-exit-codes`) | JSON Contract Tests (`cli-json-output`) |
 |---|:---:|:---:|:---:|
-| `palee config` | Passed | Passed (Codes 0, 2) | Passed (`config --json`) |
-| `palee adopt` | Passed | Passed (Codes 0, 2, 4) | Passed (`adopt --json`) |
-| `palee roadmap` | Passed | Passed (Codes 0, 1, 2, 3, 4) | Passed (`roadmap --json`) |
-| `palee review` | Passed | Passed (Codes 0, 2, 4) | Passed (`review --json`) |
+| `palee config` | Passed | Passed (Codes 0, 2) | N/A |
+| `palee adopt` | Passed | Passed (Codes 0, 2, 4) | N/A |
+| `palee roadmap` | Passed | Passed (Codes 0, 1, 2, 3, 4) | N/A |
+| `palee review` | Passed | Passed (Codes 0, 2, 4) | N/A |
 | `palee next` | Passed | Passed (Codes 0, 2) | Passed (`next --json`) |
 | `palee plan` | Passed | Passed (Codes 0, 2) | Passed (`plan --json`) |
 | `palee progress`| Passed | Passed (Codes 0, 2) | Passed (`progress --json`) |
