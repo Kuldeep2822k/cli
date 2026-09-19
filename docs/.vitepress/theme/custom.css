@@ -58,8 +58,24 @@
   max-width: 100% !important;
   height: auto;
   transform-origin: center center;
-  will-change: transform;
   pointer-events: none;
+  text-rendering: geometricPrecision;
+  shape-rendering: geometricPrecision;
+}
+
+/* Sharp text rendering across all Mermaid SVG text nodes & foreignObjects */
+.mermaid-viewport svg text,
+.mermaid-viewport svg .label,
+.mermaid-viewport svg .nodeLabel,
+.mermaid-viewport svg .edgeLabel,
+.mermaid-viewport svg foreignObject,
+.mermaid-viewport svg foreignObject div,
+.mermaid-viewport svg foreignObject span,
+.mermaid-viewport svg foreignObject p {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  text-rendering: geometricPrecision !important;
 }
 
 /* GitHub-Style Diagram Floating Toolbar */

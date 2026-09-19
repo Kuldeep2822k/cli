@@ -103,7 +103,7 @@ function attachDiagramController(card: HTMLElement) {
     applyTransform() {
       if (state.rafId) cancelAnimationFrame(state.rafId)
       state.rafId = requestAnimationFrame(() => {
-        svg.style.transform = `translate3d(${state.x}px, ${state.y}px, 0px) scale(${state.scale})`
+        svg.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`
       })
     },
     reset() {

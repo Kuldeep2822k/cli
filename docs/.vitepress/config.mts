@@ -35,6 +35,7 @@ export default withMermaid(
         clusterBorder: '#1e2128',
         titleColor: '#8b949e',
         edgeLabelBackground: '#000000',
+        fontSize: '14px',
         fontFamily: 'Inter, system-ui, sans-serif'
       }
     },
