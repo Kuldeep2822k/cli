@@ -200,10 +200,27 @@ describe('Storage Note Scanner', () => {
   });
 
   describe('Unclosed-fence heuristic gap (#171.11)', () => {
-    test('unclosed fence followed by body thematic break with spaces in keys is reported as parse error', () => {
+    test('valid note with unquoted keys containing spaces (e.g. display name) is parsed successfully', () => {
       fs.writeFileSync(
-        path.join(tmpVault, 'body-break-keys.md'),
-        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\nChapter 1: The Beginning\n---\n# Real Body\n',
+        path.join(tmpVault, 'spaces-in-keys.md'),
+        '---\npalee_id: T-valid\ntitle: Valid\ndisplay name: Mathematics\ncreated date: 2026-01-01\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.ok(notes[0].frontmatter);
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm['display name'], 'Mathematics');
+      assert.strictEqual(fm['created date'], '2026-01-01');
+    });
+
+    test('unclosed fence followed by body thematic break with non-mapping colons (e.g. URLs) is reported as parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'body-break-url.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\nhttp://example.com/page\n---\n# Real Body\n',
         'utf8'
       );
 
@@ -212,7 +229,7 @@ describe('Storage Note Scanner', () => {
       assert.strictEqual(notes.length, 1);
       assert.strictEqual(notes[0].frontmatter, null);
       assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /(unclosed|invalid frontmatter key)/i);
+      assert.match(notes[0].parseError!, /(unclosed|implicit map keys)/i);
     });
 
     test('unclosed fence followed by body thematic break with markdown subheadings is reported as parse error', () => {

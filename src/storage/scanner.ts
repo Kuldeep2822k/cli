@@ -108,10 +108,12 @@ function hasBodyTextLines(raw: string): boolean {
       }
       const colonIndex = trimmed.indexOf(':');
       if (colonIndex !== -1) {
-        const keyPart = trimmed.slice(0, colonIndex).trim();
-        // Unquoted keys with spaces or non-identifier chars look like
-        // prose (e.g. "Chapter 1: The Beginning") rather than YAML.
-        if (keyPart.includes(' ') || !/^[A-Za-z0-9_.-]+$/.test(keyPart)) {
+        // In YAML, a block mapping separator colon must be followed by
+        // whitespace (space or tab) or be at the end of the line.
+        // A colon followed immediately by non-whitespace (e.g. `http://` or
+        // `12:30`) cannot represent a YAML mapping separator.
+        const afterColon = trimmed.slice(colonIndex + 1);
+        if (!afterColon.startsWith(' ') && !afterColon.startsWith('\t') && afterColon !== '') {
           return true;
         }
       } else {
