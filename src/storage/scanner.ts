@@ -66,13 +66,17 @@ function hasBodyTextLines(raw: string): boolean {
       }
       const colonIndex = trimmed.indexOf(':');
       if (colonIndex !== -1) {
-        let keyPart = trimmed.slice(0, colonIndex).trim();
+        const keyPart = trimmed.slice(0, colonIndex).trim();
+        // Quoted keys (single or double) are intentional YAML — never
+        // flag them as body text regardless of inner content.
         if (
           (keyPart.startsWith('"') && keyPart.endsWith('"')) ||
           (keyPart.startsWith("'") && keyPart.endsWith("'"))
         ) {
-          keyPart = keyPart.slice(1, -1);
+          continue;
         }
+        // Unquoted keys with spaces or non-identifier chars look like
+        // prose (e.g. "Chapter 1: The Beginning") rather than YAML.
         if (keyPart.includes(' ') || !/^[A-Za-z0-9_.-]+$/.test(keyPart)) {
           return true;
         }

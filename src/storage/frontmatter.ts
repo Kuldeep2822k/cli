@@ -56,13 +56,17 @@ function parseFrontmatter(content: string): FrontmatterResult {
       return { frontmatter: null, body, raw, error: doc.errors[0].message };
     }
     const parsed = doc.toJSON();
-    // Frontmatter must be a YAML mapping. When the content between `---`
-    // fences parses to a scalar (e.g. "Intro"), array, or null, the fences
-    // are almost certainly thematic breaks — not frontmatter delimiters.
-    // Treat as "no frontmatter found" so ordinary Markdown like
-    // `---\nIntro\n---\nMore` is never flagged as malformed.
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // Frontmatter must be a YAML mapping. A scalar value between `---`
+    // fences (e.g. "Intro" in `---\nIntro\n---\nMore`) indicates
+    // thematic breaks, not frontmatter — return as "no frontmatter."
+    if (parsed === null || typeof parsed !== 'object') {
       return { frontmatter: null, body: stripped, raw: null };
+    }
+    // An array between fences is malformed frontmatter (not a mapping),
+    // not thematic breaks — preserve raw and report an error so
+    // updateFrontmatter rejects rather than duplicating the block.
+    if (Array.isArray(parsed)) {
+      return { frontmatter: null, body, raw, error: 'Frontmatter must be a YAML mapping, not a sequence' };
     }
     const frontmatter = parsed as Record<string, unknown>;
     return { frontmatter, body, raw, doc };
