@@ -59,7 +59,7 @@ flowchart LR
         LockDir[".palee/locks/"]
     end
     
-    Facade --> VW & FM & AW & LC & CH & MEM & LD & SC & PM & RP & DP & SS
+    Facade --> VW & FM & AW & LC & CH & MEM & LD & SC & PM & RP & SS
     VW --> Note
     FM --> Note
     AW --> FM
