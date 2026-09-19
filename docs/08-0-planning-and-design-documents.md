@@ -5,7 +5,6 @@
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [docs/adr/0008-validation-framework-decisions.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
-- [planning/cicd_dependency_management_proposal.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/cicd_dependency_management_proposal.md?plain=1)
 - [planning/example_workflows.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/example_workflows.md?plain=1)
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 - [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
@@ -89,10 +88,10 @@ flowchart TD
 
     subgraph CodeSpace ["Engine & Storage Implementation (src/)"]
         C_SM2["SM-2 Engine (src/engine/sm2.ts)"]
-        C_Atom["Atomic Write (src/storage/atomic-write.ts)"]
+        C_Atom["Atomic Write<br/>(src/storage/atomic-write.ts)"]
         C_Lock["Lock Class (src/storage/lock.ts)"]
         C_Mem["Memory Manager (src/storage/memory.ts)"]
-        C_DAG["Dependency Graph (src/engine/dependency.ts)"]
+        C_DAG["Dependency Graph<br/>(src/engine/dependency.ts)"]
     end
 
     subgraph VaultSpace ["Vault Artifacts (Obsidian)"]
@@ -152,11 +151,11 @@ sequenceDiagram
     participant Sessions as .palee/sessions/S-*.md
     participant Storage as src/storage/memory.ts
     Note over CLI,Storage: Design: "Continue learning conversation"
-    CLI->>Storage: recoverDraft() [src/storage/memory.ts]
+    CLI->>Storage: recoverDraft() (src/storage/memory.ts)
     Storage->>Hot: Read orientation context
     Storage->>Sessions: Request full history if needed
     Note over CLI,Storage: Design: "Save Session"
-    CLI->>Storage: updateHotMemory() [src/storage/memory.ts]
+    CLI->>Storage: updateHotMemory() (src/storage/memory.ts)
     Storage->>Sessions: Write ISO-8601 Session Note
     Storage->>Hot: Regenerate (250-word cap)
 ```

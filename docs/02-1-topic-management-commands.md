@@ -114,12 +114,12 @@ flowchart TD
     DryCheck -->|"No"| ConfirmCheck{"-y / --yes OR Interactive (y/N)?"}
     
     ConfirmCheck -->|"Declined (N)"| Abort["Print 'Aborted.' & Exit 0"]
-    ConfirmCheck -->|"Non-TTY without -y"| ErrTTY["Error: Non-interactive environment (Exit 2)"]
+    ConfirmCheck -->|"Non-TTY without -y"| ErrTTY["Error: Non-interactive<br/>environment (Exit 2)"]
     ConfirmCheck -->|"Confirmed"| Phase1["Phase 1: Preflight & Fresh Fingerprints"]
     
     Phase1 --> Phase2["Phase 2: Atomic Write + Rollback Journal"]
     Phase2 -->|"All Succeeded"| Done["Print Success Summary (Exit 0)"]
-    Phase2 -->|"Write Failure / OCC"| Rollback["Rollback Journal: Restore Modified Notes (Exit 4/5)"]
+    Phase2 -->|"Write Failure / OCC"| Rollback["Rollback Journal:<br/>Restore Modified Notes (Exit 4/5)"]
     SingleFlow --> AtomicSingle["Atomic Write with Fingerprint Check"]
     AtomicSingle --> Done
 ```
@@ -244,7 +244,7 @@ flowchart TD
     
     PromptCheck -->|"Non-TTY without -y"| ErrTTY["Exit Code 2 (Non-interactive)"]
     PromptCheck -->|"Declined (N)"| Abort["Print 'Aborted.' & Exit 0"]
-    PromptCheck -->|"Confirmed"| ImportLoop["Iterate Roadmap Topics (Per-Topic try/catch)"]
+    PromptCheck -->|"Confirmed"| ImportLoop["Iterate Roadmap Topics<br/>(Per-Topic try/catch)"]
     
     ImportLoop --> DirCheck["ensureVaultDirectory() (Vault Boundary & Symlink Guard)"]
     DirCheck --> PathCheck{"Target Note Exists?"}
@@ -252,15 +252,15 @@ flowchart TD
     PathCheck -->|"Existing Note"| UpdateNote["Update Frontmatter + Preserve SM-2 State"]
     
     CreateNote & UpdateNote --> AtomicOp["atomicWrite() with Fingerprint"]
-    AtomicOp -->|"Corrupt / Write Error"| CatchErr["Catch Error -> Log & failed++ -> Continue Next Topic"]
-    AtomicOp -->|"OCC Conflict"| CatchOCC["Log Conflict & failed++ & conflicts++ -> Continue Next Topic"]
+    AtomicOp -->|"Corrupt / Write Error"| CatchErr["Catch Error:<br/>Log & failed++<br/>Continue Next Topic"]
+    AtomicOp -->|"OCC Conflict"| CatchOCC["Log Conflict:<br/>failed++ & conflicts++<br/>Continue Next Topic"]
     CatchErr --> NextTopic["Process Remaining Topics"]
     CatchOCC --> NextTopic
     AtomicOp -->|"Success"| NextTopic
     NextTopic --> FinalResult{"Any Writes Failed?"}
     
-    FinalResult -->|"0 Failed"| Success["✓ Roadmap imported successfully (Exit 0)"]
-    FinalResult -->|"failed > 0"| PartialFail["⚠ Failed to import X topics (Exit 1)"]
+    FinalResult -->|"0 Failed"| Success["Roadmap imported successfully (Exit 0)"]
+    FinalResult -->|"failed > 0"| PartialFail["Failed to import X topics (Exit 1)"]
     FinalResult -->|"Exit 4 (conflicts > 0)"| ConflictExit["Exit Code 4 (Conflict)"]
 ```
 
@@ -284,7 +284,7 @@ Scanning vault for PALEE schema versions...
 
 Schema v1: 42 notes
 
-✓ All notes are schema v1 - no migration needed
+[OK] All notes are schema v1 - no migration needed
 ```
 
 ---

@@ -91,7 +91,7 @@ Scheduling advances review dates using local calendar arithmetic (`due.setDate(d
 
 ```mermaid
 flowchart TD
-    Start(["Review Input: (Topic Review State, Quality: 0-5)"]) --> CheckQ{"Quality &ge; 3?<br/>(Successful Recall)"}
+    Start(["Review Input:<br/>Topic Review State, Quality: 0-5"]) --> CheckQ{"Quality &ge; 3?<br/>(Successful Recall)"}
     
     %% Failure Branch
     CheckQ -- "No (q &lt; 3: Failure)" --> CheckLapse{"Repetition &gt; 0?<br/>(Previously Learned)"}
@@ -111,7 +111,7 @@ flowchart TD
     Rep2 --> UpdateEF
     RepN --> UpdateEF
     
-    UpdateEF --> Schedule["Compute due_at = computeDueDate(Today, Interval)"]
+    UpdateEF --> Schedule["Compute due_at =<br/>computeDueDate(Today, Interval)"]
     Schedule --> Done(["Return Updated Partial&lt;Review&gt;"])
 ```
 

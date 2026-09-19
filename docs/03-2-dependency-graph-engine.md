@@ -76,7 +76,7 @@ flowchart TD
         GetReady["getReadyTopics(topics, threshold = 0.70)"]
         Iterate["For each topic in vault"]
         MasteryCheck{"topic_mastery &ge; 0.70?<br/>(Already Mastered)"}
-        DepCheck["areDependenciesSatisfied(topic, topics, threshold)"]
+        DepCheck["areDependenciesSatisfied<br/>(topic, topics, threshold)"]
         CheckPrereqs{"All prerequisites exist<br/>and have mastery &ge; 0.70?"}
         AddToReady["Add topic to Ready List"]
         Skip["Skip topic"]
@@ -111,7 +111,7 @@ flowchart TD
     White -->|"visit(id)<br/>visiting.add(id)<br/>pathStack.push(id)"| Gray["Gray (Active on Recursion Stack)"]
     
     Gray --> CheckEdge{"Inspect Prerequisite<br/>Dependencies"}
-    CheckEdge -- "Referenced node is Gray<br/>(In visiting Set)" --> Cycle["🚨 Cycle Detected<br/>Extract pathStack loop slice"]
+    CheckEdge -- "Referenced node is Gray<br/>(In visiting Set)" --> Cycle["Cycle Detected<br/>Extract pathStack loop slice"]
     CheckEdge -- "All children explored<br/>(No cycles found)" --> Pop["pathStack.pop()<br/>visiting.delete(id)<br/>visited.add(id)"]
     
     Pop --> Black["Black (Fully Settled / Acyclic)"]
@@ -203,7 +203,7 @@ flowchart TD
     end
 
     subgraph Result ["Validation Result"]
-        VResult["ValidationResult: { valid: boolean, errors: ValidationError[] }"]
+        VResult["ValidationResult:<br/>{ valid: boolean, errors: ValidationError[] }"]
     end
 
     VC --> Load

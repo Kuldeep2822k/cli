@@ -39,7 +39,7 @@ The CLI is implemented on top of the `commander` framework. Every command follow
 
 ```mermaid
 flowchart TD
-    User["Terminal Invocation: palee &lt;command&gt; [args] [flags]"] --> Entry["bin/palee.ts (Commander Entrypoint)"]
+    User["Terminal Invocation:<br/>palee &lt;command&gt; [args] [flags]"] --> Entry["bin/palee.ts (Commander Entrypoint)"]
     Entry --> LoadCfg["src/cli/config.ts: loadConfig()"]
     LoadCfg --> ValidVault{"src/cli/onboarding.ts: validateVaultPath()"}
     
@@ -47,9 +47,9 @@ flowchart TD
     ValidVault -->|"Valid Vault"| Dispatcher["Dispatch Command Handler"]
     
     Dispatcher --> TopEng["Topic Engine (adopt, roadmap, migrate)"]
-    Dispatcher --> SrsEng["SRS Review & Plan Engine (review, next, plan)"]
-    Dispatcher --> RepEng["Analytics Engine (dashboard, progress, validate)"]
-    Dispatcher --> SessEng["Session Working Memory (session start/draft/end/list)"]
+    Dispatcher --> SrsEng["SRS Review & Plan Engine<br/>(review, next, plan)"]
+    Dispatcher --> RepEng["Analytics Engine<br/>(dashboard, progress, validate)"]
+    Dispatcher --> SessEng["Session Working Memory<br/>(session start/draft/end/list)"]
     
     TopEng & SrsEng & RepEng & SessEng --> OutCheck{"isJsonOutput() Check"}
     OutCheck -->|"TTY (Terminal)"| TTYOut["Human-Readable Formatted Console"]

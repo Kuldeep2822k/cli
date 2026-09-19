@@ -50,10 +50,10 @@ flowchart TD
     FilterTopics --> MetricCalc["Calculate Aggregate Metrics"]
     
     MetricCalc --> Mastered["Mastered: topic_mastery &gt;= 0.70"]
-    MetricCalc --> Learning["Learning: 0.0 &lt; topic_mastery &lt; 0.70"]
+    MetricCalc --> Learning["Learning:<br/>0.0 &lt; topic_mastery &lt; 0.70"]
     MetricCalc --> New["New: topic_mastery == 0.0"]
     MetricCalc --> Due["Reviews Due: due_at &lt;= now"]
-    MetricCalc --> DiffBreak["Difficulty Breakdown: Beginner / Inter / Adv"]
+    MetricCalc --> DiffBreak["Difficulty Breakdown:<br/>Beginner / Inter / Adv"]
     
     Mastered & Learning & New & Due & DiffBreak --> FormatCheck{"isJsonOutput() ?"}
     FormatCheck -->|"TTY (Console)"| RenderTable["Render Styled ASCII Boxed Dashboard"]
@@ -221,7 +221,7 @@ flowchart LR
     subgraph Analyzer ["Validation Framework (src/validation/)"]
         Scan["collectVault() — single-read snapshot"]
         Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-managed-note-kind → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates → valid-session-schema → no-session-unknown-topic → valid-session-index → valid-hot-memory → safe-vault-paths"]
+        Rules["19 Validation Rules (Registration Order):<br/>1. parse-frontmatter • 2. read-failure • 3. valid-managed-note-kind<br/>4. valid-palee-schema • 5. valid-topic-id-format • 6. valid-topic-status<br/>7. no-duplicate-topic-id • 8. valid-dependency-list • 9. no-missing-dependency<br/>10. no-dependency-cycle • 11. valid-assessment-fields • 12. valid-topic-mastery<br/>13. valid-review-fields • 14. valid-review-dates • 15. valid-session-schema<br/>16. no-session-unknown-topic • 17. valid-session-index • 18. valid-hot-memory<br/>19. safe-vault-paths"]
     end
     
     subgraph Errors ["Errors (Exit 3)"]
@@ -242,8 +242,8 @@ flowchart LR
         WarnRead["unreadable file (snapshot incomplete)"]
         WarnMastery["topic_mastery drift"]
         WarnMiss["missing dependency (quarantined, not fatal)"]
-        WarnDepLegacy["legacy dependencies alias — migrate to depends_on"]
-        WarnDepDup["duplicate depends_on / dependencies entry"]
+        WarnDepLegacy["legacy dependencies alias<br/>(migrate to depends_on)"]
+        WarnDepDup["duplicate depends_on /<br/>dependencies entry"]
         WarnKind["ambiguous managed note kind"]
         WarnSessionTopic["session references unknown topic"]
         WarnIndex["stale or broken session index"]
@@ -273,7 +273,7 @@ flowchart LR
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
     Rules -->|"stale derived data"| WarnMastery
-    Rules -->|"no errors"| Success["✓ 0 Errors Found (Exit 0)"]
+    Rules -->|"no errors"| Success["0 Errors Found (Exit 0)"]
 ```
 
 ### Example Human-Readable Output (Failures Detected)
@@ -284,12 +284,12 @@ Validating vault: /Users/dev/ObsidianVault
 
 Found 18 PALEE topics in 24 files
 
-✗ Found 1 validation error(s):
+ERROR: Found 1 validation error(s):
 
   • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
     Rule: no-dependency-cycle
 
-⚠ Found 1 validation warning(s):
+WARN: Found 1 validation warning(s):
 
   • Topic T-cloud-native depends on missing topic T-docker-missing
     Rule: no-missing-dependency

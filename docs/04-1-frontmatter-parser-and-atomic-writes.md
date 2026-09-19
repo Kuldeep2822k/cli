@@ -86,7 +86,7 @@ sequenceDiagram
     participant FS as File System (Disk)
 
     CLI->>AW: atomicWrite(target, newContent, expectedFingerprint)
-    AW->>Lock: acquire() [mkdirSync]
+    AW->>Lock: acquire() (mkdirSync)
     Lock-->>AW: Lock Acquired
 
     alt File Missing or External Modification Detected (OCC Conflict)
@@ -94,7 +94,7 @@ sequenceDiagram
         FS-->>AW: currentContent
         AW->>AW: computeFingerprint(currentContent)
         Note over AW: currentFingerprint !== expectedFingerprint
-        AW->>Lock: release() [rmdirSync]
+        AW->>Lock: release() (rmdirSync)
         AW-->>CLI: throw Error (code: 'ECONFLICT')
         Note over CLI: isConflictError(e) === true → process.exitCode = 4
     else Clean State (Fingerprint Matches)
@@ -103,7 +103,7 @@ sequenceDiagram
         AW->>FS: fsyncSync(fd)
         AW->>FS: closeSync(fd)
         AW->>FS: renameSync(target.tmp.pid, target)
-        AW->>Lock: release() [rmdirSync]
+        AW->>Lock: release() (rmdirSync)
         AW-->>CLI: Resolve Promise (Success → exitCode 0)
     end
 ```

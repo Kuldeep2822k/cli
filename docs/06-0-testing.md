@@ -17,7 +17,7 @@
 - [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 - [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts)
 - [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts)
-- [src/storage/walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/walker.ts)
+- [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/cli-adopt-batch.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-adopt-batch.test.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
@@ -124,11 +124,11 @@ flowchart TD
         StreamMock["Console / TTY Stream Interception"]
     end
 
-    subgraph TestTiers ["Test Execution Tiers (19 Files / 230 Tests)"]
+    subgraph TestTiers ["Test Execution Tiers (73 Suites / 477 Tests)"]
         UT["Tier 1: Pure Unit & Engine Tests<br/>(test/engine-*.test.ts, test/types-*.test.ts)"]
         STG["Tier 2: Storage & Concurrency Tests<br/>(test/storage-*.test.ts)"]
-        IT["Tier 3: CLI Subprocess Integration Tests<br/>(test/cli-commands.test.ts, test/cli-adopt-batch.test.ts)"]
-        INP["Tier 4: In-Process CLI & Stream Tests<br/>(test/cli-exit-codes.test.ts, test/cli-json-output.test.ts, test/session-cli.test.ts)"]
+        IT["Tier 3: CLI Subprocess Integration Tests<br/>(test/cli-commands.test.ts,<br/>test/cli-adopt-batch.test.ts)"]
+        INP["Tier 4: In-Process CLI & Stream Tests<br/>(test/cli-exit-codes.test.ts,<br/>test/cli-json-output.test.ts,<br/>test/session-cli.test.ts)"]
         SMK["Tier 5: Package Smoke Tests<br/>(test/smoke.test.ts)"]
     end
 
