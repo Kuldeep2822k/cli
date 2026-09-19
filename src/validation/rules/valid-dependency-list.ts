@@ -11,6 +11,14 @@
  * real defects the loader would paper over — the same
  * pre-normalization rationale as #36/#38.
  *
+ * Additionally validates the legacy `dependencies` alias (#171.2, #181):
+ * when present on a topic note, an advisory `warning` is emitted
+ * guiding the user to migrate to `depends_on`, and the raw legacy
+ * shape is validated with the same contract as `depends_on` (must be
+ * an array of non-empty string IDs without self-references or
+ * duplicates) so malformed legacy values are diagnosed rather than
+ * silently ingested.
+ *
  * Policy (issue #33 + VERDICT Rule 8):
  * - Missing `depends_on`: treated as the empty list (adopt-default
  *   policy — adopt always writes the key, but pre-adoption notes are
@@ -142,7 +150,7 @@ function validateDependencyField(
 export const validDependencyListRule: ValidationRule = {
   id: 'valid-dependency-list',
   description:
-    'depends_on must be an array of non-empty string IDs without self-references or duplicates',
+    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning',
   severity: 'error',
   // `manual`, not `safe`: only the duplicate-entry findings are safely
   // dedupable; shape errors and self-references need a human decision
