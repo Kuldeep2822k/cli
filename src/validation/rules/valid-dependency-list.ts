@@ -39,19 +39,105 @@
  *   the duplicate findings are safely fixable — shape errors and
  *   self-references need a human decision.
  *
- * The legacy `dependencies` alias is NOT consulted: storage parsing
- * tolerates it defensively (normalized since #126), but the
- * canonical key is `depends_on` (#140) and the validation contract
- * checks what PALEE writes, not what it tolerates. Roadmap import
- * strips the alias on write.
+ * Legacy `dependencies` alias (#171.2, #181):
+ * Storage parsing tolerates and unions it defensively (`normalizeDependencies`
+ * since #126), but `depends_on` is the canonical key (#140). When present on
+ * a topic note, an advisory warning is reported guiding the user to migrate to
+ * `depends_on`. Additionally, the raw legacy shape is validated with the same
+ * contract as `depends_on` (must be an array of non-empty string IDs without
+ * self-references or duplicates) so malformed legacy values are diagnosed
+ * rather than silently ingested.
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import type { LoadedTopic } from '../../storage/loader';
 import { displayValue } from './diagnostic-value';
 
 /**
- * Reports `depends_on` fields that are not a clean array of distinct
- * non-empty string IDs.
+ * Validates dependency list shape for a given field (`depends_on` or `dependencies`).
+ */
+function validateDependencyField(
+  topic: LoadedTopic,
+  field: 'depends_on' | 'dependencies',
+  raw: unknown,
+  issues: ValidationIssue[]
+): void {
+  // Adopt-default policy: missing or null = empty list, valid.
+  if (raw === undefined || raw === null) return;
+
+  if (!Array.isArray(raw)) {
+    issues.push({
+      ruleId: 'valid-dependency-list',
+      severity: 'error',
+      message: `Topic ${topic.palee_id}: ${field} must be an array of topic IDs, got ${JSON.stringify(displayValue(raw))}`,
+      file: topic.path,
+      topicId: topic.palee_id,
+      field,
+      details: { actual: displayValue(raw) },
+    });
+    return;
+  }
+
+  // Item-level errors: non-string, null, and empty-string slots.
+  for (const item of raw) {
+    if (typeof item !== 'string' || item.trim() === '') {
+      issues.push({
+        ruleId: 'valid-dependency-list',
+        severity: 'error',
+        message: `Topic ${topic.palee_id}: every ${field} entry must be a non-empty topic ID string, got ${JSON.stringify(displayValue(item))}`,
+        file: topic.path,
+        topicId: topic.palee_id,
+        field,
+        details: { actual: displayValue(item) },
+      });
+    }
+  }
+
+  // Self-reference: structural error (one-node cycle in the graph).
+  // Trim before comparing: the loader trims each entry during
+  // normalization, so a padded `' T-x '` IS a self-reference the
+  // engine would act on — `Array.includes` alone (strict equality)
+  // would miss it.
+  if (raw.some((item) => typeof item === 'string' && item.trim() === topic.palee_id)) {
+    issues.push({
+      ruleId: 'valid-dependency-list',
+      severity: 'error',
+      message: `Topic ${topic.palee_id}: ${field} must not reference the topic itself`,
+      file: topic.path,
+      topicId: topic.palee_id,
+      field,
+      details: { actual: topic.palee_id },
+    });
+  }
+
+  // Duplicates: warning only — normalization dedupes, so the
+  // graph sees the intended list; the note is just redundant.
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const id = item.trim();
+    if (id === '') continue;
+    if (seen.has(id)) dupes.add(id);
+    else seen.add(id);
+  }
+  for (const dup of dupes) {
+    issues.push({
+      ruleId: 'valid-dependency-list',
+      severity: 'warning',
+      message: `Topic ${topic.palee_id}: duplicate dependency entry ${dup} in ${field}`,
+      file: topic.path,
+      topicId: topic.palee_id,
+      field,
+      details: { actual: dup },
+    });
+  }
+}
+
+/**
+ * Reports `depends_on` (and legacy `dependencies`) fields that are not a clean array
+ * of distinct non-empty string IDs, and emits an advisory warning when `dependencies`
+ * is present.
  */
 export const validDependencyListRule: ValidationRule = {
   id: 'valid-dependency-list',
@@ -68,77 +154,23 @@ export const validDependencyListRule: ValidationRule = {
     const issues: ValidationIssue[] = [];
 
     for (const topic of context.topics) {
-      const raw = topic.frontmatter.depends_on;
+      // Validate canonical `depends_on`
+      validateDependencyField(topic, 'depends_on', topic.frontmatter.depends_on, issues);
 
-      // Adopt-default policy: missing or null = empty list, valid.
-      if (raw === undefined || raw === null) continue;
-
-      if (!Array.isArray(raw)) {
-        issues.push({
-          ruleId: 'valid-dependency-list',
-          severity: 'error',
-          message: `Topic ${topic.palee_id}: depends_on must be an array of topic IDs, got ${JSON.stringify(displayValue(raw))}`,
-          file: topic.path,
-          topicId: topic.palee_id,
-          field: 'depends_on',
-          details: { actual: displayValue(raw) },
-        });
-        continue;
-      }
-
-      // Item-level errors: non-string, null, and empty-string slots.
-      for (const item of raw) {
-        if (typeof item !== 'string' || item.trim() === '') {
-          issues.push({
-            ruleId: 'valid-dependency-list',
-            severity: 'error',
-            message: `Topic ${topic.palee_id}: every depends_on entry must be a non-empty topic ID string, got ${JSON.stringify(displayValue(item))}`,
-            file: topic.path,
-            topicId: topic.palee_id,
-            field: 'depends_on',
-            details: { actual: displayValue(item) },
-          });
-        }
-      }
-
-      // Self-reference: structural error (one-node cycle in the graph).
-      // Trim before comparing: the loader trims each entry during
-      // normalization, so a padded `' T-x '` IS a self-reference the
-      // engine would act on — `Array.includes` alone (strict equality)
-      // would miss it.
-      if (raw.some((item) => typeof item === 'string' && item.trim() === topic.palee_id)) {
-        issues.push({
-          ruleId: 'valid-dependency-list',
-          severity: 'error',
-          message: `Topic ${topic.palee_id}: depends_on must not reference the topic itself`,
-          file: topic.path,
-          topicId: topic.palee_id,
-          field: 'depends_on',
-          details: { actual: topic.palee_id },
-        });
-      }
-
-      // Duplicates: warning only — normalization dedupes, so the
-      // graph sees the intended list; the note is just redundant.
-      const seen = new Set<string>();
-      const dupes = new Set<string>();
-      for (const item of raw) {
-        if (typeof item !== 'string') continue;
-        const id = item.trim();
-        if (id === '') continue;
-        if (seen.has(id)) dupes.add(id);
-        else seen.add(id);
-      }
-      for (const dup of dupes) {
+      // Validate legacy `dependencies` alias (#171.2, #181)
+      const rawLegacy = topic.frontmatter.dependencies;
+      if (rawLegacy !== undefined) {
         issues.push({
           ruleId: 'valid-dependency-list',
           severity: 'warning',
-          message: `Topic ${topic.palee_id}: duplicate dependency entry ${dup} in depends_on`,
+          message: `Topic ${topic.palee_id}: legacy dependencies alias is deprecated; migrate to depends_on`,
           file: topic.path,
           topicId: topic.palee_id,
-          field: 'depends_on',
-          details: { actual: dup },
+          field: 'dependencies',
+          details: { actual: displayValue(rawLegacy) },
         });
+
+        validateDependencyField(topic, 'dependencies', rawLegacy, issues);
       }
     }
 
