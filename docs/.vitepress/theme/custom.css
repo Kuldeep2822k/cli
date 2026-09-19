@@ -39,7 +39,7 @@
   cursor: grab;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   padding: 30px 20px;
 }
 
@@ -50,7 +50,7 @@
 .mermaid-viewport svg {
   display: block;
   margin: auto;
-  max-width: 100%;
+  max-width: 100% !important;
   height: auto;
   transform-origin: center center;
   will-change: transform;
@@ -123,8 +123,8 @@
 }
 
 .mermaid-diagram-card.is-fullscreen .mermaid-viewport svg {
-  max-width: none;
-  max-height: none;
+  max-width: none !important;
+  max-height: none !important;
 }
 
 /* Dark Mode Scoping for Diagram Cards & Toolbar */

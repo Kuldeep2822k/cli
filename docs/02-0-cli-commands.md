@@ -41,19 +41,19 @@ The CLI is implemented on top of the `commander` framework. Every command follow
 flowchart TD
     User["Terminal Invocation:<br/>palee &lt;command&gt; [args] [flags]"] --> Entry["bin/palee.ts (Commander Entrypoint)"]
     Entry --> LoadCfg["src/cli/config.ts: loadConfig()"]
-    LoadCfg --> ValidVault{"src/cli/onboarding.ts: validateVaultPath()"}
+    LoadCfg --> ValidVault{"src/cli/onboarding.ts:<br/>validateVaultPath()"}
     
-    ValidVault -->|"Invalid Vault (Code 2)"| ErrVault["Emit Error (TTY Text or JSON to stderr)"]
     ValidVault -->|"Valid Vault"| Dispatcher["Dispatch Command Handler"]
+    ValidVault -->|"Invalid Vault (Code 2)"| ErrVault["Emit Error<br/>(TTY Text or JSON to stderr)"]
     
-    Dispatcher --> TopEng["Topic Engine (adopt, roadmap, migrate)"]
+    Dispatcher --> TopEng["Topic Engine<br/>(adopt, roadmap, migrate)"]
     Dispatcher --> SrsEng["SRS Review & Plan Engine<br/>(review, next, plan)"]
     Dispatcher --> RepEng["Analytics Engine<br/>(dashboard, progress, validate)"]
     Dispatcher --> SessEng["Session Working Memory<br/>(session start/draft/end/list)"]
     
     TopEng & SrsEng & RepEng & SessEng --> OutCheck{"isJsonOutput() Check"}
-    OutCheck -->|"TTY (Terminal)"| TTYOut["Human-Readable Formatted Console"]
-    OutCheck -->|"Non-TTY or --json"| JsonOut["Structured JSON Output to stdout"]
+    OutCheck -->|"TTY (Terminal)"| TTYOut["Human-Readable<br/>Formatted Console"]
+    OutCheck -->|"Non-TTY or --json"| JsonOut["Structured JSON<br/>Output to stdout"]
 ```
 
 ---
