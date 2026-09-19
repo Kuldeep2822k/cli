@@ -359,12 +359,12 @@ Validating vault: /Users/dev/ObsidianVault
 
 Found 18 PALEE topics in 24 files
 
-ERROR: Found 1 validation error(s):
+✗ Found 1 validation error(s):
 
   • Dependency cycle detected: T-topic-a -> T-topic-b -> T-topic-a
     Rule: no-dependency-cycle
 
-WARN: Found 1 validation warning(s):
+⚠ Found 1 validation warning(s):
 
   • Topic T-cloud-native depends on missing topic T-docker-missing
     Rule: no-missing-dependency
