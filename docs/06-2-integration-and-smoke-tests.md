@@ -150,4 +150,4 @@ Tests in `test/smoke.test.ts` (2 tests) provide lightweight sanity verification 
 | `palee progress`| Passed | Passed (Codes 0, 2) | Passed (`progress --json`) |
 | `palee dashboard`| Passed | Passed (Codes 0, 2) | Passed (`dashboard --json`) |
 | `palee session` | Passed | Passed (Codes 0, 2) | Passed (`session --json`) |
-| `palee validate` | Passed | Passed (Codes 0, 2, 3, 5) | Passed (`validate --json`) |
+| `palee validate` | N/A | Passed (Codes 0, 2, 3, 5) | Passed (`validate --json`) |
