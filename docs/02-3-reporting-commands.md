@@ -273,7 +273,7 @@ flowchart LR
     Rules -->|"malformed YAML"| WarnParse
     Rules -->|"read failed"| WarnRead
     Rules -->|"stale derived data"| WarnMastery
-    Rules -->|"no errors"| Success["0 Errors Found (Exit 0)"]
+    Rules -->|"no errors and no warnings"| Success["0 Errors / 0 Warnings (Exit 0)"]
 ```
 
 ### Example Human-Readable Output (Failures Detected)
@@ -333,4 +333,4 @@ When an error occurs (such as an unconfigured vault or a missing topic query in 
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee dashboard` | Successfully displayed dashboard metrics or empty vault onboarding. | N/A | Vault path not configured or directory does not exist. | N/A | N/A | Unexpected runtime exception or calculation failure. |
 | `palee progress` | Successfully displayed vault progress summary, topic detail (`--topic`), or empty vault state. | N/A | Vault path unconfigured, or topic query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee validate` | Vault validation passed with 0 structural errors. | N/A | Vault path not configured or invalid directory. | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, missing dependency, cycle, or assessment-field shape); warnings also exit 3 under `--strict`. | N/A | Unexpected runtime exception or directory walk failure. |
+| `palee validate` | Vault validation passed with 0 structural errors. | N/A | Vault path not configured or invalid directory. | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, cycle, or assessment-field shape); warnings (including missing dependencies) also exit 3 under `--strict`. | N/A | Unexpected runtime exception or directory walk failure. |
