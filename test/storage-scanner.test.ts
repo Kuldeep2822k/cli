@@ -198,4 +198,81 @@ describe('Storage Note Scanner', () => {
     assert.strictEqual(notes.length, 1);
     assert.match(notes[0].parseError ?? '', /unclosed/i);
   });
+
+  describe('Unclosed-fence heuristic gap (#171.11)', () => {
+    test('unclosed fence followed by body thematic break with spaces in keys is reported as parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'body-break-keys.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\nChapter 1: The Beginning\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.ok(notes[0].parseError, 'expected a parse error');
+      assert.match(notes[0].parseError!, /(unclosed|invalid frontmatter key)/i);
+    });
+
+    test('unclosed fence followed by body thematic break with markdown subheadings is reported as parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'body-break-headings.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\n## Subheading\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.ok(notes[0].parseError, 'expected a parse error');
+      assert.match(notes[0].parseError!, /unclosed/i);
+    });
+
+    test('unclosed fence followed by body thematic break with blockquotes is reported as parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'body-break-quotes.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\n> Blockquote text\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.ok(notes[0].parseError, 'expected a parse error');
+    });
+
+    test('unclosed fence with body containing non-fence \\n--- is still reported as parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'unclosed-with-dashes.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\nSome body text\n---not-a-closing-fence\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.ok(notes[0].parseError, 'expected a parse error');
+      assert.match(notes[0].parseError!, /(unclosed|implicit map keys|invalid frontmatter key)/i);
+    });
+
+    test('valid note with frontmatter and body thematic break is parsed successfully without parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'valid-with-hr.md'),
+        '---\npalee_id: T-valid\ntitle: Valid\n---\n# Real Body\n---\nMore body text\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.ok(notes[0].frontmatter);
+      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-valid');
+      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).title, 'Valid');
+    });
+  });
 });

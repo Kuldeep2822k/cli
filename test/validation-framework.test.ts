@@ -132,4 +132,77 @@ describe('Validation framework: runRules (#25)', () => {
     assert.strictEqual(issues[0].topicId, 'T-git-rebase');
     assert.deepStrictEqual(issues[0].details, { files: ['notes/git.md', 'notes/git-2.md'] });
   });
+
+  describe('Exception safety (#171.10)', () => {
+    test('catches Error thrown by a rule and converts it to a validation finding', () => {
+      const crashingRule: ValidationRule = {
+        id: 'no-dependency-cycle',
+        description: 'Detects cycles',
+        severity: 'error',
+        run() {
+          throw new Error('cycle detected in graph traversal');
+        },
+      };
+
+      const issues = runRules(makeContext(), [crashingRule]);
+
+      assert.strictEqual(issues.length, 1);
+      assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
+      assert.strictEqual(issues[0].severity, 'error');
+      assert.strictEqual(
+        issues[0].message,
+        'Validation rule no-dependency-cycle threw an unexpected error: cycle detected in graph traversal'
+      );
+      assert.strictEqual(issues[0].file, '');
+      assert.strictEqual(issues[0].topicId, '');
+      assert.strictEqual(issues[0].field, 'rule-execution');
+    });
+
+    test('catches non-Error thrown by a rule and converts it to a validation finding', () => {
+      const throwingRule: ValidationRule = {
+        id: 'crashing-rule',
+        description: 'Throws non-error',
+        severity: 'error',
+        run() {
+          throw 'unexpected string crash';
+        },
+      };
+
+      const issues = runRules(makeContext(), [throwingRule]);
+
+      assert.strictEqual(issues.length, 1);
+      assert.strictEqual(issues[0].ruleId, 'crashing-rule');
+      assert.strictEqual(issues[0].severity, 'error');
+      assert.strictEqual(
+        issues[0].message,
+        'Validation rule crashing-rule threw an unexpected error: unexpected string crash'
+      );
+      assert.strictEqual(issues[0].file, '');
+      assert.strictEqual(issues[0].topicId, '');
+      assert.strictEqual(issues[0].field, 'rule-execution');
+    });
+
+    test('continues executing subsequent rules when an earlier rule throws', () => {
+      const crashingRule: ValidationRule = {
+        id: 'first-rule',
+        description: 'Crashes',
+        severity: 'error',
+        run() {
+          throw new Error('boom');
+        },
+      };
+      const normalRule = staticRule('second-rule', [
+        { ruleId: 'second-rule', severity: 'warning', message: 'all good' },
+      ]);
+
+      const issues = runRules(makeContext(), [crashingRule, normalRule]);
+
+      assert.strictEqual(issues.length, 2);
+      assert.strictEqual(issues[0].ruleId, 'first-rule');
+      assert.strictEqual(issues[0].severity, 'error');
+      assert.strictEqual(issues[0].field, 'rule-execution');
+      assert.strictEqual(issues[1].ruleId, 'second-rule');
+      assert.strictEqual(issues[1].message, 'all good');
+    });
+  });
 });

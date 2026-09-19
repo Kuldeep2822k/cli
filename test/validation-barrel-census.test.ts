@@ -23,10 +23,11 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
       assert.strictEqual(typeof validation.formatJson, 'function');
     });
 
-    it('exports all nineteen registered rules as ValidationRule objects', () => {
-      const rules: unknown[] = [
+    it('exports all nineteen registered rules as ValidationRule objects in validate.ts registration order (#171.9)', () => {
+      const rules = [
         validation.parseFrontmatterRule,
         validation.readFailureRule,
+        validation.validManagedNoteKindRule,
         validation.validPaleeSchemaRule,
         validation.validTopicIdFormatRule,
         validation.validTopicStatusRule,
@@ -38,7 +39,6 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
         validation.validTopicMasteryRule,
         validation.validReviewFieldsRule,
         validation.validReviewDatesRule,
-        validation.validManagedNoteKindRule,
         validation.validSessionSchemaRule,
         validation.noSessionUnknownTopicRule,
         validation.validSessionIndexRule,
@@ -47,9 +47,34 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
       ];
       // Rules are object literals implementing ValidationRule — assert
       // presence (not undefined) and let the contract-shape test pin the rest.
+      assert.strictEqual(rules.length, 19);
       for (const rule of rules) {
         assert.ok(rule !== undefined && rule !== null);
       }
+      assert.deepStrictEqual(
+        rules.map((r) => r.id),
+        [
+          'parse-frontmatter',
+          'read-failure',
+          'valid-managed-note-kind',
+          'valid-palee-schema',
+          'valid-topic-id-format',
+          'valid-topic-status',
+          'no-duplicate-topic-id',
+          'valid-dependency-list',
+          'no-missing-dependency',
+          'no-dependency-cycle',
+          'valid-assessment-fields',
+          'valid-topic-mastery',
+          'valid-review-fields',
+          'valid-review-dates',
+          'valid-session-schema',
+          'no-session-unknown-topic',
+          'valid-session-index',
+          'valid-hot-memory',
+          'safe-vault-paths',
+        ]
+      );
     });
 
     it('pins the ValidationRule contract shape on every exported rule', () => {

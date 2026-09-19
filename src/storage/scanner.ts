@@ -51,6 +51,58 @@ export interface ScanNotesOptions {
  * const broken = notes.filter((n) => n.parseError);
  * ```
  */
+/**
+ * Checks whether raw frontmatter text contains lines that look like Markdown body text
+ * rather than YAML key-value pairs or comments (#171.11).
+ */
+function hasBodyTextLines(raw: string): boolean {
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Markdown headings (## Heading, ### Heading, etc.)
+    if (/^#{2,6}\s+\S/.test(trimmed)) {
+      return true;
+    }
+    // Markdown blockquotes (> quote)
+    if (/^>\s+\S/.test(trimmed)) {
+      return true;
+    }
+    // Markdown list items (unordered * or +, ordered 1.)
+    if (/^[*+]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) {
+      return true;
+    }
+    // Top-level unindented lines (column 0)
+    if (!line.startsWith(' ') && !line.startsWith('\t')) {
+      if (trimmed.startsWith('#')) {
+        // Single # comment
+        continue;
+      }
+      if (trimmed.startsWith('-')) {
+        // Top-level sequence item
+        continue;
+      }
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex !== -1) {
+        let keyPart = trimmed.slice(0, colonIndex).trim();
+        if (
+          (keyPart.startsWith('"') && keyPart.endsWith('"')) ||
+          (keyPart.startsWith("'") && keyPart.endsWith("'"))
+        ) {
+          keyPart = keyPart.slice(1, -1);
+        }
+        if (keyPart.includes(' ') || !/^[A-Za-z0-9_.-]+$/.test(keyPart)) {
+          return true;
+        }
+      } else {
+        // Line at column 0 with no colon, not comment, not sequence
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNote[] {
   const scanFiles = options.files ?? walkVault(vaultPath);
   const notes: ScannedNote[] = [];
@@ -74,24 +126,51 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
       continue;
     }
 
-    const { frontmatter, error } = parseFrontmatter(content);
+    const { frontmatter: parsedFrontmatter, error, raw } = parseFrontmatter(content);
+    let frontmatter = parsedFrontmatter;
+    let parseError = error;
+
+    // Validate parsed frontmatter keys and detect body content parsed as YAML (#171.11)
+    if (!parseError && frontmatter !== null) {
+      if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+        parseError = 'Frontmatter is not a valid YAML mapping';
+        frontmatter = null;
+      } else {
+        const keys = Object.keys(frontmatter);
+        const invalidKey = keys.find((key) => key.includes(' ') || !/^[A-Za-z0-9_.-]+$/.test(key));
+        if (invalidKey !== undefined) {
+          parseError = `Invalid frontmatter key "${invalidKey}": frontmatter keys cannot contain spaces and must match identifier patterns`;
+          frontmatter = null;
+        } else if (raw !== null && raw !== '' && hasBodyTextLines(raw)) {
+          parseError =
+            'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+            '(body content was parsed as frontmatter)';
+          frontmatter = null;
+        }
+      }
+    }
 
     // An opening `---` fence with no closing fence is invisible to
     // parseFrontmatter (it only sees "no frontmatter found"). Flag it only
     // when the body reads like YAML — a legal note opening with a `---`
     // thematic break (horizontal rule) must not be reported as malformed.
-    let parseError = error;
-    if (!parseError && frontmatter === null && /^---\r?\n/.test(content) && !content.includes('\n---')) {
-      const fenceBody = content.slice(content.indexOf('\n') + 1);
-      const looksLikeYaml =
-        // key: value at any indent (keys start A-Z, a-z, or _)
-        /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
-        // sequence items, column-0 or indented: "- item"
-        /^[ \t]*-\s+\S/m.test(fenceBody);
-      if (looksLikeYaml) {
+    if (!parseError && frontmatter === null && /^---\r?\n/.test(content)) {
+      if (raw === null) {
+        const fenceBody = content.slice(content.indexOf('\n') + 1);
+        const looksLikeYaml =
+          // key: value at any indent (keys start A-Z, a-z, or _)
+          /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
+          // sequence items, column-0 or indented: "- item"
+          /^[ \t]*-\s+\S/m.test(fenceBody);
+        if (looksLikeYaml) {
+          parseError =
+            'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+            '(if the opening line is a horizontal rule, use `***` instead)';
+        }
+      } else if (raw !== '' && hasBodyTextLines(raw)) {
         parseError =
           'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
-          '(if the opening line is a horizontal rule, use `***` instead)';
+          '(body content was parsed as frontmatter)';
       }
     }
 
