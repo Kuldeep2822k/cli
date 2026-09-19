@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.2] - 2026-09-19
+
+### Fixes (fix)
+
+- **Scanner unclosed-fence heuristic & frontmatter parser robustness**:
+  - Detected when Markdown body text is accidentally swallowed into frontmatter due to an unclosed opening fence followed by a thematic break (`hasBodyTextLines`), checking for headings, blockquotes, lists, and non-mapping colons. ([#171.11](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+  - Supported quoted YAML mapping keys containing colons (e.g. `"custom: property": value`, `'other: property': value`, and escaped quotes). ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
+  - Supported unquoted YAML keys with spaces (e.g. `display name: Mathematics`), slashes (e.g. `schema/url: ...`), non-ASCII characters (e.g. `pré-requis: ...`), and arbitrary custom lengths without false-positive body text classification. ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
+  - Preserved `raw` and `body` in `parseFrontmatter` for whitespace-only fenced blocks (e.g. `---\n\n---`) so `updateFrontmatter` replaces them in-place instead of prepending duplicate fence blocks. ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **Exception safety in validation rule runner**: wrapped rule execution in `runRules` in try/catch blocks so rule crashes become structured validation findings (`field: 'rule-execution'`) rather than exit-5 crashes; guarded non-Error thrown values whose string conversion fails so subsequent rules continue executing. ([#171.10](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **Validation barrel export order aligned**: rewrote `src/validation/index.ts` to export all 19 validation rules in exact registration order matching `src/cli/validate.ts`, verified by public barrel census tests. ([#171.9](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **Validate legacy `dependencies` alias with migration advisory**: `valid-dependency-list` rule now validates the legacy `dependencies` key so the validator matches what the loader consumes, emitting an advisory warning to migrate to `depends_on` alongside full shape/self-ref/duplicate diagnostics for malformed values. ([#171.2](https://github.com/Kuldeep2822k/cli/issues/171), [#181](https://github.com/Kuldeep2822k/cli/issues/181), [#187](https://github.com/Kuldeep2822k/cli/pull/187))
+
+### Documentation & Maintenance (docs)
+
+- **Document legacy `dependencies` alias advisory**: updated `valid-dependency-list` rule metadata, documentation (`docs/02-3-reporting-commands.md`), and Mermaid diagrams to reflect the advisory warning when `dependencies` is present on a topic note. ([#187](https://github.com/Kuldeep2822k/cli/pull/187))
+
+---
+
 ## [0.5.1] - 2026-09-18
 
 ### Fixes (fix)
