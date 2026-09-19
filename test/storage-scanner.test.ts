@@ -217,6 +217,28 @@ describe('Storage Note Scanner', () => {
       assert.strictEqual(fm['created date'], '2026-01-01');
     });
 
+    test('valid note with unquoted keys containing slashes, non-ASCII, and long names is parsed successfully', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'custom-keys.md'),
+        '---\npalee_id: T-valid\nschema/url: https://example.test\npré-requis: T-1\nchapter one: Introduction\nmy custom long property name from plugin configuration: custom-value\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.ok(notes[0].frontmatter);
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm['schema/url'], 'https://example.test');
+      assert.strictEqual(fm['pré-requis'], 'T-1');
+      assert.strictEqual(fm['chapter one'], 'Introduction');
+      assert.strictEqual(
+        fm['my custom long property name from plugin configuration'],
+        'custom-value'
+      );
+    });
+
     test('unclosed fence followed by body thematic break with mapping-shaped prose (e.g. Chapter 1) is reported as parse error', () => {
       fs.writeFileSync(
         path.join(tmpVault, 'body-break-keys.md'),

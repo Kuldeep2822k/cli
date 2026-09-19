@@ -118,15 +118,9 @@ function hasBodyTextLines(raw: string): boolean {
         }
 
         const keyPart = trimmed.slice(0, colonIndex).trim();
-        // Detect prose patterns that resemble mappings (e.g. "Chapter 1: The Beginning"),
-        // keys with non-identifier punctuation (e.g. "What? Answer:"), or sentence-length clauses.
-        // Legitimate YAML keys with spaces (e.g. "display name: Value") remain valid.
-        if (
-          /^(chapter|section|part|book|volume|act|scene|figure|table|appendix|episode)\s+\S+/i.test(keyPart) ||
-          !/^[A-Za-z0-9_.\s-]+$/.test(keyPart) ||
-          keyPart.split(/\s+/).length > 4 ||
-          keyPart.length > 40
-        ) {
+        // Detect prose headings that resemble mappings (e.g. "Chapter 1: The Beginning",
+        // "Section 2: Details") rather than YAML frontmatter keys.
+        if (/^(chapter|section|part|book|volume|act|scene|figure|table|appendix|episode)\s+\d+\b/i.test(keyPart)) {
           return true;
         }
       } else {
