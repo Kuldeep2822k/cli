@@ -116,13 +116,6 @@ function hasBodyTextLines(raw: string): boolean {
         if (!afterColon.startsWith(' ') && !afterColon.startsWith('\t') && afterColon !== '') {
           return true;
         }
-
-        const keyPart = trimmed.slice(0, colonIndex).trim();
-        // Detect prose headings that resemble mappings (e.g. "Chapter 1: The Beginning",
-        // "Section 2: Details") rather than YAML frontmatter keys.
-        if (/^(chapter|section|part|book|volume|act|scene|figure|table|appendix|episode)\s+\d+\b/i.test(keyPart)) {
-          return true;
-        }
       } else {
         // Line at column 0 with no colon, not comment, not sequence
         return true;

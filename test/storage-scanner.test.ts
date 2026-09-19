@@ -239,19 +239,20 @@ describe('Storage Note Scanner', () => {
       );
     });
 
-    test('unclosed fence followed by body thematic break with mapping-shaped prose (e.g. Chapter 1) is reported as parse error', () => {
+    test('valid note with key such as Chapter 1 in a closed block is parsed successfully', () => {
       fs.writeFileSync(
-        path.join(tmpVault, 'body-break-keys.md'),
-        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\nChapter 1: The Beginning\n---\n# Real Body\n',
+        path.join(tmpVault, 'chapter-key.md'),
+        '---\npalee_id: T-valid\ntitle: Valid\nChapter 1: Introduction\n---\n# Real Body\n',
         'utf8'
       );
 
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /(unclosed|invalid frontmatter key)/i);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.ok(notes[0].frontmatter);
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm['Chapter 1'], 'Introduction');
     });
 
     test('unclosed fence followed by body thematic break with non-mapping colons (e.g. URLs) is reported as parse error', () => {
