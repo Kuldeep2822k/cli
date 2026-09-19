@@ -195,7 +195,7 @@ palee validate [flags]
 4. **Topic ID Format (`valid-topic-id-format`, error)**: Topic IDs must match the centralized policy in `src/engine/topic-id.ts` — `T-` plus lowercase kebab-case segments; the exact legacy adopt-generated format stays valid.
 5. **Topic Status (`valid-topic-status`, error)**: Status must be one of `not_started` | `learning` | `paused` | `archived`; missing status is tolerated as the adopt default.
 6. **Duplicate Topic IDs (`no-duplicate-topic-id`, error)**: Multiple Markdown notes sharing the same `palee_id` in their frontmatter.
-7. **Dependency List Shape (`valid-dependency-list`, error)**: `depends_on` must be an array of non-empty topic-ID strings — a bare string, a non-string item (numbers, booleans, nulls), or an empty-string slot is a shape error, and a self-reference (`T-a` depending on `T-a`) is a structural error. Duplicate entries are a separate warning: the loader dedupes them, so scheduling is unaffected. Missing or null `depends_on` is the documented empty-list default and never reports. The rule runs before the graph rules and reads raw frontmatter (pre-normalization) so defects the loader's coercion would hide are exposed.
+7. **Dependency List Shape (`valid-dependency-list`, error)**: `depends_on` must be an array of non-empty topic-ID strings — a bare string, a non-string item (numbers, booleans, nulls), or an empty-string slot is a shape error, and a self-reference (`T-a` depending on `T-a`) is a structural error. Duplicate entries are a separate warning: the loader dedupes them, so scheduling is unaffected. Missing or null `depends_on` is the documented empty-list default and never reports. Additionally, if a topic carries the legacy `dependencies` alias, an advisory warning is emitted guiding the user to migrate to `depends_on`, and the raw legacy shape is validated with the same contract. The rule runs before the graph rules and reads raw frontmatter (pre-normalization) so defects the loader's coercion would hide are exposed.
 8. **Missing Dependencies (`no-missing-dependency`, warning)**: A topic referencing a prerequisite ID in `depends_on` that does not exist anywhere in the vault. A warning in vault scans (the engine quarantines the dependent topic from `plan`/`next` instead of failing the scan — incrementally-written vaults are the norm, and a note mid-flight must not fail a whole validation run); `roadmap --from` pre-validation keeps its own separate hard-error path, so an import-time dangling reference still blocks the import. Findings never depend on unrelated vault state; if a dependency target was itself unreadable, the `read-failure` warning appears alongside explaining the transient condition, and re-running settles it. `--strict` escalates the warning for CI use.
 9. **Dependency Cycles (`no-dependency-cycle`, error)**: Circular dependency chains (e.g. $A \to B \to C \to A$) detected by the dependency engine [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) (iterative Tarjan SCC analysis with a lexicographic-first cycle search; the rule reports the exact path).
 10. **Assessment Fields (`valid-assessment-fields`, error)**: Assessment scores (`conceptual`, `practical`, `debug`, `feynman`) must be finite numbers within `[0.0, 1.0]` as stored on disk, and `assessed_at` must be `null` or a real calendar date — date-only strings (`YYYY-MM-DD`) and ISO timestamps (`2026-02-30T12:00:00Z`) alike are rejected when their written calendar rolls over (`2026-02-30` is not normalized into March). The rule reads raw frontmatter values — the loader clamps and coerces during normalization, so this rule exposes real vault corruption instead of silently blessing it. Missing assessment fields follow the documented default policy (they are the newly-adopted state) and pass.
@@ -242,7 +242,8 @@ flowchart LR
         WarnRead["unreadable file (snapshot incomplete)"]
         WarnMastery["topic_mastery drift"]
         WarnMiss["missing dependency (quarantined, not fatal)"]
-        WarnDepDup["duplicate depends_on entry"]
+        WarnDepLegacy["legacy dependencies alias — migrate to depends_on"]
+        WarnDepDup["duplicate depends_on / dependencies entry"]
         WarnKind["ambiguous managed note kind"]
         WarnSessionTopic["session references unknown topic"]
         WarnIndex["stale or broken session index"]
@@ -254,13 +255,14 @@ flowchart LR
     Runner --> Rules
     Rules -->|"duplicate IDs"| ErrDup
     Rules -->|"dangling prerequisite"| WarnMiss
-    Rules -->|"depends_on shape invalid / self-reference"| ErrDepShape
+    Rules -->|"depends_on or dependencies — shape invalid / self-reference"| ErrDepShape
     Rules -->|"cycle detected"| ErrCyc
     Rules -->|"unknown schema version"| ErrSchema
     Rules -->|"malformed topic ID"| ErrId
     Rules -->|"unknown status"| ErrStatus
     Rules -->|"score/date shape invalid"| ErrAssess
     Rules -->|"SM-2 bounds / date contract violated"| ErrReview
+    Rules -->|"legacy dependencies alias present"| WarnDepLegacy
     Rules -->|"duplicate dependency entry"| WarnDepDup
     Rules -->|"managed note kind ambiguous / conflicting"| WarnKind
     Rules -->|"session schema invalid"| ErrSession

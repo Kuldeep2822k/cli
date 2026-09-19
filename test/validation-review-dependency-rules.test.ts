@@ -507,6 +507,91 @@ describe('valid-dependency-list rule (#33)', () => {
     assert.match(issues[0].message, /itself/);
   });
 
+  test('legacy dependencies alias emits migration advisory warning on valid array (#171.2, #181)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-legacy',
+      frontmatter: { dependencies: ['T-a', 'T-b'] },
+    })];
+    const issues = validDependencyListRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
+    assert.strictEqual(issues[0].severity, 'warning');
+    assert.strictEqual(issues[0].topicId, 'T-legacy');
+    assert.strictEqual(issues[0].field, 'dependencies');
+    assert.strictEqual(
+      issues[0].message,
+      'Topic T-legacy: legacy dependencies alias is deprecated; migrate to depends_on'
+    );
+  });
+
+  test('legacy dependencies with explicit null emits advisory warning only (#171.2, #181)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-null-deps',
+      frontmatter: { dependencies: null },
+    })];
+    const issues = validDependencyListRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
+    assert.strictEqual(issues[0].severity, 'warning');
+    assert.strictEqual(issues[0].field, 'dependencies');
+  });
+
+  test('legacy dependencies with non-array shape diagnoses defects (#171.2, #181)', () => {
+    const topics = [
+      makeTopic({
+        palee_id: 'T-num-deps',
+        frontmatter: { dependencies: 123 },
+      }),
+      makeTopic({
+        palee_id: 'T-str-deps',
+        frontmatter: { dependencies: 'T-a, T-b' },
+      }),
+    ];
+    const issues = validDependencyListRule.run(makeContext(topics));
+    // T-num-deps: 1 warning (advisory) + 1 error (must be array)
+    // T-str-deps: 1 warning (advisory) + 1 error (must be array)
+    assert.strictEqual(issues.length, 4);
+
+    const numIssues = issues.filter((i) => i.topicId === 'T-num-deps');
+    assert.strictEqual(numIssues.length, 2);
+    assert.strictEqual(numIssues[0].severity, 'warning');
+    assert.strictEqual(numIssues[1].severity, 'error');
+    assert.strictEqual(numIssues[1].field, 'dependencies');
+    assert.strictEqual(
+      numIssues[1].message,
+      'Topic T-num-deps: dependencies must be an array of topic IDs, got 123'
+    );
+
+    const strIssues = issues.filter((i) => i.topicId === 'T-str-deps');
+    assert.strictEqual(strIssues.length, 2);
+    assert.strictEqual(strIssues[0].severity, 'warning');
+    assert.strictEqual(strIssues[1].severity, 'error');
+    assert.strictEqual(strIssues[1].field, 'dependencies');
+    assert.strictEqual(
+      strIssues[1].message,
+      'Topic T-str-deps: dependencies must be an array of topic IDs, got "T-a, T-b"'
+    );
+  });
+
+  test('legacy dependencies with invalid items, self-reference, and duplicates reports defects (#171.2, #181)', () => {
+    const topics = [makeTopic({
+      palee_id: 'T-messy-legacy',
+      frontmatter: { dependencies: ['T-messy-legacy', '', 42, 'T-a', 'T-a'] },
+    })];
+    const issues = validDependencyListRule.run(makeContext(topics));
+    // 1 advisory warning, 2 item errors ('', 42), 1 self-ref error, 1 dup warning (T-a)
+    assert.strictEqual(issues.length, 5);
+    assert.deepStrictEqual(
+      issues.map((i) => i.severity),
+      ['warning', 'error', 'error', 'error', 'warning']
+    );
+    assert.strictEqual(issues[0].message, 'Topic T-messy-legacy: legacy dependencies alias is deprecated; migrate to depends_on');
+    assert.match(issues[1].message, /every dependencies entry must be a non-empty topic ID string/);
+    assert.match(issues[2].message, /every dependencies entry must be a non-empty topic ID string/);
+    assert.match(issues[3].message, /dependencies must not reference the topic itself/);
+    assert.strictEqual(issues[4].message, 'Topic T-messy-legacy: duplicate dependency entry T-a in dependencies');
+  });
+
   test('rule metadata: id, error severity (mixed rule), manual fixability', () => {
     assert.strictEqual(validDependencyListRule.id, 'valid-dependency-list');
     assert.strictEqual(validDependencyListRule.severity, 'error');
