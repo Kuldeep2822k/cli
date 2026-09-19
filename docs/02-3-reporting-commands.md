@@ -212,68 +212,38 @@ palee validate [flags]
 19. **Safe Vault Paths (`safe-vault-paths`, error)**: Every PALEE-managed path in the collected snapshot — topic notes, scanned notes, and session notes — must resolve inside the configured vault. Paths normalize (`\` → `/`) before validation so Windows separators validate identically; parent-directory traversal (`../outside.md`, including mid-path `a/../../escape.md`), absolute POSIX paths, and absolute Windows drive paths (`C:/…`) are boundary escapes and report as errors. This mirrors the containment policy the vault walker and roadmap import already enforce, making the write boundary explicit in validation output; symlink resolution itself stays owned by the walker.
 
 ```mermaid
-flowchart LR
-    subgraph Storage ["Vault Storage (.md Files)"]
-        FM1["Note 1 Frontmatter"]
-        FM2["Note 2 Frontmatter"]
-    end
-    
-    subgraph Analyzer ["Validation Framework (src/validation/)"]
-        Scan["collectVault() — single-read snapshot"]
-        Runner["runRules() — every rule runs, in registration order"]
-        Rules["19 Validation Rules (Registration Order):<br/>1. parse-frontmatter • 2. read-failure • 3. valid-managed-note-kind<br/>4. valid-palee-schema • 5. valid-topic-id-format • 6. valid-topic-status<br/>7. no-duplicate-topic-id • 8. valid-dependency-list • 9. no-missing-dependency<br/>10. no-dependency-cycle • 11. valid-assessment-fields • 12. valid-topic-mastery<br/>13. valid-review-fields • 14. valid-review-dates • 15. valid-session-schema<br/>16. no-session-unknown-topic • 17. valid-session-index • 18. valid-hot-memory<br/>19. safe-vault-paths"]
-    end
-    
-    subgraph Errors ["Errors (Exit 3)"]
-        ErrDup["duplicate_id"]
-        ErrDepShape["depends_on shape invalid / self-reference"]
-        ErrCyc["cycle"]
-        ErrSchema["invalid palee_schema"]
-        ErrId["bad topic ID format"]
-        ErrStatus["bad status"]
-        ErrAssess["bad assessment fields / assessed_at"]
-        ErrReview["SM-2 review state or dates invalid"]
-        ErrSession["session schema invalid"]
-        ErrPaths["vault path escape"]
+flowchart TD
+    subgraph Storage ["1. Vault Storage (.md Files)"]
+        Notes["Obsidian Vault<br/>Topic Notes • Session Notes • Hot Memory"]
     end
 
-    subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
-        WarnParse["malformed frontmatter"]
-        WarnRead["unreadable file (snapshot incomplete)"]
-        WarnMastery["topic_mastery drift"]
-        WarnMiss["missing dependency (quarantined, not fatal)"]
-        WarnDepLegacy["legacy dependencies alias<br/>(migrate to depends_on)"]
-        WarnDepDup["duplicate depends_on /<br/>dependencies entry"]
-        WarnKind["ambiguous managed note kind"]
-        WarnSessionTopic["session references unknown topic"]
-        WarnIndex["stale or broken session index"]
-        WarnHot["hot memory drifted"]
+    subgraph Analyzer ["2. Validation Framework (src/validation/)"]
+        Scan["collectVault()<br/>Single-read atomic snapshot"]
+        Run["runRules()<br/>Sequential rule pipeline"]
+
+        subgraph Domains ["19 Rules across 4 Functional Domains"]
+            direction LR
+            D1["<b>Schema & Paths</b><br/>• parse-frontmatter<br/>• valid-palee-schema<br/>• safe-vault-paths"]
+            D2["<b>Identity & Graph</b><br/>• no-duplicate-topic-id<br/>• no-dependency-cycle<br/>• valid-dependency-list"]
+            D3["<b>Pedagogy & Review</b><br/>• valid-assessment-fields<br/>• valid-topic-mastery<br/>• valid-review-dates"]
+            D4["<b>Session & Continuity</b><br/>• valid-session-schema<br/>• no-session-unknown-topic<br/>• valid-hot-memory"]
+        end
+
+        Scan --> Run
+        Run --> Domains
     end
-    
+
+    subgraph Outcomes ["3. Diagnostics & Exit Code Resolution"]
+        direction LR
+        Pass["[PASS] Clean<br/>0 Errors / 0 Warnings<br/><b>Exit Code 0</b>"]
+        Warn["[WARN] Warnings<br/>Dangling deps, legacy aliases, drift<br/><b>Exit Code 0</b> (Exit 3 with --strict)"]
+        Fail["[FAIL] Errors<br/>Cycles, duplicates, schema errors<br/><b>Exit Code 3</b>"]
+    end
+
     Storage --> Scan
-    Scan --> Runner
-    Runner --> Rules
-    Rules -->|"duplicate IDs"| ErrDup
-    Rules -->|"dangling prerequisite"| WarnMiss
-    Rules -->|"depends_on or dependencies — shape invalid / self-reference"| ErrDepShape
-    Rules -->|"cycle detected"| ErrCyc
-    Rules -->|"unknown schema version"| ErrSchema
-    Rules -->|"malformed topic ID"| ErrId
-    Rules -->|"unknown status"| ErrStatus
-    Rules -->|"score/date shape invalid"| ErrAssess
-    Rules -->|"SM-2 bounds / date contract violated"| ErrReview
-    Rules -->|"legacy dependencies alias present"| WarnDepLegacy
-    Rules -->|"duplicate dependency entry"| WarnDepDup
-    Rules -->|"managed note kind ambiguous / conflicting"| WarnKind
-    Rules -->|"session schema invalid"| ErrSession
-    Rules -->|"session references unknown topic"| WarnSessionTopic
-    Rules -->|"stale / broken session index"| WarnIndex
-    Rules -->|"hot memory identity / cap / broken reference"| WarnHot
-    Rules -->|"managed path escapes the vault"| ErrPaths
-    Rules -->|"malformed YAML"| WarnParse
-    Rules -->|"read failed"| WarnRead
-    Rules -->|"stale derived data"| WarnMastery
-    Rules -->|"no errors"| Success["0 Errors Found (Exit 0)"]
+    Domains --> Pass
+    Domains --> Warn
+    Domains --> Fail
 ```
 
 ### Example Human-Readable Output (Failures Detected)
