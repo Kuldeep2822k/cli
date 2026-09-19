@@ -143,7 +143,7 @@ Tests in `test/smoke.test.ts` (2 tests) provide lightweight sanity verification 
 |---|:---:|:---:|:---:|
 | `palee config` | Passed | Passed (Codes 0, 2) | Passed (`config --json`) |
 | `palee adopt` | Passed | Passed (Codes 0, 2, 4) | Passed (`adopt --json`) |
-| `palee roadmap` | Passed | Passed (Codes 0, 2, 3, 4) | Passed (`roadmap --json`) |
+| `palee roadmap` | Passed | Passed (Codes 0, 1, 2, 3, 4) | Passed (`roadmap --json`) |
 | `palee review` | Passed | Passed (Codes 0, 2, 4) | Passed (`review --json`) |
 | `palee next` | Passed | Passed (Codes 0, 2) | Passed (`next --json`) |
 | `palee plan` | Passed | Passed (Codes 0, 2) | Passed (`plan --json`) |

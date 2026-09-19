@@ -124,7 +124,7 @@ flowchart TD
         StreamMock["Console / TTY Stream Interception"]
     end
 
-    subgraph TestTiers ["Test Execution Tiers (73 Suites / 477 Tests)"]
+    subgraph TestTiers ["Test Execution Tiers (test:fast: 73 Suites / 477 Tests)"]
         UT["Tier 1: Pure Unit & Engine Tests<br/>(test/engine-*.test.ts, test/types-*.test.ts)"]
         STG["Tier 2: Storage & Concurrency Tests<br/>(test/storage-*.test.ts)"]
         IT["Tier 3: CLI Subprocess Integration Tests<br/>(test/cli-commands.test.ts,<br/>test/cli-adopt-batch.test.ts)"]
