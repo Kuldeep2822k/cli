@@ -55,7 +55,16 @@ function parseFrontmatter(content: string): FrontmatterResult {
     if (doc.errors && doc.errors.length > 0) {
       return { frontmatter: null, body, raw, error: doc.errors[0].message };
     }
-    const frontmatter = doc.toJSON() as Record<string, unknown>;
+    const parsed = doc.toJSON();
+    // Frontmatter must be a YAML mapping. When the content between `---`
+    // fences parses to a scalar (e.g. "Intro"), array, or null, the fences
+    // are almost certainly thematic breaks — not frontmatter delimiters.
+    // Treat as "no frontmatter found" so ordinary Markdown like
+    // `---\nIntro\n---\nMore` is never flagged as malformed.
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { frontmatter: null, body: stripped, raw: null };
+    }
+    const frontmatter = parsed as Record<string, unknown>;
     return { frontmatter, body, raw, doc };
   } catch (e: unknown) {
     const err = e as NodeError;

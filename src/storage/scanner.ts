@@ -134,17 +134,12 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     let frontmatter = parsedFrontmatter;
     let parseError = error;
 
-    // Validate parsed frontmatter keys and detect body content parsed as YAML (#171.11)
-    if (!parseError && raw !== null && raw !== '') {
-      if (frontmatter === null || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
-        parseError = 'Frontmatter is not a valid YAML mapping';
-        frontmatter = null;
-      } else if (hasBodyTextLines(raw)) {
-        parseError =
-          'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
-          '(body content was parsed as frontmatter)';
-        frontmatter = null;
-      }
+    // Detect body content accidentally parsed as YAML (#171.11)
+    if (!parseError && frontmatter !== null && raw !== null && raw !== '' && hasBodyTextLines(raw)) {
+      parseError =
+        'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+        '(body content was parsed as frontmatter)';
+      frontmatter = null;
     }
 
     // An opening `---` fence with no closing fence is invisible to
