@@ -1,5 +1,9 @@
+import { createRequire } from 'node:module'
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+
+const require = createRequire(import.meta.url)
+const pkg = require('../../package.json')
 
 export default withMermaid(
   defineConfig({
@@ -47,7 +51,7 @@ export default withMermaid(
         { text: 'ADRs', link: '/adr/README' },
         { text: 'Glossary', link: '/09-glossary' },
         {
-          text: 'v0.4.0',
+          text: `v${pkg.version}`,
           items: [
             { text: 'Changelog', link: 'https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md' },
             { text: 'GitHub Releases', link: 'https://github.com/Kuldeep2822k/cli/releases' },
