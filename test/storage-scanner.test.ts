@@ -274,5 +274,39 @@ describe('Storage Note Scanner', () => {
       assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-valid');
       assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).title, 'Valid');
     });
+
+    test('valid note with quoted keys containing colons is parsed successfully', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'quoted-colon-keys.md'),
+        '---\n"custom: property": double-quoted\n\'other: property\': single-quoted\n"nested: \\"quote\\": key": value\n\'single: \'\'quote\'\': key\': value2\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.ok(notes[0].frontmatter);
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm['custom: property'], 'double-quoted');
+      assert.strictEqual(fm['other: property'], 'single-quoted');
+      assert.strictEqual(fm['nested: "quote": key'], 'value');
+      assert.strictEqual(fm["single: 'quote': key"], 'value2');
+    });
+
+    test('unclosed fence with body containing quoted string without colon separator reports parse error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'quoted-prose.md'),
+        '---\npalee_id: T-unclosed\ntitle: Unclosed\n\n"Chapter 1: The Beginning" is a great chapter\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.ok(notes[0].parseError, 'expected a parse error');
+      assert.match(notes[0].parseError!, /(unclosed|implicit map keys)/i);
+    });
   });
 });
