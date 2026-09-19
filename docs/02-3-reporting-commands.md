@@ -242,7 +242,8 @@ flowchart LR
         WarnRead["unreadable file (snapshot incomplete)"]
         WarnMastery["topic_mastery drift"]
         WarnMiss["missing dependency (quarantined, not fatal)"]
-        WarnDepDup["duplicate depends_on entry"]
+        WarnDepLegacy["legacy dependencies alias — migrate to depends_on"]
+        WarnDepDup["duplicate depends_on / dependencies entry"]
         WarnKind["ambiguous managed note kind"]
         WarnSessionTopic["session references unknown topic"]
         WarnIndex["stale or broken session index"]
@@ -254,13 +255,14 @@ flowchart LR
     Runner --> Rules
     Rules -->|"duplicate IDs"| ErrDup
     Rules -->|"dangling prerequisite"| WarnMiss
-    Rules -->|"depends_on shape invalid / self-reference"| ErrDepShape
+    Rules -->|"depends_on or dependencies — shape invalid / self-reference"| ErrDepShape
     Rules -->|"cycle detected"| ErrCyc
     Rules -->|"unknown schema version"| ErrSchema
     Rules -->|"malformed topic ID"| ErrId
     Rules -->|"unknown status"| ErrStatus
     Rules -->|"score/date shape invalid"| ErrAssess
     Rules -->|"SM-2 bounds / date contract violated"| ErrReview
+    Rules -->|"legacy dependencies alias present"| WarnDepLegacy
     Rules -->|"duplicate dependency entry"| WarnDepDup
     Rules -->|"managed note kind ambiguous / conflicting"| WarnKind
     Rules -->|"session schema invalid"| ErrSession
