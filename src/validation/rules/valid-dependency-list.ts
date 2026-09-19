@@ -63,6 +63,18 @@ import { displayValue } from './diagnostic-value';
 
 /**
  * Validates dependency list shape for a given field (`depends_on` or `dependencies`).
+ *
+ * @remarks
+ * Checks that the raw frontmatter value is an array of non-empty string IDs,
+ * contains no self-references, and has no duplicate entries. Missing or null
+ * values are accepted under the adopt-default policy (empty list). Issues are
+ * pushed directly into the caller-supplied array so findings from both the
+ * canonical and legacy fields accumulate in a single pass.
+ *
+ * @param topic - The loaded topic whose dependency field is being validated
+ * @param field - Which dependency field to validate (`depends_on` or `dependencies`)
+ * @param raw - The raw (pre-normalization) frontmatter value for the field
+ * @param issues - Mutable array that receives any validation findings
  */
 function validateDependencyField(
   topic: LoadedTopic,

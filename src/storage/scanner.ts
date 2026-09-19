@@ -29,28 +29,7 @@ export interface ScanNotesOptions {
   includeContent?: boolean;
 }
 
-/**
- * Scans vault Markdown files and reports per-file frontmatter parse outcomes.
- *
- * @remarks
- * Every scanned file produces exactly one {@link ScannedNote}: a file whose
- * YAML cannot be parsed keeps `frontmatter: null` and carries the parser
- * message in `parseError`; a file with no frontmatter at all is not an error.
- * Unreadable files (deleted mid-scan, locked by another writer) are skipped
- * gracefully, mirroring `loadTopics`. Results are sorted by relative path so
- * downstream output is deterministic across platforms.
- *
- * @param vaultPath - Absolute path to the Obsidian vault root
- * @param options - Scan options (`files` for a pre-scanned file list,
- * `includeContent` to capture raw bytes per note)
- * @returns One parse-outcome entry per readable file, sorted by relative path
- *
- * @example
- * ```typescript
- * const notes = scanNotes('/path/to/vault');
- * const broken = notes.filter((n) => n.parseError);
- * ```
- */
+
 /**
  * Checks whether raw frontmatter text contains lines that look like Markdown body text
  * rather than YAML key-value pairs or comments (#171.11).
@@ -60,20 +39,23 @@ function hasBodyTextLines(raw: string): boolean {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // Markdown headings (## Heading, ### Heading, etc.)
-    if (/^#{2,6}\s+\S/.test(trimmed)) {
-      return true;
-    }
-    // Markdown blockquotes (> quote)
-    if (/^>\s+\S/.test(trimmed)) {
-      return true;
-    }
-    // Markdown list items (unordered * or +, ordered 1.)
-    if (/^[*+]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) {
-      return true;
-    }
-    // Top-level unindented lines (column 0)
-    if (!line.startsWith(' ') && !line.startsWith('\t')) {
+    // Skip indented lines — they can be YAML block-scalar continuations
+    // (e.g. `description: |\n  ## Details`). Only unindented lines are
+    // candidates for Markdown body-text detection.
+    const isIndented = line.startsWith(' ') || line.startsWith('\t');
+    if (!isIndented) {
+      // Markdown headings (## Heading, ### Heading, etc.)
+      if (/^#{2,6}\s+\S/.test(trimmed)) {
+        return true;
+      }
+      // Markdown blockquotes (> quote)
+      if (/^>\s+\S/.test(trimmed)) {
+        return true;
+      }
+      // Markdown list items (unordered * or +, ordered 1.)
+      if (/^[*+]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) {
+        return true;
+      }
       if (trimmed.startsWith('#')) {
         // Single # comment
         continue;
@@ -103,6 +85,28 @@ function hasBodyTextLines(raw: string): boolean {
   return false;
 }
 
+/**
+ * Scans vault Markdown files and reports per-file frontmatter parse outcomes.
+ *
+ * @remarks
+ * Every scanned file produces exactly one {@link ScannedNote}: a file whose
+ * YAML cannot be parsed keeps `frontmatter: null` and carries the parser
+ * message in `parseError`; a file with no frontmatter at all is not an error.
+ * Unreadable files (deleted mid-scan, locked by another writer) are skipped
+ * gracefully, mirroring `loadTopics`. Results are sorted by relative path so
+ * downstream output is deterministic across platforms.
+ *
+ * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param options - Scan options (`files` for a pre-scanned file list,
+ * `includeContent` to capture raw bytes per note)
+ * @returns One parse-outcome entry per readable file, sorted by relative path
+ *
+ * @example
+ * ```typescript
+ * const notes = scanNotes('/path/to/vault');
+ * const broken = notes.filter((n) => n.parseError);
+ * ```
+ */
 function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNote[] {
   const scanFiles = options.files ?? walkVault(vaultPath);
   const notes: ScannedNote[] = [];
@@ -131,22 +135,15 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     let parseError = error;
 
     // Validate parsed frontmatter keys and detect body content parsed as YAML (#171.11)
-    if (!parseError && frontmatter !== null) {
-      if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    if (!parseError && raw !== null && raw !== '') {
+      if (frontmatter === null || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
         parseError = 'Frontmatter is not a valid YAML mapping';
         frontmatter = null;
-      } else {
-        const keys = Object.keys(frontmatter);
-        const invalidKey = keys.find((key) => key.includes(' ') || !/^[A-Za-z0-9_.-]+$/.test(key));
-        if (invalidKey !== undefined) {
-          parseError = `Invalid frontmatter key "${invalidKey}": frontmatter keys cannot contain spaces and must match identifier patterns`;
-          frontmatter = null;
-        } else if (raw !== null && raw !== '' && hasBodyTextLines(raw)) {
-          parseError =
-            'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
-            '(body content was parsed as frontmatter)';
-          frontmatter = null;
-        }
+      } else if (hasBodyTextLines(raw)) {
+        parseError =
+          'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+          '(body content was parsed as frontmatter)';
+        frontmatter = null;
       }
     }
 
@@ -154,9 +151,12 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
     // parseFrontmatter (it only sees "no frontmatter found"). Flag it only
     // when the body reads like YAML — a legal note opening with a `---`
     // thematic break (horizontal rule) must not be reported as malformed.
-    if (!parseError && frontmatter === null && /^---\r?\n/.test(content)) {
+    // Normalize a leading BOM the same way parseFrontmatter does,
+    // so the fence anchor regex matches consistently.
+    const normalized = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+    if (!parseError && frontmatter === null && /^---\r?\n/.test(normalized)) {
       if (raw === null) {
-        const fenceBody = content.slice(content.indexOf('\n') + 1);
+        const fenceBody = normalized.slice(normalized.indexOf('\n') + 1);
         const looksLikeYaml =
           // key: value at any indent (keys start A-Z, a-z, or _)
           /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
