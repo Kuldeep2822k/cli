@@ -34,7 +34,24 @@ function runRules(
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const rule of rules) {
-    issues.push(...rule.run(context));
+    try {
+      issues.push(...rule.run(context));
+    } catch (e: unknown) {
+      let message = 'unknown error';
+      try {
+        message = e instanceof Error ? e.message : String(e);
+      } catch {
+        // Retain fallback when string conversion fails
+      }
+      issues.push({
+        ruleId: rule.id,
+        severity: 'error',
+        message: `Validation rule ${rule.id} threw an unexpected error: ${message}`,
+        file: '',
+        topicId: '',
+        field: 'rule-execution',
+      });
+    }
   }
   return issues;
 }

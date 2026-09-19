@@ -29,6 +29,102 @@ export interface ScanNotesOptions {
   includeContent?: boolean;
 }
 
+
+/**
+ * Checks whether raw frontmatter text contains lines that look like Markdown body text
+ * rather than YAML key-value pairs or comments (#171.11).
+ */
+function hasBodyTextLines(raw: string): boolean {
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Skip indented lines — they can be YAML block-scalar continuations
+    // (e.g. `description: |\n  ## Details`). Only unindented lines are
+    // candidates for Markdown body-text detection.
+    const isIndented = line.startsWith(' ') || line.startsWith('\t');
+    if (!isIndented) {
+      // Markdown headings (## Heading, ### Heading, etc.)
+      if (/^#{2,6}\s+\S/.test(trimmed)) {
+        return true;
+      }
+      // Markdown blockquotes (> quote)
+      if (/^>\s+\S/.test(trimmed)) {
+        return true;
+      }
+      // Markdown list items (unordered * or +, ordered 1.)
+      if (/^[*+]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) {
+        return true;
+      }
+      if (trimmed.startsWith('#')) {
+        // Single # comment
+        continue;
+      }
+      if (trimmed.startsWith('-')) {
+        // Top-level sequence item
+        continue;
+      }
+      // Quoted keys (single or double) are intentional YAML — never
+      // flag them as body text regardless of inner content.
+      // Scan past the quoted key to find the mapping separator colon,
+      // ensuring colons inside the quotes are not treated as separators.
+      if (trimmed.startsWith('"')) {
+        let i = 1;
+        let closed = false;
+        while (i < trimmed.length) {
+          if (trimmed[i] === '\\') {
+            i += 2;
+          } else if (trimmed[i] === '"') {
+            closed = true;
+            break;
+          } else {
+            i++;
+          }
+        }
+        if (closed && trimmed.slice(i + 1).trimStart().startsWith(':')) {
+          continue;
+        }
+        return true;
+      }
+      if (trimmed.startsWith("'")) {
+        let i = 1;
+        let closed = false;
+        while (i < trimmed.length) {
+          if (trimmed[i] === "'") {
+            if (i + 1 < trimmed.length && trimmed[i + 1] === "'") {
+              i += 2;
+            } else {
+              closed = true;
+              break;
+            }
+          } else {
+            i++;
+          }
+        }
+        if (closed && trimmed.slice(i + 1).trimStart().startsWith(':')) {
+          continue;
+        }
+        return true;
+      }
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex !== -1) {
+        // In YAML, a block mapping separator colon must be followed by
+        // whitespace (space or tab) or be at the end of the line.
+        // A colon followed immediately by non-whitespace (e.g. `http://` or
+        // `12:30`) cannot represent a YAML mapping separator.
+        const afterColon = trimmed.slice(colonIndex + 1);
+        if (!afterColon.startsWith(' ') && !afterColon.startsWith('\t') && afterColon !== '') {
+          return true;
+        }
+      } else {
+        // Line at column 0 with no colon, not comment, not sequence
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * Scans vault Markdown files and reports per-file frontmatter parse outcomes.
  *
@@ -74,24 +170,42 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
       continue;
     }
 
-    const { frontmatter, error } = parseFrontmatter(content);
+    const { frontmatter: parsedFrontmatter, error, raw } = parseFrontmatter(content);
+    let frontmatter = parsedFrontmatter;
+    let parseError = error;
+
+    // Detect body content accidentally parsed as YAML (#171.11)
+    if (!parseError && frontmatter !== null && raw !== null && raw !== '' && hasBodyTextLines(raw)) {
+      parseError =
+        'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+        '(body content was parsed as frontmatter)';
+      frontmatter = null;
+    }
 
     // An opening `---` fence with no closing fence is invisible to
     // parseFrontmatter (it only sees "no frontmatter found"). Flag it only
     // when the body reads like YAML — a legal note opening with a `---`
     // thematic break (horizontal rule) must not be reported as malformed.
-    let parseError = error;
-    if (!parseError && frontmatter === null && /^---\r?\n/.test(content) && !content.includes('\n---')) {
-      const fenceBody = content.slice(content.indexOf('\n') + 1);
-      const looksLikeYaml =
-        // key: value at any indent (keys start A-Z, a-z, or _)
-        /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
-        // sequence items, column-0 or indented: "- item"
-        /^[ \t]*-\s+\S/m.test(fenceBody);
-      if (looksLikeYaml) {
+    // Normalize a leading BOM the same way parseFrontmatter does,
+    // so the fence anchor regex matches consistently.
+    const normalized = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+    if (!parseError && frontmatter === null && /^---\r?\n/.test(normalized)) {
+      if (raw === null) {
+        const fenceBody = normalized.slice(normalized.indexOf('\n') + 1);
+        const looksLikeYaml =
+          // key: value at any indent (keys start A-Z, a-z, or _)
+          /^[ \t]*[A-Za-z_][\w-]*:(\s|$)/m.test(fenceBody) ||
+          // sequence items, column-0 or indented: "- item"
+          /^[ \t]*-\s+\S/m.test(fenceBody);
+        if (looksLikeYaml) {
+          parseError =
+            'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
+            '(if the opening line is a horizontal rule, use `***` instead)';
+        }
+      } else if (raw !== '' && hasBodyTextLines(raw)) {
         parseError =
           'Unclosed frontmatter block: opening `---` fence has no closing `---` ' +
-          '(if the opening line is a horizontal rule, use `***` instead)';
+          '(body content was parsed as frontmatter)';
       }
     }
 

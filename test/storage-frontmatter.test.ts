@@ -155,6 +155,16 @@ ${bodyWithYaml}`;
     assert.strictEqual(parsed.body, '# Body after empty fence');
   });
 
+  test('updates whitespace-only frontmatter block without creating duplicate double fences', () => {
+    const content = '---\n\n---\n# Body after whitespace fence';
+    const updated = updateFrontmatter(content, { title: 'Updated Title' });
+    assert.ok(!updated.includes('---\n\n---'));
+    assert.ok(!updated.includes('---\n---'));
+    const parsed = parseFrontmatter(updated);
+    assert.strictEqual(parsed.frontmatter?.title, 'Updated Title');
+    assert.strictEqual(parsed.body, '# Body after whitespace fence');
+  });
+
   test('correctly parses and updates frontmatter containing mid-line triple dashes', () => {
     const content = '---\ntitle: a --- b\nkey: c\n---\n# Body Content';
     const parsed = parseFrontmatter(content);

@@ -55,7 +55,25 @@ function parseFrontmatter(content: string): FrontmatterResult {
     if (doc.errors && doc.errors.length > 0) {
       return { frontmatter: null, body, raw, error: doc.errors[0].message };
     }
-    const frontmatter = doc.toJSON() as Record<string, unknown>;
+    const parsed = doc.toJSON();
+    // Frontmatter must be a YAML mapping. A scalar value between `---`
+    // fences (e.g. "Intro" in `---\nIntro\n---\nMore`) indicates
+    // thematic breaks, not frontmatter — return as "no frontmatter."
+    // Whitespace-only fenced blocks (e.g. `---\n\n---`) preserve raw
+    // and body so updateFrontmatter replaces them instead of prepending.
+    if (parsed === null || typeof parsed !== 'object') {
+      if (raw.trim() === '') {
+        return { frontmatter: null, body, raw };
+      }
+      return { frontmatter: null, body: stripped, raw: null };
+    }
+    // An array between fences is malformed frontmatter (not a mapping),
+    // not thematic breaks — preserve raw and report an error so
+    // updateFrontmatter rejects rather than duplicating the block.
+    if (Array.isArray(parsed)) {
+      return { frontmatter: null, body, raw, error: 'Frontmatter must be a YAML mapping, not a sequence' };
+    }
+    const frontmatter = parsed as Record<string, unknown>;
     return { frontmatter, body, raw, doc };
   } catch (e: unknown) {
     const err = e as NodeError;

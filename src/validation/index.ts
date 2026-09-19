@@ -17,23 +17,23 @@ import { collectVault, type CollectVaultOptions } from './collect-vault';
 import { runRules } from './run-rules';
 import { formatHuman, formatJson, type FormatCounts } from './format';
 import { parseFrontmatterRule, readFailureRule } from './rules/parse-frontmatter';
+import { validManagedNoteKindRule } from './rules/valid-managed-note-kind';
 import { validPaleeSchemaRule } from './rules/valid-palee-schema';
 import { validTopicIdFormatRule } from './rules/valid-topic-id-format';
 import { validTopicStatusRule } from './rules/valid-topic-status';
+import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
+import { validDependencyListRule } from './rules/valid-dependency-list';
+import { noMissingDependencyRule } from './rules/no-missing-dependency';
+import { noDependencyCycleRule } from './rules/no-dependency-cycle';
 import { validAssessmentFieldsRule } from './rules/valid-assessment-fields';
 import { validTopicMasteryRule } from './rules/valid-topic-mastery';
 import { validReviewFieldsRule } from './rules/valid-review-fields';
 import { validReviewDatesRule } from './rules/valid-review-dates';
-import { validDependencyListRule } from './rules/valid-dependency-list';
-import { validManagedNoteKindRule } from './rules/valid-managed-note-kind';
 import { validSessionSchemaRule } from './rules/valid-session-schema';
 import { noSessionUnknownTopicRule } from './rules/no-session-unknown-topic';
 import { validSessionIndexRule } from './rules/valid-session-index';
 import { validHotMemoryRule } from './rules/valid-hot-memory';
 import { safeVaultPathsRule } from './rules/safe-vault-paths';
-import { noDuplicateTopicIdRule } from './rules/no-duplicate-topic-id';
-import { noMissingDependencyRule } from './rules/no-missing-dependency';
-import { noDependencyCycleRule } from './rules/no-dependency-cycle';
 import type {
   ValidationSeverity,
   ValidationFixability,
@@ -55,18 +55,18 @@ export {
   // Rule catalog (registration order mirrors src/cli/validate.ts)
   parseFrontmatterRule,
   readFailureRule,
+  validManagedNoteKindRule,
   validPaleeSchemaRule,
   validTopicIdFormatRule,
   validTopicStatusRule,
   noDuplicateTopicIdRule,
+  validDependencyListRule,
   noMissingDependencyRule,
   noDependencyCycleRule,
   validAssessmentFieldsRule,
   validTopicMasteryRule,
   validReviewFieldsRule,
   validReviewDatesRule,
-  validDependencyListRule,
-  validManagedNoteKindRule,
   validSessionSchemaRule,
   noSessionUnknownTopicRule,
   validSessionIndexRule,
