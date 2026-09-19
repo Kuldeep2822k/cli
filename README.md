@@ -209,6 +209,7 @@ PALEE is built on three principles:
 
 PALEE uses standard exit codes to facilitate scripting:
 - `0`: Success
+- `1`: Partial failure (e.g., batch roadmap import where some topics failed)
 - `2`: Usage error (e.g., missing argument, unconfigured vault)
 - `3`: Validation error (e.g., malformed roadmap, invalid dependency)
 - `4`: Optimistic concurrency conflict (file was modified by another process)

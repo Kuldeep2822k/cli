@@ -35,6 +35,7 @@ export default withMermaid(
         clusterBorder: '#1e2128',
         titleColor: '#8b949e',
         edgeLabelBackground: '#000000',
+        fontSize: '14px',
         fontFamily: 'Inter, system-ui, sans-serif'
       }
     },
@@ -138,7 +139,9 @@ export default withMermaid(
             { text: 'ADR-0003: Frontmatter via YAML Document API', link: '/adr/0003-concrete-syntax-tree-yaml-frontmatter' },
             { text: 'ADR-0004: Four-Pillar Pedagogical Model', link: '/adr/0004-four-pillar-pedagogical-mastery' },
             { text: 'ADR-0005: Concurrency Storage & Schema Migration', link: '/adr/0005-concurrency-storage-and-schema-migration' },
-            { text: 'ADR-0006: Concurrency Resilience & Storage Isolation', link: '/adr/0006-phase-1-concurrency-resilience-and-storage-isolation' }
+            { text: 'ADR-0006: Concurrency Resilience & Storage Isolation', link: '/adr/0006-phase-1-concurrency-resilience-and-storage-isolation' },
+            { text: 'ADR-0007: Hot-Memory Read-State Contract', link: '/adr/0007-hot-memory-read-state-contract' },
+            { text: 'ADR-0008: Validation Rule Framework Decisions', link: '/adr/0008-validation-framework-decisions' }
           ]
         },
         {

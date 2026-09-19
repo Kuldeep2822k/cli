@@ -82,7 +82,7 @@ When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kulde
 
 ```mermaid
 flowchart TD
-    ReviewInput["palee review &lt;topic&gt; &lt;0..5&gt;"] --> ValRating{"Is quality an integer 0..5?"}
+    ReviewInput["palee review<br/>&lt;topic&gt; &lt;0..5&gt;"] --> ValRating{"Is quality an integer 0..5?"}
     ValRating -->|"No"| ErrRating["Exit Code 2 (Invalid Quality)"]
     ValRating -->|"Yes"| FindTopic["Resolve Topic (loadTopics) & Compute Initial Hash"]
     
@@ -93,13 +93,13 @@ flowchart TD
     
     SM2Calc --> MastSync["computeTopicMastery() (4-Pillars)"]
     MastSync --> DateCalc["computeDueDate() & formatLocalDateOnly()"]
-    DateCalc --> PreWriteRead["TOCTOU Check: Re-read Note from Disk"]
+    DateCalc --> PreWriteRead["TOCTOU Check:<br/>Re-read Note from Disk"]
     PreWriteRead --> HashMatch{"freshFingerprint === initialFingerprint?"}
     HashMatch -->|"Mismatch / Modified"| ErrOCC["Exit Code 4 (OCC ECONFLICT)"]
     HashMatch -->|"Match"| AtomicCommit["atomicWrite() with Fresh Fingerprint"]
     
     AtomicCommit -->|"Lock / Write Conflict"| ErrOCC
-    AtomicCommit -->|"Success"| SuccessReview["✓ Review recorded (Exit 0)"]
+    AtomicCommit -->|"Success"| SuccessReview["Review recorded (Exit 0)"]
 ```
 
 ---

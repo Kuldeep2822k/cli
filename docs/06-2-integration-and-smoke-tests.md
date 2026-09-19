@@ -141,14 +141,13 @@ Tests in `test/smoke.test.ts` (2 tests) provide lightweight sanity verification 
 
 | Command | Subprocess Tests (`cli-commands`, `cli-adopt-batch`) | In-Process Exit Codes (`cli-exit-codes`) | JSON Contract Tests (`cli-json-output`) |
 |---|:---:|:---:|:---:|
-| `palee config` | ✅ | ✅ (Codes 0, 2) | ✅ (`config --json`) |
-| `palee adopt` | ✅ | ✅ (Codes 0, 2, 4) | ✅ (`adopt --json`) |
-| `palee roadmap` | ✅ | ✅ (Codes 0, 2, 3, 4) | ✅ (`roadmap --json`) |
-| `palee review` | ✅ | ✅ (Codes 0, 2, 4) | ✅ (`review --json`) |
-| `palee next` | ✅ | ✅ (Codes 0, 2) | ✅ (`next --json`) |
-| `palee plan` | ✅ | ✅ (Codes 0, 2) | ✅ (`plan --json`) |
-| `palee progress`| ✅ | ✅ (Codes 0, 2) | ✅ (`progress --json`) |
-| `palee dashboard`| ✅ | ✅ (Codes 0, 2) | ✅ (`dashboard --json`) |
-| `palee session` | ✅ | ✅ (Codes 0, 2) | ✅ (`session --json`) |
-| `palee verify`  | ✅ | ✅ (Codes 0, 2, 3) | ✅ (`verify --json`) |
-| `palee doctor`  | ✅ | ✅ (Codes 0, 2) | ✅ (`doctor --json`) |
+| `palee config` | Passed | Passed (Codes 0, 2) | N/A |
+| `palee adopt` | Passed | Passed (Codes 0, 2, 4) | N/A |
+| `palee roadmap` | Passed | Passed (Codes 0, 1, 2, 3, 4) | N/A |
+| `palee review` | Passed | Passed (Codes 0, 2, 4) | N/A |
+| `palee next` | Passed | Passed (Codes 0, 2) | Passed (`next --json`) |
+| `palee plan` | Passed | Passed (Codes 0, 2) | Passed (`plan --json`) |
+| `palee progress`| Passed | Passed (Codes 0, 2) | Passed (`progress --json`) |
+| `palee dashboard`| Passed | Passed (Codes 0, 2) | Passed (`dashboard --json`) |
+| `palee session` | Passed | Passed (Codes 0, 2) | Passed (`session --json`) |
+| `palee validate` | N/A | Passed (Codes 0, 2, 3, 5) | Passed (`validate --json`) |

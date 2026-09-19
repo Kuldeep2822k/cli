@@ -24,9 +24,6 @@ eslint.config.mjs
 # Internal docs
 AUDIT_REPORT.md
 senior_code_audit.md
-PRE_AI_ISSUE_EXECUTION_PLAN.md
-PROJECT.md
-TEST_INFRA.md
 agent.md
 
 # Logs & temp

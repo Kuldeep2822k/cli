@@ -57,18 +57,18 @@ flowchart TD
     StartCmd["palee session start [-i]"] --> ScanDrafts["Scan .palee/sessions/ for DRAFT-S-*.md"]
     
     ScanDrafts --> HasDrafts{"Unconfirmed Drafts Found?"}
-    HasDrafts -->|"No"| SyncHot["Verify & Sync Working Memory (.palee/hot.md)"]
+    HasDrafts -->|"No"| SyncHot["Verify & Sync Working Memory<br/>(.palee/hot.md)"]
     
     HasDrafts -->|"Yes"| InterCheck{"Interactive Mode (-i)?"}
-    InterCheck -->|"No"| WarnDraft["Print Draft Warning & Exit Code 2 / JSON drafts_pending"]
+    InterCheck -->|"No"| WarnDraft["Print Draft Warning<br/>Exit Code 2 / drafts_pending"]
     InterCheck -->|"Yes"| PromptRecovery["Prompt User: [R]esume / [S]ave / [D]iscard / [I]gnore"]
     
     PromptRecovery --> ExecuteAction["recoverDraft() (Storage Isolation)"]
     ExecuteAction --> SyncHot
-    WarnDraft --> Stop(("⛔ Exit"))
+    WarnDraft --> Stop(("Exit"))
     
     SyncHot --> SetStart["Record started_at in hot.md"]
-    SetStart --> PrintHot["Display Active Topic & Working Memory Excerpt"]
+    SetStart --> PrintHot["Display Active Topic &<br/>Working Memory Excerpt"]
 ```
 
 ---

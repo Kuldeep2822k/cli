@@ -50,10 +50,10 @@ flowchart TD
     FilterTopics --> MetricCalc["Calculate Aggregate Metrics"]
     
     MetricCalc --> Mastered["Mastered: topic_mastery &gt;= 0.70"]
-    MetricCalc --> Learning["Learning: 0.0 &lt; topic_mastery &lt; 0.70"]
+    MetricCalc --> Learning["Learning:<br/>0.0 &lt; topic_mastery &lt; 0.70"]
     MetricCalc --> New["New: topic_mastery == 0.0"]
     MetricCalc --> Due["Reviews Due: due_at &lt;= now"]
-    MetricCalc --> DiffBreak["Difficulty Breakdown: Beginner / Inter / Adv"]
+    MetricCalc --> DiffBreak["Difficulty Breakdown:<br/>Beginner / Inter / Adv"]
     
     Mastered & Learning & New & Due & DiffBreak --> FormatCheck{"isJsonOutput() ?"}
     FormatCheck -->|"TTY (Console)"| RenderTable["Render Styled ASCII Boxed Dashboard"]
@@ -212,68 +212,143 @@ palee validate [flags]
 19. **Safe Vault Paths (`safe-vault-paths`, error)**: Every PALEE-managed path in the collected snapshot — topic notes, scanned notes, and session notes — must resolve inside the configured vault. Paths normalize (`\` → `/`) before validation so Windows separators validate identically; parent-directory traversal (`../outside.md`, including mid-path `a/../../escape.md`), absolute POSIX paths, and absolute Windows drive paths (`C:/…`) are boundary escapes and report as errors. This mirrors the containment policy the vault walker and roadmap import already enforce, making the write boundary explicit in validation output; symlink resolution itself stays owned by the walker.
 
 ```mermaid
-flowchart LR
-    subgraph Storage ["Vault Storage (.md Files)"]
-        FM1["Note 1 Frontmatter"]
-        FM2["Note 2 Frontmatter"]
-    end
-    
-    subgraph Analyzer ["Validation Framework (src/validation/)"]
-        Scan["collectVault() — single-read snapshot"]
-        Runner["runRules() — every rule runs, in registration order"]
-        Rules["parse-frontmatter → read-failure → valid-managed-note-kind → valid-palee-schema → valid-topic-id-format → valid-topic-status → no-duplicate-topic-id → valid-dependency-list → no-missing-dependency → no-dependency-cycle → valid-assessment-fields → valid-topic-mastery → valid-review-fields → valid-review-dates → valid-session-schema → no-session-unknown-topic → valid-session-index → valid-hot-memory → safe-vault-paths"]
-    end
-    
-    subgraph Errors ["Errors (Exit 3)"]
-        ErrDup["duplicate_id"]
-        ErrDepShape["depends_on shape invalid / self-reference"]
-        ErrCyc["cycle"]
-        ErrSchema["invalid palee_schema"]
-        ErrId["bad topic ID format"]
-        ErrStatus["bad status"]
-        ErrAssess["bad assessment fields / assessed_at"]
-        ErrReview["SM-2 review state or dates invalid"]
-        ErrSession["session schema invalid"]
-        ErrPaths["vault path escape"]
+flowchart TB
+
+    %% =========================
+    %% INPUT
+    %% =========================
+    subgraph INPUT["1  VAULT"]
+        direction LR
+        FM1["Note 1<br/>Frontmatter"]
+        FM2["Note 2<br/>Frontmatter"]
+        FM3["Note N<br/>Frontmatter"]
+        FM1 --> FM2 --> FM3
     end
 
-    subgraph Warnings ["Warnings (Exit 0 by default; Exit 3 with --strict)"]
-        WarnParse["malformed frontmatter"]
-        WarnRead["unreadable file (snapshot incomplete)"]
-        WarnMastery["topic_mastery drift"]
-        WarnMiss["missing dependency (quarantined, not fatal)"]
-        WarnDepLegacy["legacy dependencies alias — migrate to depends_on"]
-        WarnDepDup["duplicate depends_on / dependencies entry"]
-        WarnKind["ambiguous managed note kind"]
-        WarnSessionTopic["session references unknown topic"]
-        WarnIndex["stale or broken session index"]
-        WarnHot["hot memory drifted"]
+    %% =========================
+    %% ENGINE
+    %% =========================
+    subgraph ENGINE["2  VALIDATION ENGINE"]
+        direction LR
+
+        COLLECT["collectVault()<br/>single-read snapshot"]
+        RUN["runRules()<br/>all rules in registration order"]
+
+        COLLECT --> RUN
     end
-    
-    Storage --> Scan
-    Scan --> Runner
-    Runner --> Rules
-    Rules -->|"duplicate IDs"| ErrDup
-    Rules -->|"dangling prerequisite"| WarnMiss
-    Rules -->|"depends_on or dependencies — shape invalid / self-reference"| ErrDepShape
-    Rules -->|"cycle detected"| ErrCyc
-    Rules -->|"unknown schema version"| ErrSchema
-    Rules -->|"malformed topic ID"| ErrId
-    Rules -->|"unknown status"| ErrStatus
-    Rules -->|"score/date shape invalid"| ErrAssess
-    Rules -->|"SM-2 bounds / date contract violated"| ErrReview
-    Rules -->|"legacy dependencies alias present"| WarnDepLegacy
-    Rules -->|"duplicate dependency entry"| WarnDepDup
-    Rules -->|"managed note kind ambiguous / conflicting"| WarnKind
-    Rules -->|"session schema invalid"| ErrSession
-    Rules -->|"session references unknown topic"| WarnSessionTopic
-    Rules -->|"stale / broken session index"| WarnIndex
-    Rules -->|"hot memory identity / cap / broken reference"| WarnHot
-    Rules -->|"managed path escapes the vault"| ErrPaths
-    Rules -->|"malformed YAML"| WarnParse
-    Rules -->|"read failed"| WarnRead
-    Rules -->|"stale derived data"| WarnMastery
-    Rules -->|"no errors"| Success["✓ 0 Errors Found (Exit 0)"]
+
+    INPUT --> COLLECT
+
+    %% =========================
+    %% RULES
+    %% =========================
+    subgraph RULES["3  19 VALIDATION RULES"]
+        direction TB
+
+        subgraph G1["01–03  File & Managed-Note Integrity"]
+            direction LR
+            R1["01  parse-frontmatter"]
+            R2["02  read-failure"]
+            R3["03  valid-managed-note-kind"]
+        end
+
+        subgraph G2["04–06  Topic Schema"]
+            direction LR
+            R4["04  valid-palee-schema"]
+            R5["05  valid-topic-id-format"]
+            R6["06  valid-topic-status"]
+        end
+
+        subgraph G3["07–10  Dependency Graph"]
+            direction LR
+            R7["07  no-duplicate-topic-id"]
+            R8["08  valid-dependency-list"]
+            R9["09  no-missing-dependency"]
+            R10["10  no-dependency-cycle"]
+        end
+
+        subgraph G4["11–14  Assessment & Review State"]
+            direction LR
+            R11["11  valid-assessment-fields"]
+            R12["12  valid-topic-mastery"]
+            R13["13  valid-review-fields"]
+            R14["14  valid-review-dates"]
+        end
+
+        subgraph G5["15–17  Session Integrity"]
+            direction LR
+            R15["15  valid-session-schema"]
+            R16["16  no-session-unknown-topic"]
+            R17["17  valid-session-index"]
+        end
+
+        subgraph G6["18–19  Derived State & Storage Safety"]
+            direction LR
+            R18["18  valid-hot-memory"]
+            R19["19  safe-vault-paths"]
+        end
+    end
+
+    RUN --> RULES
+
+    %% =========================
+    %% DIAGNOSTICS
+    %% =========================
+    subgraph OUTCOMES["4  DIAGNOSTIC OUTCOMES"]
+        direction LR
+
+        subgraph WARN["WARNINGS  Exit 0 by default<br/>Exit 3 with --strict"]
+            direction TB
+            W1["W01  malformed frontmatter [R01]"]
+            W2["W02  unreadable file / snapshot incomplete [R02]"]
+            W3["W03  ambiguous managed note kind [R03]"]
+            W4["W04  legacy dependencies alias [R08]"]
+            W5["W05  duplicate dependency entry [R08]"]
+            W6["W06  missing dependency [R09]<br/>quarantined — not fatal"]
+            W7["W07  topic_mastery drift [R12]"]
+            W8["W08  unknown session topic [R16]"]
+            W9["W09  stale / broken session index [R17]"]
+            W10["W10  hot memory drifted [R18]"]
+        end
+
+        subgraph ERR["ERRORS  Exit 3"]
+            direction TB
+            E1["E01  duplicate_id [R07]"]
+            E2["E02  depends_on shape invalid / self-reference [R08]"]
+            E3["E03  cycle [R10]"]
+            E4["E04  invalid palee_schema [R04]"]
+            E5["E05  bad topic ID format [R05]"]
+            E6["E06  bad status [R06]"]
+            E7["E07  bad assessment fields / assessed_at [R11]"]
+            E8["E08  SM-2 review state / dates invalid [R13–R14]"]
+            E9["E09  session schema invalid [R15]"]
+            E10["E10  vault path escape [R19]"]
+        end
+    end
+
+    RULES --> OUTCOMES
+
+    %% =========================
+    %% SUCCESS
+    %% =========================
+    OUTCOMES --> SUCCESS["0 Errors / 0 Warnings  Exit 0"]
+
+    %% =========================
+    %% STYLING
+    %% =========================
+    classDef input fill:#111927,stroke:#3b82f6,stroke-width:1.5px,color:#e0e0e0;
+    classDef engine fill:#1e1835,stroke:#8b5cf6,stroke-width:1.5px,color:#e0e0e0;
+    classDef rule fill:#161b22,stroke:#30363d,stroke-width:1px,color:#c9d1d9;
+    classDef warning fill:#2a2105,stroke:#d29922,stroke-width:1.2px,color:#e0e0e0;
+    classDef error fill:#2b1114,stroke:#f85149,stroke-width:1.2px,color:#e0e0e0;
+    classDef success fill:#0f2d1e,stroke:#2ea043,stroke-width:1.5px,color:#e0e0e0;
+
+    class FM1,FM2,FM3 input;
+    class COLLECT,RUN engine;
+    class R1,R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15,R16,R17,R18,R19 rule;
+    class W1,W2,W3,W4,W5,W6,W7,W8,W9,W10 warning;
+    class E1,E2,E3,E4,E5,E6,E7,E8,E9,E10 error;
+    class SUCCESS success;
 ```
 
 ### Example Human-Readable Output (Failures Detected)
@@ -333,4 +408,4 @@ When an error occurs (such as an unconfigured vault or a missing topic query in 
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee dashboard` | Successfully displayed dashboard metrics or empty vault onboarding. | N/A | Vault path not configured or directory does not exist. | N/A | N/A | Unexpected runtime exception or calculation failure. |
 | `palee progress` | Successfully displayed vault progress summary, topic detail (`--topic`), or empty vault state. | N/A | Vault path unconfigured, or topic query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee validate` | Vault validation passed with 0 structural errors. | N/A | Vault path not configured or invalid directory. | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, missing dependency, cycle, or assessment-field shape); warnings also exit 3 under `--strict`. | N/A | Unexpected runtime exception or directory walk failure. |
+| `palee validate` | Vault validation passed with 0 structural errors (warnings exit 0 by default). | N/A | Vault path not configured or invalid directory. | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, cycle, or assessment-field shape); warnings (such as missing dependencies) exit 0 by default and only exit 3 under `--strict`. | N/A | Unexpected runtime exception or directory walk failure. |

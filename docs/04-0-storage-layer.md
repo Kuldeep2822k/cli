@@ -45,6 +45,12 @@ flowchart LR
         LC["lock.ts"]
         CH["cache.ts"]
         MEM["memory.ts"]
+        LD["loader.ts"]
+        SC["scanner.ts"]
+        PM["pattern-matcher.ts"]
+        RP["roadmap-parser.ts"]
+        DP["dependencies.ts"]
+        SS["sessions.ts"]
     end
     subgraph subGraph0 ["Filesystem (Vault)"]
         Note["Markdown Note (.md)"]
@@ -53,7 +59,7 @@ flowchart LR
         LockDir[".palee/locks/"]
     end
     
-    Facade --> VW & FM & AW & LC & CH & MEM
+    Facade --> VW & FM & AW & LC & CH & MEM & LD & SC & PM & RP & SS
     VW --> Note
     FM --> Note
     AW --> FM
@@ -61,6 +67,11 @@ flowchart LR
     LC --> LockDir
     CH --> Note
     MEM --> PaleeDir & SessionsDir
+    LD --> Note
+    SC --> Note
+    PM --> Note
+    RP --> Note
+    SS --> SessionsDir
 ```
 
 Sources:[src/storage/vault-walker.ts#6-8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts#L6-L8)[src/storage/frontmatter.ts#6-7](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L6-L7)[src/storage/atomic-write.ts#14-17](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L14-L17)[src/storage/lock.ts#8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L8)[src/storage/cache.ts#11-13](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts#L11-L13)

@@ -36,8 +36,8 @@ flowchart TD
 
     subgraph API ["Public Engine API (src/engine/index.ts)"]
         ExpSM2["processReview / computeDueDate"]
-        ExpMastery["computeTopicMastery / normalizeScore / MASTERY_THRESHOLD"]
-        ExpDep["getReadyTopics / areDependenciesSatisfied / detectCycle / validateDependencyGraph"]
+        ExpMastery["computeTopicMastery / normalizeScore<br/>MASTERY_THRESHOLD"]
+        ExpDep["getReadyTopics / areDependenciesSatisfied<br/>detectCycle / validateDependencyGraph"]
     end
 
     subgraph SM2Sub ["1. Spaced Repetition Subsystem (src/engine/sm2.ts)"]
@@ -63,7 +63,7 @@ flowchart TD
 
     subgraph CLI ["CLI Command Layer"]
         CmdReview["palee review"]
-        CmdAssess["palee assess / progress"]
+        CmdAssess["palee progress"]
         CmdPlan["palee plan / next / roadmap"]
         CmdVal["palee validate"]
     end

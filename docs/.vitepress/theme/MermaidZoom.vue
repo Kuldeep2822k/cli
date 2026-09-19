@@ -9,6 +9,7 @@ interface DiagramController {
   x: number
   y: number
   isDragging: boolean
+  isFocused: boolean
   lastPointerX: number
   lastPointerY: number
   activePointers: Map<number, { x: number; y: number }>
@@ -22,6 +23,7 @@ interface DiagramController {
 }
 
 const activeCards: HTMLElement[] = []
+const activeControllers: DiagramController[] = []
 
 function attachDiagramController(card: HTMLElement) {
   if (card.dataset.panzoomAttached) return
@@ -91,6 +93,7 @@ function attachDiagramController(card: HTMLElement) {
     x: 0,
     y: 0,
     isDragging: false,
+    isFocused: false,
     lastPointerX: 0,
     lastPointerY: 0,
     activePointers: new Map(),
@@ -100,7 +103,7 @@ function attachDiagramController(card: HTMLElement) {
     applyTransform() {
       if (state.rafId) cancelAnimationFrame(state.rafId)
       state.rafId = requestAnimationFrame(() => {
-        svg.style.transform = `translate3d(${state.x}px, ${state.y}px, 0px) scale(${state.scale})`
+        svg.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`
       })
     },
     reset() {
@@ -124,20 +127,41 @@ function attachDiagramController(card: HTMLElement) {
     },
     destroy() {
       if (state.rafId) cancelAnimationFrame(state.rafId)
+      document.removeEventListener('pointerdown', onDocPointerDown)
     }
   }
+
+  // Click / focus management: focus on diagram click, blur on outside click
+  const onDocPointerDown = (e: PointerEvent) => {
+    if (!card.contains(e.target as Node)) {
+      if (state.isFocused) {
+        state.isFocused = false
+        card.classList.remove('is-focused')
+      }
+    }
+  }
+  document.addEventListener('pointerdown', onDocPointerDown)
+
+  card.addEventListener('pointerdown', () => {
+    if (!state.isFocused) {
+      state.isFocused = true
+      card.classList.add('is-focused')
+    }
+  })
+
+  activeControllers.push(state)
 
   // Toolbar events
   zoomInBtn.addEventListener('click', (e) => {
     e.stopPropagation()
     const rect = viewport.getBoundingClientRect()
-    state.zoom(1.25, rect.width / 2, rect.height / 2)
+    state.zoom(1.15, rect.width / 2, rect.height / 2)
   })
 
   zoomOutBtn.addEventListener('click', (e) => {
     e.stopPropagation()
     const rect = viewport.getBoundingClientRect()
-    state.zoom(1 / 1.25, rect.width / 2, rect.height / 2)
+    state.zoom(1 / 1.15, rect.width / 2, rect.height / 2)
   })
 
   resetBtn.addEventListener('click', (e) => {
@@ -163,13 +187,24 @@ function attachDiagramController(card: HTMLElement) {
     toggleFullscreen()
   })
 
-  // Wheel zoom centered on mouse
+  // Wheel zoom centered on mouse:
+  // Only intercepts wheel when in fullscreen, or focused by click, or holding Ctrl/Meta.
+  // Otherwise allows natural page scrolling without trap.
   viewport.addEventListener('wheel', (e) => {
+    const isFullscreen = card.classList.contains('is-fullscreen')
+    const isCtrlZoom = e.ctrlKey || e.metaKey
+
+    if (!isFullscreen && !state.isFocused && !isCtrlZoom) {
+      return
+    }
+
     e.preventDefault()
     const rect = viewport.getBoundingClientRect()
     const originX = e.clientX - rect.left
     const originY = e.clientY - rect.top
-    const factor = e.ctrlKey ? Math.exp(-e.deltaY * 0.01) : (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+
+    // Lower sensitivity: gentle 5% step per wheel notch instead of 15%-60%
+    const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05
     state.zoom(factor, originX, originY)
   }, { passive: false })
 
