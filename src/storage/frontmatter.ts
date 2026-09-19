@@ -59,7 +59,12 @@ function parseFrontmatter(content: string): FrontmatterResult {
     // Frontmatter must be a YAML mapping. A scalar value between `---`
     // fences (e.g. "Intro" in `---\nIntro\n---\nMore`) indicates
     // thematic breaks, not frontmatter — return as "no frontmatter."
+    // Whitespace-only fenced blocks (e.g. `---\n\n---`) preserve raw
+    // and body so updateFrontmatter replaces them instead of prepending.
     if (parsed === null || typeof parsed !== 'object') {
+      if (raw.trim() === '') {
+        return { frontmatter: null, body, raw };
+      }
       return { frontmatter: null, body: stripped, raw: null };
     }
     // An array between fences is malformed frontmatter (not a mapping),

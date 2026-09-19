@@ -182,6 +182,32 @@ describe('Validation framework: runRules (#25)', () => {
       assert.strictEqual(issues[0].field, 'rule-execution');
     });
 
+    test('handles non-Error thrown value whose string conversion throws', () => {
+      const throwingRule: ValidationRule = {
+        id: 'unstringable-rule',
+        description: 'Throws non-stringable object',
+        severity: 'error',
+        run() {
+          throw Object.create(null);
+        },
+      };
+      const normalRule = staticRule('after-unstringable', [
+        { ruleId: 'after-unstringable', severity: 'warning', message: 'continued' },
+      ]);
+
+      const issues = runRules(makeContext(), [throwingRule, normalRule]);
+
+      assert.strictEqual(issues.length, 2);
+      assert.strictEqual(issues[0].ruleId, 'unstringable-rule');
+      assert.strictEqual(issues[0].severity, 'error');
+      assert.strictEqual(
+        issues[0].message,
+        'Validation rule unstringable-rule threw an unexpected error: unknown error'
+      );
+      assert.strictEqual(issues[1].ruleId, 'after-unstringable');
+      assert.strictEqual(issues[1].message, 'continued');
+    });
+
     test('continues executing subsequent rules when an earlier rule throws', () => {
       const crashingRule: ValidationRule = {
         id: 'first-rule',

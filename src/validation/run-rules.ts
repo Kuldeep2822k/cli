@@ -37,7 +37,12 @@ function runRules(
     try {
       issues.push(...rule.run(context));
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
+      let message = 'unknown error';
+      try {
+        message = e instanceof Error ? e.message : String(e);
+      } catch {
+        // Retain fallback when string conversion fails
+      }
       issues.push({
         ruleId: rule.id,
         severity: 'error',
