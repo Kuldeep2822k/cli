@@ -29,12 +29,14 @@ const ID_TOKEN = /\b(INV-\d+)\b/g;
 const CANONICAL_ID = /^INV-\d{2}$/;
 
 // Positional forms, assembled at runtime so this file's own source does not
-// register as a positional citation of an invariant.
+// register as a positional citation of an invariant. Compared lowercased so the
+// mid-sentence spelling of the hash-number form is caught as well as the capital.
 const POSITIONAL_CITATIONS = [
   ['invariants', '.', 'md', ':'].join(''),
   ['Invariant', ' ', '#'].join(''),
 ];
 
+/** Parses the blueprint and returns every defined `INV-` id in document order. */
 function definedIds(): string[] {
   const text = fs.readFileSync(INVARIANTS_FILE, 'utf8');
   const ids: string[] = [];
@@ -47,6 +49,7 @@ function definedIds(): string[] {
   return ids;
 }
 
+/** Returns every bullet line in the blueprint, numbered or not. */
 function bulletLines(): string[] {
   return fs
     .readFileSync(INVARIANTS_FILE, 'utf8')
@@ -54,6 +57,7 @@ function bulletLines(): string[] {
     .filter((line) => line.startsWith('- '));
 }
 
+/** Recursively lists every file under `dir`, sorted for deterministic output. */
 function testFiles(dir = TEST_DIR): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -67,6 +71,7 @@ function testFiles(dir = TEST_DIR): string[] {
   return found.sort();
 }
 
+/** Renders an absolute path as repo-relative POSIX for assertion messages. */
 function show(file: string): string {
   return path.relative(REPO_ROOT, file).split(path.sep).join('/');
 }
@@ -149,8 +154,9 @@ describe('Planning Invariant IDs & Citation Census (#195)', () => {
     for (const file of testFiles()) {
       const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
       lines.forEach((line, i) => {
+        const haystack = line.toLowerCase();
         for (const positional of POSITIONAL_CITATIONS) {
-          if (line.includes(positional)) {
+          if (haystack.includes(positional.toLowerCase())) {
             offenders.push(`${show(file)}:${i + 1} cites "${positional}"`);
           }
         }
