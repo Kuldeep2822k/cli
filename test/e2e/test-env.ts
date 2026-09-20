@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { parseFrontmatter, updateFrontmatter } from '../../src/storage';
 
 export interface CLIResult {
@@ -15,6 +15,10 @@ export interface TestVaultEnv {
   configDir: string;
   vaultDir: string;
   run: (args: string[], options?: { input?: string; env?: Record<string, string> }) => CLIResult;
+  runInteractive: (
+    args: string[],
+    steps: Array<{ waitFor: RegExp; write: string }>
+  ) => Promise<CLIResult>;
   createTopic: (filename: string, frontmatter: Record<string, unknown>, body?: string) => string;
   updateTopic: (filename: string, updates: Record<string, unknown>, body?: string) => string;
   readTopic: (filename: string) => { frontmatter: Record<string, unknown> | null; body: string; raw: string };
@@ -70,6 +74,100 @@ export function runPalee(
 export const runPaleeCli = runPalee;
 
 /**
+ * Runs the PALEE CLI over a live stdin pipe, writing each queued input line
+ * only after its `waitFor` marker shows up in the accumulated stdout.
+ *
+ * @param args - CLI arguments to pass to the binary
+ * @param steps - Marker/input pairs, applied in order, each awaiting an answer
+ *   that has not been consumed yet
+ * @param timeoutMs - Bound the run so a missing marker fails instead of hanging
+ * @returns Promise resolving to the same result shape `runPalee` returns
+ * @remarks
+ * `runPalee` pipes stdin through `spawnSync`, which delivers the whole blob at
+ * once: Node's readline discards the lines after the first because no question
+ * is pending when they arrive. Interleaving against a stdout marker lets one run
+ * answer several sequential prompts, which interactive menus need.
+ */
+function runPaleeInteractive(
+  args: string[],
+  configDir: string,
+  steps: Array<{ waitFor: RegExp; write: string }>,
+  timeoutMs = 60000
+): Promise<CLIResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', PALEE_BIN, ...args], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, PALEE_CONFIG_DIR: configDir, NODE_ENV: 'test' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let consumed = 0;
+    let step = 0;
+    let settled = false;
+
+    const finish = (settle: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      settle();
+    };
+
+    const next = (): void => {
+      const pending = steps[step];
+      if (!pending) return;
+      const match = stdout.slice(consumed).match(pending.waitFor);
+      if (!match) return;
+      consumed += (match.index ?? 0) + match[0].length;
+      step++;
+      child.stdin.write(pending.write);
+      // Mirror spawnSync's `input` behaviour: an open stdin keeps the child's
+      // event loop alive after the queue drains, so the run would never end.
+      if (step === steps.length) child.stdin.end();
+    };
+
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(() =>
+        reject(
+          new Error(
+            `Interactive CLI did not finish within ${timeoutMs}ms ` +
+              `(consumed ${step}/${steps.length} input steps).\nstdout:\n${stdout}\nstderr:\n${stderr}`
+          )
+        )
+      );
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+      next();
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (err) =>
+      finish(() => reject(new Error(`Interactive spawn failed: ${err.stack}`)))
+    );
+    child.on('close', (code) => {
+      const unconsumed = steps.length - step;
+      finish(() => {
+        if (unconsumed > 0) {
+          reject(
+            new Error(
+              `${unconsumed} of ${steps.length} input line(s) never reached a prompt; ` +
+                `the menu did not emit every waitFor marker.\nstdout:\n${stdout}`
+            )
+          );
+          return;
+        }
+        resolve({ status: code ?? 1, stdout, stderr });
+      });
+    });
+  });
+}
+
+/**
  * Creates an isolated temporary vault environment for E2E and stress tests.
  *
  * @param prefix - Prefix for the temporary directory name
@@ -93,6 +191,11 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
   const run = (args: string[], options?: { input?: string; env?: Record<string, string> }): CLIResult => {
     return runPalee(args, configDir, options);
   };
+
+  const runInteractive = (
+    args: string[],
+    steps: Array<{ waitFor: RegExp; write: string }>
+  ): Promise<CLIResult> => runPaleeInteractive(args, configDir, steps);
 
   const createTopic = (filename: string, frontmatter: Record<string, unknown>, body = 'Topic notes content.'): string => {
     const fullPath = path.join(vaultDir, filename);
@@ -195,6 +298,7 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     configDir,
     vaultDir,
     run,
+    runInteractive,
     createTopic,
     updateTopic,
     readTopic,

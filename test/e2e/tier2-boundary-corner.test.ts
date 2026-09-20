@@ -263,7 +263,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       env.run(['session', 'draft', '--topic', 'T-resume-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
-      const draftSnapshot = env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).frontmatter;
+      const draftSnapshot = env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).raw;
       assert.strictEqual(env.listSessions().confirmed.length, 0);
 
       // Invoke session start --interactive with 'r\n' to directly test the resume action
@@ -278,9 +278,10 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.deepStrictEqual(sessions.drafts, draftsBefore, 'Draft must survive a resume');
       assert.strictEqual(sessions.confirmed.length, 0, 'Resume must not create a session note');
       assert.ok(fs.existsSync(path.join(env.vaultDir, '.palee', 'sessions', draftsBefore[0])));
-      assert.deepStrictEqual(
-        env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).frontmatter,
-        draftSnapshot
+      assert.strictEqual(
+        env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).raw,
+        draftSnapshot,
+        'Resume must leave the draft file byte-identical'
       );
 
       // resume is a no-op in recoverDraft, so the derived working memory is byte-identical
@@ -343,18 +344,30 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(parsed.total_drafts, 0);
     });
 
-    test('B4.7: interactive menu commits save for the first draft while the second draft stays pending', () => {
+    test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
       env.run(['session', 'draft', '--topic', 'T-mixed-first']);
       env.run(['session', 'draft', '--topic', 'T-mixed-second']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 2);
-      const snapshots = new Map<string, Record<string, unknown> | null>(
-        draftsBefore.map((name) => [name, env.readTopic(path.join('.palee', 'sessions', name)).frontmatter])
+      // Whole-file snapshots: comparing parsed frontmatter alone would miss a
+      // body rewrite or truncation on the draft that must stay untouched.
+      const snapshots = new Map<string, string>(
+        draftsBefore.map((name) => [name, env.readTopic(path.join('.palee', 'sessions', name)).raw])
       );
 
-      // Answer the menu with 's' then 'i'. The loop commits each draft as it is answered, so
-      // draft 1 is already durable history while draft 2 is still being offered the menu.
-      const startRes = env.run(['session', 'start', '--interactive'], { input: 's\ni\n' });
+      // Answer each menu turn as it is emitted. The loop commits each draft as
+      // it is answered, so draft 1 is durable history while draft 2 is still
+      // being offered the menu. The second arm is `resume`, not `ignore`:
+      // resume is also a no-op on disk, but unlike ignore it is indistinguishable
+      // from "prompt never answered", which would let this test pass when only
+      // the first input line was ever consumed.
+      const startRes = await env.runInteractive(
+        ['session', 'start', '--interactive'],
+        [
+          { waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 's\n' },
+          { waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 'r\n' },
+        ]
+      );
       assert.strictEqual(startRes.status, 0);
 
       // One `Draft:` banner per checkpoint, in the order getDrafts() surfaced them
@@ -364,50 +377,43 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.deepStrictEqual([...prompted].sort(), [...draftsBefore].sort());
       const [firstPrompted, secondPrompted] = prompted;
       assert.notStrictEqual(firstPrompted, secondPrompted);
+      // The banner is only reached once every draft has been answered, so it
+      // proves the second input line landed on a live prompt in this single run.
+      assert.match(startRes.stdout, /PALEE Session Started/);
 
       // Only the draft answered with 's' was converted; the other is untouched
       const sessions = env.listSessions();
       assert.strictEqual(sessions.confirmed.length, 1, 'Exactly one draft may be converted');
       assert.deepStrictEqual(sessions.drafts, [secondPrompted]);
       assert.ok(!fs.existsSync(path.join(env.vaultDir, '.palee', 'sessions', firstPrompted)));
-      assert.deepStrictEqual(
-        env.readTopic(path.join('.palee', 'sessions', secondPrompted)).frontmatter,
+      assert.strictEqual(
+        env.readTopic(path.join('.palee', 'sessions', secondPrompted)).raw,
         snapshots.get(secondPrompted),
-        'The pending draft must be byte-for-byte untouched'
+        'The resumed draft must be byte-for-byte untouched'
       );
 
       const converted = env.readTopic(path.join('.palee', 'sessions', sessions.confirmed[0]));
-      assert.strictEqual(converted.frontmatter?.topic_id, snapshots.get(firstPrompted)?.topic_id);
+      const firstTopicId = (snapshots.get(firstPrompted)!.match(/^topic_id: "?([Tt]-[a-z-]+)"?$/m) ?? [])[1];
+      assert.ok(firstTopicId, 'First draft snapshot should carry its topic_id');
+      assert.strictEqual(converted.frontmatter?.topic_id, firstTopicId);
       const index = env.readSessionIndex();
       assert.ok(index, 'index.md should be regenerated by the save arm');
       assert.match(index.raw, new RegExp(`Topic: ${String(converted.frontmatter?.topic_id)}`));
       assert.ok(!index.raw.includes(secondPrompted.replace(/\.md$/, '')), 'Drafts never appear in index.md');
-
-      // readline drops the tail of a chunk that arrives while no question is pending, so piped
-      // stdin only ever answers the first prompt and this run exits at EOF with draft 2 still
-      // pending. Answer that draft for real on a second pass: ignore must leave it in place
-      // instead of converting or deleting it.
-      const ignoreRes = env.run(['session', 'start', '--interactive'], { input: 'i\n' });
-      assert.strictEqual(ignoreRes.status, 0);
-      assert.match(ignoreRes.stdout, new RegExp(`Draft: ${secondPrompted.slice(0, -3)}\\.md`));
-      assert.match(ignoreRes.stdout, /PALEE Session Started/);
-
-      const afterIgnore = env.listSessions();
-      assert.deepStrictEqual(afterIgnore.drafts, [secondPrompted]);
-      assert.strictEqual(afterIgnore.confirmed.length, 1, 'Ignore must not convert the surviving draft');
-      assert.deepStrictEqual(
-        env.readTopic(path.join('.palee', 'sessions', secondPrompted)).frontmatter,
-        snapshots.get(secondPrompted)
-      );
     });
 
-    test('B4.8: unmatched draft recovery input re-prompts the menu without resolving the draft', () => {
+    test('B4.8: unmatched draft recovery input re-prompts the menu without resolving the draft', async () => {
       env.run(['session', 'draft', '--topic', 'T-reprompt-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
 
-      // The menu has no exit branch: anything other than r/s/d/i falls back through the loop
-      const startRes = env.run(['session', 'start', '--interactive'], { input: 'x\n' });
+      // The menu has no exit branch: anything other than r/s/d/i falls back
+      // through the loop. Wait for the first rendering, then feed a non-answer
+      // and confirm a second rendering appears.
+      const startRes = await env.runInteractive(
+        ['session', 'start', '--interactive'],
+        [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 'x\n' }]
+      );
       assert.strictEqual(startRes.status, 0);
       const prompts = (startRes.stdout.match(/\[R\]esume\s+\[S\]ave as session/g) ?? []).length;
       assert.ok(prompts >= 2, `Unmatched input must re-prompt, saw ${prompts} prompt(s)`);
