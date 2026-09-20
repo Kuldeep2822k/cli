@@ -683,6 +683,12 @@ export interface RoadmapFile {
  * on-disk frontmatter values verbatim (same `??` fallback semantics the
  * writeback has always used); validation checks constrain them before
  * writeback runs.
+ *
+ * The four pillar scores are optional: `undefined` means the note carries no
+ * assessment data and the key must not be written. Minting them at `0.0` would
+ * erase the distinction `valid-topic-mastery` (#37) depends on — it skips a
+ * topic whose pillars are all absent, and compares stored mastery against
+ * computed `0` once any pillar key exists (#191).
  */
 export interface ResolvedTopicUpdates {
   /** Target topic ID (`palee_id`) from the roadmap */
@@ -699,14 +705,14 @@ export interface ResolvedTopicUpdates {
   topic_mastery: unknown;
   /** Preserved assessment timestamp (default null) */
   assessed_at: unknown;
-  /** Preserved conceptual score (default 0.0) */
-  conceptual: unknown;
-  /** Preserved practical score (default 0.0) */
-  practical: unknown;
-  /** Preserved debug score (default 0.0) */
-  debug: unknown;
-  /** Preserved feynman score (default 0.0) */
-  feynman: unknown;
+  /** Preserved conceptual score; omitted when the note carries no assessment data (#191) */
+  conceptual?: unknown;
+  /** Preserved practical score; omitted when the note carries no assessment data (#191) */
+  practical?: unknown;
+  /** Preserved debug score; omitted when the note carries no assessment data (#191) */
+  debug?: unknown;
+  /** Preserved feynman score; omitted when the note carries no assessment data (#191) */
+  feynman?: unknown;
   /** Preserved SM-2 ease factor (default 2.5) */
   ease_factor: unknown;
   /** Preserved SM-2 interval in days (default 1) */
