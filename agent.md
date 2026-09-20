@@ -59,7 +59,7 @@ Storage (`src/storage/`):
 ## Verification loop — run before considering a change done
 
 1. `npm run typecheck` (strict `tsc --noEmit` — this is the real quality gate)
-2. `npm run lint` (flat ESLint, mostly hygiene; PR rule is **zero `any` casts in `src/`**)
+2. `npm run lint` (flat ESLint, mostly hygiene; the one armed gate is `@typescript-eslint/no-explicit-any` on `src/**`, which enforces the zero-`any`-in-`src/` PR rule; `test/**` keeps it off)
 3. `npm test` (node:test via `node --import tsx --test "test/**/*.test.ts"`); use `npm run test:coverage` (c8 thresholds: lines/statements ≥60%, functions ≥75%, branches ≥65%; CI also enforces changed-code ≥50% via diff-cover)
 4. `npm run build` (tsc + copies package.json to dist)
 5. `npm pack && node scripts/verify-tarball.js` — tarball must contain `dist/src/index.js`, `dist/src/index.d.ts`, `dist/bin/palee.js`, `package.json`, `dist/package.json`, `README.md`, `LICENSE`; must NOT contain `src/`, `test/`, `.github/`, `planning/`, `coverage/`.
