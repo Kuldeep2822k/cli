@@ -66,8 +66,13 @@ type LoadedTopicAlias = { id: string; depends_on?: string[] };
  * `depends_on` semantics (unchanged since #137): explicit `[]` clears,
  * omitted preserves the existing topic's deps (by ID), populated replaces.
  *
+ * A pillar score the note does not carry resolves to `undefined` rather than
+ * `0.0`: `doImport` drops `undefined` keys so the import cannot mint assessment
+ * data, which is the precondition `valid-topic-mastery` (#37) skips on (#191).
+ *
  * @param input - Roadmap topic plus its existing on-disk context
- * @returns Effective values for every frontmatter field the import writes
+ * @returns Effective values for every frontmatter field the import writes;
+ * `undefined` for a field that must be left unwritten
  */
 function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
   const { topic, existingById, existingAtPath } = input;
@@ -80,10 +85,10 @@ function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
     depends_on: topic.depends_on ?? existingById?.depends_on ?? [],
     topic_mastery: existingAtPath.topic_mastery ?? 0.0,
     assessed_at: existingAtPath.assessed_at ?? null,
-    conceptual: existingAtPath.conceptual ?? 0.0,
-    practical: existingAtPath.practical ?? 0.0,
-    debug: existingAtPath.debug ?? 0.0,
-    feynman: existingAtPath.feynman ?? 0.0,
+    conceptual: existingAtPath.conceptual,
+    practical: existingAtPath.practical,
+    debug: existingAtPath.debug,
+    feynman: existingAtPath.feynman,
     ease_factor: existingAtPath.ease_factor ?? 2.5,
     interval_days: existingAtPath.interval_days ?? 1,
     repetition: existingAtPath.repetition ?? 0,
@@ -319,13 +324,19 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           }
 
 
-          const paleeData: Record<string, unknown> = {
-            ...resolveTopicUpdates({
+          // A pillar absent from the note resolves to `undefined` and is
+          // dropped here, so an import never writes an assessment score the
+          // learner does not have (#191).
+          const paleeData: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(
+            resolveTopicUpdates({
               topic,
               existingById: existingTopicsById.get(topic.id),
               existingAtPath: existingData,
-            }),
-          };
+            })
+          )) {
+            if (value !== undefined) paleeData[key] = value;
+          }
 
           const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
