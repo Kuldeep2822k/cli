@@ -11,7 +11,7 @@ import { validateCommand } from '../src/cli/validate';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
 
-describe('CLI Machine-Readable --json Output (Invariant #45)', () => {
+describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
   let tmpDir: string;
   let tmpConfigDir: string;
   let prevConfigDir: string | undefined;

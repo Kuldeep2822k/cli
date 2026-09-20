@@ -3,7 +3,7 @@
  *
  * Contracts under test:
  * - Malformed frontmatter produces a warning, never an abort — and valid
- *   topics in the same vault are still checked (invariant invariants.md:17).
+ *   topics in the same vault are still checked (invariant INV-11).
  * - Warnings alone exit 0; errors exit 3 (adopted severity policy).
  * - JSON mode emits the documented contract with additive warnings[].
  * - --fix stays a non-mutating stub.

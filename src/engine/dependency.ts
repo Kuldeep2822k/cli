@@ -260,7 +260,7 @@ function enumerateSccCycles(
  *    including overlapping cycles that share nodes or back edges. Acyclic
  *    components are never touched, matching the spec's quarantine contract
  *    (`planning/palee_cli_spec.md` §Dependency processing,
- *    `planning/invariants.md` line 37).
+ *    invariant `INV-25` in `planning/invariants.md`).
  *
  * Determinism: enumeration inside an SCC starts from sorted nodes, and the
  * final cycle list is sorted by canonical path, so the output is stable for
