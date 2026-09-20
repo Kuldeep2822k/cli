@@ -25,7 +25,11 @@ import dashboardCommand from '../src/cli/dashboard';
 program
   .name('palee')
   .description('Personal Active Learning & Evaluation Engine')
-  .version(packageJson.version);
+  .version(packageJson.version)
+  // Commander exits the process directly for usage errors, which bypasses the
+  // ExitCode contract (it hard-codes 1, the partial-import code). Override turns
+  // those into `CommanderError` throws so the catch below can map them (#192).
+  .exitOverride();
 
 // palee config
 program
@@ -123,14 +127,25 @@ program
   .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 
-// Show help if no command provided
-if (!process.argv.slice(2).length) {
-  program.outputHelp();
-  process.exitCode = 0;
-}
-
 // Parse and execute
 program.parseAsync(process.argv).catch((err: unknown) => {
+  const cmdErr = err as { code?: unknown; exitCode?: unknown };
+  if (typeof cmdErr.code === 'string' && cmdErr.code.startsWith('commander.')) {
+    // Commander writes the text for each of these paths before throwing, so
+    // nothing is printed here — re-emitting `err.message` would duplicate the
+    // `error: unknown command ...` line.
+    //
+    // Help and `--version` are informational, so they exit 0: `--help` throws
+    // `helpDisplayed`, a bare invocation throws `commander.help` (Commander
+    // hands that path exit code 1, which is reserved here for partial roadmap
+    // import), and `--version` throws with 0. Every remaining code —
+    // unknownCommand, unknownOption, missingArgument — is a usage error (#192).
+    const informational =
+      cmdErr.exitCode === 0 || cmdErr.code === 'commander.help' || cmdErr.code === 'commander.version';
+    process.exitCode = informational ? ExitCode.Success : ExitCode.Usage;
+    return;
+  }
+
   const isJson = process.argv.includes('--json');
   const message = err instanceof Error ? err.message : String(err);
   if (isJson) {

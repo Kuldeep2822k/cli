@@ -661,10 +661,46 @@ topics:
       assert.match(res.stdout, /Model set to: claude-3-5-sonnet/);
     });
 
-    test('B10.6: unknown CLI command displays help without crashing', () => {
+    test('B10.6: unknown CLI command reports the error and exits with usage code 2', () => {
       const res = env.run(['unknown-command-xyz']);
-      assert.strictEqual(res.status, 1);
+      assert.strictEqual(res.status, 2, 'exit 1 is reserved for partial roadmap import');
       assert.match(res.stderr, /error: unknown command/i);
+      const reported = res.stderr.match(/error: unknown command/g) ?? [];
+      assert.strictEqual(reported.length, 1, 'commander prints the error; the handler must not repeat it');
+    });
+
+    // Commander emits its own usage errors before any handler runs, so these
+    // bypass the per-handler ExitCode mapping entirely (#192).
+    test('B10.7: unknown option on a subcommand exits 2, not the partial-import code', () => {
+      const res = env.run(['next', '--bogus-flag']);
+      assert.strictEqual(res.status, 2);
+      assert.match(res.stderr, /unknown option/i);
+    });
+
+    test('B10.8: missing required argument exits 2', () => {
+      const res = env.run(['review']);
+      assert.strictEqual(res.status, 2);
+      assert.match(res.stderr, /missing required argument/i);
+    });
+
+    test('B10.9: bare invocation prints help once and exits 0', () => {
+      const res = env.run([]);
+      assert.strictEqual(res.status, 0);
+      // Commander routes the no-command help through its error output; an
+      // explicit --help goes to stdout (B10.10).
+      assert.match(res.stderr, /Usage: palee/);
+      const helpBlocks = res.stderr.match(/Usage: palee/g) ?? [];
+      assert.strictEqual(helpBlocks.length, 1, 'help must not be printed twice');
+    });
+
+    test('B10.10: --help and --version are informational exits, not usage errors', () => {
+      const help = env.run(['--help']);
+      assert.strictEqual(help.status, 0);
+      assert.match(help.stdout, /Usage: palee/);
+
+      const version = env.run(['--version']);
+      assert.strictEqual(version.status, 0);
+      assert.match(version.stdout.trim(), /^\d+\.\d+\.\d+$/);
     });
   });
 
