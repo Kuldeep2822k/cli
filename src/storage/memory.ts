@@ -448,7 +448,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               status: 'completed',
             });
           }
-        } catch (e: any) {
+        } catch {
           // Never delete or mutate session files during index rebuild.
         }
       }
@@ -540,7 +540,7 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
               newestSession = { file: filePath, frontmatter, body };
             }
           }
-        } catch (e: any) {
+        } catch {
           // Never delete or mutate session files during hot/index rebuild.
         }
       }
