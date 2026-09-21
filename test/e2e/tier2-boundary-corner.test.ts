@@ -407,20 +407,93 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
 
-      // The menu has no exit branch: anything other than r/s/d/i falls back
-      // through the loop. Wait for the first rendering, then feed a non-answer
-      // and confirm a second rendering appears.
+      // Anything other than r/s/d/i falls back through the loop: wait for the
+      // first rendering, feed a non-answer, and confirm a second rendering
+      // appears. Closing stdin afterwards ends the run at EOF.
       const startRes = await env.runInteractive(
         ['session', 'start', '--interactive'],
         [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 'x\n' }]
       );
-      assert.strictEqual(startRes.status, 0);
+      assert.strictEqual(startRes.status, 2, 'A re-prompt that ends at EOF resolves nothing');
       const prompts = (startRes.stdout.match(/\[R\]esume\s+\[S\]ave as session/g) ?? []).length;
       assert.ok(prompts >= 2, `Unmatched input must re-prompt, saw ${prompts} prompt(s)`);
 
       const sessions = env.listSessions();
       assert.deepStrictEqual(sessions.drafts, draftsBefore, 'Draft must stay pending after unmatched input');
       assert.strictEqual(sessions.confirmed.length, 0);
+    });
+
+    test('B4.9: EOF reached mid-menu exits 2 and leaves the never-answered draft pending', async () => {
+      env.run(['session', 'draft', '--topic', 'T-eof-partial']);
+      env.run(['session', 'draft', '--topic', 'T-eof-unanswered']);
+      const draftsBefore = env.listSessions().drafts;
+      assert.strictEqual(draftsBefore.length, 2);
+      const snapshots = new Map<string, string>(
+        draftsBefore.map((name) => [name, env.readTopic(path.join('.palee', 'sessions', name)).raw])
+      );
+
+      // One answer only: the helper closes stdin when the queue drains, so the
+      // remaining draft is met by EOF instead of an endless re-prompt (INV-43).
+      const startRes = await env.runInteractive(
+        ['session', 'start', '--interactive'],
+        [{ waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 's\n' }]
+      );
+      assert.strictEqual(startRes.status, 2, 'EOF with a draft left unanswered must not report success');
+      assert.ok(
+        !startRes.stdout.includes('PALEE Session Started'),
+        'No session may start while a checkpoint is unresolved'
+      );
+
+      const sessions = env.listSessions();
+      assert.strictEqual(sessions.confirmed.length, 1, 'The answered draft must still be saved');
+      assert.strictEqual(sessions.drafts.length, 1, 'The unanswered draft must stay pending');
+      const [pending] = sessions.drafts;
+      const answered = draftsBefore.find((name) => name !== pending);
+      assert.ok(answered, 'Both checkpoints must be known before the run');
+      assert.strictEqual(
+        env.readTopic(path.join('.palee', 'sessions', pending)).raw,
+        snapshots.get(pending),
+        'EOF must leave the pending draft byte-identical'
+      );
+      assert.ok(
+        startRes.stderr.includes(pending),
+        `stderr must name the unresolved checkpoint ${pending}: ${startRes.stderr}`
+      );
+      assert.ok(
+        !startRes.stderr.includes(answered),
+        'A checkpoint resolved by the menu must not be reported as unresolved'
+      );
+    });
+
+    test('B4.10: stdin closing before any answer leaves every draft pending and exits 2', async () => {
+      env.run(['session', 'draft', '--topic', 'T-eof-none-1']);
+      env.run(['session', 'draft', '--topic', 'T-eof-none-2']);
+      const draftsBefore = env.listSessions().drafts;
+      assert.strictEqual(draftsBefore.length, 2);
+      const snapshots = new Map<string, string>(
+        draftsBefore.map((name) => [name, env.readTopic(path.join('.palee', 'sessions', name)).raw])
+      );
+
+      // The empty write ends stdin without answering: `write: ''` queues no
+      // bytes, so the first prompt is what EOF arrives after. INV-43.
+      const startRes = await env.runInteractive(
+        ['session', 'start', '--interactive'],
+        [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: '' }]
+      );
+      assert.strictEqual(startRes.status, 2);
+      assert.ok(!startRes.stdout.includes('PALEE Session Started'));
+
+      const sessions = env.listSessions();
+      assert.deepStrictEqual(sessions.drafts, draftsBefore, 'EOF must never auto-discard a draft');
+      assert.strictEqual(sessions.confirmed.length, 0);
+      for (const name of draftsBefore) {
+        assert.strictEqual(
+          env.readTopic(path.join('.palee', 'sessions', name)).raw,
+          snapshots.get(name),
+          `${name} must be byte-identical after an unanswered menu`
+        );
+        assert.ok(startRes.stderr.includes(name), `stderr must name unresolved checkpoint ${name}`);
+      }
     });
   });
 
