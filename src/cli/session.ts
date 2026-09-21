@@ -1,7 +1,7 @@
 import readline from 'readline';
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
  * Manages learning sessions and session memory
@@ -24,7 +24,7 @@ import {
   generateDraftId,
   recoverDraft,
 } from '../storage';
-import { SessionOptions } from '../types';
+import { DraftRecoveryAction, SessionOptions } from '../types';
 
 /**
  * Resolves the active topic identifier for a study session.
@@ -104,34 +104,78 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
         
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        // readline stops calling question callbacks once stdin closes, so a
+        // prompt outstanding at that moment would never settle and the run
+        // would end silently with exit code 0 and the drafts unresolved.
+        let inputExhausted = false;
+        rl.once('close', () => {
+          inputExhausted = true;
+        });
         /**
          * Prompts the user with a question string via readline and returns the trimmed response.
          *
          * @param q - Prompt query string
-         * @returns Promise resolving to user input text
+         * @returns Promise resolving to user input text, or `null` when stdin closed before an answer
          * @remarks Wraps readline question in a promise.
          * @example
          * ```typescript
          * const ans = await question('Proceed? ');
          * ```
          */
-        function question(q: string): Promise<string> {
-          return new Promise<string>(resolve => rl.question(q, resolve));
+        function question(q: string): Promise<string | null> {
+          return new Promise<string | null>((resolve) => {
+            if (inputExhausted) {
+              resolve(null);
+              return;
+            }
+            const onClosed = (): void => resolve(null);
+            rl.once('close', onClosed);
+            rl.question(q, (answer) => {
+              rl.off('close', onClosed);
+              resolve(answer);
+            });
+          });
         }
 
+        const unresolvedDrafts: string[] = [];
         for (const draftPath of drafts) {
-          console.log(`\nDraft: ${path.basename(draftPath)}`);
-          let recoveryAction: 'resume' | 'save' | 'discard' | 'ignore' | null = null;
+          const draftName = path.basename(draftPath);
+          if (inputExhausted) {
+            unresolvedDrafts.push(draftName);
+            continue;
+          }
+          console.log(`\nDraft: ${draftName}`);
+          let recoveryAction: DraftRecoveryAction | null = null;
           while (!recoveryAction) {
-            const answer = (await question('[R]esume  [S]ave as session  [D]iscard  [I]gnore: ')).trim().toLowerCase();
-            if (answer === 'r') recoveryAction = 'resume';
-            else if (answer === 's') recoveryAction = 'save';
-            else if (answer === 'd') recoveryAction = 'discard';
-            else if (answer === 'i') recoveryAction = 'ignore';
+            const answer = await question('[R]esume  [S]ave as session  [D]iscard  [I]gnore: ');
+            if (answer === null) break;
+            const trimmed = answer.trim().toLowerCase();
+            if (trimmed === 'r') recoveryAction = 'resume';
+            else if (trimmed === 's') recoveryAction = 'save';
+            else if (trimmed === 'd') recoveryAction = 'discard';
+            else if (trimmed === 'i') recoveryAction = 'ignore';
+          }
+          if (!recoveryAction) {
+            unresolvedDrafts.push(draftName);
+            continue;
           }
           await recoverDraft(vaultPath, draftPath, recoveryAction);
         }
         rl.close();
+
+        if (unresolvedDrafts.length > 0) {
+          // An unanswered menu is the condition the non-interactive path above
+          // already refuses with exit 2: the checkpoints are neither resolved
+          // nor discarded, so no session may start on top of them.
+          console.error('Draft recovery was not completed (stdin closed).');
+          console.error('Unresolved draft checkpoint(s):');
+          for (const name of unresolvedDrafts) {
+            console.error(`  • ${name}`);
+          }
+          console.error('Run "palee session start --interactive" at a terminal to resolve them.');
+          process.exitCode = ExitCode.Usage;
+          return;
+        }
       }
 
       // Check / rebuild hot memory
