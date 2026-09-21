@@ -62,6 +62,6 @@ Every invariant is addressed by its stable `INV-` ID (for example `INV-11`), nev
 - **INV-40** — Fenced, repaired, regex-extracted, or inferred JSON is never executed or treated as a valid proposal.
 - **INV-41** — An anomalous-score flag fires only on established topics (prior `assessed_at` exists, all four prior scores above `0.10`); first assessments are never flagged regardless of score magnitude.
 - **INV-42** — The anomaly flag remains active for ten minutes after `assessed_at`, measured from that timestamp — a session restart during the ten-minute window does not clear the flag.
-- **INV-43** — A draft checkpoint survives interruption; on next startup, interactive mode offers Resume, Save as session, Discard, and Ignore — all four paths must behave correctly and non-interactive mode must never auto-discard. Stdin that closes before an answer resolves no draft, leaves every unanswered checkpoint on disk, and exits `2`.
+- **INV-43** — A draft checkpoint survives interruption; on next startup, interactive mode offers Resume, Save as session, Discard, and Ignore — all four paths must behave correctly and non-interactive mode must never auto-discard. If stdin closes before the current prompt is answered, previously answered actions remain committed, every unanswered checkpoint stays on disk, and the command exits `2`.
 - **INV-44** — A confirmed session is written before derived views are regenerated.
 - **INV-45** — Corrupt or missing `hot.md` is rebuilt from canonical sessions.
