@@ -295,6 +295,61 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         );
       }
     });
+
+    it('rejects a path target naming an existing non-Markdown file instead of hijacking a namesake note', () => {
+      // The hijack route must be live: a visible note whose basename minus
+      // `.md` collides with the asset filename is exactly what the basename
+      // lookup would return. Without it this test passes vacuously (no hit).
+      const namesakeDir = path.join(vaultPath, 'other');
+      const namesake = path.join(namesakeDir, 'diagram.png.md');
+      fs.mkdirSync(namesakeDir, { recursive: true });
+      fs.writeFileSync(namesake, '# Unrelated note\n');
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        assert.deepStrictEqual(
+          (index.get('diagram.png') ?? []).map((p) => path.relative(vaultPath, p)),
+          [path.join('other', 'diagram.png.md')]
+        );
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link('[[assets/diagram.png]]'), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, 'assets/diagram.png');
+            return true;
+          }
+        );
+      } finally {
+        fs.rmSync(namesakeDir, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed when a symlinked ancestor escapes the vault', (t) => {
+      // `vault/link -> outsidePath`, and `outsidePath` has no `note.md`, so the
+      // exact candidate is missing and the resolver used to fall through to the
+      // basename lookup and return the in-vault `MODULES/note.md` — a note the
+      // link never named.
+      const linkDir = path.join(vaultPath, 'link');
+      try {
+        fs.symlinkSync(outsidePath, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch {
+        t.skip('symlink creation is not permitted on this platform');
+        return;
+      }
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        assertHijackRouteIsLive(index);
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link('[[link/note]]'), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, 'link/note');
+            return true;
+          }
+        );
+      } finally {
+        fs.rmSync(linkDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('resolveWikilinkRoadmap', () => {

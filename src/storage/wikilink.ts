@@ -147,8 +147,11 @@ function targetBaseName(target: string): string {
  * added when absent, and the target must stay inside the vault *and* name a
  * visible Markdown note. Both checks run before any filesystem access, so an
  * unsafe target fails closed here whether or not the file exists, and can never
- * reach step 2; (2) unique basename match, case-insensitive, with an exact-case
- * hit winning ties.
+ * reach step 2; a target whose exact candidate is absent also fails closed
+ * before step 2 when it names an existing non-Markdown file or sits under a
+ * symlinked ancestor that leaves the vault — the basename fallback must never
+ * rescue a target the exact match rejected; (2) unique basename match,
+ * case-insensitive, with an exact-case hit winning ties.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,
@@ -212,6 +215,30 @@ export function resolveWikilinkTarget(
       throw new UnresolvedWikilinkError(target);
     }
     return { absolutePath: canonical, relativePath };
+  }
+
+  // 1b. Fail closed before the basename fallback. Both guards fire only for a
+  // target whose exact candidate is absent; without them step 2 resolves an
+  // unrelated in-vault note the user never named — the same hijack class the
+  // guards above close for escaping and invisible paths.
+  const bareAbsolute = path.resolve(resolvedVault, target);
+  if (fs.existsSync(bareAbsolute) && fs.statSync(bareAbsolute).isFile()) {
+    // The target as written names a real file that is not a Markdown note
+    // (`[[assets/diagram.png]]`). A basename namesake such as
+    // `other/diagram.png.md` is a different file; resolving it would rewrite
+    // the wrong note's frontmatter.
+    throw new UnresolvedWikilinkError(target);
+  }
+  // Deepest existing ancestor: a symlinked directory can leave the vault even
+  // though every lexical segment looked clean. `vault/link -> outside` with
+  // `[[link/note]]` (missing inside `outside`) must not fall through to the
+  // in-vault `note.md`.
+  let ancestor = path.dirname(absoluteCandidate);
+  while (ancestor !== path.dirname(ancestor) && !fs.existsSync(ancestor)) {
+    ancestor = path.dirname(ancestor);
+  }
+  if (!isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
+    throw new UnresolvedWikilinkError(target);
   }
 
   // 2. Basename match (case-insensitive); an exact-case hit wins ties
