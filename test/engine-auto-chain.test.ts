@@ -130,6 +130,35 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
         'MODULES/02-linux/01-c.md',
       ]);
     });
+
+    // `hasUnnumbered` feeds the CLI's "these entries fell back to alphabetical
+    // order" warning, so it must be true exactly when alphabetical order
+    // *decided* something — i.e. only at a segment level where two group
+    // directories actually differ. Flagging every unnumbered segment instead
+    // would warn on the canonical `MODULES/` container from issue #73's own
+    // example and turn the warning into noise.
+    it('does not flag the canonical unnumbered MODULES container (#73)', () => {
+      const plan = planAutoChain(['MODULES/01-foundations/01-x.md']);
+      assert.strictEqual(plan.hasUnnumbered, false);
+    });
+
+    it('does not flag a single unnumbered top-level dir with nothing to compare', () => {
+      const plan = planAutoChain(['guides/01-module/01-n.md']);
+      assert.strictEqual(plan.hasUnnumbered, false);
+    });
+
+    it('flags an unnumbered ancestor level that actually decided order', () => {
+      // Level 0 differs (`MODULES` vs `OTHER`) and neither has a numeric
+      // prefix, so alphabetical order decided which module chains first.
+      const plan = planAutoChain(['MODULES/01-a/01-x.md', 'OTHER/01-b/01-y.md']);
+      assert.strictEqual(plan.hasUnnumbered, true);
+      assert.deepStrictEqual(plan.orderedPaths, ['MODULES/01-a/01-x.md', 'OTHER/01-b/01-y.md']);
+    });
+
+    it('does not flag fully numbered sibling directories', () => {
+      const plan = planAutoChain(['01-a/01-x.md', '02-b/01-y.md']);
+      assert.strictEqual(plan.hasUnnumbered, false);
+    });
   });
 
   describe('parseWikilink', () => {

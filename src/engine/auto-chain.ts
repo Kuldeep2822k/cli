@@ -185,9 +185,10 @@ export interface ChainPlan {
   /** Map from relative path to its predecessor's relative path (`null` for the chain head) */
   predecessorOf: Map<string, string | null>;
   /**
-   * True when some directory lacked a numeric prefix or some file had
-   * neither a numeric prefix nor a phase keyword — the CLI warns that those
-   * entries fell back to alphabetical order.
+   * True when alphabetical order actually decided a directory's position — some
+   * segment level where two directories differ and one of them lacks a numeric
+   * prefix — or when some file had neither a numeric prefix nor a phase
+   * keyword. The CLI warns that those entries fell back to alphabetical order.
    */
   hasUnnumbered: boolean;
 }
@@ -224,10 +225,31 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
     }
   }
 
+  // Alphabetical order only *decides* anything at a segment level where two
+  // group directories actually differ, so that is the only place an unnumbered
+  // segment can have caused a fallback. Testing every segment instead would
+  // flag the canonical unnumbered `MODULES/` container from #73's own example
+  // (`palee adopt "MODULES/" --auto-chain`) on essentially every vault and turn
+  // the warning into noise. Reuses {@link dirSortKey} so the question is answered
+  // with the same segmentation `compareDirs` sorts by.
+  const dirKeys = [...groups.keys()].map(dirSortKey);
+  const maxDepth = dirKeys.reduce((max, key) => Math.max(max, key.length), 0);
   let hasUnnumbered = false;
-  for (const dir of groups.keys()) {
-    if (parseNumericPrefix(baseNameOf(dir)) === null) {
-      hasUnnumbered = true;
+  for (let level = 0; level < maxDepth && !hasUnnumbered; level++) {
+    const distinct = new Set<string>();
+    for (const key of dirKeys) {
+      if (level < key.length) {
+        distinct.add(key[level].name);
+      }
+    }
+    if (distinct.size < 2) {
+      continue;
+    }
+    for (const key of dirKeys) {
+      if (level < key.length && key[level].n === null) {
+        hasUnnumbered = true;
+        break;
+      }
     }
   }
   for (const p of normalized) {
