@@ -274,13 +274,19 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(ids.size, 3);
   });
 
-  // Accepted tradeoff of plan 006 variant A (INV-46): bridging makes an
-  // in-scope already-adopted note a real chain predecessor, so the merged
-  // graph now carries a new -> existing edge into it. When that adopted note
-  // sits on a cycle, adoption must still fail closed — exit 3, zero writes.
-  // This is the guard against any later change that suppresses or narrows the
-  // cycle check to let a bridge through.
-  test('a cycle through an in-scope adopted note fails closed with exit 3 and zero writes', () => {
+  // What this actually guards: `planAutoChain` is fed the *whole vault* merged
+  // with the batch, so a cycle that already exists on disk between two adopted
+  // notes is visible to the check and must fail adoption closed — exit 3, zero
+  // writes. The cycle here (T-SYS <-> T-LAB) is pre-existing fixture data; the
+  // test passes whether or not plan 006's new -> existing bridge is emitted, so
+  // it is not bridge coverage. The bridge itself is covered by the test at line
+  // 214 ('already-adopted notes in scope are bridged over and never rewritten').
+  //
+  // A cycle created *by* a bridge edge is unconstructible, so there is no test
+  // to write for it: the new note's id is minted at plan time from
+  // `crypto.randomBytes`, so no pre-existing on-disk `depends_on` can name it,
+  // and `buildEdgeMap` drops edges to unknown ids. Do not spend time trying.
+  test('a pre-existing vault cycle blocks adoption with exit 3 and zero writes', () => {
     const cycleFiles: Record<string, string> = {
       'MODULES/01-foundations/01-sys.md': [
         '---',
