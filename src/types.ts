@@ -668,6 +668,8 @@ export interface RoadmapTopic {
   difficulty?: Difficulty;
   /** List of prerequisite topic IDs */
   depends_on?: string[];
+  /** True when this topic's `depends_on` is final and must not be re-chained (#73) */
+  chained?: boolean;
   /** Optional sequence ordering */
   order?: number;
 }

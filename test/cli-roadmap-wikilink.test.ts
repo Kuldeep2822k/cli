@@ -221,6 +221,78 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/3.md').depends_on, [id2]);
   });
 
+  // Regression (#73 autofix): `--auto-chain` is scoped to YAML / frontmatter /
+  // code-block roadmaps (INV-47, docs/02-1 options table). A wikilink roadmap
+  // arrives already chained per `## Track` section, so running the pass over it
+  // read each section head's explicit `depends_on: []` as "not chained yet" and
+  // hung the second track's head off the first track's tail — silently fusing
+  // independent tracks in the vault.
+  test('--auto-chain does not fuse independent wikilink tracks', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-alpha.md': '# Alpha\n',
+      'MODULES/01-foundations/02-beta.md': '# Beta\n',
+      'MODULES/02-advanced/01-gamma.md': '# Gamma\n',
+      'roadmap.md':
+        '---\npalee_roadmap: true\n---\n# Roadmap\n\n' +
+        '## Foundations\n\n- [[MODULES/01-foundations/01-alpha]]\n- [[MODULES/01-foundations/02-beta]]\n\n' +
+        '## Advanced\n\n- [[MODULES/02-advanced/01-gamma]]\n',
+    });
+    const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'roadmap.md'), '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Resolved 3 wikilink topics/);
+
+    const alphaId = String(frontmatterOf(vaultDir, 'MODULES/01-foundations/01-alpha.md').palee_id);
+    const betaId = String(frontmatterOf(vaultDir, 'MODULES/01-foundations/02-beta.md').palee_id);
+    // Track 1 keeps its own chain: beta depends on alpha, nothing more.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-beta.md'), [alphaId]);
+    // Both section heads stay independent.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/01-alpha.md'), []);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/02-advanced/01-gamma.md'),
+      [],
+      `01-gamma must stay the head of its own track, but it was chained onto ${betaId} (02-beta)`
+    );
+    // The pass is not run at all for this format.
+    assert.doesNotMatch(result.stdout, /Auto-chain:/);
+  });
+
+  // Pins INV-47's other half, reported by the reviewer as a live defect: "an
+  // unordered topic must be slotted after ALL ordered ones" (docs/02-1 options
+  // table; `RoadmapOptions.autoChain` in src/types.ts).
+  //
+  // The discriminator is multi-digit `order`: a lexicographic sort of the
+  // stringified order would give '10' < '2' < 'zzz' -> T-e10, T-e2, T-eu, so
+  // the unordered topic would end up chained onto T-e2. A numeric sort with
+  // unordered last gives T-e2, T-e10, T-eu -> the unordered topic chained onto
+  // T-e10. These two outcomes are distinguishable only by the assertion on
+  // c.md below.
+  test('--auto-chain slots unordered topics after all ordered ones (INV-47)', () => {
+    const { vaultDir, configDir } = freshVault({
+      'e/a.md': '# A\n',
+      'e/b.md': '# B\n',
+      'e/c.md': '# C\n',
+    });
+    const yamlPath = path.join(vaultDir, 'order.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-e2\n    title: A\n    path: e/a.md\n    order: 2\n' +
+        '  - id: T-e10\n    title: B\n    path: e/b.md\n    order: 10\n' +
+        '  - id: T-eu\n    title: C\n    path: e/c.md\n'
+    );
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Auto-chain: 3 roadmap topics chained by order\./);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'e/a.md'), []);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'e/b.md'), ['T-e2']);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'e/c.md'),
+      ['T-e10'],
+      'the unordered topic must be chained after every ordered one'
+    );
+  });
+
   // Regression (#73 autofix): the issue's reproduction, verbatim. `daily-log.md` is
   // an ordinary Obsidian note -- a heading plus two `[[...]]` bullets -- and used to
   // be imported as a curriculum, rewriting `depends_on` on both notes it pointed at.

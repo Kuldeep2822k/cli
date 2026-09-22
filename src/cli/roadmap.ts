@@ -33,7 +33,8 @@ import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpda
  * their file order and are appended after the ordered ones. A topic with no
  * (or an empty) `depends_on` is chained to the previous topic's ID — the
  * chain head gets an explicit `[]`. An explicit non-empty `depends_on`
- * always wins over the synthesized chain.
+ * always wins over the synthesized chain, and a topic whose dependencies are
+ * already final (`chained`) is left alone.
  */
 function applyRoadmapAutoChain(topics: RoadmapTopic[]): void {
   const indexed = topics.map((topic, index) => ({ topic, index }));
@@ -46,7 +47,7 @@ function applyRoadmapAutoChain(topics: RoadmapTopic[]): void {
     return a.index - b.index;
   });
   indexed.forEach(({ topic }, rank) => {
-    if (!topic.depends_on || topic.depends_on.length === 0) {
+    if (!topic.chained && (!topic.depends_on || topic.depends_on.length === 0)) {
       topic.depends_on = rank === 0 ? [] : [indexed[rank - 1].topic.id];
     }
   });
@@ -188,7 +189,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       roadmap = parseResult.roadmap;
     }
 
-    if (options.autoChain) {
+    // --auto-chain is scoped to YAML / frontmatter / code-block roadmaps
+    // (INV-47). The wikilink format arrives already chained per `## Track`
+    // section, so re-chaining it would fuse independent tracks.
+    if (options.autoChain && parseResult.format !== 'wikilink') {
       applyRoadmapAutoChain(roadmap.topics);
     }
 

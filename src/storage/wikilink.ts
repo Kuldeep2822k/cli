@@ -199,7 +199,8 @@ export interface WikilinkRoadmapSection {
  * hand-written deps per the #139 "populated replaces" rule). An already
  * adopted note keeps its `palee_id` and title; an unadopted note gets a
  * minted ID and a title resolved from its content. `order` is assigned
- * sequentially so `roadmap --auto-chain` reproduces the same chain.
+ * sequentially for stable display; the chain is final at resolution time and
+ * `roadmap --auto-chain` does not re-chain wikilink output (INV-47).
  */
 export function resolveWikilinkRoadmap(
   vaultPath: string,
@@ -243,6 +244,7 @@ export function resolveWikilinkRoadmap(
         title,
         path: resolved.relativePath,
         depends_on: previousId ? [previousId] : [],
+        chained: true,
         order: order++,
       });
       previousId = id;
