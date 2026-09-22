@@ -81,7 +81,7 @@ The adoption engine [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/
 Resolves the canonical path of target files and directories using `fs.realpathSync`. If a path or symlink targets a location outside the configured `vaultPath`, execution is halted immediately with exit code `2`.
 
 #### 2. Three-Tier Title Resolution Algorithm
-When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitle()` [src/cli/adopt.ts#36-91](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L36-L91):
+When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitle()` [src/storage/note-title.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/note-title.ts):
 1. **Tier 1: Frontmatter `title`**: Uses existing YAML `title` property if non-empty.
 2. **Tier 2: First Level-1 Heading (`# Title`)**: Scans Markdown body for the first H1 heading, ignoring HTML comments (`<!-- ... -->`) and fenced code blocks (```` ``` ```` and `~~~`).
 3. **Tier 3: Filename Basename**: Falls back to the filename without the `.md` extension.
@@ -147,7 +147,7 @@ The `palee roadmap` command enables automated, bulk creation and updates of lear
 
 ### Supported File Formats
 
-`palee roadmap` automatically identifies and parses three curriculum formats [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts):
+`palee roadmap` automatically identifies and parses four curriculum formats [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts):
 
 #### 1. Pure YAML (`.yaml` / `.yml`)
 ```yaml
@@ -157,13 +157,17 @@ topics:
     title: TCP/IP and OSI Model
     path: Cloud/01-networking.md
     difficulty: beginner
+    order: 1
   - id: T-vpc-peering
     title: VPC Architecture and Peering
     path: Cloud/02-vpc-peering.md
     difficulty: intermediate
+    order: 2
     depends_on:
       - T-networking-basics
 ```
+
+The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on` (the first gets `[]`), and a topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone.
 
 #### 2. Markdown with Frontmatter YAML (`.md`)
 ```markdown
@@ -205,9 +209,13 @@ topics:
 
 #### 4. Wikilink Roadmap (`.md`)
 
-A Markdown file whose headings and bullet/numbered lists contain Obsidian wikilinks — one note per link, in list order. Each heading starts a new chain section; each link resolves to a vault note and depends on the previous link in its section [src/storage/wikilink.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/wikilink.ts):
+A Markdown document marked `palee_roadmap: true` whose headings and bullet/numbered lists contain Obsidian wikilinks — one note per link, in list order. Each `##` heading starts a new chain section; deeper levels (`###` and below) do not — their bullets keep extending the enclosing `##` chain. Each link resolves to a vault note and depends on the previous link in its section [src/storage/wikilink.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/wikilink.ts):
 
 ````markdown
+---
+palee_roadmap: true
+---
+
 # DevOps Roadmap
 
 ## Foundations
@@ -221,7 +229,11 @@ A Markdown file whose headings and bullet/numbered lists contain Obsidian wikili
 1. [[k8s-pods]]
 ````
 
+The `palee_roadmap: true` marker is required (INV-48) and must be the YAML boolean, not the string `'true'`. Any other `.md` passed to `--from` — including an ordinary note with a heading and `[[links]]` — is rejected with exit `2` and zero writes, so pointing the command at a regular note can never rewrite `depends_on` across the notes it links to. Deeper heading levels are excluded for the same reason: every `##` section head is written with `depends_on: []`, which clears the prerequisites a note already has.
+
 Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, then unique case-insensitive basenames (exact-case wins ties); ambiguous links error listing every candidate, unresolvable links error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected. Already-adopted notes keep their `palee_id` and SM-2 state; unadopted notes get minted IDs. The wikilink chain replaces hand-written `depends_on` on adopted notes.
+
+`--auto-chain` does not apply to this format (INV-47): each `##` section arrives already chained from its list order, so re-chaining the resolved topics would fuse independent tracks into a single chain.
 
 ---
 
@@ -331,7 +343,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | N/A | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
+| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
 
@@ -341,9 +353,9 @@ Topic management commands follow the standardized PALEE exit code contract:
 
 | Parameter | Value | Definition | Code Reference |
 | :--- | :---: | :--- | :--- |
-| **Topic ID Prefix** | `T-` | ISO-8601 timestamp + 8-character hex entropy: `T-YYYYMMDDTHHMMSS-<hex>` | [src/cli/adopt.ts#23-28](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L23-L28) |
-| **Default Ease Factor** | `2.5` | Initial SuperMemo SM-2 difficulty multiplier. | [src/cli/adopt.ts#447](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L447) |
-| **Initial Interval** | `1` day | Spaced repetition review interval after initial adoption. | [src/cli/adopt.ts#448](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L448) |
+| **Topic ID Prefix** | `T-` | ISO-8601 timestamp + 8-character hex entropy: `T-YYYYMMDDTHHMMSS-<hex>` | [src/engine/topic-id.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/topic-id.ts) |
+| **Default Ease Factor** | `2.5` | Initial SuperMemo SM-2 difficulty multiplier. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
+| **Initial Interval** | `1` day | Spaced repetition review interval after initial adoption. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
 | **Default Difficulty** | `intermediate` | Baseline topic complexity level. | [src/cli/adopt.ts#144](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L144) |
 | **Mastery Threshold** | `0.70` | Required mastery score to unlock dependent child topics. | [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) |
-| **Schema Version** | `1` | Current PALEE metadata schema version. | [src/cli/adopt.ts#437](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L437) |
+| **Schema Version** | `1` | Current PALEE metadata schema version. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
