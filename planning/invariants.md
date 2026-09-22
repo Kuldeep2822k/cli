@@ -65,3 +65,9 @@ Every invariant is addressed by its stable `INV-` ID (for example `INV-11`), nev
 - **INV-43** — A draft checkpoint survives interruption; on next startup, interactive mode offers Resume, Save as session, Discard, and Ignore — all four paths must behave correctly and non-interactive mode must never auto-discard. If stdin closes before the current prompt is answered, previously answered actions remain committed, every unanswered checkpoint stays on disk, and the command exits `2`.
 - **INV-44** — A confirmed session is written before derived views are regenerated.
 - **INV-45** — Corrupt or missing `hot.md` is rebuilt from canonical sessions.
+
+## Auto-Chain and Wikilinks
+
+- **INV-46** — `adopt --auto-chain` derives each note's `depends_on` from numbered directory/file prefixes (numeric, then `deep-dive → lab → exam`, then alphabetical), validates the planned graph — merged with existing vault topics — for cycles before any write (exit `3`, zero writes on failure), and never modifies already-adopted notes.
+- **INV-47** — `roadmap --auto-chain` chains topics by their `order` field (unordered topics keep file order, appended after ordered ones); an explicit non-empty `depends_on` always wins over the synthesized chain.
+- **INV-48** — Wikilink roadmap resolution is fail-closed and scoped to roadmap files: ambiguous `[[Note]]` targets error listing every candidate, unresolvable targets error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected (it would depend on itself).
