@@ -561,6 +561,11 @@ export interface AdoptOptions {
   verbose?: boolean;
   /** Skip interactive confirmation prompts */
   yes?: boolean;
+  /**
+   * Auto-wire `depends_on` from numbered directory/file prefixes (#73).
+   * Batch mode only; conflicts with `dependsOn`.
+   */
+  autoChain?: boolean;
 }
 
 /**
@@ -639,6 +644,12 @@ export interface RoadmapOptions {
   from?: string;
   /** Automatically approve adoption without confirmation */
   yes?: boolean;
+  /**
+   * Chain roadmap topics by their `order` field (#73): each topic depends on
+   * the previous one. Topics without `order` keep file order, appended after
+   * ordered ones. An explicit non-empty `depends_on` wins over the chain.
+   */
+  autoChain?: boolean;
 }
 
 // ─── Roadmap YAML ───────────────────────────────────────────────────
