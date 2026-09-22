@@ -66,6 +66,7 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. | `--include "0[1-4]-*,lab-*,deep-dive*"` |
 | `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. | `--exclude "*template*,*rubric*,*draft*"` |
 | `--tag <tags>` | `string` | `undefined` | Comma-separated Obsidian frontmatter tags to filter. Supports hierarchical matching. | `--tag "type/concept,status/ready"` |
+| `--auto-chain` | `boolean` | `false` | Batch-only: derive each note's `depends_on` from numbered directory/file prefixes (see §4). Conflicts with `--depends-on` and single-file mode. | `palee adopt "MODULES" --auto-chain -y` |
 | `--dry-run` | `boolean` | `false` | Simulate adoption, print summary preview, and exit with code 0 without modifying any files. | `palee adopt --all --dry-run` |
 | `--verbose` | `boolean` | `false` | Output detailed file-by-file status list with indicator prefixes (`+`, `=`, `-`, `~`). | `palee adopt "MODULES" --verbose` |
 | `-y, --yes` | `boolean` | `false` | Automatically confirm adoption prompt without interactive terminal confirmation. | `palee adopt --all -y` |
@@ -89,7 +90,21 @@ When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitl
 - **Glob Matching**: The pattern engine [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts) supports prefix wildcards, infix wildcards (`0[1-4]-*`), and recursive subtree traversal (`**/*.md`).
 - **3-Tier Tag Hierarchy**: Matches nested Obsidian tags. Filtering by `--tag "devops"` matches `#devops`, `#devops/k8s`, and `#devops/k8s/networking`. Both `#tag` and `tag` syntax are normalized automatically.
 
-#### 4. Two-Phase Atomic Batch Writer & Rollback Journal
+#### 4. Dependency Auto-Chaining (`--auto-chain`)
+
+Batch-only flag that wires `depends_on` automatically from the vault's directory structure [src/engine/auto-chain.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/auto-chain.ts):
+
+1. **Ordering**: Notes are grouped by immediate parent directory. Within each group, notes sort by numeric filename prefix, then `deep-dive` → `lab` → `exam`, then alphabetically. Directory groups sort by numeric prefix; unnumbered directories/files sort alphabetically after numbered ones and emit a warning.
+2. **Chaining**: Each note depends on its predecessor in the ordered list; the first note of a module depends on the last note of the previous module (cross-module bridge). Excluded or already-adopted notes are bridged over, never rewritten.
+3. **Pre-write validation**: Topic IDs are minted before planning, and the planned edges — merged with already-adopted vault topics — are checked with the existing cycle detector. On a cycle the command exits `3` and writes nothing (INV-46).
+4. **Conflicts**: `--auto-chain` conflicts with `--depends-on` and with single-file mode (both exit `2`). `--dry-run` prints the exact edge plan without writing.
+
+```bash
+# Preview the exact depends_on edges before committing
+palee adopt "MODULES" --auto-chain --dry-run
+```
+
+#### 5. Two-Phase Atomic Batch Writer & Rollback Journal
 In batch mode, adoption executes in two strict phases:
 - **Phase 1 (Preflight)**: Re-reads every note to capture fresh SHA-256 content fingerprints and computes updated frontmatter structures in memory.
 - **Phase 2 (Execution & Rollback)**: Writes notes sequentially via atomic write operations (`.tmp` + rename). If any write fails (e.g. disk error or OCC conflict), the system executes a reverse rollback journal, restoring previously modified files to their original state before exiting.
@@ -188,6 +203,26 @@ topics:
 ```
 ````
 
+#### 4. Wikilink Roadmap (`.md`)
+
+A Markdown file whose headings and bullet/numbered lists contain Obsidian wikilinks — one note per link, in list order. Each heading starts a new chain section; each link resolves to a vault note and depends on the previous link in its section [src/storage/wikilink.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/wikilink.ts):
+
+````markdown
+# DevOps Roadmap
+
+## Foundations
+
+- [[DevOps/Docker]]
+- [[Kubernetes Basics|K8s Intro]]
+- [[networking#osi-model]]
+
+## Advanced
+
+1. [[k8s-pods]]
+````
+
+Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, then unique case-insensitive basenames (exact-case wins ties); ambiguous links error listing every candidate, unresolvable links error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected. Already-adopted notes keep their `palee_id` and SM-2 state; unadopted notes get minted IDs. The wikilink chain replaces hand-written `depends_on` on adopted notes.
+
 ---
 
 ### Options Reference for `palee roadmap`
@@ -197,6 +232,7 @@ The following table lists all options for `palee roadmap` [src/types.ts#476-484]
 | Flag | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
 | `--from <file>` | `string` | **Yes** | Path to the roadmap definition file (`.yaml`, `.yml`, or `.md`). | `palee roadmap --from "curricula/devops.yaml"` |
+| `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
 | `-y, --yes` | `boolean` | No | Automatically confirm creation/update of notes without interactive prompt. | `palee roadmap --from "curricula/devops.yaml" -y` |
 
 ---

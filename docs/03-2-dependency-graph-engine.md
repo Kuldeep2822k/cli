@@ -232,6 +232,8 @@ flowchart TD
 | **Prerequisite Gating** | Downstream topics are locked until all direct prerequisites achieve $\ge 0.70$ mastery. |
 | **Canonical Dependencies** | Legacy `dependencies` aliases are unioned and deduplicated into `depends_on` once at the storage boundary (`normalizeDependencies`); the engine consumes canonical `depends_on` only. |
 | **Deterministic Traversal** | 3-color DFS guarantees linear time $O(V + E)$ cycle detection without infinite recursion. |
+| **Auto-Chain Ordering (INV-46/47)** | `adopt --auto-chain` orders by numeric prefix → `deep-dive → lab → exam` → alphabetical, bridging modules and excluded/adopted notes; `roadmap --auto-chain` orders by `order` (unordered keep file order, appended last). Both validate the planned graph for cycles before any write; explicit non-empty `depends_on` always wins. |
+| **Fail-Closed Wikilinks (INV-48)** | Wikilink roadmap resolution strips anchors, resolves exact paths then unique basenames, and errors (exit 3, zero writes) on ambiguous, unresolvable, or duplicated targets. |
 
 Sources:
 - Dependency Graph Engine: [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)

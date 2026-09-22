@@ -208,6 +208,13 @@ palee adopt "MODULES/03-kubernetes" --include "lab-*,concept-*" --tag "devops/k8
 # 4. Import a complete structured curriculum roadmap from YAML
 palee roadmap --from "curricula/cloud-architect.yaml" -y
 
+# 5. Chain a YAML roadmap by order, or adopt a module tree with auto-wired dependencies
+palee roadmap --from "curricula/devops.yaml" --auto-chain -y
+palee adopt "MODULES" --auto-chain -y
+
+# 6. Import a roadmap written as Obsidian wikilink lists
+palee roadmap --from "curricula/devops-links.md" -y
+
 # 5. Run vault integrity verification to confirm 0 cycles or broken dependencies
 palee validate
 ```
