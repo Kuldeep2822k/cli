@@ -41,7 +41,17 @@ import {
   MAX_HOT_WORDS,
 } from './memory';
 import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
+import { parseWikilinkSections, type WikilinkRoadmapSection } from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
+import { resolveNoteTitle } from './note-title';
+import {
+  buildVaultNoteIndex,
+  resolveWikilinkTarget,
+  resolveWikilinkRoadmap,
+  AmbiguousWikilinkError,
+  UnresolvedWikilinkError,
+  type ResolvedWikilink,
+} from './wikilink';
 import { loadTopics, getTopicCache, type LoadedTopic, type LoadTopicsOptions } from './loader';
 import {
   loadSessions,
@@ -73,11 +83,18 @@ export {
 
   // Roadmap operations
   parseRoadmapContent,
+  parseWikilinkSections,
+  buildVaultNoteIndex,
+  resolveWikilinkTarget,
+  resolveWikilinkRoadmap,
+  AmbiguousWikilinkError,
+  UnresolvedWikilinkError,
 
   // Frontmatter operations
   parseFrontmatter,
   updateFrontmatter,
   computeFingerprint,
+  resolveNoteTitle,
 
   // Locking
   Lock,
@@ -112,6 +129,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError };
+export type { ParsedRoadmapResult, WikilinkRoadmapSection, ResolvedWikilink, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError };
 
 
