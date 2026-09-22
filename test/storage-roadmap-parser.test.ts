@@ -376,4 +376,19 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
       ['real']
     );
   });
+
+  // Same guard on the ordered-list prefix: `1. [ ]` is valid Markdown/Obsidian
+  // syntax, and the numbered branch used to capture `[ ] [[todo]]`, importing
+  // the to-do as a chain entry and rewriting its prerequisites.
+  test('ignores ordered task-list items as chain entries', () => {
+    const sections = parseWikilinkSections(
+      '## Track\n1. [ ] [[todo]]\n2. [x] [[done]]\n3) [X] [[DONE2]]\n4. [[real]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['real']
+    );
+  });
 });

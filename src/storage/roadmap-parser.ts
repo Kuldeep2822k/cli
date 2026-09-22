@@ -111,11 +111,12 @@ export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSectio
       sections.push(current);
       continue;
     }
-    // `(?!\[[ xX]\]\s)` drops Obsidian task items (`- [ ]`, `- [x]`): a checkbox
-    // is an unfinished to-do, not a curated chain entry, and listing one would
-    // rewrite that note's depends_on.
+    // `(?!\[[ xX]\]\s)` drops Obsidian task items (`- [ ]`, `1. [x]`) on *both*
+    // list-prefix forms: a checkbox is an unfinished to-do, not a curated chain
+    // entry, and listing one would rewrite that note's depends_on.
     const bullet =
-      /^\s*[-*+]\s+(?!\[[ xX]\]\s)(.+)$/.exec(line) ?? /^\s*\d+[.)]\s+(.+)$/.exec(line);
+      /^\s*[-*+]\s+(?!\[[ xX]\]\s)(.+)$/.exec(line) ??
+      /^\s*\d+[.)]\s+(?!\[[ xX]\]\s)(.+)$/.exec(line);
     if (bullet) {
       if (!current) {
         current = { track: '', links: [] };
