@@ -51,10 +51,6 @@ export const validateDependencyGraph = dependency.validateDependencyGraph;
 export const findMissingDependencies = dependency.findMissingDependencies;
 
 // Auto-chain exports
-/** Parses a leading numeric prefix from a directory or file basename (#73) */
-export const parseNumericPrefix = autoChain.parseNumericPrefix;
-/** Compares two lesson basenames in auto-chain order (#73) */
-export const compareLessonOrder = autoChain.compareLessonOrder;
 /** Plans a hierarchical auto-chain over vault-relative note paths (#73) */
 export const planAutoChain = autoChain.planAutoChain;
 /** Parses a single Obsidian wikilink string (#73) */
