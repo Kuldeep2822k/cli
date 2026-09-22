@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (feat)
+
+- **Dependency auto-chaining & wikilink roadmap resolution** ([#73](https://github.com/Kuldeep2822k/cli/issues/73)):
+  - `palee adopt --auto-chain`: batch-only flag that derives each note's `depends_on` from numbered directory/file prefixes (numeric → `deep-dive → lab → exam` → alphabetical), bridges modules and excluded/already-adopted notes, and validates the planned graph — merged with existing vault topics — for cycles before any write (exit `3`, zero writes on failure). Already-adopted notes are never rewritten. Conflicts with `--depends-on` and single-file mode (exit `2`).
+  - `palee roadmap --auto-chain`: chains YAML/frontmatter/codeblock roadmap topics by their `order` field (unordered topics keep file order, appended after ordered ones); explicit non-empty `depends_on` always wins.
+  - Wikilink roadmap format: a Markdown roadmap of headings + bullet/numbered `[[links]]` resolves each link to a vault note (exact path, then unique basename; anchors stripped) and chains per section. Ambiguous or unresolvable links fail closed (exit `3`, zero writes).
+
 ---
 
 ## [0.5.2] - 2026-09-19
