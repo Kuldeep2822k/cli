@@ -306,6 +306,13 @@ export function extractWikilinks(text: string): ParsedWikilink[] {
   try {
     let match: RegExpExecArray | null;
     while ((match = WIKILINK_GLOBAL.exec(text)) !== null) {
+      // The global scan resumes inside `[[a[[b]]` and reports `[[b]]`, so a
+      // well-formed tail of an unterminated link would still slip through.
+      // A match whose prefix still has an open `[[` is nested, not a link.
+      const prefix = text.slice(0, match.index);
+      if (prefix.lastIndexOf('[[') > prefix.lastIndexOf(']]')) {
+        continue;
+      }
       const parsed = parseWikilink(match[0]);
       if (parsed) {
         links.push(parsed);

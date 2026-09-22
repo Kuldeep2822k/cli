@@ -167,5 +167,12 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
     it('returns an empty array when no links are present', () => {
       assert.deepStrictEqual(extractWikilinks('plain text, no links'), []);
     });
+
+    // Honour the documented contract: a nested `[[` is malformed, not a later
+    // link waiting to be reinterpreted. `[[a[[b]]` used to yield { target: 'b' },
+    // inventing a chain edge out of a typo.
+    it('skips a match that an unterminated [[ precedes', () => {
+      assert.deepStrictEqual(extractWikilinks('- [[a[[b]]'), []);
+    });
   });
 });
