@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { parseRoadmapContent } from '../src/storage/roadmap-parser';
+import { parseRoadmapContent, parseWikilinkSections } from '../src/storage/roadmap-parser';
 
 describe('Roadmap Multi-Format Parser', () => {
   test('parses pure YAML content correctly', () => {
@@ -316,5 +316,64 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     assert.strictEqual(result.format, 'frontmatter');
     assert.strictEqual(result.roadmap?.topics.length, 1);
     assert.strictEqual(result.roadmap?.topics[0].id, 'T-1');
+  });
+
+  // Regression (#73): only `##` delimits a track. Every extra section head the
+  // parser invents is a note whose depends_on is wiped, because a section head is
+  // written with `depends_on: []` and an explicit [] clears prerequisites. So one
+  // track written as `## Junior Track` with `### Part 2` / `#### deep` inside it
+  // used to become three independent chains.
+  test('confines chain sections to ## headings and keeps sub-headings inside them', () => {
+    const sections = parseWikilinkSections(
+      '## Junior Track\n- [[a]]\n### Part 2\n- [[c]]\n#### deep\n- [[d]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.strictEqual(sections[0].track, 'Junior Track');
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['a', 'c', 'd']
+    );
+  });
+
+  test('heading levels other than ## never start a chain section', () => {
+    // A `#`/`###`-only document must not mint named tracks, and the `###` line
+    // must not be mistaken for a bullet. The surviving links land in the
+    // empty-track section, which is what bullets before any `##` always do
+    // (see 'collects bullets before any heading and returns null without lists').
+    const withBullets = parseWikilinkSections('# Title\n### Sub\n- [[a]]\n');
+    assert.deepStrictEqual(
+      withBullets?.map((s) => s.track),
+      ['']
+    );
+    assert.deepStrictEqual(
+      withBullets?.[0].links.map((l) => l.target),
+      ['a']
+    );
+
+    // With no list items at all there is nothing to import and the caller
+    // (`parseRoadmapContent`) falls through to the structured error.
+    assert.strictEqual(parseWikilinkSections('# Title\n### Sub\nprose only\n'), null);
+
+    const marked = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Title\n### Sub\nprose only\n',
+      'roadmap.md'
+    );
+    assert.notStrictEqual(marked.format, 'wikilink');
+    assert.strictEqual(marked.sections, undefined);
+  });
+
+  // Obsidian renders `- [ ]` / `- [x]` as checkboxes; they are to-do items, not
+  // curated chain entries, and importing one rewrites that note's prerequisites.
+  test('ignores task-list items as chain entries', () => {
+    const sections = parseWikilinkSections(
+      '## Track\n- [ ] [[todo]]\n- [x] [[done]]\n- [X] [[DONE2]]\n- [[real]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['real']
+    );
   });
 });

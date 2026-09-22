@@ -83,8 +83,13 @@ function normalizeRoadmap(topics: unknown[]): { roadmap: RoadmapFile } | { error
  * contains no wikilink list structure
  *
  * @remarks
+ * A section is opened by a `##` heading only; deeper heading levels (`###`,
+ * `####`, …) are not section heads, so their bullets keep extending the
+ * enclosing `##` chain. Levels 1 and 3-6 are excluded deliberately: every
+ * section head is written with `depends_on: []`, which clears the prerequisites
+ * the note already has, so inventing extra heads would erase them.
  * Fenced code blocks are stripped before scanning so incidental `[[...]]`
- * inside examples never counts. Bullets before the first heading collect
+ * inside examples never counts. Bullets before the first `##` heading collect
  * into a section with an empty track name.
  */
 export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSection[] | null {
@@ -97,13 +102,20 @@ export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSectio
   let current: WikilinkRoadmapSection | null = null;
 
   for (const line of stripped.split(/\r?\n/)) {
-    const heading = /^\s*#{1,6}\s+(.+?)\s*$/.exec(line);
+    // Only `##` opens a track. `(?!#)` keeps `###` from reading as `##` with a
+    // truncated name; a deeper heading is not a heading at all here, so its
+    // bullets keep extending the enclosing `##` section.
+    const heading = /^\s*##(?!#)\s+(.+?)\s*$/.exec(line);
     if (heading) {
       current = { track: heading[1].trim(), links: [] };
       sections.push(current);
       continue;
     }
-    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line) ?? /^\s*\d+[.)]\s+(.+)$/.exec(line);
+    // `(?!\[[ xX]\]\s)` drops Obsidian task items (`- [ ]`, `- [x]`): a checkbox
+    // is an unfinished to-do, not a curated chain entry, and listing one would
+    // rewrite that note's depends_on.
+    const bullet =
+      /^\s*[-*+]\s+(?!\[[ xX]\]\s)(.+)$/.exec(line) ?? /^\s*\d+[.)]\s+(.+)$/.exec(line);
     if (bullet) {
       if (!current) {
         current = { track: '', links: [] };
