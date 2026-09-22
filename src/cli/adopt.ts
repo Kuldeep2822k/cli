@@ -5,7 +5,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
@@ -20,116 +19,22 @@ import {
   matchesPattern,
   matchesTags,
   validatePattern,
+  loadTopics,
 } from '../storage';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
-import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt } from '../types';
+import { generateTopicId } from '../engine/topic-id';
+import { planAutoChain, type ChainPlan } from '../engine/auto-chain';
+import { detectCyclesBounded } from '../engine/dependency';
+import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
+
+// Re-exported for backwards compatibility (implementation moved to src/storage/note-title.ts).
+import { resolveNoteTitle } from '../storage/note-title';
+export { resolveNoteTitle };
 
 
 
 
 
-/**
- * Generates a unique topic identifier prefixed with `T-`.
- *
- * @returns Unique topic ID string formatted as `T-YYYYMMDD-HHMMSS-XXXXXXXX`
- *
- * @remarks
- * Uses UTC date and time segments followed by 4 bytes (8 hex characters) of
- * cryptographic randomness. Format complies with the centralized ID policy
- * (`src/engine/topic-id.ts`, #29): `T-` plus lowercase kebab-case segments.
- *
- * @example
- * ```typescript
- * const topicId = generateTopicId(); // "T-20260830-120000-a1b2c3d4"
- * ```
- */
-function generateTopicId(): string {
-  const now = new Date();
-  // YYYYMMDD-HHMMSS — lowercase/numeric only, matching the ID policy
-  // (pre-#29 format T-20260830T120000-hex stays valid via the legacy pattern).
-  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const time = now.toISOString().slice(11, 19).replace(/:/g, '');
-  const random = crypto.randomBytes(4).toString('hex'); // 8 hex characters (32 bits of entropy)
-  return `T-${date}-${time}-${random}`;
-}
-
-/**
- * Resolves the display title for a Markdown note using hierarchical fallback strategies.
- *
- * @param content - Full text content of the note
- * @param filePath - Optional file path for basename fallback
- * @param parsedFrontmatter - Optional pre-parsed frontmatter dictionary
- * @returns Extracted display title string, falling back to 'Untitled'
- *
- * @remarks
- * Evaluation priority:
- * 1. Existing frontmatter `title` field (if defined, non-empty string, number, or boolean).
- * 2. First level-1 Markdown heading (`# Title`) in body, stripping comments and code fences.
- * 3. Note filename without `.md` extension.
- * 4. Fallback string `'Untitled'`.
- *
- * @example
- * ```typescript
- * const title = resolveNoteTitle('# Dynamic Systems\n\nNotes...', '/vault/notes/systems.md');
- * console.log(title); // 'Dynamic Systems'
- * ```
- */
-export function resolveNoteTitle(
-  content: string,
-  filePath?: string,
-  parsedFrontmatter?: Record<string, unknown> | null
-): string {
-  let frontmatter = parsedFrontmatter;
-  let bodyContent: string;
-
-  if (frontmatter === undefined) {
-    const parsed = parseFrontmatter(content);
-    frontmatter = parsed.frontmatter;
-    bodyContent = parsed.body;
-  } else {
-    bodyContent = content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/, '');
-  }
-
-  // Tier 1: Existing frontmatter title
-  if (frontmatter && frontmatter.title !== undefined && frontmatter.title !== null) {
-    if (typeof frontmatter.title === 'string') {
-      const cleanFmTitle = frontmatter.title.replace(/\r?\n/g, ' ').trim();
-      if (cleanFmTitle.length > 0) {
-        return cleanFmTitle;
-      }
-    } else if (typeof frontmatter.title === 'number' || typeof frontmatter.title === 'boolean') {
-      const cleanFmTitle = String(frontmatter.title).trim();
-      if (cleanFmTitle.length > 0) {
-        return cleanFmTitle;
-      }
-    }
-  }
-
-  // Tier 2: First H1 heading (# Title) in body
-  // Strip HTML comments
-  let sanitizedBody = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
-  // Strip fenced code blocks (``` and ~~~)
-  sanitizedBody = sanitizedBody.replace(/(?:```|~~~)[^`~]*?\r?\n[\s\S]*?\r?\n\s*(?:```|~~~)/g, '');
-
-  const h1Match = sanitizedBody.match(/^[ \t]{0,3}#[ \t]+([^#\r\n].*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/m);
-  if (h1Match && h1Match[1]) {
-    const cleanH1 = h1Match[1].trim();
-    if (cleanH1.length > 0) {
-      return cleanH1;
-    }
-  }
-
-  // Tier 3: Filename fallback
-  if (filePath) {
-    const ext = path.extname(filePath);
-    const basename = path.basename(filePath, ext);
-    if (basename.trim().length > 0) {
-      return basename.trim();
-    }
-  }
-
-  return 'Untitled';
-}
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -165,6 +70,8 @@ interface StagedNote {
   relativePath: string;
   content: string;
   fingerprint: string;
+  /** Pre-minted topic ID, assigned when --auto-chain plans the dependency graph up front */
+  topicId?: string;
 }
 
 interface RollbackRecord {
@@ -266,6 +173,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
     }
 
+    // --auto-chain is batch-only and synthesizes depends_on itself
+    if (options.autoChain && options.dependsOn) {
+      console.error('Error: --auto-chain is batch-only and conflicts with --depends-on');
+      process.exitCode = 2;
+      return;
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Mode Detection: Single File vs Batch
     // ─────────────────────────────────────────────────────────────────
@@ -278,6 +192,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (isExplicitSingleFile) {
       // Single-file adoption mode
+      if (options.autoChain) {
+        console.error('Error: --auto-chain is batch-only; it cannot be used with a single note path');
+        process.exitCode = 2;
+        return;
+      }
       const absolutePath = path.resolve(vaultPath, targetPath!);
       const realPath = fs.realpathSync(absolutePath);
 
@@ -436,6 +355,85 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       });
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Auto-chain planning (#73, INV-46)
+    // ─────────────────────────────────────────────────────────────────
+    // When --auto-chain is set, derive each note's depends_on predecessor
+    // from numbered directory/file prefixes BEFORE the dry-run/confirmation
+    // gate, so the planned graph is cycle-checked with zero writes and the
+    // dry-run prints the exact edge plan. Already-adopted notes are never
+    // touched: they only appear as validation context, never as dep targets.
+    let chainPlan: ChainPlan | null = null;
+    const chainDependsOn = new Map<string, string[]>();
+    if (options.autoChain && toAdopt.length > 0) {
+      // Mint IDs up front: the planned graph is keyed by palee_id.
+      const idByPath = new Map<string, string>();
+      for (const note of toAdopt) {
+        note.topicId = generateTopicId();
+        idByPath.set(note.relativePath, note.topicId);
+      }
+
+      chainPlan = planAutoChain(toAdopt.map((n) => n.relativePath));
+      if (chainPlan.hasUnnumbered) {
+        console.log(
+          '⚠ Warning: some directories or notes lack numeric prefixes; ' +
+            'those entries chain in alphabetical order.'
+        );
+      }
+
+      const plannedGraph = new Map<string, TopicNode>();
+      for (const relPath of chainPlan.orderedPaths) {
+        const id = idByPath.get(relPath);
+        if (!id) {
+          continue;
+        }
+        const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
+        const predecessorId = predecessorPath ? idByPath.get(predecessorPath) : undefined;
+        const dependsOn: string[] = [];
+        if (predecessorId) {
+          dependsOn.push(predecessorId);
+        } else if (predecessorPath) {
+          console.log(
+            `⚠ Warning: chain predecessor ${predecessorPath} is out of scope; ` +
+              `${relPath} keeps an empty depends_on.`
+          );
+        }
+        chainDependsOn.set(relPath, dependsOn);
+        plannedGraph.set(id, { palee_id: id, depends_on: dependsOn, topic_mastery: 0 });
+      }
+
+      // Merge existing vault topics so a pre-existing cycle blocks the
+      // commit instead of being silently extended.
+      for (const topic of loadTopics(vaultPath)) {
+        if (!plannedGraph.has(topic.id)) {
+          plannedGraph.set(topic.id, {
+            palee_id: topic.id,
+            depends_on: topic.depends_on,
+            topic_mastery: 0,
+          });
+        }
+      }
+
+      const { cycles, truncated } = detectCyclesBounded(plannedGraph);
+      if (cycles.length > 0 || truncated) {
+        console.error('Error: auto-chain dependency graph contains cycles; no notes were adopted.');
+        for (const cycle of cycles) {
+          console.error(`  • ${cycle.join(' → ')}`);
+        }
+        if (truncated) {
+          console.error('  • … cycle enumeration truncated at 1000; more cycles may exist');
+        }
+        process.exitCode = 3;
+        return;
+      }
+
+      // Adopt in chain order so verbose/dry-run output reads head-to-tail.
+      const orderIndex = new Map(chainPlan.orderedPaths.map((p, i) => [p, i]));
+      toAdopt.sort(
+        (a, b) => (orderIndex.get(a.relativePath) ?? 0) - (orderIndex.get(b.relativePath) ?? 0)
+      );
+    }
+
     // Display summary preview
     const scanLabel = targetPath ? targetPath.replace(/\\/g, '/') : '(Entire Vault)';
     console.log('=== PALEE Batch Adoption ===');
@@ -450,6 +448,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.log(`Excluded (Tag):     ${skippedByTag.length} notes`);
     }
     console.log(`Difficulty:       ${difficulty}`);
+    if (options.autoChain) {
+      console.log(`Auto-chain:       enabled (${toAdopt.length} notes chained by prefix order)`);
+    }
 
     if (options.verbose) {
       if (toAdopt.length > 0) {
@@ -471,6 +472,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     }
 
     if (options.dryRun) {
+      if (chainPlan) {
+        console.log('\nPlanned dependency chain:');
+        for (const [relPath, predecessorPath] of chainPlan.predecessorOf) {
+          if (predecessorPath) {
+            console.log(`  • ${relPath} depends on ${predecessorPath}`);
+          } else {
+            console.log(`  • ${relPath} (chain head)`);
+          }
+        }
+      }
       console.log('\nDry-run complete. No files were modified.');
       return;
     }
@@ -514,7 +525,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const freshFingerprint = computeFingerprint(freshContent);
       const { frontmatter } = parseFrontmatter(freshContent);
 
-      const topicId = generateTopicId();
+      const topicId = note.topicId ?? generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
       const topicMastery = resolveTopicMastery({
@@ -536,7 +547,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         palee_schema: 1,
         title,
         difficulty,
-        depends_on: [],
+        depends_on: options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [],
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         conceptual,
@@ -578,6 +589,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
+      if (options.autoChain) {
+        let edges = 0;
+        for (const deps of chainDependsOn.values()) {
+          edges += deps.length;
+        }
+        console.log(`  Auto-chained: ${edges} dependency edges wired across ${journal.length} notes.`);
+      }
       return;
     } catch (writeErr: unknown) {
       const err = writeErr as Error;

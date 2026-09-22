@@ -14,13 +14,44 @@ import {
   computeFingerprint,
   parseFrontmatter,
   parseRoadmapContent,
+  resolveWikilinkRoadmap,
   atomicWrite,
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
 } from '../storage';
 import { detectCyclesBounded } from '../engine/dependency';
-import { RoadmapOptions, TopicNode, ResolvedTopicUpdates } from '../types';
+import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
+
+/**
+ * Chains roadmap topics by their `order` field (#73, INV-47).
+ *
+ * @param topics - Roadmap topics, mutated in place
+ *
+ * @remarks
+ * Topics with an `order` sort first (ascending); topics without one keep
+ * their file order and are appended after the ordered ones. A topic with no
+ * (or an empty) `depends_on` is chained to the previous topic's ID — the
+ * chain head gets an explicit `[]`. An explicit non-empty `depends_on`
+ * always wins over the synthesized chain.
+ */
+function applyRoadmapAutoChain(topics: RoadmapTopic[]): void {
+  const indexed = topics.map((topic, index) => ({ topic, index }));
+  indexed.sort((a, b) => {
+    const orderA = a.topic.order ?? Number.POSITIVE_INFINITY;
+    const orderB = b.topic.order ?? Number.POSITIVE_INFINITY;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return a.index - b.index;
+  });
+  indexed.forEach(({ topic }, rank) => {
+    if (!topic.depends_on || topic.depends_on.length === 0) {
+      topic.depends_on = rank === 0 ? [] : [indexed[rank - 1].topic.id];
+    }
+  });
+  console.log(`Auto-chain: ${topics.length} roadmap topics chained by order.`);
+}
 
 /**
  * Effective-input bundle for one roadmap topic, used by `resolveTopicUpdates`.
@@ -136,13 +167,30 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const rawContent = fs.readFileSync(roadmapPath, 'utf8');
     const parseResult = parseRoadmapContent(rawContent, roadmapPath);
 
-    if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
-      console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
-      process.exitCode = 2;
-      return;
+    let roadmap: RoadmapFile;
+    if (parseResult.format === 'wikilink') {
+      // Wikilink format (#73, INV-48): resolve [[...]] chains against the vault.
+      // Ambiguous/unresolved targets fail closed here (exit 3) with zero writes.
+      try {
+        roadmap = resolveWikilinkRoadmap(vaultPath, parseResult.sections ?? []);
+      } catch (err: unknown) {
+        console.error(`Error: ${(err as Error).message}`);
+        process.exitCode = 3;
+        return;
+      }
+      console.log(`Resolved ${roadmap.topics.length} wikilink topics from ${roadmapPath}`);
+    } else {
+      if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
+        console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
+        process.exitCode = 2;
+        return;
+      }
+      roadmap = parseResult.roadmap;
     }
 
-    const roadmap = parseResult.roadmap;
+    if (options.autoChain) {
+      applyRoadmapAutoChain(roadmap.topics);
+    }
 
     const errors: string[] = [];
     const seenIds = new Set<string>();
