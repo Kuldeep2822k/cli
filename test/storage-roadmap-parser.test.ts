@@ -224,3 +224,53 @@ topics:
     assert.match(result.error ?? '', /Invalid topic at index 0: expected topic object, received null/);
   });
 });
+
+describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
+  test('detects wikilink sections as the fourth format', () => {
+    const result = parseRoadmapContent(
+      `# Study Roadmap\n\n## Foundations Track\n\n- [[MODULES/01-foundations/01-systems]]\n- [[Beta|Beta Alias]]\n\n## Advanced Track\n\n1. [[gamma#intro]]\n`,
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.sections);
+    assert.strictEqual(result.sections.length, 2);
+    assert.strictEqual(result.sections[0].track, 'Foundations Track');
+    assert.deepStrictEqual(
+      result.sections[0].links.map((l) => l.target),
+      ['MODULES/01-foundations/01-systems', 'Beta']
+    );
+    assert.strictEqual(result.sections[0].links[1].alias, 'Beta Alias');
+    // Anchors are stripped at parse time
+    assert.strictEqual(result.sections[1].links[0].target, 'gamma');
+  });
+
+  test('ignores wikilinks inside fenced code blocks', () => {
+    const result = parseRoadmapContent(
+      '# Roadmap\n\n```md\n- [[not-a-link]]\n```\n\n## Real\n\n- [[actual]]\n',
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['actual']
+    );
+  });
+
+  test('collects bullets before any heading and returns null without lists', () => {
+    const noHeading = parseRoadmapContent('- [[solo]]\n- [[duo]]\n', 'roadmap.md');
+    assert.strictEqual(noHeading.format, 'wikilink');
+    assert.strictEqual(noHeading.sections?.length, 1);
+    assert.strictEqual(noHeading.sections?.[0].track, '');
+
+    const noLists = parseRoadmapContent('# Just prose\n\nNothing to see here.\n', 'roadmap.md');
+    assert.strictEqual(noLists.format, undefined);
+    assert.strictEqual(noLists.roadmap, null);
+    assert.match(noLists.error ?? '', /Roadmap must have a "topics" array/);
+  });
+
+  test('does not claim the wikilink format for YAML files', () => {
+    const result = parseRoadmapContent('- [[solo]]\n', 'roadmap.yaml');
+    assert.notStrictEqual(result.format, 'wikilink');
+  });
+});

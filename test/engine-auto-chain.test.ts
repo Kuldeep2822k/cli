@@ -1,0 +1,140 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import {
+  parseNumericPrefix,
+  compareLessonOrder,
+  planAutoChain,
+  parseWikilink,
+  extractWikilinks,
+} from '../src/engine/auto-chain';
+
+describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
+  describe('parseNumericPrefix', () => {
+    it('parses dash, underscore, dot, and space separators', () => {
+      assert.deepStrictEqual(parseNumericPrefix('01-foundations'), { n: 1, rest: 'foundations' });
+      assert.deepStrictEqual(parseNumericPrefix('1_foo'), { n: 1, rest: 'foo' });
+      assert.deepStrictEqual(parseNumericPrefix('10.foo'), { n: 10, rest: 'foo' });
+      assert.deepStrictEqual(parseNumericPrefix('02 - spaced'), { n: 2, rest: '- spaced' });
+    });
+
+    it('returns null for non-numeric leading names', () => {
+      assert.strictEqual(parseNumericPrefix('lab-01'), null);
+      assert.strictEqual(parseNumericPrefix('v2-foo'), null);
+      assert.strictEqual(parseNumericPrefix('notes'), null);
+      assert.strictEqual(parseNumericPrefix(''), null);
+    });
+  });
+
+  describe('compareLessonOrder', () => {
+    it('orders numeric prefixes ascending, then phases, then alphabetical', () => {
+      const files = [
+        'notes.md',
+        'exam-01.md',
+        '03-c.md',
+        'lab-01.md',
+        '01-a.md',
+        'deep-dive-x.md',
+        '02-b.md',
+        'appendix.md',
+      ];
+      const sorted = [...files].sort(compareLessonOrder);
+      assert.deepStrictEqual(sorted, [
+        '01-a.md',
+        '02-b.md',
+        '03-c.md',
+        'deep-dive-x.md',
+        'lab-01.md',
+        'exam-01.md',
+        'appendix.md',
+        'notes.md',
+      ]);
+    });
+
+    it('breaks numeric ties alphabetically and is deterministic', () => {
+      assert.ok(compareLessonOrder('01-b.md', '01-a.md') > 0);
+      assert.ok(compareLessonOrder('B.md', 'a.md') > 0);
+      assert.strictEqual(compareLessonOrder('same.md', 'same.md'), 0);
+    });
+  });
+
+  describe('planAutoChain', () => {
+    it('chains within and across numbered modules with a bridge edge', () => {
+      const plan = planAutoChain([
+        'MODULES/02-linux/01-processes.md',
+        'MODULES/01-foundations/02-networking.md',
+        'MODULES/01-foundations/01-systems.md',
+        'MODULES/02-linux/lab-01-triage.md',
+      ]);
+      assert.deepStrictEqual(plan.orderedPaths, [
+        'MODULES/01-foundations/01-systems.md',
+        'MODULES/01-foundations/02-networking.md',
+        'MODULES/02-linux/01-processes.md',
+        'MODULES/02-linux/lab-01-triage.md',
+      ]);
+      // Cross-module bridge: module 02 entry depends on module 01 exit
+      assert.strictEqual(
+        plan.predecessorOf.get('MODULES/02-linux/01-processes.md'),
+        'MODULES/01-foundations/02-networking.md'
+      );
+      assert.strictEqual(
+        plan.predecessorOf.get('MODULES/01-foundations/01-systems.md'),
+        null
+      );
+      assert.strictEqual(plan.hasUnnumbered, false);
+    });
+
+    it('sorts unnumbered dirs/files after numbered ones and flags them', () => {
+      const plan = planAutoChain(['notes.md', '01-a.md', 'extras/z.md']);
+      // Root group '.' sorts alphabetically among unnumbered dirs, before 'extras'
+      assert.deepStrictEqual(plan.orderedPaths, ['01-a.md', 'notes.md', 'extras/z.md']);
+      assert.strictEqual(plan.hasUnnumbered, true);
+    });
+
+    it('handles single-note modules and empty input', () => {
+      const single = planAutoChain(['01-only.md']);
+      assert.deepStrictEqual(single.orderedPaths, ['01-only.md']);
+      assert.strictEqual(single.predecessorOf.get('01-only.md'), null);
+
+      const empty = planAutoChain([]);
+      assert.deepStrictEqual(empty.orderedPaths, []);
+      assert.strictEqual(empty.predecessorOf.size, 0);
+    });
+  });
+
+  describe('parseWikilink', () => {
+    it('parses target, alias, anchor, and .md suffix forms', () => {
+      assert.deepStrictEqual(parseWikilink('[[Note Name]]'), { target: 'Note Name' });
+      assert.deepStrictEqual(parseWikilink('[[a/b|c]]'), { target: 'a/b', alias: 'c' });
+      assert.deepStrictEqual(parseWikilink('[[note#heading]]'), { target: 'note' });
+      assert.deepStrictEqual(parseWikilink('[[note#^block-id|Alias]]'), {
+        target: 'note',
+        alias: 'Alias',
+      });
+      assert.deepStrictEqual(parseWikilink('[[note.md]]'), { target: 'note' });
+    });
+
+    it('returns null for malformed links', () => {
+      assert.strictEqual(parseWikilink('[['), null);
+      assert.strictEqual(parseWikilink(']]'), null);
+      assert.strictEqual(parseWikilink('[[ ]]'), null);
+      assert.strictEqual(parseWikilink('[[a[[b]]'), null);
+      assert.strictEqual(parseWikilink('not a link'), null);
+      assert.strictEqual(parseWikilink(''), null);
+    });
+  });
+
+  describe('extractWikilinks', () => {
+    it('extracts every well-formed link in order and skips malformed ones', () => {
+      const links = extractWikilinks('- [[Alpha]] then [[beta/gamma|G]] and [[broken');
+      assert.deepStrictEqual(
+        links.map((l) => l.target),
+        ['Alpha', 'beta/gamma']
+      );
+      assert.strictEqual(links[1].alias, 'G');
+    });
+
+    it('returns an empty array when no links are present', () => {
+      assert.deepStrictEqual(extractWikilinks('plain text, no links'), []);
+    });
+  });
+});
