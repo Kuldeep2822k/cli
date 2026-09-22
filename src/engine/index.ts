@@ -9,6 +9,8 @@
 import * as sm2 from './sm2';
 import * as dependency from './dependency';
 import * as mastery from './mastery';
+import * as autoChain from './auto-chain';
+import * as topicId from './topic-id';
 
 /** Computes next SM-2 interval, ease factor, and repetition counters after a review */
 export const processReview = sm2.processReview;
@@ -47,5 +49,22 @@ export const getTopicDependencies = dependency.getTopicDependencies;
 export const validateDependencyGraph = dependency.validateDependencyGraph;
 /** Finds dangling dependency references without running cycle detection */
 export const findMissingDependencies = dependency.findMissingDependencies;
+
+// Auto-chain exports
+/** Parses a leading numeric prefix from a directory or file basename (#73) */
+export const parseNumericPrefix = autoChain.parseNumericPrefix;
+/** Compares two lesson basenames in auto-chain order (#73) */
+export const compareLessonOrder = autoChain.compareLessonOrder;
+/** Plans a hierarchical auto-chain over vault-relative note paths (#73) */
+export const planAutoChain = autoChain.planAutoChain;
+/** Parses a single Obsidian wikilink string (#73) */
+export const parseWikilink = autoChain.parseWikilink;
+/** Extracts every well-formed wikilink from a text block, in order (#73) */
+export const extractWikilinks = autoChain.extractWikilinks;
+export type { NumericPrefix, ParsedWikilink, ChainPlan } from './auto-chain';
+
+// Topic ID exports
+/** Generates a unique topic identifier prefixed with `T-` (#29) */
+export const generateTopicId = topicId.generateTopicId;
 
 
