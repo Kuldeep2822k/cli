@@ -125,6 +125,52 @@ function parentDirOf(p: string): string {
   return idx >= 0 ? p.slice(0, idx) : '.';
 }
 
+/** One `/`-separated directory segment reduced to a number-plus-name sort key. */
+interface DirSegmentKey {
+  /** Numeric prefix of the segment, or `null` when it has none */
+  n: number | null;
+  /** Raw segment text */
+  name: string;
+}
+
+/** Splits a directory into per-segment sort keys; the `'.'` root yields one unnumbered key. */
+function dirSortKey(dir: string): DirSegmentKey[] {
+  return dir.split('/').map((seg) => {
+    const parsed = parseNumericPrefix(seg);
+    return { n: parsed ? parsed.n : null, name: seg };
+  });
+}
+
+/**
+ * Compares two directories segment by segment, so an ancestor prefix decides
+ * order before anything nested beneath it: numbered segments sort first and by
+ * number, ties fall back to the segment name, and a parent group sorts before
+ * its own children.
+ */
+function compareDirs(a: string, b: string): number {
+  const ka = dirSortKey(a);
+  const kb = dirSortKey(b);
+  const len = Math.min(ka.length, kb.length);
+  for (let i = 0; i < len; i++) {
+    const sa = ka[i];
+    const sb = kb[i];
+    if (sa.n !== null && sb.n !== null) {
+      if (sa.n !== sb.n) {
+        return sa.n - sb.n;
+      }
+    } else if (sa.n !== null) {
+      return -1;
+    } else if (sb.n !== null) {
+      return 1;
+    }
+    const c = compareStrings(sa.name, sb.name);
+    if (c !== 0) {
+      return c;
+    }
+  }
+  return ka.length - kb.length;
+}
+
 /** Deterministic dependency plan produced by {@link planAutoChain}. */
 export interface ChainPlan {
   /** Relative paths in chain order; the first entry is the chain head */
@@ -146,13 +192,16 @@ export interface ChainPlan {
  * @returns Chain order, predecessor map, and the unnumbered-fallback flag
  *
  * @remarks
- * Notes are grouped by immediate parent directory. Directories sort by
- * numeric prefix (unnumbered directories sort after, alphabetically); within
+ * Notes are grouped by immediate parent directory. Directories sort segment by
+ * segment through their path (each segment by numeric prefix first, unnumbered
+ * segments sorting after numbered ones), so an ancestor prefix always decides
+ * order before a nested group's own number and a parent group precedes its own
+ * children; equal-numbered segments fall back to alphabetical order. Within
  * each directory notes sort by {@link compareLessonOrder}. Each note's
- * predecessor is the previous note in its group, except the first note of
- * each group (after the first), which bridges to the last note of the
- * previous group — so module N's entry note depends on module N−1's exit
- * note. Acyclic by construction.
+ * predecessor is the previous note in its group, except the first note of each
+ * group (after the first), which bridges to the last note of the previous
+ * group — so module N's entry note depends on module N−1's exit note. Acyclic
+ * by construction.
  */
 export function planAutoChain(relativePaths: string[]): ChainPlan {
   const normalized = relativePaths.map((p) => p.replace(/\\/g, '/'));
@@ -180,20 +229,7 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
     }
   }
 
-  const sortedDirs = [...groups.keys()].sort((a, b) => {
-    const pa = parseNumericPrefix(baseNameOf(a));
-    const pb = parseNumericPrefix(baseNameOf(b));
-    if (pa !== null && pb !== null) {
-      if (pa.n !== pb.n) {
-        return pa.n - pb.n;
-      }
-    } else if (pa !== null) {
-      return -1;
-    } else if (pb !== null) {
-      return 1;
-    }
-    return compareStrings(a, b);
-  });
+  const sortedDirs = [...groups.keys()].sort(compareDirs);
 
   const orderedPaths: string[] = [];
   const predecessorOf = new Map<string, string | null>();

@@ -99,6 +99,37 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.deepStrictEqual(empty.orderedPaths, []);
       assert.strictEqual(empty.predecessorOf.size, 0);
     });
+
+    it('keeps a nested group inside its ancestor module', () => {
+      const plan = planAutoChain([
+        'MODULES/02-linux/01-kernel.md',
+        'MODULES/01-foundations/09-labs/01-first.md',
+        'MODULES/01-foundations/01-systems.md',
+      ]);
+      assert.deepStrictEqual(plan.orderedPaths, [
+        'MODULES/01-foundations/01-systems.md',
+        'MODULES/01-foundations/09-labs/01-first.md',
+        'MODULES/02-linux/01-kernel.md',
+      ]);
+      // 09-labs chains off its own ancestor module, not module 02's note
+      assert.strictEqual(
+        plan.predecessorOf.get('MODULES/01-foundations/09-labs/01-first.md'),
+        'MODULES/01-foundations/01-systems.md'
+      );
+    });
+
+    it('sorts a parent group before its own child, even when the child is unnumbered', () => {
+      const plan = planAutoChain([
+        'MODULES/01-foundations/01-a.md',
+        'MODULES/01-foundations/deep-dive/01-b.md',
+        'MODULES/02-linux/01-c.md',
+      ]);
+      assert.deepStrictEqual(plan.orderedPaths, [
+        'MODULES/01-foundations/01-a.md',
+        'MODULES/01-foundations/deep-dive/01-b.md',
+        'MODULES/02-linux/01-c.md',
+      ]);
+    });
   });
 
   describe('parseWikilink', () => {
