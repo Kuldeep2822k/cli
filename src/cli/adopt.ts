@@ -361,19 +361,45 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // When --auto-chain is set, derive each note's depends_on predecessor
     // from numbered directory/file prefixes BEFORE the dry-run/confirmation
     // gate, so the planned graph is cycle-checked with zero writes and the
-    // dry-run prints the exact edge plan. Already-adopted notes are never
-    // touched: they only appear as validation context, never as dep targets.
+    // dry-run prints the exact edge plan. The plan spans every note in the
+    // scanned scope — including notes already adopted there — so the chain
+    // bridges over an adopted note instead of restarting; already-adopted
+    // notes only ever appear as predecessors, never as write targets.
     let chainPlan: ChainPlan | null = null;
     const chainDependsOn = new Map<string, string[]>();
     if (options.autoChain && toAdopt.length > 0) {
-      // Mint IDs up front: the planned graph is keyed by palee_id.
+      // Existing topics are loaded once: they supply the canonical ids for the
+      // in-scope already-adopted notes the chain bridges over, and are merged
+      // into the graph below for cycle checking.
+      const existingTopics = loadTopics(vaultPath);
+
+      // Mint IDs up front: the planned graph is keyed by palee_id. Only notes
+      // being adopted get a fresh id — an adopted note keeps the id it already
+      // has on disk.
       const idByPath = new Map<string, string>();
+      const toAdoptPaths = new Set<string>();
+      const planPaths = new Set<string>();
       for (const note of toAdopt) {
         note.topicId = generateTopicId();
         idByPath.set(note.relativePath, note.topicId);
+        toAdoptPaths.add(note.relativePath);
+        planPaths.add(note.relativePath);
       }
 
-      chainPlan = planAutoChain(toAdopt.map((n) => n.relativePath));
+      // Planner input is the whole curriculum being laid, not just the rows
+      // being inserted: notes already adopted inside the scanned scope join the
+      // plan so the first new note after them chains onto them.
+      for (const relPath of alreadyAdopted) {
+        planPaths.add(relPath.replace(/\\/g, '/'));
+      }
+      for (const topic of existingTopics) {
+        const rel = topic.path.replace(/\\/g, '/');
+        if (planPaths.has(rel) && !toAdoptPaths.has(rel)) {
+          idByPath.set(rel, topic.id);
+        }
+      }
+
+      chainPlan = planAutoChain([...planPaths]);
       if (chainPlan.hasUnnumbered) {
         console.log(
           '⚠ Warning: some directories or notes lack numeric prefixes; ' +
@@ -385,6 +411,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       for (const relPath of chainPlan.orderedPaths) {
         const id = idByPath.get(relPath);
         if (!id) {
+          continue;
+        }
+        if (!toAdoptPaths.has(relPath)) {
+          // An already-adopted note is never rewritten, so it gets no
+          // chainDependsOn entry and its planned node keeps the depends_on it
+          // has on disk (merged in below) rather than the chain-derived one.
           continue;
         }
         const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
@@ -404,7 +436,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       // Merge existing vault topics so a pre-existing cycle blocks the
       // commit instead of being silently extended.
-      for (const topic of loadTopics(vaultPath)) {
+      for (const topic of existingTopics) {
         if (!plannedGraph.has(topic.id)) {
           plannedGraph.set(topic.id, {
             palee_id: topic.id,

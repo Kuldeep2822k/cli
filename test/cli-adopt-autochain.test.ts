@@ -136,8 +136,13 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(result.status, 0, result.stderr);
     assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/01-a.md'), ['T-manual']);
 
-    // The rest of the chain routes around the adopted note: b becomes a head
-    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-b.md'), []);
+    // Plan 006 variant A: the chain no longer restarts at the batch boundary —
+    // b bridges onto a's existing on-disk id rather than becoming a head.
+    const ids = idToPath(vaultDir);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/01-foundations/02-b.md').map((id) => ids.get(id)),
+      ['MODULES/01-foundations/01-a.md']
+    );
   });
 
   test('pre-existing vault cycle blocks the commit with exit 3 and zero writes', () => {
@@ -200,5 +205,126 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const bDeps = dependsOn(vaultDir, 'MODULES/01-foundations/02-b.md');
     assert.strictEqual(bDeps.length, 1);
     assert.strictEqual(ids.get(bDeps[0]), 'MODULES/01-foundations/01-a.md');
+  });
+
+  // Regression (#73, plan 006 variant A, INV-46): an already-adopted note inside
+  // the scanned scope must become the chain predecessor of the first new note
+  // that follows it, instead of the chain restarting at every batch. The
+  // adopted note itself is used but never rewritten.
+  test('already-adopted notes in scope are bridged over and never rewritten', () => {
+    const sysFixture = [
+      '---',
+      'palee_id: T-EXISTING-1',
+      'palee_schema: 1',
+      'title: Systems',
+      'depends_on: []',
+      '---',
+      '',
+      '# Systems',
+      '',
+    ].join('\n');
+
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-sys.md': sysFixture,
+      'MODULES/01-foundations/02-lab.md': '# Lab\n',
+      'MODULES/02-linux/01-kern.md': '# Kernel\n',
+    });
+
+    // A3: the dry-run is how a user checks the bridge before committing, so it
+    // must preview the edge onto the already-adopted note, not just the edges
+    // between notes being written.
+    const dry = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /01-sys/);
+    assert.match(
+      dry.stdout,
+      /01-foundations\/02-lab\.md depends on MODULES\/01-foundations\/01-sys\.md/
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/02-lab.md'), 'utf8'),
+      '# Lab\n',
+      'dry-run must not adopt 02-lab.md'
+    );
+
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+
+    // The bridge: the first new note depends on the already-adopted note's
+    // existing id — not on a freshly minted one.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-lab.md'), ['T-EXISTING-1']);
+
+    // And the chain continues from there across the module boundary.
+    const ids = idToPath(vaultDir);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/02-linux/01-kern.md').map((id) => ids.get(id)),
+      ['MODULES/01-foundations/02-lab.md']
+    );
+
+    // Only the two unadopted notes are written, so the edge count stays honest.
+    assert.match(result.stdout, /Successfully adopted 2 notes/);
+    assert.match(result.stdout, /Auto-chained: 2 dependency edges wired across 2 notes\./);
+
+    // "Never rewritten", asserted at byte level: the pre-adopted note is
+    // bit-for-bit the fixture, with its hand-written id intact.
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/01-sys.md'), 'utf8'),
+      sysFixture
+    );
+    assert.strictEqual(ids.get('T-EXISTING-1'), 'MODULES/01-foundations/01-sys.md');
+    assert.strictEqual(ids.size, 3);
+  });
+
+  // Accepted tradeoff of plan 006 variant A (INV-46): bridging makes an
+  // in-scope already-adopted note a real chain predecessor, so the merged
+  // graph now carries a new -> existing edge into it. When that adopted note
+  // sits on a cycle, adoption must still fail closed — exit 3, zero writes.
+  // This is the guard against any later change that suppresses or narrows the
+  // cycle check to let a bridge through.
+  test('a cycle through an in-scope adopted note fails closed with exit 3 and zero writes', () => {
+    const cycleFiles: Record<string, string> = {
+      'MODULES/01-foundations/01-sys.md': [
+        '---',
+        'palee_id: T-SYS',
+        'palee_schema: 1',
+        'title: Systems',
+        'depends_on: [T-LAB]',
+        '---',
+        '',
+        '# Systems',
+        '',
+      ].join('\n'),
+      'MODULES/01-foundations/02-lab.md': [
+        '---',
+        'palee_id: T-LAB',
+        'palee_schema: 1',
+        'title: Lab',
+        'depends_on: [T-SYS]',
+        '---',
+        '',
+        '# Lab',
+        '',
+      ].join('\n'),
+      'MODULES/02-linux/01-kern.md': '# Kernel\n',
+      'MODULES/02-linux/02-drivers.md': '# Drivers\n',
+    };
+
+    const { vaultDir, configDir } = freshVault(cycleFiles);
+
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 3, `expected exit 3, got ${result.status}: ${result.stdout}`);
+    assert.match(result.stderr, /auto-chain dependency graph contains cycles/);
+    // The cycle is attributed to the two adopted notes it actually runs through.
+    assert.match(result.stderr, /T-SYS/);
+    assert.match(result.stderr, /T-LAB/);
+    assert.doesNotMatch(result.stdout, /Successfully adopted/);
+
+    // Zero writes: every note in scope is still byte-for-byte the fixture.
+    for (const [rel, text] of Object.entries(cycleFiles)) {
+      assert.strictEqual(
+        fs.readFileSync(path.join(vaultDir, rel), 'utf8'),
+        text,
+        `${rel} must not be modified`
+      );
+    }
   });
 });
