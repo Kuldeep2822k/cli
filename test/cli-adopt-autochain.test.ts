@@ -17,6 +17,12 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  /**
+   * Runs the real CLI (`npx tsx bin/palee.ts`) with `PALEE_CONFIG_DIR` pointed
+   * at {@link configDir}; captures exit status, stdout and stderr instead of
+   * throwing on a non-zero exit. Args containing glob/space characters are
+   * shell-quoted.
+   */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
       const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
@@ -67,6 +73,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     return map;
   }
 
+  /** Reads the `depends_on` id array from a note's YAML frontmatter. */
   function dependsOn(vaultDir: string, rel: string): string[] {
     const { frontmatter } = parseFrontmatter(fs.readFileSync(path.join(vaultDir, rel), 'utf8'));
     const deps = frontmatter?.depends_on;

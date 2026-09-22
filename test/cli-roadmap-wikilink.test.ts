@@ -17,6 +17,12 @@ describe('CLI Roadmap Wikilink + --auto-chain Integration (Issue #73, INV-47, IN
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  /**
+   * Runs the real CLI (`npx tsx bin/palee.ts`) with `PALEE_CONFIG_DIR` pointed
+   * at {@link configDir}; captures exit status, stdout and stderr instead of
+   * throwing on a non-zero exit. Args containing glob/space characters are
+   * shell-quoted.
+   */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
       const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
@@ -33,6 +39,7 @@ describe('CLI Roadmap Wikilink + --auto-chain Integration (Issue #73, INV-47, IN
     }
   }
 
+  /** Creates a fresh vault with the given relPath -> content files and points config at it. */
   function freshVault(files: Record<string, string>): { vaultDir: string; configDir: string } {
     const vaultDir = fs.mkdtempSync(path.join(tempDir, 'vault-'));
     for (const [rel, content] of Object.entries(files)) {
@@ -46,6 +53,7 @@ describe('CLI Roadmap Wikilink + --auto-chain Integration (Issue #73, INV-47, IN
     return { vaultDir, configDir };
   }
 
+  /** Parses a note's YAML frontmatter, asserting the note actually has one. */
   function frontmatterOf(vaultDir: string, rel: string): Record<string, unknown> {
     const { frontmatter } = parseFrontmatter(fs.readFileSync(path.join(vaultDir, rel), 'utf8'));
     assert.ok(frontmatter, `${rel} has no frontmatter`);
@@ -73,6 +81,7 @@ describe('CLI Roadmap Wikilink + --auto-chain Integration (Issue #73, INV-47, IN
     return snapshot;
   }
 
+  /** Reads the `depends_on` id array from a note's YAML frontmatter. */
   function dependsOn(vaultDir: string, rel: string): string[] {
     const deps = frontmatterOf(vaultDir, rel).depends_on;
     return Array.isArray(deps) ? deps.map(String) : [];

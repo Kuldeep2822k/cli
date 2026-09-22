@@ -64,6 +64,10 @@ interface LessonRank {
   phase: number;
 }
 
+/**
+ * Reduces a lesson basename to its ordering rank: numeric prefix first, then
+ * the {@link PHASE_KEYWORDS} pedagogical phases, then everything else.
+ */
 function lessonRank(basename: string): LessonRank {
   const prefix = parseNumericPrefix(basename);
   if (prefix !== null) {
@@ -85,6 +89,10 @@ function lessonRank(basename: string): LessonRank {
   return { rank: 2, n: -1, phase: -1 };
 }
 
+/**
+ * Deterministic alphabetical tiebreak: case-insensitive first, then
+ * case-sensitive, so equal-folded names still sort stably.
+ */
 function compareStrings(a: string, b: string): number {
   const la = a.toLowerCase();
   const lb = b.toLowerCase();
@@ -127,6 +135,7 @@ function baseNameOf(p: string): string {
   return idx >= 0 ? p.slice(idx + 1) : p;
 }
 
+/** Parent directory of a `/`-separated path; the root group is the `'.'` sentinel. */
 function parentDirOf(p: string): string {
   const idx = p.lastIndexOf('/');
   return idx >= 0 ? p.slice(0, idx) : '.';
