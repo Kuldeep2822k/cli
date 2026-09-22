@@ -42,6 +42,10 @@ export class AmbiguousWikilinkError extends Error {
   /** Vault-relative paths of every candidate, sorted */
   readonly candidates: string[];
 
+  /**
+   * @param link - The link target as written (anchor/`.md` already stripped)
+   * @param candidates - Vault-relative paths of every matching note, sorted
+   */
   constructor(link: string, candidates: string[]) {
     super(
       `Ambiguous wikilink [[${link}]]: matches ${candidates.length} notes: ${candidates.join(', ')}`
@@ -57,6 +61,7 @@ export class UnresolvedWikilinkError extends Error {
   /** The link target as written (anchor/`.md` already stripped) */
   readonly link: string;
 
+  /** @param link - The link target as written (anchor/`.md` already stripped) */
   constructor(link: string) {
     super(`Unresolved wikilink [[${link}]]: no matching note in the vault`);
     this.name = 'UnresolvedWikilinkError';
@@ -135,6 +140,9 @@ function targetBaseName(target: string): string {
  * @throws {@link UnresolvedWikilinkError} when no note matches
  *
  * @remarks
+ * Targets containing a backslash are rejected outright: Wikilink targets are
+ * `/`-separated only, and rejecting keeps behaviour identical across platforms
+ * (Windows `path.resolve` would otherwise treat `\` as a separator).
  * Resolution order: (1) exact vault-relative path match — the `.md` suffix is
  * added when absent, and the target must stay inside the vault *and* name a
  * visible Markdown note. Both checks run before any filesystem access, so an
@@ -149,6 +157,14 @@ export function resolveWikilinkTarget(
 ): ResolvedWikilink {
   const resolvedVault = fs.realpathSync(vaultPath);
   const target = link.target;
+
+  // Wikilink targets are `/`-separated only (see {@link targetBaseName}). An
+  // explicit reject is required, not just an absent feature: on Windows
+  // `path.resolve` treats `\` as a separator, so `[[MODULES\01-a]]` would
+  // otherwise resolve the exact note on Windows and throw on POSIX.
+  if (target.includes('\\')) {
+    throw new UnresolvedWikilinkError(target);
+  }
 
   // 1. Exact vault-relative path match.
   //

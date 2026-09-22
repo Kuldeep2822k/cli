@@ -13,6 +13,7 @@ import {
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
 
+/** Parses a wikilink string, asserting it is well-formed, and returns it. */
 function link(text: string) {
   const parsed = parseWikilink(text);
   assert.ok(parsed, `expected a valid wikilink: ${text}`);
@@ -199,6 +200,28 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         (err: unknown) => {
           assert.ok(err instanceof UnresolvedWikilinkError);
           assert.strictEqual((err as UnresolvedWikilinkError).link, '.trash/deleted-note');
+          return true;
+        }
+      );
+    });
+
+    it('rejects backslash-separated targets on every platform', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      // Wikilink targets are `/`-separated only (see `targetBaseName`). On
+      // Windows `path.resolve` treats `\` as a separator, so without an
+      // explicit reject this exact-path form resolves the note on Windows and
+      // throws on POSIX. The backslash spelling of a note that really exists is
+      // what makes this test non-vacuous: it must NOT resolve anywhere.
+      const target = 'MODULES\\01-foundations\\01-systems';
+      assert.ok(
+        fs.existsSync(path.join(vaultPath, 'MODULES', '01-foundations', '01-systems.md')),
+        'the slash-separated namesake exists on disk'
+      );
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, link(`[[${target}]]`), index),
+        (err: unknown) => {
+          assert.ok(err instanceof UnresolvedWikilinkError);
+          assert.strictEqual((err as UnresolvedWikilinkError).link, target);
           return true;
         }
       );
