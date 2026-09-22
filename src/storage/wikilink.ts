@@ -136,9 +136,11 @@ function targetBaseName(target: string): string {
  *
  * @remarks
  * Resolution order: (1) exact vault-relative path match — the `.md` suffix is
- * added when absent, and the file must stay inside the vault *and* be a
- * visible Markdown note, otherwise this fails closed here; (2) unique basename
- * match, case-insensitive, with an exact-case hit winning ties.
+ * added when absent, and the target must stay inside the vault *and* name a
+ * visible Markdown note. Both checks run before any filesystem access, so an
+ * unsafe target fails closed here whether or not the file exists, and can never
+ * reach step 2; (2) unique basename match, case-insensitive, with an exact-case
+ * hit winning ties.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,
@@ -160,18 +162,37 @@ export function resolveWikilinkTarget(
   // ends in `.md`, the target plus `.md` otherwise.
   const candidate = target.toLowerCase().endsWith('.md') ? target : `${target}.md`;
   const absoluteCandidate = path.resolve(resolvedVault, candidate);
+
+  // Both guards run *before* any filesystem access, and the ordering is
+  // load-bearing. If they ran only on a candidate that exists, an unsafe target
+  // that happens to be missing (`[[../missing/note]]`) would fall through to
+  // the basename lookup below and resolve an unrelated in-vault `note.md` — a
+  // note the user never named, whose frontmatter the importer then rewrites.
+  if (!isWithinVault(resolvedVault, absoluteCandidate)) {
+    // Fail closed. Falling through to the basename lookup would silently
+    // rewrite a *different* note — one the user never named — just because
+    // it shares a basename with the escaping path.
+    throw new UnresolvedWikilinkError(target);
+  }
+  const lexicalRelative = path
+    .relative(resolvedVault, absoluteCandidate)
+    .split(path.sep)
+    .join('/');
+  if (!isResolvableNotePath(lexicalRelative)) {
+    // Dot-namespaces (`.trash/…`), `node_modules` and non-Markdown files are
+    // invisible everywhere else in the CLI; a link must not resurrect them.
+    throw new UnresolvedWikilinkError(target);
+  }
+
   if (fs.existsSync(absoluteCandidate) && fs.statSync(absoluteCandidate).isFile()) {
     const canonical = fs.realpathSync(absoluteCandidate);
+    // Re-checked on the canonical path: a symlink can point back out of the
+    // vault, or into an invisible namespace, even when its lexical form is clean.
     if (!isWithinVault(resolvedVault, canonical)) {
-      // Fail closed. Falling through to the basename lookup would silently
-      // rewrite a *different* note — one the user never named — just because
-      // it shares a basename with the escaping path.
       throw new UnresolvedWikilinkError(target);
     }
     const relativePath = relativeVaultPath(vaultPath, canonical);
     if (!isResolvableNotePath(relativePath)) {
-      // Dot-namespaces (`.trash/…`), `node_modules` and non-Markdown files are
-      // invisible everywhere else in the CLI; a link must not resurrect them.
       throw new UnresolvedWikilinkError(target);
     }
     return { absolutePath: canonical, relativePath };

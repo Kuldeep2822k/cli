@@ -69,6 +69,9 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
     outsidePath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-wikilink-outside-'));
     fs.writeFileSync(path.join(outsidePath, 'outside-note.md'), '# Outside\n');
     fs.writeFileSync(path.join(vaultPath, 'outside-note.md'), '# In-vault namesake\n');
+    // A note whose basename collides with the *unsafe* targets below, so a
+    // missing guard is observable as a hijack onto this specific file.
+    fs.writeFileSync(path.join(vaultPath, 'MODULES', 'note.md'), '# In-vault note\n');
   });
 
   after(() => {
@@ -217,6 +220,57 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
           return true;
         }
       );
+    });
+
+    /**
+     * Asserts the basename-hijack route is live before relying on it: `note.md`
+     * is indexed exactly once, so a target that slips past the guards resolves
+     * it instead of failing. Without this precondition the unsafe-target tests
+     * below would pass vacuously via "no match at all".
+     */
+    function assertHijackRouteIsLive(index: Map<string, string[]>): void {
+      const hits = index.get('note') ?? [];
+      assert.strictEqual(hits.length, 1, 'the colliding basename must be indexed once');
+      assert.ok(hits[0].endsWith('note.md'));
+    }
+
+    it('fails closed on an escaping target that does not exist on disk', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      assertHijackRouteIsLive(index);
+      // Neither path exists, so the pre-fix resolver skipped its guards
+      // entirely (they ran only inside the `existsSync` branch) and fell
+      // through to the basename lookup, returning `MODULES/note.md`.
+      for (const target of ['../../outside/note', '../../missing/note']) {
+        assert.ok(!fs.existsSync(path.join(vaultPath, `${target}.md`)), 'target is absent');
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link(`[[${target}]]`), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, target);
+            return true;
+          },
+          `expected [[${target}]] to fail closed`
+        );
+      }
+    });
+
+    it('fails closed on an invisible-namespace target that does not exist on disk', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      assertHijackRouteIsLive(index);
+      // `.trash/` and `node_modules/` are invisible everywhere else in the CLI;
+      // a link must not resurrect them, whether or not the file is there.
+      for (const target of ['.trash/note', 'node_modules/note']) {
+        assert.ok(!fs.existsSync(path.join(vaultPath, `${target}.md`)), 'target is absent');
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link(`[[${target}]]`), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, target);
+            return true;
+          },
+          `expected [[${target}]] to fail closed`
+        );
+      }
     });
   });
 
