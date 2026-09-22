@@ -6,8 +6,8 @@
  * 1. YAML frontmatter inside a Markdown file (`--- \n topics: [...] \n ---`)
  * 2. Embedded YAML code block inside a Markdown file (` ```yaml \n topics: [...] \n ``` `)
  * 3. Pure raw YAML files
- * 4. Wikilink bullet lists under Markdown section headings (#73): each `## Track`
- *    section's ordered `[[...]]` items form one dependency chain
+ * 4. Wikilink bullet lists in a Markdown document marked `palee_roadmap: true` (#73):
+ *    each `## Track` section's ordered `[[...]]` items form one dependency chain
  */
 
 import yaml from 'yaml';
@@ -125,7 +125,7 @@ export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSectio
  * 1. Markdown YAML frontmatter block (`---`).
  * 2. Embedded YAML code fences (` ```yaml `).
  * 3. Raw pure YAML documents.
- * 4. Wikilink bullet lists under Markdown section headings (#73).
+ * 4. Wikilink bullet lists in a Markdown document marked `palee_roadmap: true` (#73).
  *
  * @param rawContent - Raw text content of the roadmap document
  * @param filePath - Optional path to the file (used for format hints based on extension)
@@ -144,6 +144,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
   const isYamlFile = filePath ? /\.(ya?ml)$/i.test(filePath) : false;
 
   // 1. If it's a Markdown file or contains frontmatter delimiters, try frontmatter first
+  let mdFrontmatter: Record<string, unknown> | null = null;
   if (isMdFile || rawContent.trimStart().startsWith('---')) {
     const fmResult = parseFrontmatter(rawContent);
     if (fmResult.error) {
@@ -152,6 +153,7 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
         error: `Invalid frontmatter YAML: ${fmResult.error}`,
       };
     }
+    mdFrontmatter = fmResult.frontmatter ?? null;
     if (fmResult.frontmatter && Array.isArray(fmResult.frontmatter.topics)) {
       const normalized = normalizeRoadmap(fmResult.frontmatter.topics);
       if ('error' in normalized) {
@@ -218,7 +220,9 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
 
   // 4. Wikilink format (#73): Markdown sections of wikilink bullet lists.
   // Each `## Track` section's ordered `[[...]]` items form one dependency chain.
-  if (isMdFile) {
+  // Opt-in only: an ordinary note has a heading and [[links]] too, and importing
+  // one would rewrite depends_on on every note it links to.
+  if (isMdFile && mdFrontmatter?.palee_roadmap === true) {
     const sections = parseWikilinkSections(rawContent);
     if (sections) {
       return {
@@ -227,12 +231,16 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
         sections,
       };
     }
+    return {
+      roadmap: null,
+      error: 'Roadmap is marked `palee_roadmap: true` but contains no wikilink list items.\nExpected a `## Track` heading with `- [[Note]]` bullets.',
+    };
   }
 
   // 5. Fallback: Return structured codeblock error if found, otherwise missing topics array error
   return {
     roadmap: null,
-    error: codeBlockError || 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]\n  • Wikilink lists: ## Track\\n    - [[Note One]]\\n    - [[Note Two]]',
+    error: codeBlockError || 'Roadmap must have a "topics" array.\nSupported formats:\n  • Markdown Frontmatter: ---\n    topics: [...]\n    ---\n  • Markdown YAML Code Block: ```yaml\n    topics: [...]\n    ```\n  • Pure YAML: topics: [...]\n  • Wikilink lists in a Markdown document marked `palee_roadmap: true`: ## Track\\n    - [[Note One]]\\n    - [[Note Two]]',
   };
 }
 

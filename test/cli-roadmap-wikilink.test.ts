@@ -52,6 +52,32 @@ describe('CLI Roadmap Wikilink + --auto-chain Integration (Issue #73, INV-47, IN
     return frontmatter;
   }
 
+  /**
+   * Snapshots `relative path -> exact content` for every `.md` under the vault.
+   * The whole-vault map (not a single-file probe) is what can actually catch a
+   * rewrite: names added, removed, or bytes changed all show up in the diff.
+   */
+  function snapshotVault(vaultDir: string): Record<string, string> {
+    const snapshot: Record<string, string> = {};
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(abs);
+        } else if (entry.name.endsWith('.md')) {
+          snapshot[path.relative(vaultDir, abs).split(path.sep).join('/')] = fs.readFileSync(abs, 'utf8');
+        }
+      }
+    };
+    walk(vaultDir);
+    return snapshot;
+  }
+
+  function dependsOn(vaultDir: string, rel: string): string[] {
+    const deps = frontmatterOf(vaultDir, rel).depends_on;
+    return Array.isArray(deps) ? deps.map(String) : [];
+  }
+
   const REVIEWED_ALPHA = `---
 palee_id: T-alpha-1
 palee_schema: 1
@@ -75,12 +101,44 @@ due_at: '2026-09-10'
 # Alpha
 `;
 
+  // Two already-adopted notes whose hand-authored `depends_on` graph the
+  // reproduction in the issue erased.
+  const ADOPTED_ALPHA = `---
+palee_id: T-alpha-1
+palee_schema: 1
+title: Alpha
+difficulty: beginner
+depends_on: []
+ease_factor: 2.1
+interval_days: 6
+repetition: 2
+lapses: 1
+due_at: '2026-09-10'
+---
+# Alpha
+`;
+
+  const ADOPTED_BETA = `---
+palee_id: T-beta-1
+palee_schema: 1
+title: Beta
+difficulty: intermediate
+depends_on: [T-alpha-1]
+ease_factor: 2.3
+interval_days: 8
+repetition: 3
+lapses: 0
+due_at: '2026-09-12'
+---
+# Beta
+`;
+
   test('wikilink roadmap chains notes, replaces hand-written deps, preserves SM-2', () => {
     const { vaultDir, configDir } = freshVault({
       'tracks/alpha.md': REVIEWED_ALPHA,
       'tracks/beta.md': '# Beta\n',
       'tracks/gamma.md': '# Gamma\n',
-      'roadmap.md': `# Roadmap\n\n## Track One\n\n- [[tracks/alpha]]\n- [[Beta]]\n- [[gamma#intro]]\n`,
+      'roadmap.md': `---\npalee_roadmap: true\n---\n# Roadmap\n\n## Track One\n\n- [[tracks/alpha]]\n- [[Beta]]\n- [[gamma#intro]]\n`,
     });
     const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'roadmap.md'), '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
@@ -114,7 +172,7 @@ due_at: '2026-09-10'
   test('unresolvable wikilink fails closed with exit 3 and zero writes', () => {
     const { vaultDir, configDir } = freshVault({
       'tracks/alpha.md': '# Alpha\n',
-      'roadmap.md': '# Roadmap\n\n## Track\n\n- [[tracks/alpha]]\n- [[no-such-note]]\n',
+      'roadmap.md': '---\npalee_roadmap: true\n---\n# Roadmap\n\n## Track\n\n- [[tracks/alpha]]\n- [[no-such-note]]\n',
     });
     const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'roadmap.md'), '-y'], configDir);
     assert.strictEqual(result.status, 3);
@@ -127,7 +185,7 @@ due_at: '2026-09-10'
     const { vaultDir, configDir } = freshVault({
       'a/dup.md': '# Dup A\n',
       'b/dup.md': '# Dup B\n',
-      'roadmap.md': '# Roadmap\n\n## Track\n\n- [[dup]]\n',
+      'roadmap.md': '---\npalee_roadmap: true\n---\n# Roadmap\n\n## Track\n\n- [[dup]]\n',
     });
     const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'roadmap.md'), '-y'], configDir);
     assert.strictEqual(result.status, 3);
@@ -161,5 +219,36 @@ due_at: '2026-09-10'
     // Unordered topic keeps file order, appended after ordered ones
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/2.md').depends_on, [id1]);
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/3.md').depends_on, [id2]);
+  });
+
+  // Regression (#73 autofix): the issue's reproduction, verbatim. `daily-log.md` is
+  // an ordinary Obsidian note -- a heading plus two `[[...]]` bullets -- and used to
+  // be imported as a curriculum, rewriting `depends_on` on both notes it pointed at.
+  test('an ordinary note passed to --from is rejected with exit 2 and zero writes', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/beta.md': ADOPTED_BETA,
+      'MODULES/alpha.md': ADOPTED_ALPHA,
+      'daily-log.md': '# Daily log\n\n- reviewed [[MODULES/beta]] today\n- recap [[MODULES/alpha]]\n',
+    });
+
+    const before = snapshotVault(vaultDir);
+    const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'daily-log.md'), '-y'], configDir);
+
+    // A file that was never a roadmap is a usage error (exit 2), not a validation
+    // failure (exit 3) -- see the exit code contract in agent.md.
+    assert.strictEqual(
+      result.status,
+      2,
+      `expected exit 2, got ${result.status}\n--- stdout ---\n${result.stdout}--- stderr ---\n${result.stderr}`
+    );
+    assert.match(result.stderr, /Roadmap must have a "topics" array/);
+
+    // The hand-authored prerequisite graph survives: beta still depends on alpha,
+    // alpha still depends on nothing. Bullet order used to decide which list got erased.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/beta.md'), ['T-alpha-1']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/alpha.md'), []);
+
+    // And nothing else moved either: same file set, byte-identical content.
+    assert.deepStrictEqual(snapshotVault(vaultDir), before);
   });
 });

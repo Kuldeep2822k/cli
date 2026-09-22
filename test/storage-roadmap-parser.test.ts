@@ -228,7 +228,7 @@ topics:
 describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
   test('detects wikilink sections as the fourth format', () => {
     const result = parseRoadmapContent(
-      `# Study Roadmap\n\n## Foundations Track\n\n- [[MODULES/01-foundations/01-systems]]\n- [[Beta|Beta Alias]]\n\n## Advanced Track\n\n1. [[gamma#intro]]\n`,
+      '---\npalee_roadmap: true\n---\n# Study Roadmap\n\n## Foundations Track\n\n- [[MODULES/01-foundations/01-systems]]\n- [[Beta|Beta Alias]]\n\n## Advanced Track\n\n1. [[gamma#intro]]\n',
       'roadmap.md'
     );
     assert.strictEqual(result.format, 'wikilink');
@@ -247,7 +247,7 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
 
   test('ignores wikilinks inside fenced code blocks', () => {
     const result = parseRoadmapContent(
-      '# Roadmap\n\n```md\n- [[not-a-link]]\n```\n\n## Real\n\n- [[actual]]\n',
+      '---\npalee_roadmap: true\n---\n# Roadmap\n\n```md\n- [[not-a-link]]\n```\n\n## Real\n\n- [[actual]]\n',
       'roadmap.md'
     );
     assert.strictEqual(result.format, 'wikilink');
@@ -258,7 +258,7 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
   });
 
   test('collects bullets before any heading and returns null without lists', () => {
-    const noHeading = parseRoadmapContent('- [[solo]]\n- [[duo]]\n', 'roadmap.md');
+    const noHeading = parseRoadmapContent('---\npalee_roadmap: true\n---\n- [[solo]]\n- [[duo]]\n', 'roadmap.md');
     assert.strictEqual(noHeading.format, 'wikilink');
     assert.strictEqual(noHeading.sections?.length, 1);
     assert.strictEqual(noHeading.sections?.[0].track, '');
@@ -272,5 +272,49 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
   test('does not claim the wikilink format for YAML files', () => {
     const result = parseRoadmapContent('- [[solo]]\n', 'roadmap.yaml');
     assert.notStrictEqual(result.format, 'wikilink');
+  });
+
+  // Regression for #73 auto-fix: the wikilink format must be opt-in. An ordinary
+  // Obsidian note has a heading and `[[links]]` too, and importing one rewrote
+  // depends_on on every note it pointed at.
+  test('rejects an ordinary note that has a heading and wikilink bullets', () => {
+    const result = parseRoadmapContent(
+      '# Daily log\n\n- reviewed [[MODULES/beta]] today\n- recap [[MODULES/alpha]]\n',
+      'daily-log.md'
+    );
+    assert.strictEqual(result.format, undefined);
+    assert.strictEqual(result.sections, undefined);
+    assert.strictEqual(typeof result.error, 'string');
+    assert.ok((result.error ?? '').length > 0, 'expected a non-empty error diagnostic');
+  });
+
+  test('detects the wikilink format when the document declares palee_roadmap: true', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Daily log\n\n- reviewed [[MODULES/beta]] today\n- recap [[MODULES/alpha]]\n',
+      'daily-log.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['MODULES/beta', 'MODULES/alpha']
+    );
+  });
+
+  test('names the marker when a marked document has no wikilink list items', () => {
+    const result = parseRoadmapContent('---\npalee_roadmap: true\n---\n# Notes\n\nprose only\n', 'notes.md');
+    assert.notStrictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.sections, undefined);
+    assert.match(result.error ?? '', /palee_roadmap: true/);
+    assert.match(result.error ?? '', /no wikilink list items/);
+  });
+
+  test('frontmatter topics: still wins over the palee_roadmap marker', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\ntopics:\n  - id: T-1\n    title: One\n    path: one.md\n---\n',
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'frontmatter');
+    assert.strictEqual(result.roadmap?.topics.length, 1);
+    assert.strictEqual(result.roadmap?.topics[0].id, 'T-1');
   });
 });
