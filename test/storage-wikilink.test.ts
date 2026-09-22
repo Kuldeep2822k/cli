@@ -11,7 +11,7 @@ import {
   UnresolvedWikilinkError,
   type WikilinkRoadmapSection,
 } from '../src/storage/wikilink';
-import { parseWikilink } from '../src/engine/auto-chain';
+import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
 
 function link(text: string) {
   const parsed = parseWikilink(text);
@@ -21,6 +21,22 @@ function link(text: string) {
 
 describe('Wikilink Resolution (Issue #73, INV-48)', () => {
   let vaultPath: string;
+  let outsidePath: string;
+
+  /**
+   * Builds a `..`-escaping wikilink target for `<name>` in {@link outsidePath}
+   * — a file that really exists outside the vault. The path is relative to the
+   * vault root and POSIX-separated (how `resolveWikilinkTarget` interprets a
+   * target), derived from realpaths so the fixture holds on symlinked temp
+   * roots (macOS `/var` vs `/private/var`) as well as on Windows.
+   */
+  function escapingTarget(name: string): string {
+    const fromVault = path
+      .relative(fs.realpathSync(vaultPath), fs.realpathSync(outsidePath))
+      .split(path.sep)
+      .join('/');
+    return `${fromVault}/${name}`;
+  }
 
   before(() => {
     vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-wikilink-'));
@@ -40,10 +56,24 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
     // Exact-case tiebreak fixture: same lowercase basename, different case
     fs.writeFileSync(path.join(vaultPath, 'Case.md'), '# Case upper\n');
     fs.writeFileSync(path.join(vaultPath, 'MODULES', 'case.md'), '# case lower\n');
+    // Non-Markdown asset: real bytes on disk, must never be a resolution target
+    fs.mkdirSync(path.join(vaultPath, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(vaultPath, 'assets', 'diagram.png'), 'PNGDATA');
+    // Dot-namespace note: invisible everywhere else in the CLI
+    fs.mkdirSync(path.join(vaultPath, '.trash'), { recursive: true });
+    fs.writeFileSync(path.join(vaultPath, '.trash', 'deleted-note.md'), '# Deleted\n');
+    // A real file *outside* the vault sharing a basename with an in-vault note,
+    // so a failed escape check is observable as a hijack to the wrong file.
+    // Lives in a sibling temp dir (not `vaultPath/..`, which is the OS temp
+    // dir) so the `after()` hook removes it too.
+    outsidePath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-wikilink-outside-'));
+    fs.writeFileSync(path.join(outsidePath, 'outside-note.md'), '# Outside\n');
+    fs.writeFileSync(path.join(vaultPath, 'outside-note.md'), '# In-vault namesake\n');
   });
 
   after(() => {
     fs.rmSync(vaultPath, { recursive: true, force: true });
+    fs.rmSync(outsidePath, { recursive: true, force: true });
   });
 
   describe('buildVaultNoteIndex', () => {
@@ -114,9 +144,78 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
 
     it('rejects vault-escape targets', () => {
       const index = buildVaultNoteIndex(vaultPath);
+      // The fixture is real: the target exists *outside* the vault, so this
+      // link genuinely reaches the containment check instead of merely
+      // missing on `existsSync` (which is what made the original version of
+      // this test pass vacuously).
+      const escaping = escapingTarget('outside-note');
+      assert.ok(fs.existsSync(path.join(outsidePath, 'outside-note.md')));
+      assert.ok(escaping.startsWith('../'), 'target must escape the vault root');
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, link(`[[${escaping}]]`), index),
+        (err: unknown) => {
+          assert.ok(err instanceof UnresolvedWikilinkError);
+          assert.strictEqual((err as UnresolvedWikilinkError).link, escaping);
+          return true;
+        }
+      );
+      // The bare `..` form (nothing of that name exists at all) still rejects.
       assert.throws(
         () => resolveWikilinkTarget(vaultPath, link('[[../outside]]'), index),
         (err: unknown) => err instanceof UnresolvedWikilinkError
+      );
+    });
+
+    it('rejects a non-markdown target that exists on disk', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, link('[[assets/diagram.png]]'), index),
+        (err: unknown) => {
+          assert.ok(err instanceof UnresolvedWikilinkError);
+          assert.strictEqual((err as UnresolvedWikilinkError).link, 'assets/diagram.png');
+          return true;
+        }
+      );
+    });
+
+    it('rejects an embedded asset (`![[...]]`) extracted from a note body', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      const [embedded] = extractWikilinks('- ![[assets/diagram.png]]');
+      assert.ok(embedded, 'the embed is parsed as a wikilink');
+      assert.strictEqual(embedded.target, 'assets/diagram.png');
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, embedded, index),
+        (err: unknown) => err instanceof UnresolvedWikilinkError
+      );
+    });
+
+    it('rejects a dot-namespace target (.trash/...)', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, link('[[.trash/deleted-note]]'), index),
+        (err: unknown) => {
+          assert.ok(err instanceof UnresolvedWikilinkError);
+          assert.strictEqual((err as UnresolvedWikilinkError).link, '.trash/deleted-note');
+          return true;
+        }
+      );
+    });
+
+    it('fails closed on a vault escape instead of hijacking the basename match', () => {
+      const index = buildVaultNoteIndex(vaultPath);
+      // The hijack route is live: the namesake exists in the vault and the
+      // basename lookup would happily return it.
+      const namesake = resolveWikilinkTarget(vaultPath, link('[[outside-note]]'), index);
+      assert.strictEqual(namesake.relativePath, 'outside-note.md');
+      // …so an escaping path naming the same basename must throw, not return it.
+      const target = escapingTarget('outside-note');
+      assert.throws(
+        () => resolveWikilinkTarget(vaultPath, link(`[[${target}]]`), index),
+        (err: unknown) => {
+          assert.ok(err instanceof UnresolvedWikilinkError);
+          assert.strictEqual((err as UnresolvedWikilinkError).link, target);
+          return true;
+        }
       );
     });
   });

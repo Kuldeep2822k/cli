@@ -9,14 +9,18 @@
  * Resolution is fail-closed: an ambiguous link (several notes share the
  * basename) throws {@link AmbiguousWikilinkError} listing every candidate,
  * and an unresolvable link throws {@link UnresolvedWikilinkError} — the CLI
- * converts both to exit code 3 and writes nothing. Anchors (`#heading`,
- * `#^block`) and `.md` suffixes are stripped before resolution; matching is
- * case-insensitive with an exact-case tiebreak.
+ * converts both to exit code 3 and writes nothing. A link that escapes the
+ * vault, or that names a path the rest of the CLI cannot see (non-Markdown,
+ * `.trash`/other dot-namespaces, `node_modules`), is rejected with
+ * {@link UnresolvedWikilinkError} rather than skipped: it never falls through
+ * to a lookalike note. Anchors (`#heading`, `#^block`) and `.md` suffixes are
+ * stripped before resolution; matching is case-insensitive with an exact-case
+ * tiebreak.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, relativeVaultPath } from './vault-walker';
+import { walkVault, relativeVaultPath, isResolvableNotePath } from './vault-walker';
 import { generateTopicId } from '../engine/topic-id';
 import type { ParsedWikilink } from '../engine/auto-chain';
 import { loadTopics } from './loader';
@@ -106,9 +110,10 @@ function targetBaseName(target: string): string {
  * @throws {@link UnresolvedWikilinkError} when no note matches
  *
  * @remarks
- * Resolution order: (1) exact vault-relative path match (with or without the
- * `.md` suffix — the resolved file must stay inside the vault); (2) unique
- * basename match, case-insensitive, with an exact-case hit winning ties.
+ * Resolution order: (1) exact vault-relative path match — the `.md` suffix is
+ * added when absent, and the file must stay inside the vault *and* be a
+ * visible Markdown note, otherwise this fails closed here; (2) unique basename
+ * match, case-insensitive, with an exact-case hit winning ties.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,
@@ -118,8 +123,15 @@ export function resolveWikilinkTarget(
   const resolvedVault = fs.realpathSync(vaultPath);
   const target = link.target;
 
-  // 1. Exact vault-relative path match (with or without `.md`)
-  const pathCandidates = target.toLowerCase().endsWith('.md') ? [target] : [`${target}.md`, target];
+  // 1. Exact vault-relative path match.
+  //
+  // Only the `.md` form is a candidate — the bare target is deliberately NOT
+  // one. Whatever this function returns is read as UTF-8 and has YAML
+  // frontmatter written back into it by the roadmap importer, so matching a
+  // non-Markdown file (`![[assets/diagram.png]]` resolves to a PNG) destroys
+  // that file irrecoverably. Hidden invariant: a wikilink may only ever touch
+  // a visible Markdown note.
+  const pathCandidates = target.toLowerCase().endsWith('.md') ? [target] : [`${target}.md`];
   for (const candidate of pathCandidates) {
     const absoluteCandidate = path.resolve(resolvedVault, candidate);
     if (!fs.existsSync(absoluteCandidate) || !fs.statSync(absoluteCandidate).isFile()) {
@@ -127,9 +139,18 @@ export function resolveWikilinkTarget(
     }
     const canonical = fs.realpathSync(absoluteCandidate);
     if (!isWithinVault(resolvedVault, canonical)) {
-      continue;
+      // Fail closed. Falling through to the basename lookup would silently
+      // rewrite a *different* note — one the user never named — just because
+      // it shares a basename with the escaping path.
+      throw new UnresolvedWikilinkError(target);
     }
-    return { absolutePath: canonical, relativePath: relativeVaultPath(vaultPath, canonical) };
+    const relativePath = relativeVaultPath(vaultPath, canonical);
+    if (!isResolvableNotePath(relativePath)) {
+      // Dot-namespaces (`.trash/…`), `node_modules` and non-Markdown files are
+      // invisible everywhere else in the CLI; a link must not resurrect them.
+      throw new UnresolvedWikilinkError(target);
+    }
+    return { absolutePath: canonical, relativePath };
   }
 
   // 2. Basename match (case-insensitive); an exact-case hit wins ties
