@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
-import { resolveNoteTitle } from '../src/cli/adopt';
+import { resolveNoteTitle } from '../src/storage/note-title';
 
 describe('CLI Adopt Batch Integration Tests', () => {
   let tempDir: string;

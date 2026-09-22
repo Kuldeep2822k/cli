@@ -23,9 +23,17 @@ import path from 'path';
 import { walkVault, relativeVaultPath, isResolvableNotePath } from './vault-walker';
 import { generateTopicId } from '../engine/topic-id';
 import type { ParsedWikilink } from '../engine/auto-chain';
+import type { WikilinkRoadmapSection } from './roadmap-parser';
 import { loadTopics } from './loader';
 import { resolveNoteTitle } from './note-title';
 import type { RoadmapFile, RoadmapTopic } from '../types';
+
+/**
+ * A section is declared once, in `src/storage/roadmap-parser.ts` — the module
+ * that produces it. Re-exported here so a caller that resolves a roadmap needs
+ * no second import; `./roadmap-parser` remains the only declaration.
+ */
+export type { WikilinkRoadmapSection };
 
 /** Thrown when a wikilink matches more than one vault note. */
 export class AmbiguousWikilinkError extends Error {
@@ -84,7 +92,17 @@ export function buildVaultNoteIndex(vaultPath: string): Map<string, string[]> {
   return index;
 }
 
-function isWithinVault(resolvedVault: string, absolutePath: string): boolean {
+/**
+ * Whether an absolute path stays inside the vault root, after both are
+ * canonicalized. The single containment guard for the #73 code paths: wikilink
+ * resolution and `palee roadmap`'s topic-path validation.
+ *
+ * @param resolvedVault - Canonical absolute vault root (`fs.realpathSync`ed)
+ * @param absolutePath - Canonical absolute candidate path
+ * @returns `false` when the relative hop leaves the root through `..` or lands
+ * on another drive/root
+ */
+export function isWithinVault(resolvedVault: string, absolutePath: string): boolean {
   const rel = path.relative(resolvedVault, absolutePath);
   return (
     !path.isAbsolute(rel) &&
@@ -94,6 +112,13 @@ function isWithinVault(resolvedVault: string, absolutePath: string): boolean {
   );
 }
 
+/**
+ * Basename of a wikilink target, split on `/` only.
+ *
+ * Deliberately not `path.basename`: on Windows that also splits on `\`, so a
+ * target like `[[notes\01-a]]` would stop failing closed and start matching the
+ * vault note named `01-a` — a different note from the one the user wrote.
+ */
 function targetBaseName(target: string): string {
   const idx = target.lastIndexOf('/');
   return idx >= 0 ? target.slice(idx + 1) : target;
@@ -131,12 +156,11 @@ export function resolveWikilinkTarget(
   // non-Markdown file (`![[assets/diagram.png]]` resolves to a PNG) destroys
   // that file irrecoverably. Hidden invariant: a wikilink may only ever touch
   // a visible Markdown note.
-  const pathCandidates = target.toLowerCase().endsWith('.md') ? [target] : [`${target}.md`];
-  for (const candidate of pathCandidates) {
-    const absoluteCandidate = path.resolve(resolvedVault, candidate);
-    if (!fs.existsSync(absoluteCandidate) || !fs.statSync(absoluteCandidate).isFile()) {
-      continue;
-    }
+  // A single candidate, never a list: the target as written when it already
+  // ends in `.md`, the target plus `.md` otherwise.
+  const candidate = target.toLowerCase().endsWith('.md') ? target : `${target}.md`;
+  const absoluteCandidate = path.resolve(resolvedVault, candidate);
+  if (fs.existsSync(absoluteCandidate) && fs.statSync(absoluteCandidate).isFile()) {
     const canonical = fs.realpathSync(absoluteCandidate);
     if (!isWithinVault(resolvedVault, canonical)) {
       // Fail closed. Falling through to the basename lookup would silently
@@ -173,14 +197,6 @@ export function resolveWikilinkTarget(
 
   // 3. No match
   throw new UnresolvedWikilinkError(target);
-}
-
-/** One `## Track` section of a wikilink roadmap: an ordered chain of links. */
-export interface WikilinkRoadmapSection {
-  /** Section heading (track name) */
-  track: string;
-  /** Ordered wikilinks in this section */
-  links: ParsedWikilink[];
 }
 
 /**

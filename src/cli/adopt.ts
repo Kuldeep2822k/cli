@@ -8,7 +8,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
   updateFrontmatter,
@@ -27,14 +27,7 @@ import { planAutoChain, type ChainPlan } from '../engine/auto-chain';
 import { detectCyclesBounded } from '../engine/dependency';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
-// Re-exported for backwards compatibility (implementation moved to src/storage/note-title.ts).
 import { resolveNoteTitle } from '../storage/note-title';
-export { resolveNoteTitle };
-
-
-
-
-
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -176,7 +169,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // --auto-chain is batch-only and synthesizes depends_on itself
     if (options.autoChain && options.dependsOn) {
       console.error('Error: --auto-chain is batch-only and conflicts with --depends-on');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -194,7 +187,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Single-file adoption mode
       if (options.autoChain) {
         console.error('Error: --auto-chain is batch-only; it cannot be used with a single note path');
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       const absolutePath = path.resolve(vaultPath, targetPath!);
@@ -256,7 +249,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
-
 
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
@@ -455,7 +447,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         if (truncated) {
           console.error('  • … cycle enumeration truncated at 1000; more cycles may exist');
         }
-        process.exitCode = 3;
+        process.exitCode = ExitCode.Validation;
         return;
       }
 
@@ -594,7 +586,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
-
 
       const updatedContent = updateFrontmatter(freshContent, paleeData);
       preparedBatch.push({

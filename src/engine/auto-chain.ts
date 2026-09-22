@@ -14,8 +14,8 @@
  *    note of module N bridges to the exit note of module N−1. The plan is
  *    acyclic by construction (every note has at most one predecessor and
  *    edges always point backward in a total order), but callers still run
- *    {@link detectCyclesBounded} over the merged graph before committing —
- *    the engine cannot see pre-existing vault cycles.
+ *    cycle detection (`src/engine/dependency.ts`) over the merged graph before
+ *    committing — the engine cannot see pre-existing vault cycles.
  * 2. **Wikilink parsing** — parse Obsidian `[[target]]`, `[[target|alias]]`,
  *    and `[[target#heading]]` links (anchors are stripped per #73). Vault
  *    resolution lives in `src/storage/wikilink.ts`; this module only parses.
@@ -115,6 +115,13 @@ export function compareLessonOrder(aBasename: string, bBasename: string): number
   return compareStrings(aBasename, bBasename);
 }
 
+/**
+ * Basename of a `/`-separated path, split on `/` only.
+ *
+ * Kept instead of `path.basename`: this module is the fs-free engine layer
+ * (`agent.md`), and `path.basename` on Windows also splits on `\` and strips a
+ * trailing separator, so it is not a provably identical substitution.
+ */
 function baseNameOf(p: string): string {
   const idx = p.lastIndexOf('/');
   return idx >= 0 ? p.slice(idx + 1) : p;

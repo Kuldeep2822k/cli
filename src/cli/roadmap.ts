@@ -20,6 +20,7 @@ import {
   loadTopics,
   ensureVaultDirectory,
 } from '../storage';
+import { isWithinVault } from '../storage/wikilink';
 import { detectCyclesBounded } from '../engine/dependency';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
@@ -149,7 +150,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     if (!options.from) {
       console.error('Error: Phase 1 only supports --from <file>');
       console.error('Usage: palee roadmap --from <roadmap.yaml|roadmap.md>');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -161,7 +162,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!fs.existsSync(roadmapPath)) {
       console.error(`Error: Roadmap file not found: ${roadmapPath}`);
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -176,14 +177,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         roadmap = resolveWikilinkRoadmap(vaultPath, parseResult.sections ?? []);
       } catch (err: unknown) {
         console.error(`Error: ${(err as Error).message}`);
-        process.exitCode = 3;
+        process.exitCode = ExitCode.Validation;
         return;
       }
       console.log(`Resolved ${roadmap.topics.length} wikilink topics from ${roadmapPath}`);
     } else {
       if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
         console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       roadmap = parseResult.roadmap;
@@ -244,14 +245,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const absoluteTopicPath = path.isAbsolute(relativePath)
           ? path.resolve(relativePath)
           : path.resolve(resolvedVault, relativePath);
-        const rel = path.relative(resolvedVault, absoluteTopicPath);
-        if (
-          path.isAbsolute(rel) ||
-          rel === '..' ||
-          rel.startsWith('..' + path.sep) ||
-          rel.startsWith('../') ||
-          rel.split(path.sep).includes('..')
-        ) {
+        if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
         }
       }
@@ -296,7 +290,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       for (const err of errors) {
         console.error(`  • ${err}`);
       }
-      process.exitCode = 3;
+      process.exitCode = ExitCode.Validation;
       return;
     }
 
@@ -333,19 +327,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       for (const topic of roadmap.topics) {
         const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
 
-        const relative = path.relative(resolvedVault, absolutePath);
-        if (
-          path.isAbsolute(relative) ||
-          relative === '..' ||
-          relative.startsWith('..' + path.sep) ||
-          relative.startsWith('../') ||
-          relative.split(path.sep).includes('..')
-        ) {
+        if (!isWithinVault(resolvedVault, absolutePath)) {
           console.error(`Roadmap path escapes vault: ${topic.path}`);
           failed++;
           continue;
         }
-        
+
         let resolvedTargetPath: string;
 
         try {
@@ -430,7 +417,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!options.yes && !process.stdin.isTTY) {
       console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
