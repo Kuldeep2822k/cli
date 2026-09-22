@@ -147,9 +147,10 @@ function targetBaseName(target: string): string {
  * added when absent, and the target must stay inside the vault *and* name a
  * visible Markdown note. Both checks run before any filesystem access, so an
  * unsafe target fails closed here whether or not the file exists, and can never
- * reach step 2; a target whose exact candidate is absent also fails closed
- * before step 2 when it names an existing non-Markdown file or sits under a
- * symlinked ancestor that leaves the vault — the basename fallback must never
+ * reach step 2; a target whose exact candidate is not a usable note file also
+ * fails closed before step 2 — when it names an existing non-Markdown file, a
+ * directory, a dangling symlink, a path with a regular-file component, or a
+ * symlinked ancestor that leaves the vault. The basename fallback must never
  * rescue a target the exact match rejected; (2) unique basename match,
  * case-insensitive, with an exact-case hit winning ties.
  */
@@ -217,8 +218,8 @@ export function resolveWikilinkTarget(
     return { absolutePath: canonical, relativePath };
   }
 
-  // 1b. Fail closed before the basename fallback. Both guards fire only for a
-  // target whose exact candidate is absent; without them step 2 resolves an
+  // 1b. Fail closed before the basename fallback. These guards fire when the
+  // exact candidate is not a usable note file; without them step 2 resolves an
   // unrelated in-vault note the user never named — the same hijack class the
   // guards above close for escaping and invisible paths.
   const bareAbsolute = path.resolve(resolvedVault, target);
@@ -229,13 +230,46 @@ export function resolveWikilinkTarget(
     // the wrong note's frontmatter.
     throw new UnresolvedWikilinkError(target);
   }
-  // Deepest existing ancestor: a symlinked directory can leave the vault even
-  // though every lexical segment looked clean. `vault/link -> outside` with
-  // `[[link/note]]` (missing inside `outside`) must not fall through to the
-  // in-vault `note.md`.
-  let ancestor = path.dirname(absoluteCandidate);
-  while (ancestor !== path.dirname(ancestor) && !fs.existsSync(ancestor)) {
-    ancestor = path.dirname(ancestor);
+  // Deepest existing path component, validated with `lstatSync` rather than
+  // `existsSync`: a component can exist and still be unusable, and reading it
+  // as merely "missing" would hand the target to the basename lookup. Rejected
+  // here — the candidate itself is a directory or other non-note entry, a
+  // component is a regular file (ENOTDIR below it), or a symlink dangles or
+  // leaves the vault. A `realpathSync` failure is deliberately NOT treated as a
+  // missing ancestor, or a dangling symlink would slip through to the fallback.
+  let ancestor = absoluteCandidate;
+  while (ancestor !== resolvedVault && ancestor !== path.dirname(ancestor)) {
+    let entry: fs.Stats;
+    try {
+      entry = fs.lstatSync(ancestor);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        // Unreadable component (permissions and the like): fail closed.
+        throw new UnresolvedWikilinkError(target);
+      }
+      ancestor = path.dirname(ancestor);
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      let canonical: string;
+      try {
+        canonical = fs.realpathSync(ancestor);
+      } catch {
+        throw new UnresolvedWikilinkError(target);
+      }
+      // A symlink at the candidate is never a note — the exact-match branch
+      // above already returned when one resolved to a note — and a symlinked
+      // ancestor must stay inside the vault (`vault/link -> outside` with
+      // `[[link/note]]` missing inside it must not resolve the in-vault
+      // `note.md`).
+      if (ancestor === absoluteCandidate || !isWithinVault(resolvedVault, canonical)) {
+        throw new UnresolvedWikilinkError(target);
+      }
+    } else if (ancestor === absoluteCandidate || !entry.isDirectory()) {
+      throw new UnresolvedWikilinkError(target);
+    }
+    break;
   }
   if (!isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
     throw new UnresolvedWikilinkError(target);

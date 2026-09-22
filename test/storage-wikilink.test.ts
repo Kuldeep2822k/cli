@@ -350,6 +350,83 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         fs.rmSync(linkDir, { recursive: true, force: true });
       }
     });
+
+    it('fails closed when the exact candidate is a directory, not a note', () => {
+      // `dirnote/note.md` is a *directory*, so the exact branch's `isFile()`
+      // fails and the pre-fix resolver fell through to the basename lookup,
+      // which returned the unrelated in-vault `MODULES/note.md`.
+      const dirCandidate = path.join(vaultPath, 'dirnote', 'note.md');
+      fs.mkdirSync(dirCandidate, { recursive: true });
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        assertHijackRouteIsLive(index);
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link('[[dirnote/note]]'), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, 'dirnote/note');
+            return true;
+          }
+        );
+      } finally {
+        fs.rmSync(path.join(vaultPath, 'dirnote'), { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed when the exact candidate is a dangling symlink', (t) => {
+      // The symlink is named `dangling.md` and points nowhere, so `existsSync`
+      // is false and the pre-fix resolver fell through to the basename lookup,
+      // which returned the unrelated `MODULES/dangling.md`.
+      const dangling = path.join(vaultPath, 'dangling.md');
+      const namesake = path.join(vaultPath, 'MODULES', 'dangling.md');
+      fs.writeFileSync(namesake, '# Unrelated dangling namesake\n');
+      try {
+        fs.symlinkSync(path.join(vaultPath, 'nowhere-at-all.md'), dangling, 'file');
+      } catch {
+        fs.rmSync(namesake, { force: true });
+        t.skip('file symlink creation is not permitted on this platform');
+        return;
+      }
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        // `followSymlinks` is false, so only the real namesake is indexed —
+        // exactly one hit, i.e. the hijack route is live.
+        assert.strictEqual((index.get('dangling') ?? []).length, 1);
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link('[[dangling]]'), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, 'dangling');
+            return true;
+          }
+        );
+      } finally {
+        fs.rmSync(dangling, { force: true });
+        fs.rmSync(namesake, { force: true });
+      }
+    });
+
+    it('fails closed when a path component is a regular file', () => {
+      // `blocker.md` is a regular file, so `blocker.md/note.md` raises ENOTDIR;
+      // the pre-fix ancestor walk treated that as "missing" and fell through to
+      // the basename lookup, returning the unrelated `MODULES/note.md`.
+      const blocker = path.join(vaultPath, 'blocker.md');
+      fs.writeFileSync(blocker, '# Blocker file\n');
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        assertHijackRouteIsLive(index);
+        assert.throws(
+          () => resolveWikilinkTarget(vaultPath, link('[[blocker.md/note]]'), index),
+          (err: unknown) => {
+            assert.ok(err instanceof UnresolvedWikilinkError);
+            assert.strictEqual((err as UnresolvedWikilinkError).link, 'blocker.md/note');
+            return true;
+          }
+        );
+      } finally {
+        fs.rmSync(blocker, { force: true });
+      }
+    });
   });
 
   describe('resolveWikilinkRoadmap', () => {
