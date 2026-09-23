@@ -1,0 +1,3322 @@
+{
+  "metadata": {
+    "subject": "@kuldeep2822k/palee",
+    "version": "0.5.2",
+    "state": "current",
+    "phase": "Phase 1 (deterministic core, no AI, no network)",
+    "generatedBy": "node scripts/arch-render-dot.cjs",
+    "generatedFrom": "node scripts/arch-import-graph.cjs",
+    "modelledOn": "2026-09-22",
+    "sourceRefPolicy": "resolvable",
+    "evidenceCoverage": "static import graph over all TypeScript in src/ and bin/ (60 modules, 216 edges)",
+    "knownGaps": [
+      "no runtime observation: which code paths execute for a given vault is not measured",
+      "documentation claims are cross-checked in 03-docs-audit-findings.md, not modelled here"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "bin",
+      "label": "bin",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "composition root (bin/palee.ts)",
+      "sourceRefs": [
+        "bin/palee.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 1,
+        "lines": 146
+      }
+    },
+    {
+      "id": "src.root",
+      "label": "src(root)",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "shared contract and public barrel (src/types.ts, src/index.ts)",
+      "sourceRefs": [
+        "src/index.ts",
+        "src/types.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 2,
+        "lines": 761
+      }
+    },
+    {
+      "id": "cli",
+      "label": "src/cli",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "CLI handler layer",
+      "sourceRefs": [
+        "src/cli/adopt.ts",
+        "src/cli/config.ts",
+        "src/cli/dashboard.ts",
+        "src/cli/exit-codes.ts",
+        "src/cli/migrate.ts",
+        "src/cli/next.ts",
+        "src/cli/onboarding.ts",
+        "src/cli/plan.ts",
+        "src/cli/progress.ts",
+        "src/cli/review.ts",
+        "src/cli/roadmap.ts",
+        "src/cli/session.ts",
+        "src/cli/validate.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 13,
+        "lines": 3076
+      }
+    },
+    {
+      "id": "engine",
+      "label": "src/engine",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "pure engine layer",
+      "sourceRefs": [
+        "src/engine/dependency.ts",
+        "src/engine/index.ts",
+        "src/engine/mastery.ts",
+        "src/engine/sm2.ts",
+        "src/engine/topic-id.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 5,
+        "lines": 1430
+      }
+    },
+    {
+      "id": "storage",
+      "label": "src/storage",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "filesystem storage layer",
+      "sourceRefs": [
+        "src/storage/atomic-write.ts",
+        "src/storage/cache.ts",
+        "src/storage/dependencies.ts",
+        "src/storage/frontmatter.ts",
+        "src/storage/index.ts",
+        "src/storage/loader.ts",
+        "src/storage/lock.ts",
+        "src/storage/memory.ts",
+        "src/storage/pattern-matcher.ts",
+        "src/storage/roadmap-parser.ts",
+        "src/storage/scanner.ts",
+        "src/storage/sessions.ts",
+        "src/storage/vault-walker.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 13,
+        "lines": 3758
+      }
+    },
+    {
+      "id": "validation",
+      "label": "src/validation",
+      "type": "module",
+      "state": "current",
+      "owner": "kuldeep2822k",
+      "description": "validation rule layer",
+      "sourceRefs": [
+        "src/validation/collect-vault.ts",
+        "src/validation/format.ts",
+        "src/validation/index.ts",
+        "src/validation/rules/assessed-at.ts",
+        "src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/no-dependency-cycle.ts",
+        "src/validation/rules/no-duplicate-topic-id.ts",
+        "src/validation/rules/no-missing-dependency.ts",
+        "src/validation/rules/no-session-unknown-topic.ts",
+        "src/validation/rules/parse-frontmatter.ts",
+        "src/validation/rules/review-dates.ts",
+        "src/validation/rules/safe-vault-paths.ts",
+        "src/validation/rules/valid-assessment-fields.ts",
+        "src/validation/rules/valid-dependency-list.ts",
+        "src/validation/rules/valid-hot-memory.ts",
+        "src/validation/rules/valid-managed-note-kind.ts",
+        "src/validation/rules/valid-palee-schema.ts",
+        "src/validation/rules/valid-review-dates.ts",
+        "src/validation/rules/valid-review-fields.ts",
+        "src/validation/rules/valid-session-index.ts",
+        "src/validation/rules/valid-session-schema.ts",
+        "src/validation/rules/valid-topic-id-format.ts",
+        "src/validation/rules/valid-topic-mastery.ts",
+        "src/validation/rules/valid-topic-status.ts",
+        "src/validation/run-rules.ts",
+        "src/validation/types.ts"
+      ],
+      "confidence": "high",
+      "metrics": {
+        "modules": 26,
+        "lines": 3072
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:bin->src/cli",
+      "from": "bin",
+      "to": "cli",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "12 static import edges",
+      "sourceRefs": [
+        "bin/palee.ts:9 -> src/cli/exit-codes.ts",
+        "bin/palee.ts:12 -> src/cli/config.ts",
+        "bin/palee.ts:13 -> src/cli/adopt.ts",
+        "bin/palee.ts:14 -> src/cli/next.ts",
+        "bin/palee.ts:15 -> src/cli/plan.ts",
+        "bin/palee.ts:16 -> src/cli/progress.ts",
+        "bin/palee.ts:17 -> src/cli/review.ts",
+        "bin/palee.ts:18 -> src/cli/validate.ts",
+        "bin/palee.ts:19 -> src/cli/roadmap.ts",
+        "bin/palee.ts:20 -> src/cli/migrate.ts",
+        "bin/palee.ts:21 -> src/cli/session.ts",
+        "bin/palee.ts:22 -> src/cli/dashboard.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/cli->src/cli",
+      "from": "cli",
+      "to": "cli",
+      "type": "internal-cohesion",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "31 static import edges",
+      "sourceRefs": [
+        "src/cli/adopt.ts:9 -> src/cli/config.ts",
+        "src/cli/adopt.ts:10 -> src/cli/onboarding.ts",
+        "src/cli/adopt.ts:11 -> src/cli/exit-codes.ts",
+        "src/cli/config.ts:9 -> src/cli/exit-codes.ts",
+        "src/cli/dashboard.ts:7 -> src/cli/config.ts",
+        "src/cli/dashboard.ts:9 -> src/cli/onboarding.ts",
+        "src/cli/dashboard.ts:10 -> src/cli/exit-codes.ts",
+        "src/cli/migrate.ts:1 -> src/cli/config.ts",
+        "src/cli/migrate.ts:2 -> src/cli/onboarding.ts",
+        "src/cli/migrate.ts:3 -> src/cli/exit-codes.ts",
+        "src/cli/next.ts:1 -> src/cli/config.ts",
+        "src/cli/next.ts:1 -> src/cli/onboarding.ts",
+        "src/cli/next.ts:2 -> src/cli/exit-codes.ts",
+        "src/cli/plan.ts:1 -> src/cli/config.ts",
+        "src/cli/plan.ts:1 -> src/cli/onboarding.ts",
+        "src/cli/plan.ts:2 -> src/cli/exit-codes.ts",
+        "src/cli/progress.ts:1 -> src/cli/config.ts",
+        "src/cli/progress.ts:1 -> src/cli/onboarding.ts",
+        "src/cli/progress.ts:2 -> src/cli/exit-codes.ts",
+        "src/cli/review.ts:1 -> src/cli/config.ts",
+        "src/cli/review.ts:2 -> src/cli/onboarding.ts",
+        "src/cli/review.ts:3 -> src/cli/exit-codes.ts",
+        "src/cli/roadmap.ts:8 -> src/cli/config.ts",
+        "src/cli/roadmap.ts:9 -> src/cli/onboarding.ts",
+        "src/cli/roadmap.ts:10 -> src/cli/exit-codes.ts",
+        "src/cli/session.ts:1 -> src/cli/config.ts",
+        "src/cli/session.ts:2 -> src/cli/onboarding.ts",
+        "src/cli/session.ts:3 -> src/cli/exit-codes.ts",
+        "src/cli/validate.ts:4 -> src/cli/config.ts",
+        "src/cli/validate.ts:6 -> src/cli/onboarding.ts",
+        "src/cli/validate.ts:7 -> src/cli/exit-codes.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/cli->src/storage",
+      "from": "cli",
+      "to": "storage",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "10 static import edges",
+      "sourceRefs": [
+        "src/cli/adopt.ts:12 -> src/storage/index.ts",
+        "src/cli/dashboard.ts:4 -> src/storage/index.ts",
+        "src/cli/exit-codes.ts:10 -> src/storage/index.ts",
+        "src/cli/migrate.ts:4 -> src/storage/index.ts",
+        "src/cli/next.ts:7 -> src/storage/index.ts",
+        "src/cli/plan.ts:7 -> src/storage/index.ts",
+        "src/cli/progress.ts:7 -> src/storage/index.ts",
+        "src/cli/review.ts:4 -> src/storage/index.ts",
+        "src/cli/roadmap.ts:11 -> src/storage/index.ts",
+        "src/cli/session.ts:11 -> src/storage/index.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/cli->src/engine",
+      "from": "cli",
+      "to": "engine",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "8 static import edges",
+      "sourceRefs": [
+        "src/cli/adopt.ts:23 -> src/engine/mastery.ts",
+        "src/cli/dashboard.ts:6 -> src/engine/mastery.ts",
+        "src/cli/plan.ts:9 -> src/engine/dependency.ts",
+        "src/cli/plan.ts:10 -> src/engine/mastery.ts",
+        "src/cli/progress.ts:9 -> src/engine/mastery.ts",
+        "src/cli/review.ts:11 -> src/engine/sm2.ts",
+        "src/cli/review.ts:12 -> src/engine/mastery.ts",
+        "src/cli/roadmap.ts:21 -> src/engine/dependency.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/cli->src(root)",
+      "from": "cli",
+      "to": "src.root",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "11 static import edges",
+      "sourceRefs": [
+        "src/cli/adopt.ts:24 -> src/types.ts",
+        "src/cli/config.ts:8 -> src/types.ts",
+        "src/cli/dashboard.ts:11 -> src/types.ts",
+        "src/cli/migrate.ts:10 -> src/types.ts",
+        "src/cli/next.ts:9 -> src/types.ts",
+        "src/cli/plan.ts:11 -> src/types.ts",
+        "src/cli/progress.ts:10 -> src/types.ts",
+        "src/cli/review.ts:13 -> src/types.ts",
+        "src/cli/roadmap.ts:22 -> src/types.ts",
+        "src/cli/session.ts:26 -> src/types.ts",
+        "src/cli/validate.ts:8 -> src/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/cli->src/validation",
+      "from": "cli",
+      "to": "validation",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "22 static import edges",
+      "sourceRefs": [
+        "src/cli/validate.ts:9 -> src/validation/collect-vault.ts",
+        "src/cli/validate.ts:10 -> src/validation/run-rules.ts",
+        "src/cli/validate.ts:11 -> src/validation/format.ts",
+        "src/cli/validate.ts:12 -> src/validation/rules/parse-frontmatter.ts",
+        "src/cli/validate.ts:13 -> src/validation/rules/no-duplicate-topic-id.ts",
+        "src/cli/validate.ts:14 -> src/validation/rules/no-missing-dependency.ts",
+        "src/cli/validate.ts:15 -> src/validation/rules/no-dependency-cycle.ts",
+        "src/cli/validate.ts:16 -> src/validation/rules/valid-palee-schema.ts",
+        "src/cli/validate.ts:17 -> src/validation/rules/valid-topic-id-format.ts",
+        "src/cli/validate.ts:18 -> src/validation/rules/valid-topic-status.ts",
+        "src/cli/validate.ts:19 -> src/validation/rules/valid-assessment-fields.ts",
+        "src/cli/validate.ts:20 -> src/validation/rules/valid-topic-mastery.ts",
+        "src/cli/validate.ts:21 -> src/validation/rules/valid-review-fields.ts",
+        "src/cli/validate.ts:22 -> src/validation/rules/valid-review-dates.ts",
+        "src/cli/validate.ts:23 -> src/validation/rules/valid-dependency-list.ts",
+        "src/cli/validate.ts:24 -> src/validation/rules/valid-managed-note-kind.ts",
+        "src/cli/validate.ts:25 -> src/validation/rules/valid-session-schema.ts",
+        "src/cli/validate.ts:26 -> src/validation/rules/no-session-unknown-topic.ts",
+        "src/cli/validate.ts:27 -> src/validation/rules/valid-session-index.ts",
+        "src/cli/validate.ts:28 -> src/validation/rules/valid-hot-memory.ts",
+        "src/cli/validate.ts:29 -> src/validation/rules/safe-vault-paths.ts",
+        "src/cli/validate.ts:30 -> src/validation/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/engine->src(root)",
+      "from": "engine",
+      "to": "src.root",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "2 static import edges",
+      "sourceRefs": [
+        "src/engine/dependency.ts:7 -> src/types.ts",
+        "src/engine/sm2.ts:9 -> src/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/engine->src/engine",
+      "from": "engine",
+      "to": "engine",
+      "type": "internal-cohesion",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "4 static import edges",
+      "sourceRefs": [
+        "src/engine/dependency.ts:9 -> src/engine/mastery.ts",
+        "src/engine/index.ts:7 -> src/engine/sm2.ts",
+        "src/engine/index.ts:9 -> src/engine/dependency.ts",
+        "src/engine/index.ts:10 -> src/engine/mastery.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src(root)->src(root)",
+      "from": "src.root",
+      "to": "src.root",
+      "type": "internal-cohesion",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "1 static import edges",
+      "sourceRefs": [
+        "src/index.ts:13 -> src/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src(root)->src/engine",
+      "from": "src.root",
+      "to": "engine",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "1 static import edges",
+      "sourceRefs": [
+        "src/index.ts:19 -> src/engine/index.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src(root)->src/storage",
+      "from": "src.root",
+      "to": "storage",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "1 static import edges",
+      "sourceRefs": [
+        "src/index.ts:22 -> src/storage/index.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src(root)->src/validation",
+      "from": "src.root",
+      "to": "validation",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "1 static import edges",
+      "sourceRefs": [
+        "src/index.ts:25 -> src/validation/index.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/storage->src/storage",
+      "from": "storage",
+      "to": "storage",
+      "type": "internal-cohesion",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "27 static import edges",
+      "sourceRefs": [
+        "src/storage/atomic-write.ts:15 -> src/storage/frontmatter.ts",
+        "src/storage/atomic-write.ts:16 -> src/storage/lock.ts",
+        "src/storage/cache.ts:11 -> src/storage/frontmatter.ts",
+        "src/storage/index.ts:13 -> src/storage/vault-walker.ts",
+        "src/storage/index.ts:15 -> src/storage/frontmatter.ts",
+        "src/storage/index.ts:16 -> src/storage/scanner.ts",
+        "src/storage/index.ts:18 -> src/storage/lock.ts",
+        "src/storage/index.ts:19 -> src/storage/atomic-write.ts",
+        "src/storage/index.ts:20 -> src/storage/cache.ts",
+        "src/storage/index.ts:21 -> src/storage/memory.ts",
+        "src/storage/index.ts:42 -> src/storage/roadmap-parser.ts",
+        "src/storage/index.ts:43 -> src/storage/pattern-matcher.ts",
+        "src/storage/index.ts:44 -> src/storage/loader.ts",
+        "src/storage/index.ts:45 -> src/storage/sessions.ts",
+        "src/storage/loader.ts:10 -> src/storage/vault-walker.ts",
+        "src/storage/loader.ts:11 -> src/storage/frontmatter.ts",
+        "src/storage/loader.ts:12 -> src/storage/cache.ts",
+        "src/storage/loader.ts:13 -> src/storage/dependencies.ts",
+        "src/storage/memory.ts:17 -> src/storage/frontmatter.ts",
+        "src/storage/memory.ts:18 -> src/storage/atomic-write.ts",
+        "src/storage/roadmap-parser.ts:11 -> src/storage/dependencies.ts",
+        "src/storage/roadmap-parser.ts:12 -> src/storage/frontmatter.ts",
+        "src/storage/scanner.ts:11 -> src/storage/vault-walker.ts",
+        "src/storage/scanner.ts:12 -> src/storage/frontmatter.ts",
+        "src/storage/sessions.ts:20 -> src/storage/frontmatter.ts",
+        "src/storage/sessions.ts:21 -> src/storage/vault-walker.ts",
+        "src/storage/sessions.ts:22 -> src/storage/memory.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/storage->src(root)",
+      "from": "storage",
+      "to": "src.root",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "9 static import edges",
+      "sourceRefs": [
+        "src/storage/atomic-write.ts:17 -> src/types.ts",
+        "src/storage/cache.ts:12 -> src/types.ts",
+        "src/storage/frontmatter.ts:11 -> src/types.ts",
+        "src/storage/loader.ts:14 -> src/types.ts",
+        "src/storage/lock.ts:17 -> src/types.ts",
+        "src/storage/memory.ts:19 -> src/types.ts",
+        "src/storage/roadmap-parser.ts:13 -> src/types.ts",
+        "src/storage/scanner.ts:13 -> src/types.ts",
+        "src/storage/vault-walker.ts:11 -> src/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/validation->src/storage",
+      "from": "validation",
+      "to": "storage",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "12 static import edges",
+      "sourceRefs": [
+        "src/validation/collect-vault.ts:15 -> src/storage/loader.ts",
+        "src/validation/collect-vault.ts:17 -> src/storage/scanner.ts",
+        "src/validation/collect-vault.ts:18 -> src/storage/cache.ts",
+        "src/validation/collect-vault.ts:19 -> src/storage/sessions.ts",
+        "src/validation/collect-vault.ts:20 -> src/storage/memory.ts",
+        "src/validation/rules/no-session-unknown-topic.ts:34 -> src/storage/sessions.ts",
+        "src/validation/rules/valid-dependency-list.ts:60 -> src/storage/loader.ts",
+        "src/validation/rules/valid-hot-memory.ts:37 -> src/storage/memory.ts",
+        "src/validation/rules/valid-session-schema.ts:38 -> src/storage/sessions.ts",
+        "src/validation/types.ts:11 -> src/storage/loader.ts",
+        "src/validation/types.ts:13 -> src/storage/sessions.ts",
+        "src/validation/types.ts:18 -> src/storage/memory.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/validation->src/validation",
+      "from": "validation",
+      "to": "validation",
+      "type": "internal-cohesion",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "54 static import edges",
+      "sourceRefs": [
+        "src/validation/collect-vault.ts:22 -> src/validation/types.ts",
+        "src/validation/format.ts:14 -> src/validation/types.ts",
+        "src/validation/index.ts:14 -> src/validation/collect-vault.ts",
+        "src/validation/index.ts:16 -> src/validation/run-rules.ts",
+        "src/validation/index.ts:17 -> src/validation/format.ts",
+        "src/validation/index.ts:18 -> src/validation/rules/parse-frontmatter.ts",
+        "src/validation/index.ts:19 -> src/validation/rules/valid-managed-note-kind.ts",
+        "src/validation/index.ts:20 -> src/validation/rules/valid-palee-schema.ts",
+        "src/validation/index.ts:21 -> src/validation/rules/valid-topic-id-format.ts",
+        "src/validation/index.ts:22 -> src/validation/rules/valid-topic-status.ts",
+        "src/validation/index.ts:23 -> src/validation/rules/no-duplicate-topic-id.ts",
+        "src/validation/index.ts:24 -> src/validation/rules/valid-dependency-list.ts",
+        "src/validation/index.ts:25 -> src/validation/rules/no-missing-dependency.ts",
+        "src/validation/index.ts:26 -> src/validation/rules/no-dependency-cycle.ts",
+        "src/validation/index.ts:27 -> src/validation/rules/valid-assessment-fields.ts",
+        "src/validation/index.ts:28 -> src/validation/rules/valid-topic-mastery.ts",
+        "src/validation/index.ts:29 -> src/validation/rules/valid-review-fields.ts",
+        "src/validation/index.ts:30 -> src/validation/rules/valid-review-dates.ts",
+        "src/validation/index.ts:31 -> src/validation/rules/valid-session-schema.ts",
+        "src/validation/index.ts:32 -> src/validation/rules/no-session-unknown-topic.ts",
+        "src/validation/index.ts:33 -> src/validation/rules/valid-session-index.ts",
+        "src/validation/index.ts:34 -> src/validation/rules/valid-hot-memory.ts",
+        "src/validation/index.ts:35 -> src/validation/rules/safe-vault-paths.ts",
+        "src/validation/index.ts:36 -> src/validation/types.ts",
+        "src/validation/rules/no-dependency-cycle.ts:10 -> src/validation/types.ts",
+        "src/validation/rules/no-duplicate-topic-id.ts:8 -> src/validation/types.ts",
+        "src/validation/rules/no-missing-dependency.ts:29 -> src/validation/types.ts",
+        "src/validation/rules/no-session-unknown-topic.ts:31 -> src/validation/types.ts",
+        "src/validation/rules/no-session-unknown-topic.ts:33 -> src/validation/rules/valid-session-schema.ts",
+        "src/validation/rules/parse-frontmatter.ts:8 -> src/validation/types.ts",
+        "src/validation/rules/review-dates.ts:26 -> src/validation/rules/assessed-at.ts",
+        "src/validation/rules/safe-vault-paths.ts:41 -> src/validation/types.ts",
+        "src/validation/rules/valid-assessment-fields.ts:12 -> src/validation/types.ts",
+        "src/validation/rules/valid-assessment-fields.ts:14 -> src/validation/rules/assessed-at.ts",
+        "src/validation/rules/valid-assessment-fields.ts:15 -> src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/valid-dependency-list.ts:58 -> src/validation/types.ts",
+        "src/validation/rules/valid-dependency-list.ts:61 -> src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/valid-hot-memory.ts:35 -> src/validation/types.ts",
+        "src/validation/rules/valid-hot-memory.ts:38 -> src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/valid-managed-note-kind.ts:37 -> src/validation/types.ts",
+        "src/validation/rules/valid-palee-schema.ts:14 -> src/validation/types.ts",
+        "src/validation/rules/valid-review-dates.ts:27 -> src/validation/types.ts",
+        "src/validation/rules/valid-review-dates.ts:29 -> src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/valid-review-dates.ts:30 -> src/validation/rules/review-dates.ts",
+        "src/validation/rules/valid-review-fields.ts:33 -> src/validation/types.ts",
+        "src/validation/rules/valid-session-index.ts:33 -> src/validation/types.ts",
+        "src/validation/rules/valid-session-schema.ts:34 -> src/validation/types.ts",
+        "src/validation/rules/valid-session-schema.ts:37 -> src/validation/rules/assessed-at.ts",
+        "src/validation/rules/valid-topic-id-format.ts:26 -> src/validation/types.ts",
+        "src/validation/rules/valid-topic-mastery.ts:24 -> src/validation/types.ts",
+        "src/validation/rules/valid-topic-mastery.ts:27 -> src/validation/rules/assessed-at.ts",
+        "src/validation/rules/valid-topic-mastery.ts:28 -> src/validation/rules/diagnostic-value.ts",
+        "src/validation/rules/valid-topic-status.ts:19 -> src/validation/types.ts",
+        "src/validation/run-rules.ts:9 -> src/validation/types.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/validation->src/engine",
+      "from": "validation",
+      "to": "engine",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "7 static import edges",
+      "sourceRefs": [
+        "src/validation/rules/no-dependency-cycle.ts:12 -> src/engine/dependency.ts",
+        "src/validation/rules/no-missing-dependency.ts:31 -> src/engine/dependency.ts",
+        "src/validation/rules/valid-palee-schema.ts:16 -> src/engine/topic-id.ts",
+        "src/validation/rules/valid-session-schema.ts:36 -> src/engine/topic-id.ts",
+        "src/validation/rules/valid-topic-id-format.ts:28 -> src/engine/topic-id.ts",
+        "src/validation/rules/valid-topic-mastery.ts:26 -> src/engine/mastery.ts",
+        "src/validation/rules/valid-topic-status.ts:21 -> src/engine/topic-id.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "edge:src/validation->src(root)",
+      "from": "validation",
+      "to": "src.root",
+      "type": "depends-on",
+      "sync": "sync",
+      "protocol": "in-process",
+      "description": "3 static import edges",
+      "sourceRefs": [
+        "src/validation/rules/no-dependency-cycle.ts:13 -> src/types.ts",
+        "src/validation/rules/no-missing-dependency.ts:32 -> src/types.ts",
+        "src/validation/types.ts:19 -> src/types.ts"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "moduleGraph": {
+    "nodes": [
+      {
+        "id": "bin/palee",
+        "layer": "bin",
+        "path": "bin/palee",
+        "lines": 146,
+        "sourceRefs": [
+          "bin/palee.ts"
+        ]
+      },
+      {
+        "id": "src/cli/adopt",
+        "layer": "src/cli",
+        "path": "src/cli/adopt",
+        "lines": 597,
+        "sourceRefs": [
+          "src/cli/adopt.ts"
+        ]
+      },
+      {
+        "id": "src/cli/config",
+        "layer": "src/cli",
+        "path": "src/cli/config",
+        "lines": 224,
+        "sourceRefs": [
+          "src/cli/config.ts"
+        ]
+      },
+      {
+        "id": "src/cli/dashboard",
+        "layer": "src/cli",
+        "path": "src/cli/dashboard",
+        "lines": 202,
+        "sourceRefs": [
+          "src/cli/dashboard.ts"
+        ]
+      },
+      {
+        "id": "src/cli/exit-codes",
+        "layer": "src/cli",
+        "path": "src/cli/exit-codes",
+        "lines": 38,
+        "sourceRefs": [
+          "src/cli/exit-codes.ts"
+        ]
+      },
+      {
+        "id": "src/cli/migrate",
+        "layer": "src/cli",
+        "path": "src/cli/migrate",
+        "lines": 134,
+        "sourceRefs": [
+          "src/cli/migrate.ts"
+        ]
+      },
+      {
+        "id": "src/cli/next",
+        "layer": "src/cli",
+        "path": "src/cli/next",
+        "lines": 167,
+        "sourceRefs": [
+          "src/cli/next.ts"
+        ]
+      },
+      {
+        "id": "src/cli/onboarding",
+        "layer": "src/cli",
+        "path": "src/cli/onboarding",
+        "lines": 122,
+        "sourceRefs": [
+          "src/cli/onboarding.ts"
+        ]
+      },
+      {
+        "id": "src/cli/plan",
+        "layer": "src/cli",
+        "path": "src/cli/plan",
+        "lines": 219,
+        "sourceRefs": [
+          "src/cli/plan.ts"
+        ]
+      },
+      {
+        "id": "src/cli/progress",
+        "layer": "src/cli",
+        "path": "src/cli/progress",
+        "lines": 253,
+        "sourceRefs": [
+          "src/cli/progress.ts"
+        ]
+      },
+      {
+        "id": "src/cli/review",
+        "layer": "src/cli",
+        "path": "src/cli/review",
+        "lines": 167,
+        "sourceRefs": [
+          "src/cli/review.ts"
+        ]
+      },
+      {
+        "id": "src/cli/roadmap",
+        "layer": "src/cli",
+        "path": "src/cli/roadmap",
+        "lines": 400,
+        "sourceRefs": [
+          "src/cli/roadmap.ts"
+        ]
+      },
+      {
+        "id": "src/cli/session",
+        "layer": "src/cli",
+        "path": "src/cli/session",
+        "lines": 401,
+        "sourceRefs": [
+          "src/cli/session.ts"
+        ]
+      },
+      {
+        "id": "src/cli/validate",
+        "layer": "src/cli",
+        "path": "src/cli/validate",
+        "lines": 152,
+        "sourceRefs": [
+          "src/cli/validate.ts"
+        ]
+      },
+      {
+        "id": "src/engine/dependency",
+        "layer": "src/engine",
+        "path": "src/engine/dependency",
+        "lines": 919,
+        "sourceRefs": [
+          "src/engine/dependency.ts"
+        ]
+      },
+      {
+        "id": "src/engine/index",
+        "layer": "src/engine",
+        "path": "src/engine/index",
+        "lines": 51,
+        "sourceRefs": [
+          "src/engine/index.ts"
+        ]
+      },
+      {
+        "id": "src/engine/mastery",
+        "layer": "src/engine",
+        "path": "src/engine/mastery",
+        "lines": 191,
+        "sourceRefs": [
+          "src/engine/mastery.ts"
+        ]
+      },
+      {
+        "id": "src/engine/sm2",
+        "layer": "src/engine",
+        "path": "src/engine/sm2",
+        "lines": 215,
+        "sourceRefs": [
+          "src/engine/sm2.ts"
+        ]
+      },
+      {
+        "id": "src/engine/topic-id",
+        "layer": "src/engine",
+        "path": "src/engine/topic-id",
+        "lines": 54,
+        "sourceRefs": [
+          "src/engine/topic-id.ts"
+        ]
+      },
+      {
+        "id": "src/index",
+        "layer": "src(root)",
+        "path": "src/index",
+        "lines": 27,
+        "sourceRefs": [
+          "src/index.ts"
+        ]
+      },
+      {
+        "id": "src/storage/atomic-write",
+        "layer": "src/storage",
+        "path": "src/storage/atomic-write",
+        "lines": 190,
+        "sourceRefs": [
+          "src/storage/atomic-write.ts"
+        ]
+      },
+      {
+        "id": "src/storage/cache",
+        "layer": "src/storage",
+        "path": "src/storage/cache",
+        "lines": 211,
+        "sourceRefs": [
+          "src/storage/cache.ts"
+        ]
+      },
+      {
+        "id": "src/storage/dependencies",
+        "layer": "src/storage",
+        "path": "src/storage/dependencies",
+        "lines": 28,
+        "sourceRefs": [
+          "src/storage/dependencies.ts"
+        ]
+      },
+      {
+        "id": "src/storage/frontmatter",
+        "layer": "src/storage",
+        "path": "src/storage/frontmatter",
+        "lines": 159,
+        "sourceRefs": [
+          "src/storage/frontmatter.ts"
+        ]
+      },
+      {
+        "id": "src/storage/index",
+        "layer": "src/storage",
+        "path": "src/storage/index",
+        "lines": 117,
+        "sourceRefs": [
+          "src/storage/index.ts"
+        ]
+      },
+      {
+        "id": "src/storage/loader",
+        "layer": "src/storage",
+        "path": "src/storage/loader",
+        "lines": 291,
+        "sourceRefs": [
+          "src/storage/loader.ts"
+        ]
+      },
+      {
+        "id": "src/storage/lock",
+        "layer": "src/storage",
+        "path": "src/storage/lock",
+        "lines": 528,
+        "sourceRefs": [
+          "src/storage/lock.ts"
+        ]
+      },
+      {
+        "id": "src/storage/memory",
+        "layer": "src/storage",
+        "path": "src/storage/memory",
+        "lines": 827,
+        "sourceRefs": [
+          "src/storage/memory.ts"
+        ]
+      },
+      {
+        "id": "src/storage/pattern-matcher",
+        "layer": "src/storage",
+        "path": "src/storage/pattern-matcher",
+        "lines": 455,
+        "sourceRefs": [
+          "src/storage/pattern-matcher.ts"
+        ]
+      },
+      {
+        "id": "src/storage/roadmap-parser",
+        "layer": "src/storage",
+        "path": "src/storage/roadmap-parser",
+        "lines": 163,
+        "sourceRefs": [
+          "src/storage/roadmap-parser.ts"
+        ]
+      },
+      {
+        "id": "src/storage/scanner",
+        "layer": "src/storage",
+        "path": "src/storage/scanner",
+        "lines": 226,
+        "sourceRefs": [
+          "src/storage/scanner.ts"
+        ]
+      },
+      {
+        "id": "src/storage/sessions",
+        "layer": "src/storage",
+        "path": "src/storage/sessions",
+        "lines": 275,
+        "sourceRefs": [
+          "src/storage/sessions.ts"
+        ]
+      },
+      {
+        "id": "src/storage/vault-walker",
+        "layer": "src/storage",
+        "path": "src/storage/vault-walker",
+        "lines": 288,
+        "sourceRefs": [
+          "src/storage/vault-walker.ts"
+        ]
+      },
+      {
+        "id": "src/types",
+        "layer": "src(root)",
+        "path": "src/types",
+        "lines": 734,
+        "sourceRefs": [
+          "src/types.ts"
+        ]
+      },
+      {
+        "id": "src/validation/collect-vault",
+        "layer": "src/validation",
+        "path": "src/validation/collect-vault",
+        "lines": 144,
+        "sourceRefs": [
+          "src/validation/collect-vault.ts"
+        ]
+      },
+      {
+        "id": "src/validation/format",
+        "layer": "src/validation",
+        "path": "src/validation/format",
+        "lines": 165,
+        "sourceRefs": [
+          "src/validation/format.ts"
+        ]
+      },
+      {
+        "id": "src/validation/index",
+        "layer": "src/validation",
+        "path": "src/validation/index",
+        "lines": 86,
+        "sourceRefs": [
+          "src/validation/index.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/assessed-at",
+        "layer": "src/validation",
+        "path": "src/validation/rules/assessed-at",
+        "lines": 108,
+        "sourceRefs": [
+          "src/validation/rules/assessed-at.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/diagnostic-value",
+        "layer": "src/validation",
+        "path": "src/validation/rules/diagnostic-value",
+        "lines": 33,
+        "sourceRefs": [
+          "src/validation/rules/diagnostic-value.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/no-dependency-cycle",
+        "layer": "src/validation",
+        "path": "src/validation/rules/no-dependency-cycle",
+        "lines": 63,
+        "sourceRefs": [
+          "src/validation/rules/no-dependency-cycle.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/no-duplicate-topic-id",
+        "layer": "src/validation",
+        "path": "src/validation/rules/no-duplicate-topic-id",
+        "lines": 48,
+        "sourceRefs": [
+          "src/validation/rules/no-duplicate-topic-id.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/no-missing-dependency",
+        "layer": "src/validation",
+        "path": "src/validation/rules/no-missing-dependency",
+        "lines": 75,
+        "sourceRefs": [
+          "src/validation/rules/no-missing-dependency.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/no-session-unknown-topic",
+        "layer": "src/validation",
+        "path": "src/validation/rules/no-session-unknown-topic",
+        "lines": 85,
+        "sourceRefs": [
+          "src/validation/rules/no-session-unknown-topic.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/parse-frontmatter",
+        "layer": "src/validation",
+        "path": "src/validation/rules/parse-frontmatter",
+        "lines": 78,
+        "sourceRefs": [
+          "src/validation/rules/parse-frontmatter.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/review-dates",
+        "layer": "src/validation",
+        "path": "src/validation/rules/review-dates",
+        "lines": 85,
+        "sourceRefs": [
+          "src/validation/rules/review-dates.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/safe-vault-paths",
+        "layer": "src/validation",
+        "path": "src/validation/rules/safe-vault-paths",
+        "lines": 134,
+        "sourceRefs": [
+          "src/validation/rules/safe-vault-paths.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-assessment-fields",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-assessment-fields",
+        "lines": 79,
+        "sourceRefs": [
+          "src/validation/rules/valid-assessment-fields.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-dependency-list",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-dependency-list",
+        "lines": 199,
+        "sourceRefs": [
+          "src/validation/rules/valid-dependency-list.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-hot-memory",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-hot-memory",
+        "lines": 150,
+        "sourceRefs": [
+          "src/validation/rules/valid-hot-memory.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-managed-note-kind",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-managed-note-kind",
+        "lines": 188,
+        "sourceRefs": [
+          "src/validation/rules/valid-managed-note-kind.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-palee-schema",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-palee-schema",
+        "lines": 87,
+        "sourceRefs": [
+          "src/validation/rules/valid-palee-schema.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-review-dates",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-review-dates",
+        "lines": 115,
+        "sourceRefs": [
+          "src/validation/rules/valid-review-dates.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-review-fields",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-review-fields",
+        "lines": 124,
+        "sourceRefs": [
+          "src/validation/rules/valid-review-fields.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-session-index",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-session-index",
+        "lines": 87,
+        "sourceRefs": [
+          "src/validation/rules/valid-session-index.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-session-schema",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-session-schema",
+        "lines": 406,
+        "sourceRefs": [
+          "src/validation/rules/valid-session-schema.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-topic-id-format",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-topic-id-format",
+        "lines": 77,
+        "sourceRefs": [
+          "src/validation/rules/valid-topic-id-format.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-topic-mastery",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-topic-mastery",
+        "lines": 176,
+        "sourceRefs": [
+          "src/validation/rules/valid-topic-mastery.ts"
+        ]
+      },
+      {
+        "id": "src/validation/rules/valid-topic-status",
+        "layer": "src/validation",
+        "path": "src/validation/rules/valid-topic-status",
+        "lines": 62,
+        "sourceRefs": [
+          "src/validation/rules/valid-topic-status.ts"
+        ]
+      },
+      {
+        "id": "src/validation/run-rules",
+        "layer": "src/validation",
+        "path": "src/validation/run-rules",
+        "lines": 60,
+        "sourceRefs": [
+          "src/validation/run-rules.ts"
+        ]
+      },
+      {
+        "id": "src/validation/types",
+        "layer": "src/validation",
+        "path": "src/validation/types",
+        "lines": 158,
+        "sourceRefs": [
+          "src/validation/types.ts"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "bin/palee",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/exit-codes",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/config",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/config",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/adopt",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/adopt",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/next",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/next",
+        "line": 14,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/plan",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/plan",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/progress",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/progress",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/review",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/review",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/validate",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/validate",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/roadmap",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/roadmap",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/migrate",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/migrate",
+        "line": 20,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/session",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/session",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "bin/palee",
+        "to": "src/cli/dashboard",
+        "layerFrom": "bin",
+        "layerTo": "src/cli",
+        "via": "../src/cli/dashboard",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/mastery",
+        "line": 23,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/adopt",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 24,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/config",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 8,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/config",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 4,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/mastery",
+        "line": 6,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/dashboard",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/exit-codes",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/migrate",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/migrate",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/migrate",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 3,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/migrate",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 4,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/migrate",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/next",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/next",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/next",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/next",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/next",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/engine/dependency",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/dependency",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/mastery",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/plan",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/mastery",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/progress",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 3,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 4,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/engine/sm2",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/sm2",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/mastery",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/review",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 8,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/engine/dependency",
+        "layerFrom": "src/cli",
+        "layerTo": "src/engine",
+        "via": "../engine/dependency",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/roadmap",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/session",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 1,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/session",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 2,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/session",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 3,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/session",
+        "to": "src/storage/index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/storage",
+        "via": "../storage",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/session",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 26,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/cli/config",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./config",
+        "line": 4,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/cli/onboarding",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./onboarding",
+        "line": 6,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/cli/exit-codes",
+        "layerFrom": "src/cli",
+        "layerTo": "src/cli",
+        "via": "./exit-codes",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 8,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/collect-vault",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/collect-vault",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/run-rules",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/run-rules",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/format",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/format",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/parse-frontmatter",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/parse-frontmatter",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/no-duplicate-topic-id",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/no-duplicate-topic-id",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/no-missing-dependency",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/no-missing-dependency",
+        "line": 14,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/no-dependency-cycle",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/no-dependency-cycle",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-palee-schema",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-palee-schema",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-topic-id-format",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-topic-id-format",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-topic-status",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-topic-status",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-assessment-fields",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-assessment-fields",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-topic-mastery",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-topic-mastery",
+        "line": 20,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-review-fields",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-review-fields",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-review-dates",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-review-dates",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-dependency-list",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-dependency-list",
+        "line": 23,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-managed-note-kind",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-managed-note-kind",
+        "line": 24,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-session-schema",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-session-schema",
+        "line": 25,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/no-session-unknown-topic",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/no-session-unknown-topic",
+        "line": 26,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-session-index",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-session-index",
+        "line": 27,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/valid-hot-memory",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/valid-hot-memory",
+        "line": 28,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/rules/safe-vault-paths",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/rules/safe-vault-paths",
+        "line": 29,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/cli/validate",
+        "to": "src/validation/types",
+        "layerFrom": "src/cli",
+        "layerTo": "src/validation",
+        "via": "../validation/types",
+        "line": 30,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/engine/dependency",
+        "to": "src/types",
+        "layerFrom": "src/engine",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/engine/dependency",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/engine",
+        "layerTo": "src/engine",
+        "via": "./mastery",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/engine/index",
+        "to": "src/engine/sm2",
+        "layerFrom": "src/engine",
+        "layerTo": "src/engine",
+        "via": "./sm2",
+        "line": 7,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/engine/index",
+        "to": "src/engine/dependency",
+        "layerFrom": "src/engine",
+        "layerTo": "src/engine",
+        "via": "./dependency",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 2
+      },
+      {
+        "from": "src/engine/index",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/engine",
+        "layerTo": "src/engine",
+        "via": "./mastery",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/engine/sm2",
+        "to": "src/types",
+        "layerFrom": "src/engine",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 9,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/index",
+        "to": "src/types",
+        "layerFrom": "src(root)",
+        "layerTo": "src(root)",
+        "via": "./types",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/index",
+        "to": "src/engine/index",
+        "layerFrom": "src(root)",
+        "layerTo": "src/engine",
+        "via": "./engine",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/index",
+        "to": "src/storage/index",
+        "layerFrom": "src(root)",
+        "layerTo": "src/storage",
+        "via": "./storage",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/index",
+        "to": "src/validation/index",
+        "layerFrom": "src(root)",
+        "layerTo": "src/validation",
+        "via": "./validation",
+        "line": 25,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/atomic-write",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/atomic-write",
+        "to": "src/storage/lock",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./lock",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/atomic-write",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/cache",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/cache",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/frontmatter",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/vault-walker",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./vault-walker",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/scanner",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./scanner",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 2
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/lock",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./lock",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/atomic-write",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./atomic-write",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/cache",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./cache",
+        "line": 20,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/memory",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./memory",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 2
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/roadmap-parser",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./roadmap-parser",
+        "line": 42,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/pattern-matcher",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./pattern-matcher",
+        "line": 43,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/loader",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./loader",
+        "line": 44,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/index",
+        "to": "src/storage/sessions",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./sessions",
+        "line": 45,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/loader",
+        "to": "src/storage/vault-walker",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./vault-walker",
+        "line": 10,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/loader",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/loader",
+        "to": "src/storage/cache",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./cache",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/loader",
+        "to": "src/storage/dependencies",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./dependencies",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/loader",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 14,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/lock",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/memory",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/memory",
+        "to": "src/storage/atomic-write",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./atomic-write",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/memory",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/roadmap-parser",
+        "to": "src/storage/dependencies",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./dependencies",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/roadmap-parser",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/roadmap-parser",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/scanner",
+        "to": "src/storage/vault-walker",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./vault-walker",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/scanner",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/scanner",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 13,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/sessions",
+        "to": "src/storage/frontmatter",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./frontmatter",
+        "line": 20,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/sessions",
+        "to": "src/storage/vault-walker",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./vault-walker",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/sessions",
+        "to": "src/storage/memory",
+        "layerFrom": "src/storage",
+        "layerTo": "src/storage",
+        "via": "./memory",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/storage/vault-walker",
+        "to": "src/types",
+        "layerFrom": "src/storage",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 11,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/storage/loader",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/loader",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 2
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/storage/scanner",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/scanner",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/storage/cache",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/cache",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/storage/sessions",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/sessions",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/storage/memory",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/memory",
+        "line": 20,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/collect-vault",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./types",
+        "line": 22,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/format",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./types",
+        "line": 14,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/collect-vault",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./collect-vault",
+        "line": 14,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/run-rules",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./run-rules",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/format",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./format",
+        "line": 17,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/parse-frontmatter",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/parse-frontmatter",
+        "line": 18,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-managed-note-kind",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-managed-note-kind",
+        "line": 19,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-palee-schema",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-palee-schema",
+        "line": 20,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-topic-id-format",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-topic-id-format",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-topic-status",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-topic-status",
+        "line": 22,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/no-duplicate-topic-id",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/no-duplicate-topic-id",
+        "line": 23,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-dependency-list",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-dependency-list",
+        "line": 24,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/no-missing-dependency",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/no-missing-dependency",
+        "line": 25,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/no-dependency-cycle",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/no-dependency-cycle",
+        "line": 26,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-assessment-fields",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-assessment-fields",
+        "line": 27,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-topic-mastery",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-topic-mastery",
+        "line": 28,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-review-fields",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-review-fields",
+        "line": 29,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-review-dates",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-review-dates",
+        "line": 30,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-session-schema",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-session-schema",
+        "line": 31,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/no-session-unknown-topic",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/no-session-unknown-topic",
+        "line": 32,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-session-index",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-session-index",
+        "line": 33,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/valid-hot-memory",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/valid-hot-memory",
+        "line": 34,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/rules/safe-vault-paths",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./rules/safe-vault-paths",
+        "line": 35,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/index",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./types",
+        "line": 36,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-dependency-cycle",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 10,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-dependency-cycle",
+        "to": "src/engine/dependency",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/dependency",
+        "line": 12,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-dependency-cycle",
+        "to": "src/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src(root)",
+        "via": "../../types",
+        "line": 13,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-duplicate-topic-id",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 8,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-missing-dependency",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 29,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-missing-dependency",
+        "to": "src/engine/dependency",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/dependency",
+        "line": 31,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-missing-dependency",
+        "to": "src/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src(root)",
+        "via": "../../types",
+        "line": 32,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-session-unknown-topic",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 31,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-session-unknown-topic",
+        "to": "src/validation/rules/valid-session-schema",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./valid-session-schema",
+        "line": 33,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/no-session-unknown-topic",
+        "to": "src/storage/sessions",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../../storage/sessions",
+        "line": 34,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/parse-frontmatter",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 8,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/review-dates",
+        "to": "src/validation/rules/assessed-at",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./assessed-at",
+        "line": 26,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/safe-vault-paths",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 41,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-assessment-fields",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 12,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-assessment-fields",
+        "to": "src/validation/rules/assessed-at",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./assessed-at",
+        "line": 14,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-assessment-fields",
+        "to": "src/validation/rules/diagnostic-value",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./diagnostic-value",
+        "line": 15,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-dependency-list",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 58,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-dependency-list",
+        "to": "src/storage/loader",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../../storage/loader",
+        "line": 60,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-dependency-list",
+        "to": "src/validation/rules/diagnostic-value",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./diagnostic-value",
+        "line": 61,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-hot-memory",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 35,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-hot-memory",
+        "to": "src/storage/memory",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../../storage/memory",
+        "line": 37,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-hot-memory",
+        "to": "src/validation/rules/diagnostic-value",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./diagnostic-value",
+        "line": 38,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-managed-note-kind",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 37,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-palee-schema",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 14,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-palee-schema",
+        "to": "src/engine/topic-id",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/topic-id",
+        "line": 16,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-review-dates",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 27,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-review-dates",
+        "to": "src/validation/rules/diagnostic-value",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./diagnostic-value",
+        "line": 29,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-review-dates",
+        "to": "src/validation/rules/review-dates",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./review-dates",
+        "line": 30,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-review-fields",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 33,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-session-index",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 33,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-session-schema",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 34,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-session-schema",
+        "to": "src/engine/topic-id",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/topic-id",
+        "line": 36,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-session-schema",
+        "to": "src/validation/rules/assessed-at",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./assessed-at",
+        "line": 37,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-session-schema",
+        "to": "src/storage/sessions",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../../storage/sessions",
+        "line": 38,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-id-format",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 26,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-id-format",
+        "to": "src/engine/topic-id",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/topic-id",
+        "line": 28,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-mastery",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 24,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-mastery",
+        "to": "src/engine/mastery",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/mastery",
+        "line": 26,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-mastery",
+        "to": "src/validation/rules/assessed-at",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./assessed-at",
+        "line": 27,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-mastery",
+        "to": "src/validation/rules/diagnostic-value",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./diagnostic-value",
+        "line": 28,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-status",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "../types",
+        "line": 19,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/rules/valid-topic-status",
+        "to": "src/engine/topic-id",
+        "layerFrom": "src/validation",
+        "layerTo": "src/engine",
+        "via": "../../engine/topic-id",
+        "line": 21,
+        "typeOnly": false,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/run-rules",
+        "to": "src/validation/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src/validation",
+        "via": "./types",
+        "line": 9,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/types",
+        "to": "src/storage/loader",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/loader",
+        "line": 11,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/types",
+        "to": "src/storage/sessions",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/sessions",
+        "line": 13,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/types",
+        "to": "src/storage/memory",
+        "layerFrom": "src/validation",
+        "layerTo": "src/storage",
+        "via": "../storage/memory",
+        "line": 18,
+        "typeOnly": true,
+        "importSites": 1
+      },
+      {
+        "from": "src/validation/types",
+        "to": "src/types",
+        "layerFrom": "src/validation",
+        "layerTo": "src(root)",
+        "via": "../types",
+        "line": 19,
+        "typeOnly": true,
+        "importSites": 1
+      }
+    ]
+  },
+  "invariants": {
+    "circularImports": 0,
+    "forbiddenDirectionEdges": 0,
+    "absentEdges": [
+      "engine->storage",
+      "engine->validation",
+      "engine->cli",
+      "storage->cli",
+      "storage->engine",
+      "storage->validation",
+      "validation->cli"
+    ]
+  }
+}

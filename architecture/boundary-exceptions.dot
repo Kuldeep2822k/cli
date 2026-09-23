@@ -1,0 +1,60 @@
+/*
+ * PALEE — boundary exceptions and coupling hotspots
+ *
+ * Route: architecture-visualization -> dependency-impact-analyzer + graphviz.
+ * Question answered: where does the implemented structure diverge from the
+ * documented boundary, and what is the blast radius if a hotspot changes?
+ *
+ * Every edge here was read off the repo on 2026-09-22:
+ *   import edges  -> architecture/_evidence/import-graph.json (node scripts/arch-import-graph.cjs)
+ *   fs call sites -> grep of "fs.<call>" over src/cli and src/storage
+ * Solid red = contradicts a documented rule. Dashed amber = undocumented but
+ * not contradicted. Blue = coupling hotspot, no rule broken.
+ */
+digraph BoundaryExceptions {
+  graph [rankdir=TB, fontname="Helvetica", labelloc=t, nodesep=0.3, ranksep=0.9,
+         label="PALEE boundary exceptions — 2 rule contradictions, 2 facade divergences, 3 coupling hotspots\nRed edges contradict a documented invariant; amber edges are undocumented but uncontradicted"];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#f8f9fa", color="#495057"];
+  edge  [fontname="Helvetica", fontsize=9];
+
+  // ---------------------------------------------------------------- nodes
+  subgraph cluster_docs {
+    label="  Documented rule  "; style="rounded"; color="#6c757d"; fontcolor="#6c757d";
+    rule_fs      [label="agent.md:13\n\"No raw fs outside storage.\"\nreinforced by\ndocs/01-2:121, docs/02-4:163,\ndocs/04-0:23", shape=note, fillcolor="#e9ecef"];
+    rule_layers  [label="agent.md:9-14\n\"Architecture (four layers)\"\ntypes / engine / storage / cli\n— src/validation is not listed", shape=note, fillcolor="#e9ecef"];
+    rule_facade  [label="agent.md:12-13\nengine + storage reached via\nsrc/<layer>/index.ts facades", shape=note, fillcolor="#e9ecef"];
+  }
+
+  subgraph cluster_impl {
+    label="  Implemented structure  "; style="rounded"; color="#335c67"; fontcolor="#335c67";
+    cli_config   [label="src/cli/config.ts\nfs.mkdirSync :105\nfs.openSync  :114\nfs.renameSync:119\nfs.unlinkSync:126", fillcolor="#fbd5d5", color="#9e2a2b"];
+    cli_readers  [label="src/cli/{adopt,onboarding,review,roadmap,migrate,session}.ts\nfs.readFileSync / statSync / existsSync / readdirSync only\n(7 CLI modules import fs in total)", fillcolor="#fff3cd", color="#9e2a2b"];
+    storage_aw   [label="src/storage/atomic-write.ts\natomicWrite(): the sanctioned write path\n+ WINDOWS_RETRY_* constants :20-24", fillcolor="#ffe8f3", color="#f72585"];
+    storage_lock [label="src/storage/lock.ts\nLock: mkdirSync mutex + heartbeat\n+ WINDOWS_RETRY_* constants :43-47  (duplicate)", fillcolor="#ffe8f3", color="#f72585"];
+    validation   [label="src/validation/**\n26 modules · 3072 lines · 19 rules\nlargest module tree in src/", fillcolor="#e3f8ff", color="#4cc9f0"];
+    engine_index [label="src/engine/index.ts\n17 exported symbols\nimported ONLY by src/index.ts", fillcolor="#efe0fb", color="#7209b7"];
+    valid_index  [label="src/validation/index.ts\nre-exports all 19 rules\nimported ONLY by src/index.ts", fillcolor="#e3f8ff", color="#4cc9f0"];
+    cli_validate [label="src/cli/validate.ts\nfan-out 26 = highest in the repo\nimports 19 rules + collectVault + runRules\n+ 2 formatters one by one", fillcolor="#dbe4ff", color="#4361ee"];
+    cli_handlers [label="8 src/cli handlers\nimport engine/sm2 | mastery | dependency\ndirectly, never the barrel", fillcolor="#dbe4ff", color="#4361ee"];
+    types        [label="src/types.ts\nfan-in 26 — widest change surface\n734 lines, 39 exported symbols", fillcolor="#fff4d6", color="#ffd166"];
+    exitcodes    [label="src/cli/exit-codes.ts\nfan-in 12 (bin + all 11 handlers)\nits only import: the storage barrel", fillcolor="#dbe4ff", color="#4361ee"];
+  }
+
+  // ------------------------------------------------- contradictions (red)
+  rule_fs -> cli_config   [label="CONTRADICTED: mutating fs\noutside src/storage", color="#c1121f", fontcolor="#c1121f", penwidth=2.5];
+  rule_fs -> cli_readers  [label="CONTRADICTED as written\n(read-only fs; narrow vault-write\nrule still holds)", color="#c1121f", fontcolor="#c1121f", style=dashed];
+  rule_layers -> validation [label="OMITTED from the\nlayer list", color="#c1121f", fontcolor="#c1121f", penwidth=2.5];
+
+  // -------------------------------------------- facade divergence (amber)
+  rule_facade -> cli_handlers [label="DIVERGENT: deep imports,\nbarrel unused by the CLI", color="#e07a1f", fontcolor="#e07a1f", style=dashed];
+  rule_facade -> cli_validate [label="DIVERGENT: rule catalog\nduplicated in two places", color="#e07a1f", fontcolor="#e07a1f", style=dashed];
+  cli_validate -> valid_index [label="no edge — src/validation/index.ts\nserves only the npm package surface", color="#e07a1f", fontcolor="#e07a1f", style=dashed];
+  cli_handlers -> engine_index [label="no edge — src/engine/index.ts\nserves only the npm package surface", color="#e07a1f", fontcolor="#e07a1f", style=dashed];
+
+  // ------------------------------------------------- hotspots (blue)
+  cli_handlers -> types      [label="interface imports", color="#4361ee", fontcolor="#4361ee"];
+  cli_validate -> types      [label="ValidateOptions", color="#4361ee", fontcolor="#4361ee"];
+  cli_validate -> validation [label="22 edges", color="#4361ee", fontcolor="#4361ee", penwidth=2];
+  cli_config   -> exitcodes  [label="ExitCode enum", color="#4361ee", fontcolor="#4361ee"];
+  storage_aw   -> storage_lock [label="WINDOWS_RETRY_* duplicated verbatim\n(5 constants, two files)", color="#c1121f", fontcolor="#c1121f", arrowsize=0.5];
+}
