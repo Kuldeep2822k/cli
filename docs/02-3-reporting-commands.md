@@ -179,7 +179,7 @@ palee validate [flags]
 
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `--fix` | `boolean` | `false` | Attempt automated repairs for detected validation errors (Phase 1 diagnostic flag). | `palee validate --fix` |
+| `--fix` | `boolean` | `false` | Repair corrupted SM-2 review fields (`valid-review-fields` findings) by resetting each invalid field to its adopt default: `ease_factor` 2.5, `interval_days` 1, `repetition` 0, `lapses` 0, `last_quality` null. Other findings remain diagnostic only (general fix engine deferred per ADR-0008). Reports repaired fields (additive `repairs`/`repair_conflicts` keys in `--json`) and re-validates before choosing the exit code. | `palee validate --fix` |
 | `--json` | `boolean` | `false` | Output validation diagnostics as structured JSON (auto-activated in non-TTY environments). | `palee validate --json` |
 | `--strict` | `boolean` | `false` | Escalate warnings to a non-zero exit code: a warnings-only vault exits `3` like an errors vault (default: warnings never gate the exit code). | `palee validate --strict` |
 

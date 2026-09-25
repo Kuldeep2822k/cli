@@ -19,7 +19,7 @@ import { validTopicIdFormatRule } from '../validation/rules/valid-topic-id-forma
 import { validTopicStatusRule } from '../validation/rules/valid-topic-status';
 import { validAssessmentFieldsRule } from '../validation/rules/valid-assessment-fields';
 import { validTopicMasteryRule } from '../validation/rules/valid-topic-mastery';
-import { validReviewFieldsRule } from '../validation/rules/valid-review-fields';
+import { validReviewFieldsRule, repairReviewFields } from '../validation/rules/valid-review-fields';
 import { validReviewDatesRule } from '../validation/rules/valid-review-dates';
 import { validDependencyListRule } from '../validation/rules/valid-dependency-list';
 import { validManagedNoteKindRule } from '../validation/rules/valid-managed-note-kind';
@@ -28,7 +28,14 @@ import { noSessionUnknownTopicRule } from '../validation/rules/no-session-unknow
 import { validSessionIndexRule } from '../validation/rules/valid-session-index';
 import { validHotMemoryRule } from '../validation/rules/valid-hot-memory';
 import { safeVaultPathsRule } from '../validation/rules/safe-vault-paths';
-import type { ValidationRule } from '../validation/types';
+import type { ValidationRule, ValidationIssue } from '../validation/types';
+import {
+  updateFrontmatter,
+  computeFingerprint,
+  atomicWrite,
+  isConflictError,
+} from '../storage';
+import type { LoadedTopic } from '../storage';
 
 /**
  * Rules executed by `palee validate`, in registration order.
@@ -76,14 +83,92 @@ const VALIDATION_RULES: ValidationRule[] = [
   safeVaultPathsRule,
 ];
 
+/** One field-level repair performed by `--fix` (additive JSON report entry). */
+interface Sm2RepairEntry {
+  topic_id: string;
+  file: string;
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+/**
+ * Renders a value for repair reporting without JSON.stringify's
+ * non-finite quirk (same policy as the `valid-review-fields` rule).
+ */
+function displayForReport(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return String(value);
+  }
+  return value;
+}
+
+/**
+ * Repairs `valid-review-fields` corruption in collected topics by resetting
+ * each invalid field to its adopt default.
+ *
+ * @remarks
+ * Deliberately scoped to the `valid-review-fields` rule only — the general
+ * fix engine remains deferred (ADR-0008). Writes go through
+ * `updateFrontmatter` + `atomicWrite` with OCC fingerprinting, mirroring
+ * `palee review`; a concurrent modification on one note is skipped
+ * (reported as a conflict) while the remaining notes are still repaired.
+ *
+ * @param vaultPath - Resolved vault root
+ * @param topics - Collected topics (raw frontmatter available)
+ * @param issues - Validation issues from the same collection pass
+ * @returns Per-field repair entries and OCC conflict messages
+ */
+async function applyReviewFieldRepairs(
+  vaultPath: string,
+  topics: LoadedTopic[],
+  issues: ValidationIssue[]
+): Promise<{ repairs: Sm2RepairEntry[]; conflicts: string[] }> {
+  const corruptTopicIds = new Set(
+    issues
+      .filter((issue) => issue.ruleId === 'valid-review-fields')
+      .map((issue) => issue.topicId)
+  );
+  const repairs: Sm2RepairEntry[] = [];
+  const conflicts: string[] = [];
+
+  for (const topic of topics) {
+    if (!corruptTopicIds.has(topic.palee_id)) continue;
+    const fixes = repairReviewFields(topic.frontmatter);
+    if (!fixes) continue;
+    try {
+      const updatedContent = updateFrontmatter(topic.content, fixes);
+      await atomicWrite(vaultPath, topic.filePath, updatedContent, computeFingerprint(topic.content));
+      for (const [field, to] of Object.entries(fixes)) {
+        repairs.push({
+          topic_id: topic.palee_id,
+          file: topic.path,
+          field,
+          from: displayForReport(topic.frontmatter[field]),
+          to,
+        });
+      }
+    } catch (e: unknown) {
+      if (isConflictError(e)) {
+        conflicts.push(`${topic.path}: ${(e as Error).message}`);
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  return { repairs, conflicts };
+}
+
 /**
  * CLI command handler for validating vault integrity, schema compliance, and dependency cycles.
  *
  * @param options - Validate options including `--json`, `--fix`, and `--strict`.
  * @returns Promise resolving when validation completes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
- * process.exitCode = 3 if validation errors are found in the vault,
- * and process.exitCode = 5 on unexpected exceptions.
+ * process.exitCode = 3 if validation errors remain after an optional `--fix`
+ * pass (a note skipped due to an OCC conflict is still an error), and
+ * process.exitCode = 5 on unexpected exceptions.
  * Warnings never gate the exit code unless `--strict` is passed
  * (adopted severity policy, #25).
  *
@@ -105,37 +190,65 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
     }
 
     const context = collectVault(vaultPath);
-    const issues = runRules(context, VALIDATION_RULES);
+    let issues = runRules(context, VALIDATION_RULES);
+    let reportContext = context;
+
+    let repairs: Sm2RepairEntry[] = [];
+    let conflicts: string[] = [];
+    if (options.fix) {
+      const repairResult = await applyReviewFieldRepairs(vaultPath, context.topics, issues);
+      repairs = repairResult.repairs;
+      conflicts = repairResult.conflicts;
+      if (repairs.length > 0) {
+        // Re-validate from fresh disk state so the report and exit code
+        // reflect what actually remains after the repair pass.
+        reportContext = collectVault(vaultPath);
+        issues = runRules(reportContext, VALIDATION_RULES);
+      }
+    }
+
     const errorCount = issues.filter((issue) => issue.severity === 'error').length;
     const warningCount = issues.filter((issue) => issue.severity === 'warning').length;
     // Old behavior: topic_count is the number of UNIQUE palee_ids, not the
     // number of topic notes (duplicates collapse to one entry).
-    const uniqueTopicCount = new Set(context.topics.map((topic) => topic.palee_id)).size;
+    const uniqueTopicCount = new Set(reportContext.topics.map((topic) => topic.palee_id)).size;
 
     if (jsonMode) {
-      console.log(
+      const json = JSON.parse(
         formatJson(issues, {
           topicCount: uniqueTopicCount,
-          fileCount: context.files.length,
+          fileCount: reportContext.files.length,
         })
-      );
+      ) as Record<string, unknown>;
+      if (options.fix) {
+        json.repairs = repairs;
+        json.repair_conflicts = conflicts;
+      }
+      console.log(JSON.stringify(json));
       if (errorCount > 0 || (options.strict && warningCount > 0)) {
         process.exitCode = ExitCode.Validation;
       }
       return;
     }
 
-    console.log(`Found ${uniqueTopicCount} PALEE topics in ${context.files.length} files`);
+    console.log(`Found ${uniqueTopicCount} PALEE topics in ${reportContext.files.length} files`);
     console.log();
 
-    // Human report (or the pass line), then the --fix note for any vault
-    // state — a clean vault with --fix set still tells the user fix is a
-    // Phase-1 stub rather than silently implying fixes ran.
-    console.log(formatHuman(issues));
-
     if (options.fix) {
-      console.log('Note: --fix is not implemented in Phase 1');
+      for (const repair of repairs) {
+        console.log(`✓ Repaired ${repair.topic_id}: ${repair.field} ${JSON.stringify(repair.from)} -> ${JSON.stringify(repair.to)} (${repair.file})`);
+      }
+      for (const conflict of conflicts) {
+        console.error(`⚠ Skipped repair (OCC conflict): ${conflict}`);
+      }
+      if (repairs.length === 0 && conflicts.length === 0) {
+        console.log('Nothing to repair: --fix found no fixable issues (SM-2 review fields).');
+      }
+      console.log();
     }
+
+    // Human report (or the pass line) after any --fix repair summary.
+    console.log(formatHuman(issues));
 
     if (errorCount > 0 || (options.strict && warningCount > 0)) {
       process.exitCode = ExitCode.Validation;

@@ -90,7 +90,7 @@ program
 program
   .command('validate')
   .description('Validate vault integrity')
-  .option('--fix', 'Attempt to fix validation errors')
+  .option('--fix', 'Repair corrupted SM-2 review fields to adopt defaults')
   .option('--json', 'Output in JSON format')
   .option('--strict', 'Exit non-zero on warnings as well as errors')
   .action(validateCommand);
