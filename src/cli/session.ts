@@ -336,7 +336,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           const rawStarted = fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
           const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
           if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
-            startedAt = new Date(Math.min(parsedStart, nowTime)).toISOString();
+            // Stale hot-memory tolerance: clamp to no earlier than 24h before now (matches Tier-1 draft clamp)
+            const minStart = nowTime - 24 * 60 * 60 * 1000;
+            startedAt = new Date(Math.max(Math.min(parsedStart, nowTime), minStart)).toISOString();
           }
         } catch {
           // ignore parse error
