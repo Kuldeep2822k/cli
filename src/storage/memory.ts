@@ -534,7 +534,14 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
             !String(frontmatter.session_id).startsWith('DRAFT-') &&
             frontmatter.status !== 'draft'
           ) {
-            const time = new Date((frontmatter.started_at as string) || 0).getTime();
+            // Apply the same NaN protection `regenerateIndex` uses: an
+            // unparseable `started_at` (hand-edited or corrupted frontmatter)
+            // yields NaN, and `NaN >= newestTime` is always false, which would
+            // disqualify every canonical session and erase hot memory. Such a
+            // session is ranked oldest instead of dropped, so derived views stay
+            // consistent and non-empty whenever real sessions exist.
+            const parsedTime = new Date((frontmatter.started_at as string) || 0).getTime();
+            const time = Number.isNaN(parsedTime) ? 0 : parsedTime;
             if (time >= newestTime) {
               newestTime = time;
               newestSession = { file: filePath, frontmatter, body };
