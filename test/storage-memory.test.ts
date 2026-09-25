@@ -557,6 +557,42 @@ Draft status session with newer timestamp.
     assert.strictEqual(Number.isNaN(frontmatter!.duration_minutes), false);
   });
 
+  test('recoverDraft save clamps draft older than 24h to a 24h maximum duration (BUG-004)', async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const draftId = generateDraftId();
+    const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
+      topic_id: 'T-stale-draft',
+      started_at: tenDaysAgo,
+    }, 'Stale draft body.');
+
+    await recoverDraft(testVaultPath, draftPath, 'save');
+
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    const files = fs.readdirSync(sessionsDir);
+    const recoveredNote = files.find(f => {
+      if (!f.startsWith('S-') || f.startsWith('DRAFT-S-')) return false;
+      const content = fs.readFileSync(path.join(sessionsDir, f), 'utf8');
+      return content.includes('T-stale-draft');
+    });
+    assert.ok(recoveredNote);
+
+    const content = fs.readFileSync(path.join(sessionsDir, recoveredNote), 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter);
+    assert.strictEqual(typeof frontmatter!.duration_minutes, 'number');
+    assert.ok(
+      (frontmatter!.duration_minutes as number) <= 1440,
+      `duration_minutes should be clamped to <=1440, got ${frontmatter!.duration_minutes}`
+    );
+    assert.ok((frontmatter!.duration_minutes as number) >= 1439);
+
+    const startMs = new Date(frontmatter!.started_at as string).getTime();
+    const minAllowed = Date.now() - 24 * 60 * 60 * 1000 - 60000;
+    assert.ok(startMs >= minAllowed, 'started_at must not be earlier than 24h before now');
+
+    fs.unlinkSync(path.join(sessionsDir, recoveredNote));
+  });
+
   test('regenerateIndex only indexes confirmed sessions and excludes draft notes', async () => {
     const draftId = generateDraftId();
     await writeDraftCheckpoint(testVaultPath, draftId, {

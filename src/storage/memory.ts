@@ -667,9 +667,12 @@ async function recoverDraft(
     const nowTime = new Date(nowIso).getTime();
     let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
 
-    // Clock skew tolerance: if within 60s in future, clamp to now
+    // Clock skew tolerance: if within 60s in future, clamp to now;
+    // stale drafts (older than 24h) clamp to now - 24h per the documented recovery rule
     if (parsedStart > nowTime) {
       parsedStart = nowTime;
+    } else if (nowTime - parsedStart > 24 * 60 * 60 * 1000) {
+      parsedStart = nowTime - 24 * 60 * 60 * 1000;
     }
 
     const startedAt = new Date(parsedStart).toISOString();

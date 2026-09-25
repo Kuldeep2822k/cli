@@ -337,7 +337,7 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       assert.strictEqual(frontmatter.duration_minutes, 0);
     });
 
-    test('draft checkpoint older than 24 hours accurately preserves multi-day duration without discarding study time', async () => {
+    test('draft checkpoint older than 24 hours is clamped to 24h maximum duration per documented recovery rule (BUG-004)', async () => {
       // Create draft with timestamp 30 hours ago
       const staleTime = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString();
       const draftPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-stale.md');
@@ -364,7 +364,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
 
       assert.ok(sessionStarted <= sessionEnded);
       const durationMin = Number(frontmatter.duration_minutes);
-      assert.ok(durationMin >= 1790 && durationMin <= 1810, `Expected ~1800 min, got ${durationMin}`);
+      // Documented contract (recoverDraft remarks): timestamps older than 24h are clamped.
+      // Previous expectation (~1800 min) encoded the BUG-004 defect and is intentionally updated.
+      assert.ok(durationMin >= 1439 && durationMin <= 1440, `Expected clamped 1440 min, got ${durationMin}`);
     });
   });
 
