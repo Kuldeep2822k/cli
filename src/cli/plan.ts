@@ -58,6 +58,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         title: t.title,
         path: t.path,
         topic_mastery: t.topic_mastery,
+        status: t.status,
         depends_on: t.depends_on,
         due_at: dueAt,
         repetition: t.repetition ?? 0,
@@ -65,9 +66,14 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       });
     }
 
+    // Archived topics are excluded from every derived plan figure (BUG-002),
+    // matching `palee progress`. `total_topics` still counts all loaded notes.
+    const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
+    const activeTopicMap = new Map(activeTopics.map(t => [t.palee_id, t]));
+    const archivedCount = topics.size - activeTopics.length;
 
     const dueTopics: PlanTopic[] = [];
-    for (const topic of topics.values()) {
+    for (const topic of activeTopics) {
       if (!topic.due_at || topic.due_at <= now) {
         dueTopics.push(topic);
       }
@@ -77,6 +83,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
+          active_topic_count: 0,
+          archived_topic_count: 0,
           reviews_due: [],
           ready_to_learn: [],
           quarantined_cycles: [],
@@ -102,7 +110,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // ready-to-learn list is computed over the acyclic subgraph only. Reviews
     // due (SM-2 state) stay on the full map — a quarantined topic's review
     // schedule is still real.
-    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(topics);
+    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(activeTopicMap);
 
     // Get ready to learn (deps satisfied, not mastered) — acyclic components only
     const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
@@ -118,14 +126,16 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
 
-    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
-    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
-    const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
+    const masteredCount = activeTopics.filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
+    const learningCount = activeTopics.filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
+    const newCount = activeTopics.filter(t => t.topic_mastery === 0).length;
 
 
     if (jsonMode) {
       console.log(JSON.stringify({
         total_topics: topics.size,
+        active_topic_count: activeTopics.length,
+        archived_topic_count: archivedCount,
         reviews_due: sortedDue.map(t => ({
           id: t.palee_id,
           title: t.title,
@@ -146,7 +156,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         counts: {
           due: dueTopics.length,
           ready: readyTopics.length,
-          quarantined: topics.size - acyclicTopics.size,
+          quarantined: activeTopics.length - acyclicTopics.size,
           mastered: masteredCount,
           learning: learningCount,
           new: newCount,
@@ -198,9 +208,10 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
     console.log();
 
-    // Section 3: Summary stats
+    // Section 3: Summary stats — active topics only, archived called out
+    // separately (BUG-002), mirroring `palee progress`.
     console.log('Progress Summary:');
-    console.log(`  Total Topics: ${topics.size}`);
+    console.log(`  Total Topics: ${activeTopics.length}${archivedCount > 0 ? ` (${archivedCount} archived)` : ''}`);
     console.log(`  Mastered (≥70%): ${masteredCount}`);
     console.log(`  Learning: ${learningCount}`);
     console.log(`  New: ${newCount}`);

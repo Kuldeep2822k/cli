@@ -19,6 +19,7 @@ interface DashboardTopic {
   repetition: number;
   lapses: number;
   difficulty: Difficulty;
+  status: string;
   due_at: Date | null;
 }
 
@@ -57,6 +58,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
         repetition: t.repetition ?? 0,
         lapses: t.lapses ?? 0,
         difficulty: t.difficulty ?? 'intermediate',
+        status: typeof t.status === 'string' ? t.status : 'not_started',
         due_at: dueAt,
       };
     });
@@ -66,6 +68,8 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
       if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
+          active_topic_count: 0,
+          archived_topic_count: 0,
           mastered: 0,
           learning: 0,
           new: 0,
@@ -90,12 +94,16 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
       return;
     }
 
-    // Stats
-    const total = topics.length;
-    const mastered = topics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
-    const learning = topics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
-    const newTopics = topics.filter(t => t.mastery === 0).length;
-    const dueTopics = topics.filter(t => t.due_at && t.due_at <= now);
+    // Stats — archived topics are excluded from every derived figure (BUG-002),
+    // matching `palee progress`. `total_topics` still counts all loaded notes.
+    const activeTopics = topics.filter(t => t.status !== 'archived');
+    const archivedCount = topics.length - activeTopics.length;
+
+    const total = activeTopics.length;
+    const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
+    const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
+    const newTopics = activeTopics.filter(t => t.mastery === 0).length;
+    const dueTopics = activeTopics.filter(t => t.due_at && t.due_at <= now);
     const due = dueTopics.length;
 
     const masteredPct = total > 0 ? (mastered / total * 100).toFixed(1) : '0.0';
@@ -103,9 +111,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const newPct = total > 0 ? (newTopics / total * 100).toFixed(1) : '0.0';
 
     const byDiff: Record<string, DashboardTopic[]> = {
-      beginner: topics.filter(t => t.difficulty === 'beginner'),
-      intermediate: topics.filter(t => t.difficulty === 'intermediate'),
-      advanced: topics.filter(t => t.difficulty === 'advanced'),
+      beginner: activeTopics.filter(t => t.difficulty === 'beginner'),
+      intermediate: activeTopics.filter(t => t.difficulty === 'intermediate'),
+      advanced: activeTopics.filter(t => t.difficulty === 'advanced'),
     };
 
     let next: DashboardTopic | null = null;
@@ -120,7 +128,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
 
     if (jsonMode) {
       console.log(JSON.stringify({
-        total_topics: total,
+        total_topics: topics.length,
+        active_topic_count: total,
+        archived_topic_count: archivedCount,
         mastered,
         learning,
         new: newTopics,
@@ -158,7 +168,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log();
 
-    console.log(`Total Topics:      ${total}`);
+    console.log(`Total Topics:      ${total}${archivedCount > 0 ? ` (${archivedCount} archived)` : ''}`);
     console.log(`Mastered (≥70%):   ${mastered} (${masteredPct}%)`);
     console.log(`Learning:          ${learning} (${learningPct}%)`);
     console.log(`New:               ${newTopics} (${newPct}%)`);
