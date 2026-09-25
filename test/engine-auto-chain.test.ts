@@ -23,6 +23,32 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.strictEqual(parseNumericPrefix('notes'), null);
       assert.strictEqual(parseNumericPrefix(''), null);
     });
+
+    // #73 review item 4: the original `/^(\d+)[-_.\s]?(.*)$/` made the separator
+    // optional, so a digit leading a *word* silently claimed a lesson number.
+    // Neither case raised `hasUnnumbered`, so a misplaced lesson was invisible.
+    it('accepts every separator form and a bare number', () => {
+      assert.deepStrictEqual(parseNumericPrefix('01-foundations'), { n: 1, rest: 'foundations' });
+      assert.deepStrictEqual(parseNumericPrefix('01_foundations'), { n: 1, rest: 'foundations' });
+      assert.deepStrictEqual(parseNumericPrefix('01.findations'), { n: 1, rest: 'findations' });
+      assert.deepStrictEqual(parseNumericPrefix('01 foundations'), { n: 1, rest: 'foundations' });
+      assert.deepStrictEqual(parseNumericPrefix('7.md'), { n: 7, rest: 'md' });
+      assert.deepStrictEqual(parseNumericPrefix('01'), { n: 1, rest: '' });
+      assert.deepStrictEqual(parseNumericPrefix('100-modules'), { n: 100, rest: 'modules' });
+    });
+
+    it('requires a separator when the digits run into a word', () => {
+      assert.strictEqual(parseNumericPrefix('3d-printing'), null);
+      assert.strictEqual(parseNumericPrefix('3d-printing.md'), null);
+      assert.strictEqual(parseNumericPrefix('01foundations'), null);
+      assert.strictEqual(parseNumericPrefix('42answer'), null);
+    });
+
+    it('does not read a year as a lesson number', () => {
+      assert.strictEqual(parseNumericPrefix('2024-recap'), null);
+      assert.strictEqual(parseNumericPrefix('2024-recap.md'), null);
+      assert.strictEqual(parseNumericPrefix('1999.md'), null);
+    });
   });
 
   describe('compareLessonOrder', () => {
@@ -87,6 +113,27 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       const plan = planAutoChain(['notes.md', '01-a.md', 'extras/z.md']);
       // Root group '.' sorts alphabetically among unnumbered dirs, before 'extras'
       assert.deepStrictEqual(plan.orderedPaths, ['01-a.md', 'notes.md', 'extras/z.md']);
+      assert.strictEqual(plan.hasUnnumbered, true);
+    });
+
+    // #73 review item 4, seen through the planner. `3d-printing.md` used to
+    // parse as lesson 3, so it chained *between* `02-b` and `04-c` and
+    // `hasUnnumbered` stayed false — the misplacement was silent. Now it is an
+    // ordinary unnumbered sibling: rank-2 alphabetical, and flagged.
+    it('demotes a digit-leading word to alphabetical and flags it', () => {
+      const plan = planAutoChain(['01-a.md', '02-b.md', '04-c.md', '3d-printing.md']);
+      assert.deepStrictEqual(plan.orderedPaths, ['01-a.md', '02-b.md', '04-c.md', '3d-printing.md']);
+      assert.strictEqual(
+        plan.predecessorOf.get('3d-printing.md'),
+        '04-c.md',
+        'a digit-leading word must chain last, not between lessons 2 and 4'
+      );
+      assert.strictEqual(plan.hasUnnumbered, true);
+    });
+
+    it('demotes a year-prefixed note below the numbered modules and flags it', () => {
+      const plan = planAutoChain(['01-a.md', '2024-recap.md', '02-b.md']);
+      assert.deepStrictEqual(plan.orderedPaths, ['01-a.md', '02-b.md', '2024-recap.md']);
       assert.strictEqual(plan.hasUnnumbered, true);
     });
 

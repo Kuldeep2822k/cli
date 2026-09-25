@@ -80,6 +80,39 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     return Array.isArray(deps) ? deps.map(String) : [];
   }
 
+  /** YAML frontmatter of an already-adopted note with a fixed id and no deps. */
+  function adoptedNote(title: string, id: string): string {
+    return ['---', `palee_id: ${id}`, 'palee_schema: 1', `title: ${title}`, 'depends_on: []', '---', '', `# ${title}`, ''].join('\n');
+  }
+
+  /**
+   * Parses a dry-run's `Planned dependency chain` section into the write plan
+   * it promises: one entry per note the commit will touch.
+   */
+  function plannedEdges(stdout: string): { path: string; dependsOn: string | null }[] {
+    const lines = stdout.split(/\r?\n/);
+    const start = lines.findIndex((line) => line.startsWith('Planned dependency chain'));
+    assert.ok(start >= 0, `dry-run must print a Planned dependency chain section:\n${stdout}`);
+    const edges: { path: string; dependsOn: string | null }[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (line.trim() === '') {
+        break;
+      }
+      const dep = /^ {2}• (\S+) depends on (\S+)$/.exec(line);
+      if (dep) {
+        edges.push({ path: dep[1], dependsOn: dep[2] });
+        continue;
+      }
+      const head = /^ {2}• (\S+) \(chain head\)$/.exec(line);
+      if (head) {
+        edges.push({ path: head[1], dependsOn: null });
+        continue;
+      }
+      break;
+    }
+    return edges;
+  }
+
   const chainFiles: Record<string, string> = {
     'MODULES/01-foundations/01-a.md': '# A\n',
     'MODULES/01-foundations/02-b.md': '# B\n',
@@ -339,5 +372,149 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
         `${rel} must not be modified`
       );
     }
+  });
+
+  // #73 review item 1: the dry-run preview used to print
+  // `chainPlan.predecessorOf`, which spans every note in the scanned scope —
+  // including already-adopted ones the commit never rewrites. On a mixed vault
+  // it listed 7 edges that would never be applied, indistinguishable from the 2
+  // real ones. The preview is now the write plan, with bridged notes broken out.
+  test('dry-run previews exactly the edges it will write, and matches the commit', () => {
+    const adopted: Record<string, string> = {
+      'MODULES/01-foundations/01-a.md': adoptedNote('A', 'T-ADP-1'),
+      'MODULES/01-foundations/02-b.md': adoptedNote('B', 'T-ADP-2'),
+      'MODULES/01-foundations/03-c.md': adoptedNote('C', 'T-ADP-3'),
+      'MODULES/01-foundations/04-d.md': adoptedNote('D', 'T-ADP-4'),
+      'MODULES/01-foundations/05-e.md': adoptedNote('E', 'T-ADP-5'),
+      'MODULES/02-linux/01-f.md': adoptedNote('F', 'T-ADP-6'),
+      'MODULES/02-linux/02-g.md': adoptedNote('G', 'T-ADP-7'),
+    };
+    const newRel = ['MODULES/02-linux/03-h.md', 'MODULES/03-labs/01-i.md'];
+    const { vaultDir, configDir } = freshVault({
+      ...adopted,
+      'MODULES/02-linux/03-h.md': '# H\n',
+      'MODULES/03-labs/01-i.md': '# I\n',
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+
+    const edges = plannedEdges(dry.stdout);
+    assert.strictEqual(
+      edges.length,
+      2,
+      `7 already-adopted notes must not appear as edges; got ${JSON.stringify(edges)}`
+    );
+    assert.deepStrictEqual(edges.map((e) => e.path), newRel);
+    // The bridge onto the adopted tail, then the chain continuing past it.
+    assert.strictEqual(edges[0].dependsOn, 'MODULES/02-linux/02-g.md');
+    assert.strictEqual(edges[1].dependsOn, 'MODULES/02-linux/03-h.md');
+
+    // Adopted notes are still disclosed — as bridged predecessors, not as writes.
+    assert.match(dry.stdout, /Bridged over/);
+    const bridged = dry.stdout
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('  = '))
+      .map((line) => line.slice(4));
+    assert.deepStrictEqual(bridged.sort(), Object.keys(adopted).sort());
+
+    // A dry run stays a dry run.
+    for (const rel of newRel) {
+      assert.strictEqual(
+        fs.readFileSync(path.join(vaultDir, rel), 'utf8'),
+        rel.endsWith('h.md') ? '# H\n' : '# I\n',
+        `${rel} must not be modified by --dry-run`
+      );
+    }
+
+    // The preview is the plan: commit and compare what actually landed.
+    const committed = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(committed.status, 0, committed.stderr);
+    const ids = idToPath(vaultDir);
+    const written = [...ids.entries()]
+      .filter(([, rel]) => !Object.keys(adopted).includes(rel))
+      .map(([, rel]) => ({
+        path: rel,
+        dependsOn: dependsOn(vaultDir, rel).map((depId) => ids.get(depId) ?? null)[0] ?? null,
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    assert.deepStrictEqual(written, [...edges].sort((a, b) => a.path.localeCompare(b.path)));
+  });
+
+  // #73 review item 2: the fail-closed cycle report is the only thing a user
+  // sees, and opaque `T-...` ids are undiagnosable in a 300-note vault.
+  test('cycle diagnostics name vault-relative paths and point at palee validate', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-sys.md': [
+        '---',
+        'palee_id: T-SYS',
+        'palee_schema: 1',
+        'title: Systems',
+        'depends_on: [T-LAB]',
+        '---',
+        '',
+        '# Systems',
+        '',
+      ].join('\n'),
+      'MODULES/01-foundations/02-lab.md': [
+        '---',
+        'palee_id: T-LAB',
+        'palee_schema: 1',
+        'title: Lab',
+        'depends_on: [T-SYS]',
+        '---',
+        '',
+        '# Lab',
+        '',
+      ].join('\n'),
+      'MODULES/02-linux/01-kern.md': '# Kernel\n',
+    });
+
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 3, `expected exit 3, got ${result.status}: ${result.stdout}`);
+    // Paths, with the id kept alongside for cross-referencing validate output.
+    assert.match(result.stderr, /MODULES\/01-foundations\/01-sys\.md \(T-SYS\)/);
+    assert.match(result.stderr, /MODULES\/01-foundations\/02-lab\.md \(T-LAB\)/);
+    assert.match(result.stderr, /palee validate/);
+    // The loop is authored data, not something the flag invented.
+    assert.match(result.stderr, /pre-existing vault dependencies, not chain-synthesized/);
+    assert.doesNotMatch(result.stdout, /Successfully adopted/);
+    assert.strictEqual(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MODULES/02-linux/01-kern.md'), 'utf8'))
+        .frontmatter?.palee_id,
+      undefined,
+      'zero writes on a cycle'
+    );
+  });
+
+  // #73 review item 5: the warning used to say the predecessor "is out of
+  // scope", which sent users to the wrong debug path — the predecessor IS in
+  // scope, it simply has no `palee_id` that `loadTopics` could resolve (here: a
+  // numeric frontmatter id, which the batch scan accepts and the loader rejects).
+  test('unresolvable chain predecessor warns about a missing topic id, not scope', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-broken.md': [
+        '---',
+        'palee_id: 12345',
+        'palee_schema: 1',
+        'title: Broken',
+        'depends_on: []',
+        '---',
+        '',
+        '# Broken',
+        '',
+      ].join('\n'),
+      'MODULES/01-foundations/02-next.md': '# Next\n',
+    });
+
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(
+      result.stdout,
+      /chain predecessor MODULES\/01-foundations\/01-broken\.md has no resolvable topic id/
+    );
+    assert.doesNotMatch(result.stdout, /is out of scope/);
+    // The dependent note still adopts, with an empty depends_on as promised.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-next.md'), []);
   });
 });

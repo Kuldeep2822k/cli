@@ -30,20 +30,38 @@ export interface NumericPrefix {
 }
 
 /**
+ * Leading digit run of a lesson number: at most 3 digits, then either its
+ * separator (with the remainder captured) or the end of the name.
+ *
+ * `#73` review item 4. The original `/^(\d+)[-_.\s]?(.*)$/` made the separator
+ * optional, so a digit leading a *word* silently claimed a lesson number:
+ * `3d-printing` parsed as lesson 3 and chained between `02-` and `04-`, and
+ * `2024-recap` parsed as lesson 2024 and landed after every real module.
+ * Neither raised the `hasUnnumbered` alphabetical warning, so the placement was
+ * invisible. Requiring a separator (or end-of-name) after the digits rejects
+ * `3d-printing` and `01foundations`, while the 3-digit cap rejects year-shaped
+ * `2024-recap` — a lesson index above 999 does not occur in numbered curricula.
+ */
+const NUMERIC_PREFIX = /^(\d{1,3})(?:[-_.\s](.*)|$)/;
+
+/**
  * Parses a leading numeric prefix from a directory or file basename.
  *
  * @param name - Basename such as `01-foundations` or `02_lab.md`
- * @returns The parsed number and remainder, or `null` when the name does
- * not start with digits
+ * @returns The parsed number and remainder, or `null` when the name is not a
+ * numbered lesson — no leading digits, digits running into a word with no
+ * separator (`3d-printing`, `01foundations`), or a 4-plus digit run (`2024-recap`)
  *
  * @example
  * ```typescript
  * parseNumericPrefix('01-foundations'); // { n: 1, rest: 'foundations' }
  * parseNumericPrefix('lab-01');         // null
+ * parseNumericPrefix('3d-printing');    // null — a word, not lesson 3
+ * parseNumericPrefix('2024-recap');     // null — a year, not lesson 2024
  * ```
  */
 export function parseNumericPrefix(name: string): NumericPrefix | null {
-  const match = /^(\d+)[-_.\s]?(.*)$/.exec(name.trim());
+  const match = NUMERIC_PREFIX.exec(name.trim());
   if (!match) {
     return null;
   }
@@ -51,7 +69,7 @@ export function parseNumericPrefix(name: string): NumericPrefix | null {
   if (!Number.isSafeInteger(n)) {
     return null;
   }
-  return { n, rest: match[2] };
+  return { n, rest: match[2] ?? '' };
 }
 
 /** Fixed pedagogical phase order for non-numeric lesson files (#73). */

@@ -359,6 +359,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // notes only ever appear as predecessors, never as write targets.
     let chainPlan: ChainPlan | null = null;
     const chainDependsOn = new Map<string, string[]>();
+    // Dry-run preview must show exactly what the commit will write, so the plan
+    // is recorded here at graph-build time rather than re-derived from
+    // `chainPlan.predecessorOf`, which also spans already-adopted notes.
+    /** Edges the commit writes, in chain order: new note -> the predecessor it depends on */
+    const chainWritePlan: { path: string; dependsOnPath: string | null }[] = [];
+    /** In-scope already-adopted notes the chain bridges over; listed, never written */
+    const chainBridgedPaths: string[] = [];
     if (options.autoChain && toAdopt.length > 0) {
       // Existing topics are loaded once: they supply the canonical ids for the
       // in-scope already-adopted notes the chain bridges over, and are merged
@@ -409,6 +416,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           // An already-adopted note is never rewritten, so it gets no
           // chainDependsOn entry and its planned node keeps the depends_on it
           // has on disk (merged in below) rather than the chain-derived one.
+          // It is still part of the chain, so the preview lists it separately.
+          chainBridgedPaths.push(relPath);
           continue;
         }
         const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
@@ -418,11 +427,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           dependsOn.push(predecessorId);
         } else if (predecessorPath) {
           console.log(
-            `⚠ Warning: chain predecessor ${predecessorPath} is out of scope; ` +
+            `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
               `${relPath} keeps an empty depends_on.`
           );
         }
         chainDependsOn.set(relPath, dependsOn);
+        chainWritePlan.push({ path: relPath, dependsOnPath: predecessorId ? predecessorPath : null });
         plannedGraph.set(id, { palee_id: id, depends_on: dependsOn, topic_mastery: 0 });
       }
 
@@ -440,13 +450,38 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       const { cycles, truncated } = detectCyclesBounded(plannedGraph);
       if (cycles.length > 0 || truncated) {
+        // Cycles are reported by vault-relative path, not just opaque
+        // `T-...` ids: the check merges the whole vault, so a cycle the learner
+        // authored months ago in a 300-note vault would otherwise be greppable
+        // only by id. The id stays in the line for cross-referencing
+        // `palee validate` output, and is all that is available for a topic
+        // outside the scanned scope.
+        const pathById = new Map<string, string>();
+        for (const [relPath, id] of idByPath) {
+          pathById.set(id, relPath);
+        }
+        const label = (id: string): string => {
+          const rel = pathById.get(id);
+          return rel ? `${rel} (${id})` : id;
+        };
         console.error('Error: auto-chain dependency graph contains cycles; no notes were adopted.');
         for (const cycle of cycles) {
-          console.error(`  • ${cycle.join(' → ')}`);
+          console.error(`  • ${cycle.map(label).join(' → ')}`);
+        }
+        // Every edge `--auto-chain` adds here points strictly backward in the
+        // plan's total order, onto an id that either belongs to an already
+        // adopted note or was minted moments ago from `crypto.randomBytes` — so
+        // no pre-existing `depends_on` can name it. A chain edge therefore
+        // cannot close a cycle, and any loop reported below predates this run.
+        // (Contrast `roadmap --auto-chain`, where a synthesized edge CAN close a
+        // cycle against authored deps; that path labels its own edges.)
+        if (cycles.length > 0) {
+          console.error('  These edges are pre-existing vault dependencies, not chain-synthesized ones.');
         }
         if (truncated) {
           console.error('  • … cycle enumeration truncated at 1000; more cycles may exist');
         }
+        console.error('  Fix the cycle, then re-run: `palee validate` reports the offending edges.');
         process.exitCode = ExitCode.Validation;
         return;
       }
@@ -497,12 +532,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (options.dryRun) {
       if (chainPlan) {
-        console.log('\nPlanned dependency chain:');
-        for (const [relPath, predecessorPath] of chainPlan.predecessorOf) {
-          if (predecessorPath) {
-            console.log(`  • ${relPath} depends on ${predecessorPath}`);
+        // The preview is the write plan, so it can be diffed against what the
+        // commit actually does. `chainPlan.predecessorOf` spans the whole
+        // scanned scope — including already-adopted notes the commit never
+        // touches — so printing it showed edges that would never be applied.
+        const edgeCount = chainWritePlan.filter((edge) => edge.dependsOnPath !== null).length;
+        console.log(`\nPlanned dependency chain (${edgeCount} edges to write):`);
+        for (const edge of chainWritePlan) {
+          if (edge.dependsOnPath) {
+            console.log(`  • ${edge.path} depends on ${edge.dependsOnPath}`);
           } else {
-            console.log(`  • ${relPath} (chain head)`);
+            console.log(`  • ${edge.path} (chain head)`);
+          }
+        }
+        if (chainBridgedPaths.length > 0) {
+          console.log('\nBridged over (already adopted; used as predecessors, never rewritten):');
+          for (const relPath of chainBridgedPaths) {
+            console.log(`  = ${relPath}`);
           }
         }
       }

@@ -332,4 +332,102 @@ due_at: '2026-09-12'
     // And nothing else moved either: same file set, byte-identical content.
     assert.deepStrictEqual(snapshotVault(vaultDir), before);
   });
+
+  // #73 review item 3, the reviewer's reproduction verbatim: `T-C` carries an
+  // explicit dep on `T-A`, so chaining the unordered `T-A` onto `T-B` would
+  // close A -> B -> C -> A. The flag must drop only that one synthesized edge,
+  // warn about it, and let the import proceed with the rest of the chain —
+  // rather than failing the whole roadmap closed over an edge nobody wrote.
+  test('--auto-chain skips a cycle-closing chain edge and proceeds', () => {
+    const { vaultDir, configDir } = freshVault({
+      'r/a.md': '# A\n',
+      'r/b.md': '# B\n',
+      'r/c.md': '# C\n',
+    });
+    const yamlPath = path.join(vaultDir, 'cyc.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-A\n    title: A\n    path: r/a.md\n' +
+        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-C\n    title: C\n    order: 1\n    depends_on: [T-A]\n    path: r/c.md\n'
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /chain edge T-A -> T-B skipped: would close a cycle/);
+
+    // The remaining chain survives; only the offending edge is gone.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-A'], 'authored dep must survive');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-C'], 'accepted chain edge must land');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic starts a new chain');
+  });
+
+  // #73 review item 3, other half: `Auto-chain: N roadmap topics chained by
+  // order.` fired before the graph was validated, so a rejected chain still
+  // announced itself as fact. It is now logged only once validation has passed.
+  test('--auto-chain logs the chained count only after validation passes', () => {
+    const { vaultDir, configDir } = freshVault({
+      'r/a.md': '# A\n',
+      'r/b.md': '# B\n',
+    });
+    const yamlPath = path.join(vaultDir, 'authored-cycle.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-X\n    title: X\n    order: 1\n    path: r/a.md\n    depends_on: [T-Y]\n' +
+        '  - id: T-Y\n    title: Y\n    order: 2\n    path: r/b.md\n    depends_on: [T-X]\n'
+    );
+    const before = snapshotVault(vaultDir);
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 3, result.stdout + result.stderr);
+    assert.match(result.stderr, /Dependency cycle detected: T-X → T-Y → T-X/);
+    assert.doesNotMatch(
+      result.stdout,
+      /chained by order/,
+      'a chain the validator rejected must not report itself as chained'
+    );
+    assert.doesNotMatch(result.stdout, /Roadmap validated successfully/);
+    assert.deepStrictEqual(snapshotVault(vaultDir), before, 'zero writes on validation failure');
+  });
+
+  // The chain's own reachability view covers only the roadmap's topics, so a
+  // loop that closes through a pre-existing vault note is still caught by the
+  // merged-graph validator. When that happens the report must say which hops
+  // the flag invented -- the learner authored a single dependency here.
+  test('--auto-chain labels synthesized edges in a cycle report', () => {
+    const { vaultDir, configDir } = freshVault({
+      'r/e.md': [
+        '---',
+        'palee_id: T-E',
+        'palee_schema: 1',
+        'title: E',
+        'depends_on: [T-C]',
+        '---',
+        '',
+        '# E',
+        '',
+      ].join('\n'),
+    });
+    const yamlPath = path.join(vaultDir, 'mixed.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-A\n    title: A\n    order: 1\n    path: r/a.md\n    depends_on: [T-E]\n' +
+        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-C\n    title: C\n    order: 3\n    path: r/c.md\n'
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 3, result.stdout + result.stderr);
+    assert.match(result.stderr, /Dependency cycle detected:/);
+    assert.match(result.stderr, /synthesized by --auto-chain/);
+    assert.match(result.stderr, /T-C → T-B/);
+    assert.match(result.stderr, /the rest are authored/);
+    assert.doesNotMatch(result.stdout, /chained by order/);
+    assert.ok(!fs.existsSync(path.join(vaultDir, 'r/b.md')), 'no roadmap note may be written');
+    assert.ok(!fs.existsSync(path.join(vaultDir, 'r/c.md')), 'no roadmap note may be written');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/e.md'), ['T-C'], 'the pre-existing note is untouched');
+  });
 });

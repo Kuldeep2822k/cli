@@ -94,10 +94,10 @@ When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitl
 
 Batch-only flag that wires `depends_on` automatically from the vault's directory structure [src/engine/auto-chain.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/auto-chain.ts):
 
-1. **Ordering**: Notes are grouped by immediate parent directory. Within each group, notes sort by numeric filename prefix, then `deep-dive` → `lab` → `exam`, then alphabetically. Directory groups sort by numeric prefix; unnumbered directories/files sort alphabetically after numbered ones and emit a warning.
+1. **Ordering**: Notes are grouped by immediate parent directory. Within each group, notes sort by numeric filename prefix, then `deep-dive` → `lab` → `exam`, then alphabetically. Directory groups sort by numeric prefix; unnumbered directories/files sort alphabetically after numbered ones and emit a warning. A numeric prefix must be followed by a separator (`-`, `_`, `.`, space) or end the name, and is at most three digits: `01-intro.md` and `7.md` are lessons 1 and 7, while `3d-printing.md`, `01foundations.md` and `2024-recap.md` are not lesson numbers and chain as unnumbered notes.
 2. **Chaining**: Each note depends on its predecessor in the ordered list; the first note of a module depends on the last note of the previous module (cross-module bridge). Excluded or already-adopted notes are bridged over, never rewritten.
-3. **Pre-write validation**: Topic IDs are minted before planning, and the planned edges — merged with already-adopted vault topics — are checked with the existing cycle detector. On a cycle the command exits `3` and writes nothing (INV-46).
-4. **Conflicts**: `--auto-chain` conflicts with `--depends-on` and with single-file mode (both exit `2`). `--dry-run` prints the exact edge plan without writing.
+3. **Pre-write validation**: Topic IDs are minted before planning, and the planned edges — merged with already-adopted vault topics — are checked with the existing cycle detector. On a cycle the command exits `3` and writes nothing (INV-46), reporting each cycle by vault-relative path (`coursepages/a/README.md (T-…) → coursepages/b/README.md (T-…)`) with `palee validate` named as the way to locate the offending edges. Because a chain edge always points backward in the plan's total order onto an id that nothing pre-existing can name, a cycle reported here is never one the chain created.
+4. **Conflicts**: `--auto-chain` conflicts with `--depends-on` and with single-file mode (both exit `2`). `--dry-run` prints exactly the edges the commit will write — notes already adopted in scope are listed separately as bridged predecessors, never as edges — and writes nothing.
 
 ```bash
 # Preview the exact depends_on edges before committing
@@ -167,7 +167,7 @@ topics:
       - T-networking-basics
 ```
 
-The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on` (the first gets `[]`), and a topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone.
+The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on` (the first gets `[]`), and a topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone. An edge that would close a cycle against an authored dependency is dropped instead, warned about as `chain edge X -> Y skipped: would close a cycle`, and the topic starts a new chain there, so the rest of the roadmap still imports. The `Auto-chain: …` summary is printed only after graph validation passes.
 
 #### 2. Markdown with Frontmatter YAML (`.md`)
 ```markdown
