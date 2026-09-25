@@ -430,6 +430,24 @@ ${body}
     }
   });
 
+  test('rebuildHotAndIndex ranks a pre-1970 session above an unparseable timestamp', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug005-pre1970-'));
+    try {
+      writeRawSession(vaultPath, 'S-invalid.md', 'S-invalid', 'T-invalid', 'not-a-date', 'Corrupt timestamp session body.');
+      writeRawSession(vaultPath, 'S-preepoch.md', 'S-preepoch', 'T-pre1970', '1969-05-01T00:00:00.000Z', 'Pre-epoch session body.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotContent = fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8');
+      const { frontmatter } = parseFrontmatter(hotContent);
+      assert.strictEqual(frontmatter!.last_session, 'S-preepoch',
+        'a parseable pre-1970 timestamp must outrank an unparseable one, not be filtered out');
+      assert.strictEqual(frontmatter!.active_topic, 'T-pre1970');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('writeDraftCheckpoint writes DRAFT-S-*.md file', async () => {
     const draftId = generateDraftId();
     const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {

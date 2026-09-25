@@ -511,7 +511,9 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
 async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   const sessionsDir = getSessionsDir(vaultPath);
   let newestSession: { file: string; frontmatter: Record<string, unknown>; body: string } | null = null;
-  let newestTime = 0;
+  // Lowest possible rank, so a parseable timestamp of any era (including
+  // pre-1970) outranks an unparseable one instead of being filtered out.
+  let newestTime = -Infinity;
 
   if (fs.existsSync(sessionsDir)) {
     const files = fs.readdirSync(sessionsDir);
@@ -537,11 +539,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
             // Apply the same NaN protection `regenerateIndex` uses: an
             // unparseable `started_at` (hand-edited or corrupted frontmatter)
             // yields NaN, and `NaN >= newestTime` is always false, which would
-            // disqualify every canonical session and erase hot memory. Such a
-            // session is ranked oldest instead of dropped, so derived views stay
-            // consistent and non-empty whenever real sessions exist.
+            // disqualify every canonical session and erase hot memory. Rank it
+            // lowest instead of dropping it, so any parseable timestamp — even
+            // a pre-1970 one — still wins, and derived views stay non-empty.
             const parsedTime = new Date((frontmatter.started_at as string) || 0).getTime();
-            const time = Number.isNaN(parsedTime) ? 0 : parsedTime;
+            const time = Number.isNaN(parsedTime) ? Number.NEGATIVE_INFINITY : parsedTime;
             if (time >= newestTime) {
               newestTime = time;
               newestSession = { file: filePath, frontmatter, body };
