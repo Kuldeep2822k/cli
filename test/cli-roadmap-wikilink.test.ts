@@ -392,6 +392,33 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(snapshotVault(vaultDir), before, 'zero writes on validation failure');
   });
 
+  // A skipped edge must not fragment the rest of the chain. Here `T-A` is mid
+  // list, so its edge onto `T-B` would close A -> B -> C -> A; dropping it makes
+  // `T-A` a new head, and the topic after it (`T-D`) still chains onto `T-A`
+  // rather than being orphaned or restarting from scratch.
+  test('--auto-chain continues the chain past a topic whose edge was skipped', () => {
+    const { vaultDir, configDir } = freshVault({});
+    const yamlPath = path.join(vaultDir, 'mid.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-C\n    title: C\n    order: 1\n    depends_on: [T-A]\n    path: r/c.md\n' +
+        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-A\n    title: A\n    order: 3\n    path: r/a.md\n' +
+        '  - id: T-D\n    title: D\n    order: 4\n    path: r/d.md\n'
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /chain edge T-A -> T-B skipped: would close a cycle/);
+    assert.match(result.stdout, /1 chain edge\(s\) skipped to keep the graph acyclic\./);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-A']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-C']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic becomes a head');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/d.md'), ['T-A'], 'the chain continues from the new head');
+  });
+
   // The chain's own reachability view covers only the roadmap's topics, so a
   // loop that closes through a pre-existing vault note is still caught by the
   // merged-graph validator. When that happens the report must say which hops
