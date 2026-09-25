@@ -291,6 +291,38 @@ describe('Session CLI In-Process Coverage', () => {
     fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
   });
 
+  test('session end clamps Tier-2 hot.md started_at older than 24h (BUG-008)', async () => {
+    const nowMs = Date.now();
+    const tenDaysAgo = new Date(nowMs - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+    fs.writeFileSync(
+      hotPath,
+      `---\npalee_schema: 1\nmemory_id: H-active\nlast_session: null\nactive_topic: T-stale-hot\nstarted_at: "${tenDaysAgo}"\nupdated_at: 2026-08-30\n---\n# Working Memory\n`,
+      'utf8'
+    );
+
+    await sessionCommand('end', { topic: 'T-stale-hot' });
+
+    const draftsDir = path.join(vaultDir, '.palee', 'sessions');
+    const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
+    assert.strictEqual(confirmedFiles.length, 1);
+
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const { frontmatter } = parseFrontmatter(sessionContent);
+    assert.strictEqual(frontmatter?.topic_id, 'T-stale-hot');
+    assert.ok(
+      typeof frontmatter?.duration_minutes === 'number' && frontmatter.duration_minutes <= 1440,
+      `duration_minutes should be clamped to <=1440, got ${frontmatter?.duration_minutes}`
+    );
+    assert.ok((frontmatter?.duration_minutes as number) >= 1439);
+
+    const startMs = new Date(frontmatter!.started_at as string).getTime();
+    const minAllowed = nowMs - 24 * 60 * 60 * 1000 - 60000;
+    assert.ok(startMs >= minAllowed, 'started_at must not be earlier than 24h before now');
+
+    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+  });
+
   test('session end recovers started_at from hot.md when no drafts exist (Tier 2)', async () => {
     const pastTime = new Date(Date.now() - 180000).toISOString(); // 3 minutes ago
     const hotPath = path.join(vaultDir, '.palee', 'hot.md');
