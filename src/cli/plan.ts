@@ -68,8 +68,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
 
     // Archived topics are excluded from every derived plan figure (BUG-002),
     // matching `palee progress`. `total_topics` still counts all loaded notes.
+    // The archived nodes stay in the graph itself: an archived prerequisite
+    // that is already mastered must keep satisfying its dependents, whereas
+    // dropping it would make `areDependenciesSatisfied` read it as a *missing*
+    // dependency and silently hide ready topics.
     const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
-    const activeTopicMap = new Map(activeTopics.map(t => [t.palee_id, t]));
     const archivedCount = topics.size - activeTopics.length;
 
     const dueTopics: PlanTopic[] = [];
@@ -110,7 +113,10 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // ready-to-learn list is computed over the acyclic subgraph only. Reviews
     // due (SM-2 state) stay on the full map — a quarantined topic's review
     // schedule is still real.
-    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(activeTopicMap);
+    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(topics);
+
+    // Quarantine counter covers learnable topics only (BUG-002).
+    const quarantinedActiveCount = activeTopics.filter(t => !acyclicTopics.has(t.palee_id)).length;
 
     // Get ready to learn (deps satisfied, not mastered) — acyclic components only
     const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
@@ -156,7 +162,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         counts: {
           due: dueTopics.length,
           ready: readyTopics.length,
-          quarantined: activeTopics.length - acyclicTopics.size,
+          quarantined: quarantinedActiveCount,
           mastered: masteredCount,
           learning: learningCount,
           new: newCount,

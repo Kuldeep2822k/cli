@@ -138,6 +138,17 @@ depends_on: []
       const ready = getReadyTopics(topics);
       assert.deepStrictEqual(ready.map(t => t.palee_id), ['T-open']);
     });
+
+    test('getReadyTopics still treats a mastered archived prerequisite as satisfied', () => {
+      // A removed archived node reads as a *missing* dependency, which would
+      // silently hide this topic; readiness must keep using the full graph.
+      const topics = new Map<string, any>([
+        ['T-archived-mastered', { palee_id: 'T-archived-mastered', topic_mastery: 0.9, depends_on: [], status: 'archived' }],
+        ['T-child', { palee_id: 'T-child', topic_mastery: 0.1, depends_on: ['T-archived-mastered'], status: 'learning' }],
+      ]);
+      const ready = getReadyTopics(topics);
+      assert.deepStrictEqual(ready.map(t => t.palee_id), ['T-child']);
+    });
   });
 
   describe('plan --json', () => {
@@ -155,6 +166,50 @@ depends_on: []
       assert.deepStrictEqual(data.reviews_due.map((t: any) => t.id), ['T-topic-1']);
       assert.strictEqual(data.counts.mastered, 1);
       assert.strictEqual(data.counts.learning, 1);
+    });
+
+    test('keeps a mastered archived prerequisite satisfying its dependent', async () => {
+      // Archived but mastered prereq + unmastered dependent: the dependent is
+      // still ready to learn, and the archived prereq is never listed.
+      fs.writeFileSync(
+        path.join(tmpDir, 'archived-mastered.md'),
+        `---
+palee_schema: 1
+palee_id: T-arch-mastered
+title: Archived Mastered Prereq
+difficulty: beginner
+status: archived
+topic_mastery: 0.9
+depends_on: []
+---
+# Archived Mastered Prereq
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'child.md'),
+        `---
+palee_schema: 1
+palee_id: T-child-of-archived
+title: Child Of Archived Prereq
+difficulty: advanced
+status: learning
+topic_mastery: 0.1
+depends_on:
+  - T-arch-mastered
+---
+# Child Of Archived Prereq
+`,
+        'utf8'
+      );
+
+      await planCommand({ json: true });
+      const data = getLastParsedJson();
+      assert.ok(data.ready_to_learn.map((t: any) => t.id).includes('T-child-of-archived'),
+        'dependent of a mastered archived prereq must stay ready');
+      assert.ok(!data.ready_to_learn.map((t: any) => t.id).includes('T-arch-mastered'),
+        'archived topic must never be reported as ready');
+      assert.strictEqual(data.counts.quarantined, 0);
     });
 
     test('reports active and archived split consistent with progress', async () => {
