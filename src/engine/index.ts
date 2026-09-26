@@ -10,6 +10,7 @@ import * as sm2 from './sm2';
 import * as dependency from './dependency';
 import * as mastery from './mastery';
 import * as autoChain from './auto-chain';
+import * as tier0Hygiene from './tier0-hygiene';
 import * as topicId from './topic-id';
 
 /** Computes next SM-2 interval, ease factor, and repetition counters after a review */
@@ -58,6 +59,35 @@ export const parseWikilink = autoChain.parseWikilink;
 /** Extracts every well-formed wikilink from a text block, in order (#73) */
 export const extractWikilinks = autoChain.extractWikilinks;
 export type { NumericPrefix, ParsedWikilink, ChainPlan } from './auto-chain';
+
+// Tier-0 hygiene exports (PAL-205-B) — the predicate contract Work Order C rebases onto
+/** Classifies one vault-relative note path as backbone, leaf, or excluded (B1-B5, B7) */
+export const classifyNoteForChain = tier0Hygiene.classifyNoteForChain;
+/** True when `value` is a usable `palee_id`: a non-empty string (B7) */
+export const isValidPaleeId = tier0Hygiene.isValidPaleeId;
+/** True when a non-final path segment names a phase directory whose subtree must not chain (B4) */
+export const isPhaseSubtree = tier0Hygiene.isPhaseSubtree;
+/** True when a basename is README-class, numeric-prefixed, or phase-prefixed (B5) */
+export const isContentDocName = tier0Hygiene.isContentDocName;
+/** Case-insensitive `.md` stem of a basename; `''` for non-markdown names */
+export const stemOf = tier0Hygiene.stemOf;
+/** B1 repo-meta basename blocklist (data, not law — see module docs) */
+export const REPO_META_STEMS = tier0Hygiene.REPO_META_STEMS;
+/** B4 phase directory names */
+export const PHASE_DIR_SEGMENTS = tier0Hygiene.PHASE_DIR_SEGMENTS;
+/** B5 content-doc basename prefixes */
+export const CONTENT_DOC_PREFIXES = tier0Hygiene.CONTENT_DOC_PREFIXES;
+/** B2 README-class basenames */
+export const README_CLASS_STEMS = tier0Hygiene.README_CLASS_STEMS;
+/** B2 generic document names whose locale-suffixed variants are translations */
+export const GENERIC_DOC_STEMS = tier0Hygiene.GENERIC_DOC_STEMS;
+/** B2 language codes OSS curricula are actually translated into */
+export const TRANSLATION_LANG_CODES = tier0Hygiene.TRANSLATION_LANG_CODES;
+/** B2 region aliases accepted as a trailing locale */
+export const LOCALE_REGION_ALIASES = tier0Hygiene.LOCALE_REGION_ALIASES;
+/** B2 short tokens excluded as locale codes to avoid programming-language collisions */
+export const LOCALE_CODE_COLLISIONS = tier0Hygiene.LOCALE_CODE_COLLISIONS;
+export type { Tier0Class, Tier0SkipReason, Tier0Decision } from './tier0-hygiene';
 
 // Topic ID exports
 /** Generates a unique topic identifier prefixed with `T-` (#29) */
