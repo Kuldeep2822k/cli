@@ -292,6 +292,51 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.ok(out.hasTocLayout);
     });
 
+    // The hygiene plan derives its two alphabetical claims before composition
+    // runs. Carrying them through unchanged made the CLI tell a learner that
+    // notes their own README had just sequenced "chain in alphabetical order"
+    // and might need `--exclude`, two lines above a plan showing every one of
+    // those edges authored by `toc`.
+    it('the alphabetical claims survive only for notes the enumeration did not order', () => {
+      const numbered = planAutoChainWithHygiene([
+        'README.md',
+        'guide/alpha.md',
+        'guide/middle.md',
+        'guide/zeta.md',
+        'notes/loose.md',
+      ]);
+      assert.deepStrictEqual(
+        numbered.alphabeticalNotes,
+        ['guide/alpha.md', 'guide/middle.md', 'guide/zeta.md', 'notes/loose.md'],
+        'precondition: the numbered plan really does order all four by name'
+      );
+      assert.strictEqual(numbered.directoryOrderAlphabetical, true);
+
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['guide/zeta.md', 'guide/alpha.md', 'guide/middle.md'],
+      });
+      assert.deepStrictEqual(
+        out.alphabeticalNotes,
+        ['notes/loose.md'],
+        'the three enumerated notes drop out; the note the README never mentioned stays'
+      );
+      assert.strictEqual(
+        out.directoryOrderAlphabetical,
+        false,
+        'with `guide/` enumerated, no unnumbered directory pair is left to order by name'
+      );
+      assert.strictEqual(out.tocEdgeCount, 2);
+    });
+
+    it('an enumeration covering nothing leaves the numbered claims untouched', () => {
+      const numbered = planAutoChainWithHygiene(['alpha/01-x.md', 'beta/01-y.md', 'loose.md']);
+      const out = composeTieredChain({ tier: 'full', numbered, tocPaths: [] });
+      assert.deepStrictEqual(out.alphabeticalNotes, numbered.alphabeticalNotes);
+      assert.strictEqual(out.directoryOrderAlphabetical, numbered.directoryOrderAlphabetical);
+    });
+
     it('hygiene still applies inside the TOC tier', () => {
       const numbered = planAutoChainWithHygiene(['x']);
       const out = composeTieredChain({

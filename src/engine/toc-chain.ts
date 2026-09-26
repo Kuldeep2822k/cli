@@ -31,7 +31,12 @@
  */
 
 import { classifyNoteForChain } from './tier0-hygiene';
-import { parseNumericPrefix, stripFencedCodeBlocks, type HygieneChainPlan } from './auto-chain';
+import {
+  directoriesOrderedAlphabetically,
+  parseNumericPrefix,
+  stripFencedCodeBlocks,
+  type HygieneChainPlan,
+} from './auto-chain';
 
 /** Accepted values of `--chain-tier` (default `full`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
@@ -565,11 +570,15 @@ function tocChainable(relPath: string, paleeId?: unknown): boolean {
  * - `strict` returns the numbered plan with every edge labelled `numbered`;
  * - TOC candidates drop numbered-tree paths (C2) and non-chainable ones;
  * - the surviving candidates get a {@link planTocChain} run whose edges
- *   *replace* whatever the alphabetical fallback would have assigned them —
- *   that replacement, not addition, is where the measured false edges die;
+ *   *replace* the numbered plan's predecessor for every note except a chain
+ *   head — including a structure-justified same-directory edge, not only an
+ *   alphabetical fallback — and that replacement, not addition, is where the
+ *   measured false edges die;
  * - `orderedPaths` keeps the numbered order first, then the TOC chain, so
  *   dry-run/verbose output still reads head-to-tail per tier;
- * - `hasUnnumbered` keeps its original meaning over the numbered plan only.
+ * - `hasUnnumbered` keeps its original meaning over the numbered plan, but the
+ *   two claims the warning is built from are recomposed: a note the enumeration
+ *   placed is no longer reported as ordered by name.
  */
 export function composeTieredChain(composition: TieredComposition): TieredChainPlan {
   const { tier, numbered, tocPaths } = composition;
@@ -654,11 +663,23 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
     if (source === 'numbered') numberedEdges++;
   }
 
+  // The hygiene plan derived its two alphabetical claims from the numbered
+  // order, and for every note this enumeration just placed, that order came
+  // from the author's README instead. Carrying the claims through unchanged
+  // made the CLI say notes "chain in alphabetical order" two lines above a plan
+  // showing every one of their edges authored by `toc`, and suggest excluding
+  // notes the tier had sequenced correctly. Recomputed over what the TOC tier
+  // did not cover; with no TOC paths the recomputation is the identity, so no
+  // special case is needed.
+  const unenumerated = numbered.orderedPaths.filter((p) => !tocSet.has(p));
+
   return {
     ...numbered,
     orderedPaths: finalOrder,
     predecessorOf,
     sourceOf,
+    alphabeticalNotes: numbered.alphabeticalNotes.filter((p) => !tocSet.has(p)),
+    directoryOrderAlphabetical: directoriesOrderedAlphabetically(unenumerated),
     numberedEdgeCount: numberedEdges,
     tocEdgeCount: tocEdges,
     hasNumberedLayout,

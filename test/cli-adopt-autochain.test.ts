@@ -869,4 +869,54 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'the English README is still adopted'
     );
   });
+
+  // The README says zeta, alpha, middle — not alphabetical order. Before the
+  // composition fix the same screen warned that they "chain in alphabetical
+  // order" and hinted at `--exclude`, contradicting the edge list it printed
+  // three lines later.
+  test('TOC-ordered notes are never reported as alphabetical', () => {
+    const { vaultDir, configDir } = freshVault({
+      'README.md': '- [Zeta](guide/zeta.md)\n- [Alpha](guide/alpha.md)\n- [Middle](guide/middle.md)\n',
+      'guide/zeta.md': '# Z\n',
+      'guide/alpha.md': '# A\n',
+      'guide/middle.md': '# M\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.doesNotMatch(dry.stdout, /alphabetical order/);
+    assert.doesNotMatch(dry.stdout, /⚠ Warning/);
+    assert.match(dry.stdout, /Auto-chain:.*0 numbered, 2 toc\)/);
+    assert.deepStrictEqual(
+      plannedEdges(dry.stdout),
+      [
+        { path: 'README.md', dependsOn: null },
+        { path: 'guide/zeta.md', dependsOn: null },
+        { path: 'guide/alpha.md', dependsOn: 'guide/zeta.md' },
+        { path: 'guide/middle.md', dependsOn: 'guide/alpha.md' },
+      ],
+      'the chain follows the README, not the filenames'
+    );
+
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/alpha.md').length, 1);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/zeta.md'), [], 'the enumerated head has no dep');
+  });
+
+  test('a genuinely unnumbered sibling still warns alongside a TOC chain', () => {
+    const { configDir } = freshVault({
+      'README.md': '- [Zeta](guide/zeta.md)\n- [Alpha](guide/alpha.md)\n',
+      'guide/zeta.md': '# Z\n',
+      'guide/alpha.md': '# A\n',
+      'notes/loose.md': '# L\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Warning: 1 of 4 planned notes have no number or phase/);
+    assert.match(dry.stdout, /e\.g\. notes\/loose\.md/);
+    assert.ok(
+      !/e\.g\. guide\//.test(dry.stdout),
+      'the two enumerated notes must not be offered as alphabetical examples'
+    );
+  });
 });
