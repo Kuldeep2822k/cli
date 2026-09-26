@@ -20,11 +20,19 @@ import {
   matchesTags,
   validatePattern,
   loadTopics,
+  deriveTocEnumeration,
 } from '../storage';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
-import { planAutoChainWithHygiene, type HygieneChainPlan } from '../engine/auto-chain';
+import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
+import {
+  composeTieredChain,
+  parseAutoChainTier,
+  type AutoChainTier,
+  type DependsOnSource,
+  type TieredChainPlan,
+} from '../engine/toc-chain';
 import { detectCyclesBounded } from '../engine/dependency';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
@@ -172,6 +180,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.error('Error: --auto-chain is batch-only and conflicts with --depends-on');
       process.exitCode = ExitCode.Usage;
       return;
+    }
+
+    // C4 (PAL-205-C): --auto-chain[=strict|toc|full]. A bare flag is `full`;
+    // anything outside the three tiers is a usage error, never a silent
+    // default back to chaining.
+    let autoChainTier: AutoChainTier | null = null;
+    if (options.autoChain !== undefined && options.autoChain !== false) {
+      autoChainTier = parseAutoChainTier(options.autoChain);
+      if (autoChainTier === null) {
+        console.error('Error: --auto-chain expects one of: strict, toc, full');
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -399,7 +420,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // scanned scope — including notes already adopted there — so the chain
     // bridges over an adopted note instead of restarting; already-adopted
     // notes only ever appear as predecessors, never as write targets.
-    let chainPlan: HygieneChainPlan | null = null;
+    let chainPlan: TieredChainPlan | null = null;
+    /** Note → tier that authored its planned edge (C5 `depends_on_source`) */
+    const chainSourceOf: Map<string, DependsOnSource> = new Map();
+    /** C4 honest refusal: the scope carries no numbering and no TOC enumeration */
+    let chainRefused = false;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
     // is recorded here at graph-build time rather than re-derived from
@@ -444,10 +469,32 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // than trusting the scan's pre-filter: the two then cannot disagree about
       // what is allowed to gate, and any other caller of this API inherits the
       // same rule.
-      chainPlan = planAutoChainWithHygiene(
+      const hygienePlan = planAutoChainWithHygiene(
         [...planPaths],
         (relPath) => adoptedPaleeId.get(relPath)
       );
+      // TOC tier (PAL-205-C): the repo's own README/SUMMARY enumeration orders
+      // what the numbered tree does not cover; under C2 numbering dominance,
+      // numbered-tree paths keep their numbering edges no matter what a
+      // README lists.
+      // Enumerate the repo's own TOC once; `strict` simply refuses to consume
+      // it, but the honest-refusal message must know whether a TOC signal
+      // exists before claiming that none does.
+      const tocEnumeration = deriveTocEnumeration(vaultPath, planPaths);
+      const tocSignalInScope = tocEnumeration.documentOrder.length > 1;
+      const tiered = composeTieredChain({
+        tier: autoChainTier ?? 'full',
+        numbered: hygienePlan,
+        tocPaths: autoChainTier === 'strict' ? [] : tocEnumeration.documentOrder,
+      });
+      chainPlan = tiered;
+      chainSourceOf.clear();
+      for (const [p, s] of tiered.sourceOf) chainSourceOf.set(p, s);
+      // C4 honest refusal means *no order signal exists at all* — under
+      // `strict` a usable TOC enumeration still exists in the vault; strict
+      // just declines it, which is a configuration outcome, not the
+      // no-signal case the roadmap pointer is for.
+      chainRefused = !tiered.hasNumberedLayout && !tocSignalInScope && !tiered.hasTocLayout;
       if (chainPlan.hasUnnumbered) {
         // B6 — the warning now carries numbers and concrete paths: it is the
         // stop sign telling the learner this vault needs `--exclude`.
@@ -563,7 +610,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     }
     console.log(`Difficulty:       ${difficulty}`);
     if (options.autoChain) {
-      console.log(`Auto-chain:       enabled (${toAdopt.length} notes chained by prefix order)`);
+      if (chainRefused) {
+        // C4 honest refusal: no order signal anywhere in scope — exit 0 with
+        // zero edges instead of inventing alphabetical prerequisites.
+        console.log(
+          'Auto-chain:       0 edges (no numbered layout, no README TOC links) — consider palee roadmap'
+        );
+      } else {
+        const tocSuffix =
+          chainPlan && chainPlan.tocEdgeCount > 0 ? `, ${chainPlan.tocEdgeCount} from TOC` : '';
+        console.log(
+          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ${toAdopt.length} notes chained by prefix order${tocSuffix})`
+        );
+      }
       // B6 — per-tier hygiene report, printed identically on the dry-run and
       // the confirmation screen so what is reviewed is what is written. It is
       // printed even when nothing survived filtering: silently discarding the
@@ -731,12 +790,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const debug = normalizeScore(frontmatter?.debug);
       const feynman = normalizeScore(frontmatter?.feynman);
 
+      const plannedDeps = options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [];
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
         difficulty,
-        depends_on: options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [],
+        depends_on: plannedDeps,
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         conceptual,
@@ -751,6 +811,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
+
+      // C5 (PAL-205-C): additive provenance label. Only notes whose chain
+      // edge was actually written carry it; old PALEE builds parse the file
+      // unchanged (unknown frontmatter keys are preserved, never rejected),
+      // and gating behavior is untouched by this field.
+      if (plannedDeps.length > 0) {
+        const edgeSource = chainSourceOf.get(note.relativePath);
+        if (edgeSource) {
+          paleeData.depends_on_source = edgeSource;
+        }
+      }
 
       const updatedContent = updateFrontmatter(freshContent, paleeData);
       preparedBatch.push({

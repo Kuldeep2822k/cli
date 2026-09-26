@@ -31,7 +31,7 @@
  */
 
 import { classifyNoteForChain } from './tier0-hygiene';
-import { parseNumericPrefix, type ChainPlan } from './auto-chain';
+import { parseNumericPrefix, type HygieneChainPlan } from './auto-chain';
 
 /** Accepted values of `--auto-chain=<tier>` (default `full`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
@@ -414,8 +414,13 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
   return { orderedPaths, predecessorOf };
 }
 
-/** A {@link ChainPlan} refined with per-edge provenance for `depends_on_source`. */
-export interface TieredChainPlan extends ChainPlan {
+/**
+ * A {@link HygieneChainPlan} refined with tier provenance for
+ * `depends_on_source`. Carrying the hygiene fields through unchanged keeps
+ * the B6 per-tier report valid after composition: classification (backbone,
+ * leaf, excluded) is Tier-0's; only edges were recomputed.
+ */
+export interface TieredChainPlan extends HygieneChainPlan {
   /** Note → which tier authored its predecessor edge (only notes with an edge) */
   sourceOf: Map<string, DependsOnSource>;
   /** Edges authored by the numbered tree (backbone + leaf attach) */
@@ -432,8 +437,8 @@ export interface TieredChainPlan extends ChainPlan {
 export interface TieredComposition {
   /** Selected `--auto-chain` tier; `strict` never consumes TOC edges */
   tier: AutoChainTier;
-  /** Hygiene-filtered numbered plan (normally `planAutoChainWithHygiene`) */
-  numbered: ChainPlan;
+  /** Hygiene-filtered numbered plan (`planAutoChainWithHygiene`) */
+  numbered: HygieneChainPlan;
   /** Resolved TOC enumeration in document order, already limited to scan scope */
   tocPaths: string[];
 }
@@ -504,9 +509,9 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
 
   if (tier === 'strict') {
     return {
+      ...numbered,
       orderedPaths,
       predecessorOf,
-      hasUnnumbered: numbered.hasUnnumbered,
       sourceOf,
       numberedEdgeCount,
       tocEdgeCount: 0,
@@ -550,9 +555,9 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   }
 
   return {
+    ...numbered,
     orderedPaths: finalOrder,
     predecessorOf,
-    hasUnnumbered: numbered.hasUnnumbered,
     sourceOf,
     numberedEdgeCount: numberedEdges,
     tocEdgeCount: tocEdges,

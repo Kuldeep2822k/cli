@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { planAutoChain } from '../src/engine/auto-chain';
+import { planAutoChainWithHygiene } from '../src/engine/auto-chain';
 import {
   extractTocLinks,
   foldTocDestination,
@@ -180,7 +180,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     const numberedInput = ['01-a/README.md', '01-a/01-x.md', 'unnum/intro.md', 'unnum/notes.md'];
 
     it('strict returns numbered edges only and labels them numbered', () => {
-      const numbered = planAutoChain(numberedInput);
+      const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({ tier: 'strict', numbered, tocPaths: ['unnum/intro.md'] });
       assert.strictEqual(out.tocEdgeCount, 0);
       assert.strictEqual(out.sourceOf.get('01-a/README.md'), 'numbered');
@@ -188,7 +188,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     });
 
     it('numbering dominance: TOC never reorders numbered-tree endpoints', () => {
-      const numbered = planAutoChain(numberedInput);
+      const numbered = planAutoChainWithHygiene(numberedInput);
       const before = numbered.predecessorOf.get('01-a/01-x.md');
       // A (sloppy) README that enumerates the numbered tree backwards must not
       // flip the numbering-derived edge.
@@ -201,7 +201,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     });
 
     it('TOC edges replace the alphabetical fallback for the unnumbered remainder', () => {
-      const numbered = planAutoChain(numberedInput);
+      const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({
         tier: 'full',
         numbered,
@@ -219,7 +219,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     });
 
     it('hygiene still applies inside the TOC tier', () => {
-      const numbered = planAutoChain(['x']);
+      const numbered = planAutoChainWithHygiene(['x']);
       const out = composeTieredChain({
         tier: 'full',
         numbered,
@@ -232,7 +232,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     });
 
     it('keeps the merged plan acyclic through composition', () => {
-      const numbered = planAutoChain(numberedInput);
+      const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({
         tier: 'full',
         numbered,

@@ -562,10 +562,13 @@ export interface AdoptOptions {
   /** Skip interactive confirmation prompts */
   yes?: boolean;
   /**
-   * Auto-wire `depends_on` from numbered directory/file prefixes (#73).
-   * Batch mode only; conflicts with `dependsOn`.
+   * Auto-wire `depends_on` from the numbered tree, extended by the TOC tier
+   * (#73, PAL-205-C). `true` (bare flag) means the `full` tier; a string is
+   * the requested tier (`strict` | `toc` | `full`), validated by the CLI —
+   * anything else is a usage error. Batch mode only; conflicts with
+   * `dependsOn`.
    */
-  autoChain?: boolean;
+  autoChain?: boolean | string;
 }
 
 /**

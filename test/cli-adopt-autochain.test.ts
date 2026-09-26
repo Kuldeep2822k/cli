@@ -606,4 +606,130 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(dry.stdout, /Excluded total: 2 notes/);
     assert.match(dry.stdout, /Nothing left to chain/);
   });
+
+  // ── PAL-205-C: TOC tier, --auto-chain=strict|toc|full, depends_on_source ──
+
+  /** Reads the `depends_on_source` label written for a note (C5). */
+  function dependsOnSource(vaultDir: string, rel: string): string | undefined {
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(path.join(vaultDir, rel), 'utf8'));
+    const v = frontmatter?.depends_on_source;
+    return typeof v === 'string' ? v : undefined;
+  }
+
+  /** An unnumbered curriculum: order lives only in the README enumeration. */
+  const tocFiles: Record<string, string> = {
+    'README.md': [
+      '# Course',
+      '1. [Intro](guide/intro.md)',
+      '2. [Core](guide/core.md)',
+      '3. [Wrap-up](guide/wrapup.md)',
+      '',
+    ].join('\n'),
+    'guide/intro.md': '# Intro\n',
+    'guide/core.md': '# Core\n',
+    'guide/wrapup.md': '# Wrap\n',
+  };
+
+  test('TOC tier chains an unnumbered layout and labels edges toc', () => {
+    const { vaultDir, configDir } = freshVault(tocFiles);
+    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+    const ids = idToPath(vaultDir);
+    const pathOf = (id: string): string => {
+      const p = ids.get(id);
+      assert.ok(p, `unknown id ${id}`);
+      return p;
+    };
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/intro.md'), []);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/core.md').map(pathOf), ['guide/intro.md']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/wrapup.md').map(pathOf), ['guide/core.md']);
+    assert.strictEqual(dependsOnSource(vaultDir, 'guide/core.md'), 'toc');
+    assert.strictEqual(dependsOnSource(vaultDir, 'guide/wrapup.md'), 'toc');
+    assert.strictEqual(dependsOnSource(vaultDir, 'guide/intro.md'), undefined, 'chain head carries no source label');
+    assert.strictEqual(dependsOnSource(vaultDir, 'README.md'), undefined);
+  });
+
+  test('strict tier never consumes TOC edges', () => {
+    const { vaultDir, configDir } = freshVault(tocFiles);
+    const result = runCLI(['adopt', '--all', '--auto-chain=strict', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+    const ids = idToPath(vaultDir);
+    const pathOf = (id: string): string => {
+      const p = ids.get(id);
+      assert.ok(p, `unknown id ${id}`);
+      return p;
+    };
+    // The guide notes are leaves; under strict they only ever attach to the
+    // README backbone (Tier-0 leaf attach) — never to each other in TOC
+    // document order.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/core.md').map(pathOf), ['README.md']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/intro.md').map(pathOf), ['README.md']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/wrapup.md').map(pathOf), ['README.md']);
+    assert.notStrictEqual(dependsOnSource(vaultDir, 'guide/core.md'), 'toc', 'no toc labels under strict');
+  });
+
+  test('numbering dominance (C2): README order cannot flip numbered edges', () => {
+    const files: Record<string, string> = {
+      'README.md': [
+        '- [second](02-b.md)',
+        '- [first](01-a.md)',
+      ].join('\n'),
+      '01-a.md': '# A\n',
+      '02-b.md': '# B\n',
+    };
+    const { vaultDir, configDir } = freshVault(files);
+    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+    const ids = idToPath(vaultDir);
+    // Numbering says 01-a → 02-b even though the README enumerates backwards.
+    assert.deepStrictEqual(dependsOn(vaultDir, '02-b.md').map((id) => ids.get(id)), ['01-a.md']);
+    assert.strictEqual(dependsOnSource(vaultDir, '02-b.md'), 'numbered');
+  });
+
+  test('honest refusal: zero order signals prints the roadmap pointer and exits 0', () => {
+    const files: Record<string, string> = {
+      'notes/loose-a.md': '# A\n',
+      'notes/loose-b.md': '# B\n',
+    };
+    const { vaultDir, configDir } = freshVault(files);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(
+      dry.stdout,
+      /0 edges \(no numbered layout, no README TOC links\) — consider palee roadmap/
+    );
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stderr);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'notes/loose-b.md'), []);
+  });
+
+  test('unknown --auto-chain tier is a usage error (exit 2)', () => {
+    const { configDir } = freshVault(chainFiles);
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain=banana', '--dry-run'], configDir);
+    assert.strictEqual(result.status, 2);
+    assert.match(result.stderr, /expects one of: strict, toc, full/);
+  });
+
+  test('bare --auto-chain stays backward compatible (defaults to full)', () => {
+    const { configDir } = freshVault(chainFiles);
+    const bare = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(bare.status, 0, bare.stderr);
+    assert.match(bare.stdout, /Auto-chain:.*full tier/);
+  });
+
+  test('C5 round trip: an old-reader parse of a depends_on_source file still loads the topic', () => {
+    const { vaultDir, configDir } = freshVault(tocFiles);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+    // The old-reader contract: parseFrontmatter (unchanged since before C5)
+    // must surface the palee fields and simply carry the unknown key.
+    const raw = fs.readFileSync(path.join(vaultDir, 'guide/core.md'), 'utf8');
+    const { frontmatter } = parseFrontmatter(raw);
+    assert.ok(typeof frontmatter?.palee_id === 'string' && frontmatter.palee_id.length > 0);
+    assert.ok(Array.isArray(frontmatter?.depends_on));
+    assert.strictEqual(frontmatter?.depends_on_source, 'toc');
+    // And a downstream command must still read the vault without tripping.
+    const validate = runCLI(['validate'], configDir);
+    assert.strictEqual(validate.status, 0, validate.stdout + validate.stderr);
+  });
 });
