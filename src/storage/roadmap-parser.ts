@@ -13,7 +13,7 @@
 import yaml from 'yaml';
 import { normalizeDependencies } from './dependencies';
 import { parseFrontmatter } from './frontmatter';
-import { extractWikilinks, type ParsedWikilink } from '../engine/auto-chain';
+import { extractWikilinks, stripFencedCodeBlocks, type ParsedWikilink } from '../engine/auto-chain';
 import { RoadmapFile, RoadmapTopic } from '../types';
 
 /**
@@ -95,8 +95,8 @@ function normalizeRoadmap(topics: unknown[]): { roadmap: RoadmapFile } | { error
 export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSection[] | null {
   const { body } = parseFrontmatter(rawContent);
   const text = body ?? rawContent;
-  // Strip fenced code blocks (``` and ~~~) so examples never count as links
-  const stripped = text.replace(/(?:```|~~~)[^`~]*?\r?\n[\s\S]*?\r?\n\s*(?:```|~~~)/g, '');
+  // Blank out fenced code blocks (``` and ~~~) so examples never count as links
+  const stripped = stripFencedCodeBlocks(text);
 
   const sections: WikilinkRoadmapSection[] = [];
   let current: WikilinkRoadmapSection | null = null;

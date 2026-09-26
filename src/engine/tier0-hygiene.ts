@@ -121,8 +121,11 @@ export const GENERIC_DOC_STEMS: readonly string[] = [
 /**
  * B2 — languages OSS curricula are actually translated into. Deliberately
  * includes `ja`, `pt`, `it` (the codes the audit's hand-copied list missed).
- * A name-based match only demotes a note to leaf; the structural
- * `translations/` segment above is the authoritative signal.
+ * A name-based match is trusted only as far as its base doc name: a locale
+ * suffix on a *generic* doc name (`README.ko-KR`, `CHANGELOG.fr`) is an
+ * unambiguous translation copy and is excluded, while on any other name it is
+ * a guess that only demotes the note to leaf. The structural `translations/`
+ * segment stays the authoritative signal for translated lessons.
  */
 export const TRANSLATION_LANG_CODES: readonly string[] = [
   'en', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'zh', 'ru', 'ar', 'hi', 'nl', 'pl',
@@ -146,6 +149,29 @@ export const LOCALE_CODE_COLLISIONS: readonly string[] = ['js', 'ts', 'la'];
 const TRANSLATION_DIR = /^translations?$/i;
 
 /**
+ * B3 — `template` / `templates` as a whole name token, never as a substring.
+ *
+ * @remarks
+ * The substring form this replaced excluded real lessons: `03-cpp/02-templates.md`
+ * is a C++ templates module and `04-jinja-templates/` a whole topic, yet both
+ * named a template. A numeric prefix is an explicit order statement and exempts
+ * the name, exactly as it does for the B2 locale arm, so a numbered note is
+ * never dropped on its spelling.
+ */
+const TEMPLATE_TOKEN = /(^|[-_.\s])templates?($|[-_.\s])/;
+
+/**
+ * B3 — whether a stem or directory segment names a template rather than a lesson.
+ *
+ * @param name - Lowercased `.md` stem, or a lowercased directory segment
+ * @returns True only for an unnumbered name carrying `template`/`templates` as
+ * a whole token
+ */
+function isTemplateName(name: string): boolean {
+  return parseStemNumber(name) === null && TEMPLATE_TOKEN.test(name);
+}
+
+/**
  * Splits a trailing locale suffix into its language and region/script parts.
  *
  * @remarks
@@ -164,15 +190,18 @@ function inList(list: readonly string[], value: string): boolean {
 }
 
 /**
- * B2 — true when a `.md` stem ends in a translation locale suffix such as
- * `README.ko-KR`, `assignment.es`, `README-zh-Hans`, or `README.cn`.
+ * B2 — how much weight a trailing locale suffix carries: `'generic'` for a
+ * locale-suffixed repo/doc name such as `README.ko-KR` or `CHANGELOG.fr`
+ * (unambiguously a translation copy), `'other'` for any other name such as
+ * `assignment.es`, and `null` when the stem carries no trustworthy locale.
  *
  * @remarks
  * Two arms, because the two situations differ in how much they can be trusted:
  *
  * 1. **Generic doc name** (`readme`, `changelog`, …): any well-formed locale
  *    suffix counts, including region aliases like `cn` that name a country,
- *    not an ISO-639 language.
+ *    not an ISO-639 language. A copy of a repo-meta doc is never a lesson, so
+ *    it is `excluded` rather than demoted (INV-46).
  * 2. **Anything else unnumbered**: only a listed translation language counts,
  *    and never a {@link LOCALE_CODE_COLLISIONS} token. This is what keeps
  *    `guide-js` (a JavaScript guide) on the backbone.
@@ -182,35 +211,35 @@ function inList(list: readonly string[], value: string): boolean {
  * structural `translations/` segment instead. Without that exemption
  * `02-es.md` — the Elasticsearch lesson — read as Spanish.
  */
-function hasLocaleSuffix(stem: string): boolean {
+function localeSuffixKind(stem: string): 'generic' | 'other' | null {
   // A numeric prefix is the author stating a lesson order, which outranks a
   // name-based guess about language: `02-es.md` is the Elasticsearch lesson in
   // a search module, not a Spanish translation of lesson 2. Real translated
   // lessons sit under a structural `translations/` segment and are excluded by
   // that signal instead, which is why the name arm may stay this conservative.
   if (parseStemNumber(stem) !== null) {
-    return false;
+    return null;
   }
   const match = LOCALE_SUFFIX.exec(stem);
   if (!match) {
-    return false;
+    return null;
   }
   const base = match[1].toLowerCase();
   const primary = match[2].toLowerCase();
   const secondary = match[3] ? match[3].toLowerCase() : null;
   if (inList(LOCALE_CODE_COLLISIONS, primary)) {
-    return false;
+    return null;
   }
   if (inList(GENERIC_DOC_STEMS, base)) {
-    return true;
+    return 'generic';
   }
   if (!/^[a-z]{2,3}$/.test(primary)) {
-    return false;
+    return null;
   }
   if (inList(TRANSLATION_LANG_CODES, primary)) {
-    return true;
+    return 'other';
   }
-  return secondary !== null && inList(LOCALE_REGION_ALIASES, primary);
+  return secondary !== null && inList(LOCALE_REGION_ALIASES, primary) ? 'other' : null;
 }
 
 /** Case-insensitive `.md` stem of a basename; `''` for non-markdown names. */
@@ -304,8 +333,15 @@ export function classifyNoteForChain(relPath: string, paleeId?: unknown): Tier0D
   if (inList(REPO_META_STEMS, stem)) {
     return { cls: 'excluded', reason: 'repo-meta' };
   }
-  if (stem.includes('template') || dirSegments.some((s) => s.includes('template'))) {
+  if (isTemplateName(stem) || dirSegments.some(isTemplateName)) {
     return { cls: 'excluded', reason: 'template' };
+  }
+  // A locale-suffixed repo/doc name is a translation copy of a file that is
+  // itself repo-meta, so it is excluded with its siblings; a locale suffix on
+  // any other name is only a name-based guess and demotes instead (B2).
+  const localeKind = localeSuffixKind(stem);
+  if (localeKind === 'generic') {
+    return { cls: 'excluded', reason: 'translation' };
   }
 
   // B7 is checked after the exclusions on purpose: an unsatisfiable id must
@@ -318,7 +354,7 @@ export function classifyNoteForChain(relPath: string, paleeId?: unknown): Tier0D
   if (isPhaseSubtree(normalized)) {
     return { cls: 'leaf', reason: 'phase-subtree' };
   }
-  if (hasLocaleSuffix(stem)) {
+  if (localeKind === 'other') {
     return { cls: 'leaf', reason: 'translation' };
   }
   if (isContentDocName(basename)) {

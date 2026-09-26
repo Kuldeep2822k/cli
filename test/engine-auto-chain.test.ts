@@ -6,6 +6,7 @@ import {
   planAutoChain,
   parseWikilink,
   extractWikilinks,
+  stripFencedCodeBlocks,
 } from '../src/engine/auto-chain';
 
 describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
@@ -230,6 +231,74 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
     });
   });
 
+  describe('stripFencedCodeBlocks', () => {
+    /** Text that survives masking, with the blanked runs collapsed for legibility. */
+    const visible = (text: string): string[] =>
+      stripFencedCodeBlocks(text)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+    it('masks a fenced block and keeps the lines around it', () => {
+      assert.deepStrictEqual(visible('a\n```\n# hidden\n- [[hidden]]\n```\nb'), ['a', 'b']);
+    });
+
+    it('preserves line structure so downstream line scans keep their positions', () => {
+      const src = 'a\n```\nx\ny\n```\nb';
+      const out = stripFencedCodeBlocks(src);
+      assert.strictEqual(out.split('\n').length, src.split('\n').length);
+      assert.strictEqual(out.split('\n')[0], 'a');
+      assert.strictEqual(out.split('\n')[5], 'b');
+      assert.strictEqual(out.split('\n')[2].length, 1);
+    });
+
+    // The one regex this replaced let either marker close the other's block, so
+    // an example showing both fence styles leaked its contents straight back
+    // into the roadmap parser and the title resolver.
+    it('never closes a backtick fence on a tilde line', () => {
+      assert.deepStrictEqual(visible('a\n```markdown\n# H\n~~~\n- [[Ghost]]\n~~~\n```\nb'), [
+        'a',
+        'b',
+      ]);
+    });
+
+    it('never closes a tilde fence on a backtick line', () => {
+      // Once the mixed pair is refused the block is unclosed, and an unclosed
+      // fence runs to the end of the document — so `b` is masked too.
+      assert.deepStrictEqual(visible('a\n~~~\n# H\n```\n- [[Ghost]]\n```\nb'), ['a']);
+      // Closed by its own character, everything outside survives.
+      assert.deepStrictEqual(visible('a\n~~~\n```\n- [[Ghost]]\n~~~\nb'), ['a', 'b']);
+    });
+
+    it('requires the closing run to be at least as long as the opener', () => {
+      assert.deepStrictEqual(visible('a\n````\n- [[Ghost]]\n```\nstill inside\n````\nb'), ['a', 'b']);
+      assert.deepStrictEqual(visible('a\n```\n- [[Ghost]]\n````\nb'), ['a', 'b']);
+    });
+
+    it('rejects a closing fence carrying trailing text', () => {
+      assert.deepStrictEqual(visible('a\n```\n# H\n``` js\n- [[Ghost]]\n```\nb'), ['a', 'b']);
+    });
+
+    it('runs an unclosed fence to the end of the document', () => {
+      assert.deepStrictEqual(visible('a\n```md\n- [[Ghost]]\n## Also ghost'), ['a']);
+    });
+
+    it('does not open a backtick fence whose info string carries a backtick', () => {
+      const out = visible('a\n``` use `code` here\n- [[Real]]\n```\nb');
+      assert.ok(out.includes('- [[Real]]'), 'the line stays real content: ' + out.join(' | '));
+    });
+
+    it('ignores a marker indented four or more spaces (indented code, not a fence)', () => {
+      assert.deepStrictEqual(visible('a\n    ```\n- [[Real]]\n    ```\nb'), [
+        'a',
+        '```',
+        '- [[Real]]',
+        '```',
+        'b',
+      ]);
+    });
+  });
+
   describe('extractWikilinks', () => {
     it('extracts every well-formed link in order and skips malformed ones', () => {
       const links = extractWikilinks('- [[Alpha]] then [[beta/gamma|G]] and [[broken');
@@ -249,6 +318,20 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
     // inventing a chain edge out of a typo.
     it('skips a match that an unterminated [[ precedes', () => {
       assert.deepStrictEqual(extractWikilinks('- [[a[[b]]'), []);
+    });
+
+    // `\[[Alpha]]` is Obsidian's way of *showing* a wikilink: the backslash
+    // escapes the bracket, so the rendered text is a literal `[[Alpha]]` and no
+    // link exists. Reading it as one let a roadmap example rewrite Alpha's
+    // `depends_on` for a note the author deliberately switched off.
+    it('skips a backslash-escaped wikilink', () => {
+      assert.deepStrictEqual(extractWikilinks('- \\[[Alpha]]'), []);
+      assert.deepStrictEqual(extractWikilinks('see \\[[Alpha]] and [[Beta]]').map((l) => l.target), [
+        'Beta',
+      ]);
+      // Only an escaping backslash counts: a path segment ending in one is a
+      // literal character, and the link after it is real.
+      assert.deepStrictEqual(extractWikilinks('[[Alpha]]').map((l) => l.target), ['Alpha']);
     });
   });
 });

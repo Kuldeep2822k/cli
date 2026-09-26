@@ -130,6 +130,39 @@ function targetBaseName(target: string): string {
 }
 
 /**
+ * Re-spells a resolved note path with the exact casing `walkVault` reported.
+ *
+ * @param canonical - Absolute path from `fs.realpathSync` on the written target
+ * @param index - Note index from {@link buildVaultNoteIndex}, i.e. walkVault output
+ * @returns The walker's spelling when the note appears in it exactly once,
+ * otherwise `canonical` unchanged
+ *
+ * @remarks
+ * Needed because `fs.realpathSync` performs **no case conversion** on a
+ * case-insensitive volume, so `[[Notes/mynote]]` against a stored
+ * `Notes/MyNote.md` yields the user's spelling while `loadTopics` and
+ * {@link buildVaultNoteIndex} key everything by the disk spelling. Callers
+ * compare those strings as identity, so the divergence re-mints a `palee_id`
+ * for an already-adopted note (overwriting the existing one) and lets the same
+ * note enter a chain twice under two spellings.
+ *
+ * The walker's own index is the cheapest single source of that spelling: no
+ * extra filesystem call, and it is by construction the same `realpathSync`ed
+ * root the walk started from — which `fs.realpathSync.native` is not guaranteed
+ * to be. Case twins (`Case.md` beside `case.md`, which a case-sensitive volume
+ * allows) fold to one key, and there nothing is guessed.
+ */
+function withWalkedCasing(canonical: string, index: Map<string, string[]>): string {
+  const listed = index.get(path.basename(canonical, '.md').toLowerCase());
+  if (!listed) {
+    return canonical;
+  }
+  const folded = canonical.toLowerCase();
+  const matches = listed.filter((p) => p.toLowerCase() === folded);
+  return matches.length === 1 ? matches[0] : canonical;
+}
+
+/**
  * Resolves one parsed wikilink to a vault note.
  *
  * @param vaultPath - Absolute path to the vault root
@@ -152,7 +185,9 @@ function targetBaseName(target: string): string {
  * directory, a dangling symlink, a path with a regular-file component, or a
  * symlinked ancestor that leaves the vault. The basename fallback must never
  * rescue a target the exact match rejected; (2) unique basename match,
- * case-insensitive, with an exact-case hit winning ties.
+ * case-insensitive, with an exact-case hit winning ties. Both branches return
+ * the path in the casing {@link walkVault} reported, because callers key
+ * already-adopted notes and duplicate-target detection by that string.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,
@@ -205,7 +240,7 @@ export function resolveWikilinkTarget(
   }
 
   if (fs.existsSync(absoluteCandidate) && fs.statSync(absoluteCandidate).isFile()) {
-    const canonical = fs.realpathSync(absoluteCandidate);
+    const canonical = withWalkedCasing(fs.realpathSync(absoluteCandidate), index);
     // Re-checked on the canonical path: a symlink can point back out of the
     // vault, or into an invisible namespace, even when its lexical form is clean.
     if (!isWithinVault(resolvedVault, canonical)) {
