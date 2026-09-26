@@ -31,9 +31,9 @@
  */
 
 import { classifyNoteForChain } from './tier0-hygiene';
-import { parseNumericPrefix, type HygieneChainPlan } from './auto-chain';
+import { parseNumericPrefix, stripFencedCodeBlocks, type HygieneChainPlan } from './auto-chain';
 
-/** Accepted values of `--auto-chain=<tier>` (default `full`). */
+/** Accepted values of `--chain-tier` (default `full`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
 
 /** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). */
@@ -73,29 +73,35 @@ const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * reference-style tails, bare `#fragment` links, `http(s):`/`mailto:` targets
  * and malformed `%` escapes are skipped, never aborted on — a bad link must
  * only cost its own edge (under-chaining is the safe direction).
+ *
+ * Fenced code is blanked before scanning. A README documenting how to write a
+ * link — `` `[setup](notes/install.md)` `` inside an example — is not
+ * enumerating anything, and a note that happens to exist would otherwise enter
+ * the chain and collect a persisted prerequisite from documentation.
  */
 export function extractTocLinks(text: string): TocLink[] {
+  const scanned = stripFencedCodeBlocks(text);
   const links: TocLink[] = [];
   let i = 0;
-  while (i < text.length) {
-    const open = text.indexOf('[', i);
+  while (i < scanned.length) {
+    const open = scanned.indexOf('[', i);
     if (open < 0) break;
     // An image's label is not a link.
-    if (open > 0 && text[open - 1] === '!') {
+    if (open > 0 && scanned[open - 1] === '!') {
       i = open + 1;
       continue;
     }
-    const close = findLabelEnd(text, open);
+    const close = findLabelEnd(scanned, open);
     if (close < 0) {
       i = open + 1;
       continue;
     }
-    if (text[close + 1] !== '(') {
+    if (scanned[close + 1] !== '(') {
       // Reference-style `[label][id]` or stray bracket — not an inline link.
       i = close + 1;
       continue;
     }
-    const dest = readDestination(text, close + 2);
+    const dest = readDestination(scanned, close + 2);
     if (!dest) {
       i = close + 2;
       continue;
@@ -130,7 +136,18 @@ interface RawDestination {
   next: number;
 }
 
-/** Reads a `(...)` destination: angle-bracket form or bare form up to whitespace/`)`. */
+/**
+ * Reads a `(...)` destination: angle-bracket form or bare form up to the
+ * matching `)`.
+ *
+ * @remarks
+ * A bare destination may contain **balanced** parentheses — CommonMark allows
+ * `[lesson](notes/intro(v2).md)` — so the scan tracks depth and only ends the
+ * destination on the `)` that closes the one that opened it. Stopping at the
+ * first `)` truncated that path to `notes/intro(v2`, which then resolved as a
+ * missing note (or, worse, onto an unrelated note with the truncated name) and
+ * silently lost the author's ordering edge.
+ */
 function readDestination(text: string, start: number): RawDestination | null {
   if (start >= text.length) return null;
   if (text[start] === '<') {
@@ -152,22 +169,37 @@ function readDestination(text: string, start: number): RawDestination | null {
     return null;
   }
   let out = '';
+  let depth = 0;
+  /** Once whitespace is seen the destination is closed; the rest is a `"title"`. */
+  let inTitle = false;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
     if (ch === '\\' && i + 1 < text.length) {
       // CommonMark allows `\)` and friends; keep the escaped char literal.
-      out += text[i + 1];
+      if (!inTitle) out += text[i + 1];
       i++;
       continue;
     }
-    if (ch === ')') return { raw: out, next: i + 1 };
-    if (/\s/.test(ch)) {
-      // Optional `"title"` follows whitespace; consume to the closing paren.
-      const close = text.indexOf(')', i);
-      if (close < 0) return null;
-      return { raw: out, next: close + 1 };
+    if (ch === '(') {
+      depth++;
+      if (!inTitle) out += ch;
+      continue;
     }
-    out += ch;
+    if (ch === ')') {
+      if (depth > 0) {
+        depth--;
+        if (!inTitle) out += ch;
+        continue;
+      }
+      return { raw: out, next: i + 1 };
+    }
+    if (!inTitle && /\s/.test(ch)) {
+      // Optional `"title"` follows whitespace; keep scanning for the paren that
+      // actually closes the link, since a title may carry balanced parens.
+      inTitle = true;
+      continue;
+    }
+    if (!inTitle) out += ch;
   }
   return null;
 }
@@ -320,7 +352,7 @@ export function assertAcyclicPlan(predecessorOf: Map<string, string | null>): vo
 const TOC_PHASE_PREFIXES = ['deep-dive', 'lab', 'exam'];
 const TOC_ASSIGNMENT_PREFIXES = ['assignment', 'quiz', 'solution'];
 
-type TocLessonRank = { rank: 0 | 1 | 2 | 3 | 4; n: number };
+type TocLessonRank = { rank: 0 | 1 | 2 | 3 | 4; n: number; phase: number };
 
 /** Word-boundary keyword match, mirroring `tier0-hygiene`'s content-doc rule. */
 function hasKeywordPrefix(stem: string, kw: string): boolean {
@@ -337,18 +369,29 @@ function hasKeywordPrefix(stem: string, kw: string): boolean {
  * Ranks one TOC-run basename for the same-directory phase resort (C1),
  * mirroring the hygiene planner's `compareLessonOrderTier0` from the PAL-205-B
  * rework exactly: README-class 0 → numeric 1 (by number) → deep-dive/lab/exam
- * 2 → any other doc 3 (keeps document order) → assignment/quiz/solution 4,
- * LAST so homework never gates the docs that follow it — in the TOC run as
- * well as the numbered backbone.
+ * 2 (in that pedagogical order) → any other doc 3 (keeps document order) →
+ * assignment/quiz/solution 4, LAST so homework never gates the docs that follow
+ * it — in the TOC run as well as the numbered backbone.
+ *
+ * @remarks
+ * The phase index is the part that has to survive the mirroring: rank 2 alone
+ * made `deep-dive`, `lab` and `exam` tie and fall back to document order, so a
+ * README that listed a lab before its deep dive produced a chain where the
+ * deep dive depended on the lab — the reverse of the order the numbered tier
+ * states for the same three names.
  */
 function tocLessonRank(basename: string): TocLessonRank {
   const stem = basename.toLowerCase().endsWith('.md') ? basename.slice(0, -3).toLowerCase() : '';
-  if (stem === 'readme' || stem === 'summary') return { rank: 0, n: -1 };
+  if (stem === 'readme' || stem === 'summary') return { rank: 0, n: -1, phase: -1 };
   const prefix = parseNumericPrefix(basename);
-  if (prefix !== null) return { rank: 1, n: prefix.n };
-  if (TOC_PHASE_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) return { rank: 2, n: -1 };
-  if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) return { rank: 4, n: -1 };
-  return { rank: 3, n: -1 };
+  if (prefix !== null) return { rank: 1, n: prefix.n, phase: -1 };
+  for (let i = 0; i < TOC_PHASE_PREFIXES.length; i++) {
+    if (hasKeywordPrefix(stem, TOC_PHASE_PREFIXES[i])) return { rank: 2, n: -1, phase: i };
+  }
+  if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) {
+    return { rank: 4, n: -1, phase: -1 };
+  }
+  return { rank: 3, n: -1, phase: -1 };
 }
 
 /**
@@ -398,6 +441,7 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
     const rb = tocLessonRank(baseOf(b));
     if (ra.rank !== rb.rank) return ra.rank - rb.rank;
     if (ra.rank === 1 && ra.n !== rb.n) return ra.n - rb.n;
+    if (ra.rank === 2 && ra.phase !== rb.phase) return ra.phase - rb.phase;
     if (ra.rank === 4 || ra.rank === 2 || ra.rank === 3) {
       // Same intent class: the author's own document order is the tiebreak —
       // alphabetical would be exactly the arbitrary chaining this ticket was
@@ -415,6 +459,37 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
   }
   assertBackwardEdges(orderedPaths, predecessorOf);
   return { orderedPaths, predecessorOf };
+}
+
+/**
+ * True when the predecessor walk starting at `from` reaches `target`.
+ *
+ * @param predecessorOf - The merged plan's one-predecessor map
+ * @param from - Note to start walking from
+ * @param target - Note whose re-arrival would mean a cycle
+ * @returns Whether adding `target → from` would close a cycle
+ *
+ * @remarks
+ * Every note carries at most one predecessor in a plan, so the walk is a chain
+ * and "would this edge close a cycle" is a plain reachability question. The
+ * `seen` guard makes a pre-existing cycle answer `false` rather than spin: this
+ * call site must not null a justified edge for a cycle it did not create, and
+ * {@link assertAcyclicPlan} still reports that condition before any write.
+ */
+function reachesPredecessor(
+  predecessorOf: Map<string, string | null>,
+  from: string,
+  target: string
+): boolean {
+  const seen = new Set<string>();
+  let node: string | null | undefined = from;
+  while (node !== null && node !== undefined) {
+    if (node === target) return true;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    node = predecessorOf.get(node) ?? null;
+  }
+  return false;
 }
 
 /**
@@ -534,6 +609,8 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const tocPlan = planTocChain(candidates);
   const tocSet = new Set(tocPlan.orderedPaths);
   let tocEdges = 0;
+  /** TOC chain heads that are keeping a structurally-justified numbered edge. */
+  const keptHeads: { node: string; kept: string }[] = [];
   for (const p of tocPlan.orderedPaths) {
     const tocPred = tocPlan.predecessorOf.get(p) ?? null;
     if (tocPred !== null) {
@@ -545,15 +622,23 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
     // C-defect-1 (PAL-205-C rework): a TOC chain HEAD must never silently
     // delete a justified numbered edge. Since the B rework every non-null
     // numbered predecessor is structurally justified (alphabetical
-    // cross-dir gating was removed there), so a head keeps its existing
-    // edge and its `numbered` label. The one unsafe shape is a kept
-    // predecessor that is itself a TOC candidate: the TOC chain then runs
-    // from this head through that note, and keeping the edge would close a
-    // cycle — there the note opens the chain as intended.
+    // cross-dir gating was removed there), so a head keeps its existing edge
+    // and its `numbered` label — unless keeping it closes a cycle.
     const keptPred = predecessorOf.get(p) ?? null;
-    if (keptPred === null || !tocSet.has(keptPred)) continue;
-    predecessorOf.set(p, null);
-    sourceOf.delete(p);
+    if (keptPred !== null) keptHeads.push({ node: p, kept: keptPred });
+  }
+  // The unsafe shape is wider than "the kept predecessor is itself a TOC
+  // candidate". A partial enumeration leaves notes it never mentioned on their
+  // numbered edges, so a chain can run `kept → … → head` without every link
+  // being a candidate: README listing `m/lab-03` before `m/lab-01` and omitting
+  // `m/lab-02` gave `lab-03` a kept edge to `lab-02` while `lab-02` still
+  // pointed at `lab-01`, which the TOC had just re-parented onto `lab-03`. Ask
+  // the real question instead — does walking predecessors from the kept note
+  // reach this head? — and there the note opens the chain as intended.
+  for (const head of keptHeads) {
+    if (!reachesPredecessor(predecessorOf, head.kept, head.node)) continue;
+    predecessorOf.set(head.node, null);
+    sourceOf.delete(head.node);
   }
   // Display order: numbered rows the TOC tier took over move to the TOC
   // section so each tier still reads head-to-tail in dry-run output. The
@@ -582,9 +667,10 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
 }
 
 /**
- * Parses the `--auto-chain[=<tier>]` value.
+ * Parses the `--chain-tier` value.
  *
- * @param raw - Commander's value: `true` for a bare flag, or the string given
+ * @param raw - The string Commander captured, or `true` for a bare
+ * `--auto-chain` (which means `full`)
  * @returns The tier, or `null` for anything outside `strict|toc|full` (the CLI
  * turns `null` into a usage error — never a silent default)
  */

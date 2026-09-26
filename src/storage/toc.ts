@@ -99,7 +99,22 @@ function compareTocDirs(a: string, b: string): number {
  * by Tier-0 hygiene never enumerate.
  */
 export function discoverTocFiles(vaultPath: string): string[] {
-  const noteIndex = buildNoteIndex(vaultPath);
+  return discoverTocFilesFromIndex(buildNoteIndex(vaultPath));
+}
+
+/**
+ * {@link discoverTocFiles} against an index the caller already built.
+ *
+ * @param noteIndex - A built note index for the same vault root
+ * @returns The same ordered TOC paths
+ *
+ * @remarks
+ * Split out because deriving an enumeration needs the note index for itself:
+ * walking the whole vault twice per adoption run to re-derive a list this
+ * caller consumes immediately is a pure extra traversal on the slowest path in
+ * the command (the derive stage measured ~240 us per note).
+ */
+function discoverTocFilesFromIndex(noteIndex: NoteIndex): string[] {
   const candidates = [...noteIndex.exact.keys()].filter((rel) => {
     const base = rel.slice(rel.lastIndexOf('/') + 1);
     if (!TOC_FILE_STEMS.includes(stemOf(base))) return false;
@@ -159,7 +174,7 @@ function buildNoteIndex(vaultPath: string): NoteIndex {
 export function deriveTocEnumeration(vaultPath: string, scopePaths?: Set<string>): TocEnumeration {
   const resolvedVault = fs.realpathSync(vaultPath);
   const index = buildNoteIndex(resolvedVault);
-  const tocFiles = discoverTocFiles(resolvedVault);
+  const tocFiles = discoverTocFilesFromIndex(index);
   const documentOrder: string[] = [];
   const skipped: TocSkippedLink[] = [];
 

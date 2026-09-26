@@ -72,6 +72,59 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.ok(targets.includes('a.md'));
       assert.ok(targets.includes('b.md'));
     });
+
+    // A README documenting link syntax is not enumerating the curriculum. The
+    // extractor used to scan raw text, so an example naming a note that really
+    // exists put that note into the enumeration and gave it a written
+    // prerequisite no author asked for.
+    it('ignores links inside a fenced example', () => {
+      const md = [
+        '# Course',
+        '- [Intro](guide/intro.md)',
+        '',
+        'Write entries like this:',
+        '',
+        '```md',
+        '- [example](guide/old.md)',
+        '```',
+        '',
+        '- [Core](guide/core.md)',
+      ].join('\n');
+      const targets = extractTocLinks(md)
+        .map((l) => l.destination)
+        .filter((d): d is string => d !== null);
+      assert.deepStrictEqual(targets, ['guide/intro.md', 'guide/core.md']);
+    });
+
+    it('ignores links inside an unclosed fence to the end of the file', () => {
+      const links = extractTocLinks('- [Real](a.md)\n```md\n- [Ghost](b.md)\n');
+      assert.deepStrictEqual(
+        links.map((l) => l.destination),
+        ['a.md']
+      );
+    });
+
+    // CommonMark allows balanced parentheses in a bare destination, and study
+    // vaults really do have files like `intro(v2).md`. The first `)` ended the
+    // destination, so the link resolved as missing (or onto the truncated
+    // namesake) and the author's ordering edge was silently never written.
+    it('keeps balanced parentheses inside a bare destination', () => {
+      const links = extractTocLinks('- [Lesson](notes/intro(v2).md)');
+      assert.strictEqual(links[0].destination, 'notes/intro(v2).md');
+    });
+
+    it('keeps balanced parentheses in a destination carrying a title', () => {
+      const links = extractTocLinks('- [Lesson](notes/intro(v2).md "The (best) intro")');
+      assert.strictEqual(links[0].destination, 'notes/intro(v2).md');
+    });
+
+    it('still ends a bare destination at the unbalanced close paren', () => {
+      const links = extractTocLinks('- [a](x.md) then [b](y.md)');
+      assert.deepStrictEqual(
+        links.map((l) => l.destination),
+        ['x.md', 'y.md']
+      );
+    });
   });
 
   describe('foldTocDestination', () => {
@@ -143,6 +196,27 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     it('keeps the author document order within equal intent classes', () => {
       const plan = planTocChain(['d/notes.md', 'd/extra.md', 'd/alpha.md']);
       assert.deepStrictEqual(plan.orderedPaths, ['d/notes.md', 'd/extra.md', 'd/alpha.md']);
+    });
+
+    // `deep-dive → lab → exam` is an intent order the numbered tier already
+    // states, and this resort was documented as mirroring it exactly — but the
+    // three shared one rank and tied back to document order, so a README that
+    // listed the lab first produced a chain where the deep dive depended on the
+    // lab that follows it.
+    it('orders phase docs pedagogically regardless of README listing order', () => {
+      const plan = planTocChain(['m/lab-01.md', 'm/deep-dive.md', 'm/exam.md']);
+      assert.deepStrictEqual(plan.orderedPaths, [
+        'm/deep-dive.md',
+        'm/lab-01.md',
+        'm/exam.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('m/lab-01.md'), 'm/deep-dive.md');
+      assert.strictEqual(plan.predecessorOf.get('m/exam.md'), 'm/lab-01.md');
+    });
+
+    it('keeps document order among phase docs of the same kind', () => {
+      const plan = planTocChain(['m/lab-second.md', 'm/lab-first.md']);
+      assert.deepStrictEqual(plan.orderedPaths, ['m/lab-second.md', 'm/lab-first.md']);
     });
 
     it('groups by directory in first-appearance order', () => {
@@ -229,6 +303,48 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         out.orderedPaths.filter((p) => out.sourceOf.get(p) === 'toc'),
         ['guide/run.md']
       );
+    });
+
+    // A partial enumeration: the README lists `lab-03` before `lab-01` and
+    // never mentions `lab-02`. `lab-03` is a TOC head keeping its numbered edge
+    // to `lab-02`, while `lab-01` is re-parented onto `lab-03` — and `lab-02`
+    // still points at `lab-01`, so the kept edge closes a cycle. Guarding only
+    // "is the kept predecessor itself a TOC candidate" cannot see it, because
+    // the loop back runs through a note the TOC never listed; the earlier
+    // version of this threw the invariant error and aborted the whole batch.
+    it('a partial TOC enumeration cannot close a cycle through an unlisted note', () => {
+      const numbered = planAutoChainWithHygiene([
+        'm/lab-01.md',
+        'm/lab-02.md',
+        'm/lab-03.md',
+      ]);
+      assert.strictEqual(numbered.predecessorOf.get('m/lab-03.md'), 'm/lab-02.md');
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['m/lab-03.md', 'm/lab-01.md'],
+      });
+      assertAcyclicPlan(out.predecessorOf);
+      // The head that would have closed the cycle opens the chain instead.
+      assert.strictEqual(out.predecessorOf.get('m/lab-03.md'), null);
+      assert.ok(!out.sourceOf.has('m/lab-03.md'));
+      assert.strictEqual(out.predecessorOf.get('m/lab-01.md'), 'm/lab-03.md');
+      assert.strictEqual(out.predecessorOf.get('m/lab-02.md'), 'm/lab-01.md');
+      assert.strictEqual(out.tocEdgeCount, 1);
+      assert.strictEqual(out.numberedEdgeCount, 1);
+    });
+
+    it('a TOC head keeps a justified numbered edge the enumeration cannot reach', () => {
+      // The same shape with nothing looping back: the keep must survive, which
+      // is what distinguishes this from the cycle case above.
+      const numbered = planAutoChainWithHygiene(['m/01-a.md', 'm/02-b.md', 'm/03-c.md']);
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['m/03-c.md'],
+      });
+      assert.strictEqual(out.predecessorOf.get('m/03-c.md'), 'm/02-b.md');
+      assert.strictEqual(out.sourceOf.get('m/03-c.md'), 'numbered');
     });
 
     it('C-defect-1: a singleton TOC head keeps its justified numbered edge (ciu shape)', () => {

@@ -182,17 +182,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       return;
     }
 
-    // C4 (PAL-205-C): --auto-chain[=strict|toc|full]. A bare flag is `full`;
-    // anything outside the three tiers is a usage error, never a silent
-    // default back to chaining.
+    // C4 (PAL-205-C): the tier is a separate option, not an optional value on
+    // `--auto-chain`. An optional-value flag swallows the following positional,
+    // so `adopt --auto-chain MODULES` would have read `MODULES` as a tier and
+    // exited 2 having adopted nothing — a regression of a form this command has
+    // always accepted. A bare `--auto-chain` is `full`; anything outside the
+    // three tiers is a usage error, never a silent default back to chaining.
     let autoChainTier: AutoChainTier | null = null;
-    if (options.autoChain !== undefined && options.autoChain !== false) {
-      autoChainTier = parseAutoChainTier(options.autoChain);
+    if (options.autoChain) {
+      autoChainTier = options.chainTier === undefined ? 'full' : parseAutoChainTier(options.chainTier);
       if (autoChainTier === null) {
-        console.error('Error: --auto-chain expects one of: strict, toc, full');
+        console.error('Error: --chain-tier expects one of: strict, toc, full');
         process.exitCode = ExitCode.Usage;
         return;
       }
+    } else if (options.chainTier !== undefined) {
+      console.error('Error: --chain-tier requires --auto-chain');
+      process.exitCode = ExitCode.Usage;
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -657,10 +664,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           'Auto-chain:       0 edges (no numbered layout, no README TOC links) — consider palee roadmap'
         );
       } else {
-        const tocSuffix =
-          chainPlan && chainPlan.tocEdgeCount > 0 ? `, ${chainPlan.tocEdgeCount} from TOC` : '';
+        // Count the edges this run actually writes, by the tier that authored
+        // them. The previous wording promised `toAdopt.length` notes "chained by
+        // prefix order", which was wrong three ways at once: under `toc` and
+        // `full` some edges come from the README enumeration, a chain head
+        // receives no edge at all, and an already-adopted note bridged over is
+        // never rewritten.
+        const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
+        const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
         console.log(
-          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ${toAdopt.length} notes chained by prefix order${tocSuffix})`
+          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ` +
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
+            `${tocWritten} toc)`
         );
       }
       // B6 — per-tier hygiene report, printed identically on the dry-run and

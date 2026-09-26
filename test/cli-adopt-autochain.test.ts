@@ -607,7 +607,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(dry.stdout, /Nothing left to chain/);
   });
 
-  // ── PAL-205-C: TOC tier, --auto-chain=strict|toc|full, depends_on_source ──
+  // ── PAL-205-C: TOC tier, --chain-tier strict|toc|full, depends_on_source ──
 
   /** Reads the `depends_on_source` label written for a note (C5). */
   function dependsOnSource(vaultDir: string, rel: string): string | undefined {
@@ -632,7 +632,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('TOC tier chains an unnumbered layout and labels edges toc', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
-    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
     const pathOf = (id: string): string => {
@@ -670,7 +670,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('strict tier never consumes TOC edges', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
-    const result = runCLI(['adopt', '--all', '--auto-chain=strict', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'strict', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     // Under strict the guide notes are unnumbered-dir leaves; since the
     // PAL-205-B rework an unjustified alphabetical cross-dir transition may
@@ -693,7 +693,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       '02-b.md': '# B\n',
     };
     const { vaultDir, configDir } = freshVault(files);
-    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
     // Numbering says 01-a → 02-b even though the README enumerates backwards.
@@ -720,7 +720,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
     const { configDir } = freshVault(chainFiles);
-    const result = runCLI(['adopt', 'MODULES', '--auto-chain=banana', '--dry-run'], configDir);
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'banana', '--dry-run'], configDir);
     assert.strictEqual(result.status, 2);
     assert.match(result.stderr, /expects one of: strict, toc, full/);
   });
@@ -730,6 +730,43 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const bare = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
     assert.strictEqual(bare.status, 0, bare.stderr);
     assert.match(bare.stdout, /Auto-chain:.*full tier/);
+  });
+
+  // The tier is a separate option precisely because an optional-value flag
+  // takes the next token: with `--auto-chain [tier]`, the path in
+  // `--auto-chain MODULES` was read as a tier and the run exited 2 having
+  // adopted nothing — a form this command has always accepted.
+  test('--auto-chain does not consume the adoption path that follows it', () => {
+    const { vaultDir, configDir } = freshVault(chainFiles);
+    const result = runCLI(['adopt', '--auto-chain', 'MODULES', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.ok(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/01-a.md'), 'utf8'))
+        .frontmatter?.palee_id,
+      'the scanned directory was adopted, not swallowed as a tier'
+    );
+    assert.match(result.stdout, /Auto-chain:.*full tier/);
+  });
+
+  test('a directory named after a tier is still treated as the path', () => {
+    const { vaultDir, configDir } = freshVault({
+      'toc/01-a.md': '# A\n',
+      'toc/02-b.md': '# B\n',
+    });
+    const result = runCLI(['adopt', '--auto-chain', 'toc', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.ok(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'toc/01-a.md'), 'utf8')).frontmatter
+        ?.palee_id,
+      'the directory called `toc` was adopted'
+    );
+  });
+
+  test('--chain-tier without --auto-chain is a usage error (exit 2)', () => {
+    const { configDir } = freshVault(chainFiles);
+    const result = runCLI(['adopt', 'MODULES', '--chain-tier', 'strict', '--dry-run'], configDir);
+    assert.strictEqual(result.status, 2);
+    assert.match(result.stderr, /--chain-tier requires --auto-chain/);
   });
 
   test('C5 round trip: an old-reader parse of a depends_on_source file still loads the topic', () => {
