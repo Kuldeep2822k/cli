@@ -78,7 +78,7 @@ The following matrix documents the exact behavior of every command under each ex
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee config` | Successfully printed or updated configuration. | N/A | Missing value for `set-*`, unknown action, or non-existent vault directory. | N/A | N/A | Missing `LOCALAPPDATA` on Windows or corrupted `config.json`. |
-| `palee adopt` | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | N/A | OCC conflict during atomic note write (`isConflictError`). | Uncaught file system exception or atomic batch rollback failure. |
+| `palee adopt` | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (reported with the exact cycle path); no notes adopted. | OCC conflict during atomic note write (`isConflictError`). | Uncaught file system exception or atomic batch rollback failure. |
 | `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully rendered topological daily study plan or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
 | `palee progress` | Successfully displayed vault progress metrics, topic detail (`--topic`), or empty vault state. | N/A | Unconfigured vault, or topic ID/title query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
@@ -207,6 +207,13 @@ palee adopt "MODULES/03-kubernetes" --include "lab-*,concept-*" --tag "devops/k8
 
 # 4. Import a complete structured curriculum roadmap from YAML
 palee roadmap --from "curricula/cloud-architect.yaml" -y
+
+# 5. Chain a YAML roadmap by order, or adopt a module tree with auto-wired dependencies
+palee roadmap --from "curricula/devops.yaml" --auto-chain -y
+palee adopt "MODULES" --auto-chain -y
+
+# 6. Import a roadmap written as Obsidian wikilink lists
+palee roadmap --from "curricula/devops-links.md" -y
 
 # 5. Run vault integrity verification to confirm 0 cycles or broken dependencies
 palee validate

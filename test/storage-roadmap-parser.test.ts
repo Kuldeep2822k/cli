@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { parseRoadmapContent } from '../src/storage/roadmap-parser';
+import { parseRoadmapContent, parseWikilinkSections } from '../src/storage/roadmap-parser';
 
 describe('Roadmap Multi-Format Parser', () => {
   test('parses pure YAML content correctly', () => {
@@ -222,5 +222,202 @@ topics:
 
     assert.strictEqual(result.roadmap, null);
     assert.match(result.error ?? '', /Invalid topic at index 0: expected topic object, received null/);
+  });
+});
+
+describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
+  test('detects wikilink sections as the fourth format', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Study Roadmap\n\n## Foundations Track\n\n- [[MODULES/01-foundations/01-systems]]\n- [[Beta|Beta Alias]]\n\n## Advanced Track\n\n1. [[gamma#intro]]\n',
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.roadmap, null);
+    assert.ok(result.sections);
+    assert.strictEqual(result.sections.length, 2);
+    assert.strictEqual(result.sections[0].track, 'Foundations Track');
+    assert.deepStrictEqual(
+      result.sections[0].links.map((l) => l.target),
+      ['MODULES/01-foundations/01-systems', 'Beta']
+    );
+    assert.strictEqual(result.sections[0].links[1].alias, 'Beta Alias');
+    // Anchors are stripped at parse time
+    assert.strictEqual(result.sections[1].links[0].target, 'gamma');
+  });
+
+  test('ignores wikilinks inside fenced code blocks', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Roadmap\n\n```md\n- [[not-a-link]]\n```\n\n## Real\n\n- [[actual]]\n',
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['actual']
+    );
+  });
+
+  // The fence scanner used to let either marker close either block, so an
+  // example that showed both fence styles ended the example early: the
+  // `## Bad Track` heading and its `- [[Ghost]]` bullet came back as a real
+  // chain and rewrote Ghost's `depends_on`.
+  test('does not let a tilde line close a backtick fence', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n## Real Track\n\n- [[Calculus]]\n\n' +
+        '```markdown\n## Bad Track\n~~~\n- [[Ghost]]\n~~~\n```\n',
+      'syllabus.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.sections?.length, 1, 'the example opens no second track');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['Calculus']
+    );
+  });
+
+  test('does not let a backtick line close a tilde fence', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n## Real Track\n\n- [[Calculus]]\n\n' +
+        '~~~markdown\n# Heading\n```\n- [[Ghost]]\n```\n~~~\n',
+      'syllabus.md'
+    );
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['Calculus']
+    );
+  });
+
+  test('collects bullets before any heading and returns null without lists', () => {    const noHeading = parseRoadmapContent('---\npalee_roadmap: true\n---\n- [[solo]]\n- [[duo]]\n', 'roadmap.md');
+    assert.strictEqual(noHeading.format, 'wikilink');
+    assert.strictEqual(noHeading.sections?.length, 1);
+    assert.strictEqual(noHeading.sections?.[0].track, '');
+
+    const noLists = parseRoadmapContent('# Just prose\n\nNothing to see here.\n', 'roadmap.md');
+    assert.strictEqual(noLists.format, undefined);
+    assert.strictEqual(noLists.roadmap, null);
+    assert.match(noLists.error ?? '', /Roadmap must have a "topics" array/);
+  });
+
+  test('does not claim the wikilink format for YAML files', () => {
+    const result = parseRoadmapContent('- [[solo]]\n', 'roadmap.yaml');
+    assert.notStrictEqual(result.format, 'wikilink');
+  });
+
+  // Regression for #73 auto-fix: the wikilink format must be opt-in. An ordinary
+  // Obsidian note has a heading and `[[links]]` too, and importing one rewrote
+  // depends_on on every note it pointed at.
+  test('rejects an ordinary note that has a heading and wikilink bullets', () => {
+    const result = parseRoadmapContent(
+      '# Daily log\n\n- reviewed [[MODULES/beta]] today\n- recap [[MODULES/alpha]]\n',
+      'daily-log.md'
+    );
+    assert.strictEqual(result.format, undefined);
+    assert.strictEqual(result.sections, undefined);
+    assert.strictEqual(typeof result.error, 'string');
+    assert.ok((result.error ?? '').length > 0, 'expected a non-empty error diagnostic');
+  });
+
+  test('detects the wikilink format when the document declares palee_roadmap: true', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Daily log\n\n- reviewed [[MODULES/beta]] today\n- recap [[MODULES/alpha]]\n',
+      'daily-log.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['MODULES/beta', 'MODULES/alpha']
+    );
+  });
+
+  test('names the marker when a marked document has no wikilink list items', () => {
+    const result = parseRoadmapContent('---\npalee_roadmap: true\n---\n# Notes\n\nprose only\n', 'notes.md');
+    assert.notStrictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.sections, undefined);
+    assert.match(result.error ?? '', /palee_roadmap: true/);
+    assert.match(result.error ?? '', /no wikilink list items/);
+  });
+
+  test('frontmatter topics: still wins over the palee_roadmap marker', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\ntopics:\n  - id: T-1\n    title: One\n    path: one.md\n---\n',
+      'roadmap.md'
+    );
+    assert.strictEqual(result.format, 'frontmatter');
+    assert.strictEqual(result.roadmap?.topics.length, 1);
+    assert.strictEqual(result.roadmap?.topics[0].id, 'T-1');
+  });
+
+  // Regression (#73): only `##` delimits a track. Every extra section head the
+  // parser invents is a note whose depends_on is wiped, because a section head is
+  // written with `depends_on: []` and an explicit [] clears prerequisites. So one
+  // track written as `## Junior Track` with `### Part 2` / `#### deep` inside it
+  // used to become three independent chains.
+  test('confines chain sections to ## headings and keeps sub-headings inside them', () => {
+    const sections = parseWikilinkSections(
+      '## Junior Track\n- [[a]]\n### Part 2\n- [[c]]\n#### deep\n- [[d]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.strictEqual(sections[0].track, 'Junior Track');
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['a', 'c', 'd']
+    );
+  });
+
+  test('heading levels other than ## never start a chain section', () => {
+    // A `#`/`###`-only document must not mint named tracks, and the `###` line
+    // must not be mistaken for a bullet. The surviving links land in the
+    // empty-track section, which is what bullets before any `##` always do
+    // (see 'collects bullets before any heading and returns null without lists').
+    const withBullets = parseWikilinkSections('# Title\n### Sub\n- [[a]]\n');
+    assert.deepStrictEqual(
+      withBullets?.map((s) => s.track),
+      ['']
+    );
+    assert.deepStrictEqual(
+      withBullets?.[0].links.map((l) => l.target),
+      ['a']
+    );
+
+    // With no list items at all there is nothing to import and the caller
+    // (`parseRoadmapContent`) falls through to the structured error.
+    assert.strictEqual(parseWikilinkSections('# Title\n### Sub\nprose only\n'), null);
+
+    const marked = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n# Title\n### Sub\nprose only\n',
+      'roadmap.md'
+    );
+    assert.notStrictEqual(marked.format, 'wikilink');
+    assert.strictEqual(marked.sections, undefined);
+  });
+
+  // Obsidian renders `- [ ]` / `- [x]` as checkboxes; they are to-do items, not
+  // curated chain entries, and importing one rewrites that note's prerequisites.
+  test('ignores task-list items as chain entries', () => {
+    const sections = parseWikilinkSections(
+      '## Track\n- [ ] [[todo]]\n- [x] [[done]]\n- [X] [[DONE2]]\n- [[real]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['real']
+    );
+  });
+
+  // Same guard on the ordered-list prefix: `1. [ ]` is valid Markdown/Obsidian
+  // syntax, and the numbered branch used to capture `[ ] [[todo]]`, importing
+  // the to-do as a chain entry and rewriting its prerequisites.
+  test('ignores ordered task-list items as chain entries', () => {
+    const sections = parseWikilinkSections(
+      '## Track\n1. [ ] [[todo]]\n2. [x] [[done]]\n3) [X] [[DONE2]]\n4. [[real]]\n'
+    );
+    assert.ok(sections);
+    assert.strictEqual(sections.length, 1);
+    assert.deepStrictEqual(
+      sections[0].links.map((l) => l.target),
+      ['real']
+    );
   });
 });

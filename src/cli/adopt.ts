@@ -5,11 +5,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
   updateFrontmatter,
@@ -20,116 +19,16 @@ import {
   matchesPattern,
   matchesTags,
   validatePattern,
+  loadTopics,
 } from '../storage';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
-import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt } from '../types';
+import { generateTopicId } from '../engine/topic-id';
+import { planAutoChainWithHygiene, type HygieneChainPlan } from '../engine/auto-chain';
+import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
+import { detectCyclesBounded } from '../engine/dependency';
+import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
-
-
-
-
-/**
- * Generates a unique topic identifier prefixed with `T-`.
- *
- * @returns Unique topic ID string formatted as `T-YYYYMMDD-HHMMSS-XXXXXXXX`
- *
- * @remarks
- * Uses UTC date and time segments followed by 4 bytes (8 hex characters) of
- * cryptographic randomness. Format complies with the centralized ID policy
- * (`src/engine/topic-id.ts`, #29): `T-` plus lowercase kebab-case segments.
- *
- * @example
- * ```typescript
- * const topicId = generateTopicId(); // "T-20260830-120000-a1b2c3d4"
- * ```
- */
-function generateTopicId(): string {
-  const now = new Date();
-  // YYYYMMDD-HHMMSS — lowercase/numeric only, matching the ID policy
-  // (pre-#29 format T-20260830T120000-hex stays valid via the legacy pattern).
-  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const time = now.toISOString().slice(11, 19).replace(/:/g, '');
-  const random = crypto.randomBytes(4).toString('hex'); // 8 hex characters (32 bits of entropy)
-  return `T-${date}-${time}-${random}`;
-}
-
-/**
- * Resolves the display title for a Markdown note using hierarchical fallback strategies.
- *
- * @param content - Full text content of the note
- * @param filePath - Optional file path for basename fallback
- * @param parsedFrontmatter - Optional pre-parsed frontmatter dictionary
- * @returns Extracted display title string, falling back to 'Untitled'
- *
- * @remarks
- * Evaluation priority:
- * 1. Existing frontmatter `title` field (if defined, non-empty string, number, or boolean).
- * 2. First level-1 Markdown heading (`# Title`) in body, stripping comments and code fences.
- * 3. Note filename without `.md` extension.
- * 4. Fallback string `'Untitled'`.
- *
- * @example
- * ```typescript
- * const title = resolveNoteTitle('# Dynamic Systems\n\nNotes...', '/vault/notes/systems.md');
- * console.log(title); // 'Dynamic Systems'
- * ```
- */
-export function resolveNoteTitle(
-  content: string,
-  filePath?: string,
-  parsedFrontmatter?: Record<string, unknown> | null
-): string {
-  let frontmatter = parsedFrontmatter;
-  let bodyContent: string;
-
-  if (frontmatter === undefined) {
-    const parsed = parseFrontmatter(content);
-    frontmatter = parsed.frontmatter;
-    bodyContent = parsed.body;
-  } else {
-    bodyContent = content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/, '');
-  }
-
-  // Tier 1: Existing frontmatter title
-  if (frontmatter && frontmatter.title !== undefined && frontmatter.title !== null) {
-    if (typeof frontmatter.title === 'string') {
-      const cleanFmTitle = frontmatter.title.replace(/\r?\n/g, ' ').trim();
-      if (cleanFmTitle.length > 0) {
-        return cleanFmTitle;
-      }
-    } else if (typeof frontmatter.title === 'number' || typeof frontmatter.title === 'boolean') {
-      const cleanFmTitle = String(frontmatter.title).trim();
-      if (cleanFmTitle.length > 0) {
-        return cleanFmTitle;
-      }
-    }
-  }
-
-  // Tier 2: First H1 heading (# Title) in body
-  // Strip HTML comments
-  let sanitizedBody = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
-  // Strip fenced code blocks (``` and ~~~)
-  sanitizedBody = sanitizedBody.replace(/(?:```|~~~)[^`~]*?\r?\n[\s\S]*?\r?\n\s*(?:```|~~~)/g, '');
-
-  const h1Match = sanitizedBody.match(/^[ \t]{0,3}#[ \t]+([^#\r\n].*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/m);
-  if (h1Match && h1Match[1]) {
-    const cleanH1 = h1Match[1].trim();
-    if (cleanH1.length > 0) {
-      return cleanH1;
-    }
-  }
-
-  // Tier 3: Filename fallback
-  if (filePath) {
-    const ext = path.extname(filePath);
-    const basename = path.basename(filePath, ext);
-    if (basename.trim().length > 0) {
-      return basename.trim();
-    }
-  }
-
-  return 'Untitled';
-}
+import { resolveNoteTitle } from '../storage/note-title';
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -165,6 +64,8 @@ interface StagedNote {
   relativePath: string;
   content: string;
   fingerprint: string;
+  /** Pre-minted topic ID, assigned when --auto-chain plans the dependency graph up front */
+  topicId?: string;
 }
 
 interface RollbackRecord {
@@ -266,6 +167,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
     }
 
+    // --auto-chain is batch-only and synthesizes depends_on itself
+    if (options.autoChain && options.dependsOn) {
+      console.error('Error: --auto-chain is batch-only and conflicts with --depends-on');
+      process.exitCode = ExitCode.Usage;
+      return;
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Mode Detection: Single File vs Batch
     // ─────────────────────────────────────────────────────────────────
@@ -278,6 +186,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     if (isExplicitSingleFile) {
       // Single-file adoption mode
+      if (options.autoChain) {
+        console.error('Error: --auto-chain is batch-only; it cannot be used with a single note path');
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
       const absolutePath = path.resolve(vaultPath, targetPath!);
       const realPath = fs.realpathSync(absolutePath);
 
@@ -338,7 +251,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         due_at: null,
       };
 
-
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
 
@@ -396,8 +308,31 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     const toAdopt: StagedNote[] = [];
     const alreadyAdopted: string[] = [];
+    /**
+     * The already-adopted notes that passed `--include`/`--exclude`/`--tag`, and
+     * therefore the only ones the chain planner may see. Reported separately
+     * from {@link alreadyAdopted} because that list is the scan's accounting of
+     * the scope, while this one is a set of write-plan participants: a note the
+     * user excluded must not become a `depends_on` entry written to a new note.
+     */
+    const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
+    /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
+    const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
+    /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
+    const skippedInvalidId: string[] = [];
+    /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
+    const adoptedPaleeId = new Map<string, unknown>();
+
+    const recordHygieneSkip = (reason: Tier0SkipReason, relPath: string): void => {
+      const list = skippedByHygiene.get(reason);
+      if (list) {
+        list.push(relPath);
+      } else {
+        skippedByHygiene.set(reason, [relPath]);
+      }
+    };
 
     for (const filePath of allFiles) {
       const relPath = relativeVaultPath(vaultPath, filePath);
@@ -406,7 +341,31 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       // Check if already adopted
       if (frontmatter && frontmatter.palee_id) {
+        // B7 — a truthy non-string `palee_id` (e.g. `palee_id: 12345`, which YAML
+        // parses as a number) is invisible to `loadTopics`, which requires a
+        // non-empty string. Under `--auto-chain` such a note used to be treated
+        // as an adopted bridge note and then resolve to no id at all, making it
+        // an unsatisfiable predecessor that silently blocked everything chaining
+        // after it. It is now skipped with a counted reason: never rewritten
+        // (the learner's frontmatter is left alone) and never chained.
+        if (options.autoChain && !isValidPaleeId(frontmatter.palee_id)) {
+          skippedInvalidId.push(relPath);
+          continue;
+        }
         alreadyAdopted.push(relPath);
+        adoptedPaleeId.set(relPath, frontmatter.palee_id);
+        // The scan's filters govern the plan, not just the writes. An adopted
+        // note that the user excluded still reaches the planner through
+        // `planPaths` below, so the next new lesson is given a `depends_on` edge
+        // pointing at the very note `--exclude` was written to drop — and that
+        // edge is persisted. Same for `--include` and `--tag`.
+        const passesFilters =
+          (!options.include || matchesPattern(relPath, options.include)) &&
+          !(options.exclude && matchesPattern(relPath, options.exclude)) &&
+          !(options.tag && !matchesTags(frontmatter.tags, options.tag));
+        if (passesFilters) {
+          plannableAdopted.push(relPath);
+        }
         continue;
       }
 
@@ -428,12 +387,199 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         continue;
       }
 
+      // B1-B4 — repo meta, translation copies and templates are out of an
+      // auto-chain batch entirely: they must not become topics, and they must
+      // not be able to gate a real lesson. These filters are always on, so an
+      // explicit `--include` narrows the candidate set but does not re-admit a
+      // note hygiene excludes; a learner who really wants one of those adopts
+      // it directly in single-file mode, which has no batch hygiene pass.
+      if (options.autoChain) {
+        const decision = classifyNoteForChain(relPath);
+        if (decision.cls === 'excluded') {
+          recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
+          continue;
+        }
+      }
+
       toAdopt.push({
         absolutePath: filePath,
         relativePath: relPath,
         content,
         fingerprint: computeFingerprint(content),
       });
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Auto-chain planning (#73, INV-46)
+    // ─────────────────────────────────────────────────────────────────
+    // When --auto-chain is set, derive each note's depends_on predecessor
+    // from numbered directory/file prefixes BEFORE the dry-run/confirmation
+    // gate, so the planned graph is cycle-checked with zero writes and the
+    // dry-run prints the exact edge plan. The plan spans every note in the
+    // scanned scope — including notes already adopted there — so the chain
+    // bridges over an adopted note instead of restarting; already-adopted
+    // notes only ever appear as predecessors, never as write targets.
+    let chainPlan: HygieneChainPlan | null = null;
+    const chainDependsOn = new Map<string, string[]>();
+    // Dry-run preview must show exactly what the commit will write, so the plan
+    // is recorded here at graph-build time rather than re-derived from
+    // `chainPlan.predecessorOf`, which also spans already-adopted notes.
+    /** Edges the commit writes, in chain order: new note -> the predecessor it depends on */
+    const chainWritePlan: { path: string; dependsOnPath: string | null }[] = [];
+    /** In-scope already-adopted notes the chain bridges over; listed, never written */
+    const chainBridgedPaths: string[] = [];
+    if (options.autoChain && toAdopt.length > 0) {
+      // Existing topics are loaded once: they supply the canonical ids for the
+      // in-scope already-adopted notes the chain bridges over, and are merged
+      // into the graph below for cycle checking.
+      const existingTopics = loadTopics(vaultPath);
+
+      // Mint IDs up front: the planned graph is keyed by palee_id. Only notes
+      // being adopted get a fresh id — an adopted note keeps the id it already
+      // has on disk.
+      const idByPath = new Map<string, string>();
+      const toAdoptPaths = new Set<string>();
+      const planPaths = new Set<string>();
+      for (const note of toAdopt) {
+        note.topicId = generateTopicId();
+        idByPath.set(note.relativePath, note.topicId);
+        toAdoptPaths.add(note.relativePath);
+        planPaths.add(note.relativePath);
+      }
+
+      // Planner input is the whole curriculum being laid, not just the rows
+      // being inserted: notes already adopted inside the scanned scope join the
+      // plan so the first new note after them chains onto them.
+      for (const relPath of plannableAdopted) {
+        planPaths.add(relPath.replace(/\\/g, '/'));
+      }
+      for (const topic of existingTopics) {
+        const rel = topic.path.replace(/\\/g, '/');
+        if (planPaths.has(rel) && !toAdoptPaths.has(rel)) {
+          idByPath.set(rel, topic.id);
+        }
+      }
+
+      // The planner re-derives B7 from the ids the scan already parsed rather
+      // than trusting the scan's pre-filter: the two then cannot disagree about
+      // what is allowed to gate, and any other caller of this API inherits the
+      // same rule.
+      chainPlan = planAutoChainWithHygiene(
+        [...planPaths],
+        (relPath) => adoptedPaleeId.get(relPath)
+      );
+      // B6 — the warning carries numbers and concrete paths: it is the stop
+      // sign telling the learner this vault needs `--exclude`. The count and the
+      // examples both come from the set the warning describes, which the coarse
+      // `hasUnnumbered` flag is not: `leafPaths` holds numbered notes under
+      // phase subtrees and omits unnumbered backbone notes such as `README.md`,
+      // so counting it printed "0 of 2 planned notes are not numbered lessons"
+      // for a run that had just fallen back to alphabetical order — and the flag
+      // itself fires on any plan containing a module README.
+      const alphabetical = chainPlan.alphabeticalNotes;
+      const affected: string[] = [];
+      if (alphabetical.length > 0) {
+        affected.push(
+          `${alphabetical.length} of ${chainPlan.orderedPaths.length} planned notes have no number or phase in their name and chain in alphabetical order`
+        );
+      }
+      if (chainPlan.directoryOrderAlphabetical) {
+        affected.push(
+          'some directories carry no numeric prefix, so the order between them is alphabetical'
+        );
+      }
+      if (affected.length > 0) {
+        console.log(`⚠ Warning: ${affected.join('; ')}.`);
+        for (const example of alphabetical.slice(0, 3)) {
+          console.log(`    e.g. ${example}`);
+        }
+      }
+
+      const plannedGraph = new Map<string, TopicNode>();
+      for (const relPath of chainPlan.orderedPaths) {
+        const id = idByPath.get(relPath);
+        if (!id) {
+          continue;
+        }
+        if (!toAdoptPaths.has(relPath)) {
+          // An already-adopted note is never rewritten, so it gets no
+          // chainDependsOn entry and its planned node keeps the depends_on it
+          // has on disk (merged in below) rather than the chain-derived one.
+          // It is still part of the chain, so the preview lists it separately.
+          chainBridgedPaths.push(relPath);
+          continue;
+        }
+        const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
+        const predecessorId = predecessorPath ? idByPath.get(predecessorPath) : undefined;
+        const dependsOn: string[] = [];
+        if (predecessorId) {
+          dependsOn.push(predecessorId);
+        } else if (predecessorPath) {
+          console.log(
+            `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
+              `${relPath} keeps an empty depends_on.`
+          );
+        }
+        chainDependsOn.set(relPath, dependsOn);
+        chainWritePlan.push({ path: relPath, dependsOnPath: predecessorId ? predecessorPath : null });
+        plannedGraph.set(id, { palee_id: id, depends_on: dependsOn, topic_mastery: 0 });
+      }
+
+      // Merge existing vault topics so a pre-existing cycle blocks the
+      // commit instead of being silently extended.
+      for (const topic of existingTopics) {
+        if (!plannedGraph.has(topic.id)) {
+          plannedGraph.set(topic.id, {
+            palee_id: topic.id,
+            depends_on: topic.depends_on,
+            topic_mastery: 0,
+          });
+        }
+      }
+
+      const { cycles, truncated } = detectCyclesBounded(plannedGraph);
+      if (cycles.length > 0 || truncated) {
+        // Cycles are reported by vault-relative path, not just opaque
+        // `T-...` ids: the check merges the whole vault, so a cycle the learner
+        // authored months ago in a 300-note vault would otherwise be greppable
+        // only by id. The id stays in the line for cross-referencing
+        // `palee validate` output, and is all that is available for a topic
+        // outside the scanned scope.
+        const pathById = new Map<string, string>();
+        for (const [relPath, id] of idByPath) {
+          pathById.set(id, relPath);
+        }
+        const label = (id: string): string => {
+          const rel = pathById.get(id);
+          return rel ? `${rel} (${id})` : id;
+        };
+        console.error('Error: auto-chain dependency graph contains cycles; no notes were adopted.');
+        for (const cycle of cycles) {
+          console.error(`  • ${cycle.map(label).join(' → ')}`);
+        }
+        // Every edge `--auto-chain` adds here points strictly backward in the
+        // plan's total order, onto an id that either belongs to an already
+        // adopted note or was minted moments ago from `crypto.randomBytes` — so
+        // no pre-existing `depends_on` can name it. A chain edge therefore
+        // cannot close a cycle, and any loop reported below predates this run.
+        // (Contrast `roadmap --auto-chain`, where a synthesized edge CAN close a
+        // cycle against authored deps; that path labels its own edges.)
+        if (cycles.length > 0) {
+          console.error('  These edges are pre-existing vault dependencies, not chain-synthesized ones.');
+        }
+        if (truncated) {
+          console.error('  • … cycle enumeration truncated at 1000; more cycles may exist');
+        }
+        console.error('  Fix the cycle, then re-run: `palee validate` reports the offending edges.');
+        process.exitCode = ExitCode.Validation;
+        return;
+      }
+
+      // Adopt in chain order so verbose/dry-run output reads head-to-tail.
+      const orderIndex = new Map(chainPlan.orderedPaths.map((p, i) => [p, i]));
+      toAdopt.sort(
+        (a, b) => (orderIndex.get(a.relativePath) ?? 0) - (orderIndex.get(b.relativePath) ?? 0)
+      );
     }
 
     // Display summary preview
@@ -450,6 +596,57 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.log(`Excluded (Tag):     ${skippedByTag.length} notes`);
     }
     console.log(`Difficulty:       ${difficulty}`);
+    if (options.autoChain) {
+      console.log(`Auto-chain:       enabled (${toAdopt.length} notes chained by prefix order)`);
+      // B6 — per-tier hygiene report, printed identically on the dry-run and
+      // the confirmation screen so what is reviewed is what is written. It is
+      // printed even when nothing survived filtering: silently discarding the
+      // learner's notes is the failure mode this whole work order exists to
+      // remove, so an empty plan must still account for every skipped file.
+      if (
+        chainPlan ||
+        skippedByHygiene.size > 0 ||
+        skippedInvalidId.length > 0
+      ) {
+        const excludedFromPlan = chainPlan ? chainPlan.excluded : new Map<string, Tier0SkipReason>();
+        const countFor = (reason: Tier0SkipReason): number => {
+          const scanList = skippedByHygiene.get(reason);
+          let count = scanList ? scanList.length : 0;
+          for (const r of excludedFromPlan.values()) {
+            if (r === reason) count += 1;
+          }
+          return count;
+        };
+        const excludedTotal =
+          countFor('repo-meta') + countFor('translation') + countFor('template');
+        console.log('Tier-0 hygiene:');
+        if (chainPlan) {
+          console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
+          console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
+        } else {
+          console.log('  Backbone:       0 notes (may gate the chain)');
+          console.log('  Leaves:         0 notes (attached, never gate)');
+        }
+        console.log(`  Skipped (meta): ${countFor('repo-meta')} notes`);
+        console.log(`  Skipped (translations): ${countFor('translation')} notes`);
+        console.log(`  Skipped (template): ${countFor('template')} notes`);
+        console.log(
+          `  Phase subtrees: ${chainPlan ? chainPlan.counts.byReason['phase-subtree'] : 0} notes collapsed to leaves`
+        );
+        if (skippedInvalidId.length > 0) {
+          console.log(
+            `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
+          );
+        }
+        console.log(`  Excluded total: ${excludedTotal} notes`);
+        if (!chainPlan && excludedTotal + skippedInvalidId.length > 0) {
+          console.log(
+            '  → Nothing left to chain. Tier-0 hygiene is always on; to keep one of ' +
+              'these notes anyway, adopt it directly: palee adopt "<path>"'
+          );
+        }
+      }
+    }
 
     if (options.verbose) {
       if (toAdopt.length > 0) {
@@ -468,9 +665,46 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log('\nSkipped by tag filter:');
         skippedByTag.forEach((f) => console.log(`  ~ ${f}`));
       }
+      if (options.autoChain) {
+        for (const [reason, list] of skippedByHygiene) {
+          console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
+          list.forEach((f) => console.log(`  ! ${f}`));
+        }
+        if (chainPlan && chainPlan.excluded.size > 0) {
+          console.log('\nExcluded from the chain by Tier-0 hygiene:');
+          for (const [relPath, reason] of chainPlan.excluded) {
+            console.log(`  ! ${relPath} (${reason})`);
+          }
+        }
+        if (skippedInvalidId.length > 0) {
+          console.log('\nSkipped: palee_id is not a usable string (B7):');
+          skippedInvalidId.forEach((f) => console.log(`  ! ${f}`));
+        }
+      }
     }
 
     if (options.dryRun) {
+      if (chainPlan) {
+        // The preview is the write plan, so it can be diffed against what the
+        // commit actually does. `chainPlan.predecessorOf` spans the whole
+        // scanned scope — including already-adopted notes the commit never
+        // touches — so printing it showed edges that would never be applied.
+        const edgeCount = chainWritePlan.filter((edge) => edge.dependsOnPath !== null).length;
+        console.log(`\nPlanned dependency chain (${edgeCount} edges to write):`);
+        for (const edge of chainWritePlan) {
+          if (edge.dependsOnPath) {
+            console.log(`  • ${edge.path} depends on ${edge.dependsOnPath}`);
+          } else {
+            console.log(`  • ${edge.path} (chain head)`);
+          }
+        }
+        if (chainBridgedPaths.length > 0) {
+          console.log('\nBridged over (already adopted; used as predecessors, never rewritten):');
+          for (const relPath of chainBridgedPaths) {
+            console.log(`  = ${relPath}`);
+          }
+        }
+      }
       console.log('\nDry-run complete. No files were modified.');
       return;
     }
@@ -514,7 +748,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const freshFingerprint = computeFingerprint(freshContent);
       const { frontmatter } = parseFrontmatter(freshContent);
 
-      const topicId = generateTopicId();
+      const topicId = note.topicId ?? generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
       const topicMastery = resolveTopicMastery({
@@ -536,7 +770,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         palee_schema: 1,
         title,
         difficulty,
-        depends_on: [],
+        depends_on: options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [],
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         conceptual,
@@ -551,7 +785,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
-
 
       const updatedContent = updateFrontmatter(freshContent, paleeData);
       preparedBatch.push({
@@ -578,6 +811,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
+      if (options.autoChain) {
+        let edges = 0;
+        for (const deps of chainDependsOn.values()) {
+          edges += deps.length;
+        }
+        console.log(`  Auto-chained: ${edges} dependency edges wired across ${journal.length} notes.`);
+      }
       return;
     } catch (writeErr: unknown) {
       const err = writeErr as Error;
