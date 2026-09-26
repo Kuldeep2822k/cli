@@ -346,17 +346,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         continue;
       }
 
-      // B1-B4 — repo meta, translation copies and templates are out of an
-      // auto-chain batch entirely: they must not become topics, and they must
-      // not be able to gate a real lesson.
-      if (options.autoChain) {
-        const decision = classifyNoteForChain(relPath);
-        if (decision.cls === 'excluded') {
-          recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
-          continue;
-        }
-      }
-
       // Check include filter
       if (options.include && !matchesPattern(relPath, options.include)) {
         skippedByPattern.push(relPath);
@@ -373,6 +362,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (options.tag && !matchesTags(frontmatter?.tags, options.tag)) {
         skippedByTag.push(relPath);
         continue;
+      }
+
+      // B1-B4 — repo meta, translation copies and templates are out of an
+      // auto-chain batch entirely: they must not become topics, and they must
+      // not be able to gate a real lesson. These filters are always on, so an
+      // explicit `--include` narrows the candidate set but does not re-admit a
+      // note hygiene excludes; a learner who really wants one of those adopts
+      // it directly in single-file mode, which has no batch hygiene pass.
+      if (options.autoChain) {
+        const decision = classifyNoteForChain(relPath);
+        if (decision.cls === 'excluded') {
+          recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
+          continue;
+        }
       }
 
       toAdopt.push({
@@ -552,12 +555,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     if (options.autoChain) {
       console.log(`Auto-chain:       enabled (${toAdopt.length} notes chained by prefix order)`);
       // B6 — per-tier hygiene report, printed identically on the dry-run and
-      // the confirmation screen so what is reviewed is what is written.
-      if (chainPlan) {
+      // the confirmation screen so what is reviewed is what is written. It is
+      // printed even when nothing survived filtering: silently discarding the
+      // learner's notes is the failure mode this whole work order exists to
+      // remove, so an empty plan must still account for every skipped file.
+      if (
+        chainPlan ||
+        skippedByHygiene.size > 0 ||
+        skippedInvalidId.length > 0
+      ) {
+        const excludedFromPlan = chainPlan ? chainPlan.excluded : new Map<string, Tier0SkipReason>();
         const countFor = (reason: Tier0SkipReason): number => {
           const scanList = skippedByHygiene.get(reason);
           let count = scanList ? scanList.length : 0;
-          for (const r of chainPlan!.excluded.values()) {
+          for (const r of excludedFromPlan.values()) {
             if (r === reason) count += 1;
           }
           return count;
@@ -565,13 +576,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const excludedTotal =
           countFor('repo-meta') + countFor('translation') + countFor('template');
         console.log('Tier-0 hygiene:');
-        console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
-        console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
+        if (chainPlan) {
+          console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
+          console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
+        } else {
+          console.log('  Backbone:       0 notes (may gate the chain)');
+          console.log('  Leaves:         0 notes (attached, never gate)');
+        }
         console.log(`  Skipped (meta): ${countFor('repo-meta')} notes`);
         console.log(`  Skipped (translations): ${countFor('translation')} notes`);
         console.log(`  Skipped (template): ${countFor('template')} notes`);
         console.log(
-          `  Phase subtrees: ${chainPlan.counts.byReason['phase-subtree']} notes collapsed to leaves`
+          `  Phase subtrees: ${chainPlan ? chainPlan.counts.byReason['phase-subtree'] : 0} notes collapsed to leaves`
         );
         if (skippedInvalidId.length > 0) {
           console.log(
@@ -579,6 +595,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           );
         }
         console.log(`  Excluded total: ${excludedTotal} notes`);
+        if (!chainPlan && excludedTotal + skippedInvalidId.length > 0) {
+          console.log(
+            '  → Nothing left to chain. Tier-0 hygiene is always on; to keep one of ' +
+              'these notes anyway, adopt it directly: palee adopt "<path>"'
+          );
+        }
       }
     }
 

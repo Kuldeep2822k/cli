@@ -588,4 +588,22 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.ok(!gating.has(idOf('MODULES/01-foundations/for-teachers.md')));
     assert.ok(!gating.has(idOf('MODULES/01-foundations/solutions/01-solution.md')));
   });
+
+  // Coverage must never be thrown away silently: when hygiene filters remove
+  // everything, the screen still has to account for every scanned file.
+  test('hygiene accounts for every note even when nothing survives to chain', () => {
+    const { configDir } = freshVault({
+      'MODULES/LICENSE.md': '# License\n',
+      'MODULES/translations/README.es.md': '# Copia\n',
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Ready to Adopt:\s+0 notes/);
+    assert.match(dry.stdout, /Tier-0 hygiene:/);
+    assert.match(dry.stdout, /Skipped \(meta\): 1 notes/);
+    assert.match(dry.stdout, /Skipped \(translations\): 1 notes/);
+    assert.match(dry.stdout, /Excluded total: 2 notes/);
+    assert.match(dry.stdout, /Nothing left to chain/);
+  });
 });
