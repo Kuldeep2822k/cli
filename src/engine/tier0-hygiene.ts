@@ -173,12 +173,24 @@ function inList(list: readonly string[], value: string): boolean {
  * 1. **Generic doc name** (`readme`, `changelog`, …): any well-formed locale
  *    suffix counts, including region aliases like `cn` that name a country,
  *    not an ISO-639 language.
- * 2. **Anything else**: only a listed translation language counts, and never a
- *    {@link LOCALE_CODE_COLLISIONS} token. This is what keeps `guide-js` (a
- *    JavaScript guide) and `01-os` (an operating-systems lesson — `os` is also
- *    ISO-639-1 for Ossetian) on the backbone.
+ * 2. **Anything else unnumbered**: only a listed translation language counts,
+ *    and never a {@link LOCALE_CODE_COLLISIONS} token. This is what keeps
+ *    `guide-js` (a JavaScript guide) on the backbone.
+ *
+ * A stem that parses as a numbered lesson is exempt from both arms: the number
+ * is an explicit order statement, and translated lessons are caught by the
+ * structural `translations/` segment instead. Without that exemption
+ * `02-es.md` — the Elasticsearch lesson — read as Spanish.
  */
 function hasLocaleSuffix(stem: string): boolean {
+  // A numeric prefix is the author stating a lesson order, which outranks a
+  // name-based guess about language: `02-es.md` is the Elasticsearch lesson in
+  // a search module, not a Spanish translation of lesson 2. Real translated
+  // lessons sit under a structural `translations/` segment and are excluded by
+  // that signal instead, which is why the name arm may stay this conservative.
+  if (parseStemNumber(stem) !== null) {
+    return false;
+  }
   const match = LOCALE_SUFFIX.exec(stem);
   if (!match) {
     return false;

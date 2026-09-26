@@ -23,6 +23,8 @@
 
 import {
   classifyNoteForChain,
+  README_CLASS_STEMS,
+  stemOf,
   type Tier0Decision,
   type Tier0SkipReason,
 } from './tier0-hygiene';
@@ -340,29 +342,140 @@ function emptyRuleCounts(): Tier0RuleCounts {
 }
 
 /**
+ * Documents *why* a directory transition may or may not gate.
+ *
+ * @remarks
+ * An edge from a note in one directory to a note in another is only justified
+ * when the order between those two directories comes from structure rather
+ * than from alphabetical enumeration:
+ *
+ * - the same directory always qualifies;
+ * - an ancestor/descendant pair qualifies, because nesting is the signal;
+ * - otherwise the first differing path segment decides, and the transition is
+ *   justified only when **both** segments carry numeric prefixes — a numbered
+ *   curriculum is the author stating an order.
+ *
+ * When either side is unnumbered, alphabetical order picked which sibling came
+ * first, and a reference collection enumerated alphabetically is not a
+ * prerequisite sequence. Such a transition must not gate: the note starts its
+ * own chain instead, which is the same honest-refusal direction the rest of
+ * Tier-0 takes (demote, never invent).
+ */
+function dirTransitionJustified(fromDir: string, toDir: string): boolean {
+  if (fromDir === toDir) {
+    return true;
+  }
+  const a = dirSortKey(fromDir);
+  const b = dirSortKey(toDir);
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i].name === b[i].name) {
+      continue;
+    }
+    return a[i].n !== null && b[i].n !== null;
+  }
+  // One path is a prefix of the other: pure nesting, no alphabetical choice.
+  return true;
+}
+
+/**
+ * Tier-0 within-directory lesson order: README-class first, then numeric
+ * prefixes, then the `deep-dive → lab → exam` phases, then remaining names
+ * alphabetically, with `assignment|quiz|solution` deliberately last.
+ *
+ * @remarks
+ * The shipped `compareLessonOrder` puts README and `assignment.md` in the same
+ * rank and breaks the tie alphabetically, so `assignment.md` sorted **before**
+ * `README.md` and every module lesson ended up depending on its own homework.
+ * Homework, quizzes and solutions follow the lesson they assess, so they close
+ * the directory instead of opening it.
+ *
+ * This comparator is intentionally local to the hygiene planner: the public
+ * `compareLessonOrder` contract that Work Order A shipped against is unchanged.
+ */
+function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
+  const ra = tier0LessonRank(aBasename);
+  const rb = tier0LessonRank(bBasename);
+  if (ra.rank !== rb.rank) {
+    return ra.rank - rb.rank;
+  }
+  if (ra.rank === 1 && ra.n !== rb.n) {
+    return ra.n - rb.n;
+  }
+  if (ra.rank === 2 && ra.phase !== rb.phase) {
+    return ra.phase - rb.phase;
+  }
+  return compareStrings(aBasename, bBasename);
+}
+
+/** Within-directory rank of a note under {@link compareLessonOrderTier0}. */
+interface Tier0LessonRank {
+  /** 0 README-class, 1 numeric, 2 phase, 3 other, 4 homework/solution last */
+  rank: 0 | 1 | 2 | 3 | 4;
+  n: number;
+  phase: number;
+}
+
+function tier0LessonRank(basename: string): Tier0LessonRank {
+  const stem = stemOf(basename);
+  if (README_CLASS_STEMS.includes(stem)) {
+    return { rank: 0, n: -1, phase: -1 };
+  }
+  const prefix = parseNumericPrefix(stem);
+  if (prefix !== null) {
+    return { rank: 1, n: prefix.n, phase: -1 };
+  }
+  for (let i = 0; i < PHASE_KEYWORDS.length; i++) {
+    const kw = PHASE_KEYWORDS[i];
+    if (
+      stem === kw ||
+      stem.startsWith(kw + '-') ||
+      stem.startsWith(kw + '_') ||
+      stem.startsWith(kw + '.') ||
+      stem.startsWith(kw + ' ')
+    ) {
+      return { rank: 2, n: -1, phase: i };
+    }
+  }
+  if (ASSIGNMENT_LAST_PREFIXES.some((kw) => stem === kw || stem.startsWith(kw + '-') || stem.startsWith(kw + '_') || stem.startsWith(kw + '.') || stem.startsWith(kw + ' '))) {
+    return { rank: 4, n: -1, phase: -1 };
+  }
+  return { rank: 3, n: -1, phase: -1 };
+}
+
+/** Names that assess a lesson, so they follow it rather than precede it. */
+const ASSIGNMENT_LAST_PREFIXES = ['assignment', 'quiz', 'solution'] as const;
+
+/**
  * Plans an auto-chain over the same order {@link planAutoChain} produces, after
  * Tier-0 hygiene has removed repo noise and demoted non-lesson notes.
  *
  * @param relativePaths - Vault-relative note paths (POSIX or Windows separators)
- * @param paleeIdOf - Optional lookup of a note's parsed frontmatter `palee_id`,
- * used only to close the B7 unsatisfiable-predecessor hole
+ * @param paleeIdOf - Lookup of a note's parsed frontmatter `palee_id`. **Optional
+ * by signature only, not by contract: the plan classifies with it, so a caller
+ * that has ids available and withholds them gets a different graph.** `adopt.ts`
+ * wires it, and any other consumer (the TOC tier) must too whenever ids are
+ * known — B7 demotion is applied here as well as at the scan, deliberately, so
+ * the two can never disagree about what may gate.
  * @returns The hygiene-filtered plan, with per-tier counts for reporting
  *
  * @remarks
- * The ordering is delegated to `planAutoChain` so the two plans can never
- * drift apart; only the predecessor assignment changes. The rule that removes
- * the measured false edges is that **a leaf never gates**:
+ * The directory grouping and directory ordering come from `planAutoChain` so the
+ * two plans cannot drift apart. Two things are then corrected here, and only
+ * here:
  *
- * - a backbone note's predecessor is the previous *backbone* note, so leaves
- *   and excluded notes are bridged over rather than chained through;
- * - a leaf note's predecessor is the nearest preceding backbone note, so it
- *   points at the chain (and still carries a `depends_on` for graph coverage)
- *   without anything chaining off it;
- * - excluded notes appear in neither list, so they gate nothing and are
- *   reported under a counted reason.
+ * 1. **Within a directory**, notes are re-sorted by {@link compareLessonOrderTier0}
+ *    so a lesson's README precedes its assignment instead of the reverse.
+ * 2. **Across directories**, {@link dirTransitionJustified} decides whether a
+ *    transition may gate at all, so alphabetical order between unnumbered
+ *    sibling directories stops fabricating prerequisites.
  *
- * Acyclicity is preserved: every edge still points strictly backward in the
- * same total order.
+ * On top of that the leaf rule holds: a backbone note's predecessor is the
+ * previous *backbone* note that it is justified in following, a leaf's
+ * predecessor is that same nearest preceding backbone note (so it carries a
+ * `depends_on` for graph coverage without anything chaining off it), and
+ * excluded notes appear nowhere. Acyclicity is preserved: every edge still
+ * points strictly backward in the same total order.
  */
 export function planAutoChainWithHygiene(
   relativePaths: string[],
@@ -388,20 +501,48 @@ export function planAutoChainWithHygiene(
 
   const base = planAutoChain(kept);
 
+  // Re-sort inside each directory run, keeping the directory sequence that
+  // planAutoChain already chose. planAutoChain emits groups contiguously, so a
+  // run is a maximal stretch of paths sharing a parent directory.
+  const orderedPaths: string[] = [];
+  let runDir: string | null = null;
+  let run: string[] = [];
+  const flushRun = (): void => {
+    if (run.length === 0) {
+      return;
+    }
+    run.sort((a, b) => compareLessonOrderTier0(baseNameOf(a), baseNameOf(b)));
+    orderedPaths.push(...run);
+    run = [];
+  };
+  for (const p of base.orderedPaths) {
+    const dir = parentDirOf(p);
+    if (runDir !== null && dir !== runDir) {
+      flushRun();
+    }
+    runDir = dir;
+    run.push(p);
+  }
+  flushRun();
+
   const backbonePaths: string[] = [];
   const leafPaths: string[] = [];
   const predecessorOf = new Map<string, string | null>();
   let lastBackbone: string | null = null;
-  for (const p of base.orderedPaths) {
+  for (const p of orderedPaths) {
     const cls = decisions.get(p)?.cls ?? 'leaf';
+    const candidate =
+      lastBackbone !== null && dirTransitionJustified(parentDirOf(lastBackbone), parentDirOf(p))
+        ? lastBackbone
+        : null;
     if (cls === 'backbone') {
       backbonePaths.push(p);
-      predecessorOf.set(p, lastBackbone);
+      predecessorOf.set(p, candidate);
       lastBackbone = p;
     } else {
       leafPaths.push(p);
       // A leaf hangs off the chain; it never becomes the chain's spine.
-      predecessorOf.set(p, lastBackbone);
+      predecessorOf.set(p, candidate);
     }
   }
 
@@ -411,7 +552,7 @@ export function planAutoChainWithHygiene(
   }
 
   return {
-    orderedPaths: base.orderedPaths,
+    orderedPaths,
     predecessorOf,
     hasUnnumbered: base.hasUnnumbered,
     backbonePaths,

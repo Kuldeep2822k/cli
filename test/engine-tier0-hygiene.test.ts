@@ -76,7 +76,9 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
     it('includes the codes a hand-copied list historically missed', () => {
       for (const code of ['ja', 'pt', 'it', 'ko', 'zh', 'es', 'fr', 'de']) {
         assert.ok(TRANSLATION_LANG_CODES.includes(code), `${code} must be a known language`);
-        assert.strictEqual(cls(`01-x/02-lesson.${code}.md`), 'leaf', `02-lesson.${code}.md`);
+        // Probed on an unnumbered doc name: a numbered stem is a stated lesson
+        // order and is exempt from the name arm (see the 02-es fixture).
+        assert.strictEqual(cls(`01-x/guide.${code}.md`), 'leaf', `guide.${code}.md`);
       }
     });
 
@@ -89,9 +91,30 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
       assert.strictEqual(cls('01-x/lab-js.md'), 'backbone');
     });
 
-    it('keeps a numbered OS lesson despite os being ISO-639-1 for Ossetian', () => {
+    it('keeps a numbered lesson whose name ends in a real ISO-639-1 code', () => {
       assert.strictEqual(cls('01-x/02-os-basics.md'), 'backbone');
       assert.strictEqual(cls('01-x/03-networking.md'), 'backbone');
+    });
+
+    // The B2 name arm has to stay falsifiable: this is the shape that would
+    // silently cost coverage if a numbered lesson were ever read as a
+    // translation. Zero such names exist in the pinned 15-vault corpus, so this
+    // fixture is the only thing standing between a regression and a release.
+    it('does not read a topic acronym as a locale on a numbered lesson (02-es fixture)', () => {
+      assert.deepStrictEqual(classifyNoteForChain('01-search/02-es.md'), { cls: 'backbone' });
+      assert.strictEqual(cls('01-search/03-kibana.md'), 'backbone');
+      assert.strictEqual(cls('01-stack/02-go-setup.md'), 'backbone');
+      // A translated copy of the same lesson is still caught, by structure.
+      assert.strictEqual(
+        classifyNoteForChain('01-search/translations/02-es.es.md').cls,
+        'excluded'
+      );
+      // Unnumbered generic/assignment docs keep demoting as before.
+      assert.deepStrictEqual(classifyNoteForChain('assignment.es.md'), {
+        cls: 'leaf',
+        reason: 'translation',
+      });
+      assert.strictEqual(classifyNoteForChain('README.cn.md').reason, 'translation');
     });
   });
 
@@ -237,14 +260,82 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
       // Hygiene takes meta out of the plan, so that edge cannot be written.
       assert.ok(!plan.orderedPaths.includes('LICENSE.md'));
       assert.notStrictEqual(plan.predecessorOf.get('README.md'), 'LICENSE.md');
-      assert.strictEqual(plan.predecessorOf.get('01-beginners/01-setup.md'), null);
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/01-setup.md'), '01-beginners/README.md');
+    });
+
+    it('leads each directory with its README so homework never gates the lesson', () => {
+      // Class 2: alphabetically `assignment.md` beat `README.md`, so the module
+      // lesson depended on its own assignment.
+      const homework = planAutoChainWithHygiene([
+        '1-Introduction/01-defining-data-science/README.md',
+        '1-Introduction/01-defining-data-science/assignment.md',
+        '1-Introduction/01-defining-data-science/quiz.md',
+        '1-Introduction/01-defining-data-science/solution.md',
+      ]);
+      assert.strictEqual(
+        homework.predecessorOf.get('1-Introduction/01-defining-data-science/README.md'),
+        null,
+        'the README opens the module'
+      );
+      assert.strictEqual(
+        homework.predecessorOf.get('1-Introduction/01-defining-data-science/assignment.md'),
+        '1-Introduction/01-defining-data-science/README.md'
+      );
+      assert.strictEqual(
+        homework.predecessorOf.get('1-Introduction/01-defining-data-science/quiz.md'),
+        '1-Introduction/01-defining-data-science/assignment.md'
+      );
+      assert.strictEqual(
+        homework.predecessorOf.get('1-Introduction/01-defining-data-science/solution.md'),
+        '1-Introduction/01-defining-data-science/quiz.md'
+      );
+    });
+
+    it('starts a fresh chain per unnumbered sibling dir instead of gating alphabetically', () => {
+      // Class 1: a reference collection enumerated alphabetically is not a
+      // prerequisite sequence, so no README may take its predecessor from
+      // another unnumbered sibling directory.
+      const reference = planAutoChainWithHygiene([
+        'src/algorithms/cryptography/caesar-cipher/README.md',
+        'src/algorithms/cryptography/hill-cipher/README.md',
+        'src/algorithms/cryptography/rail-fence-cipher/README.md',
+      ]);
+      const gated = [...reference.predecessorOf.values()].filter((v) => v !== null);
+      assert.strictEqual(gated.length, 0, 'no alphabetical cross-dir edge may be written');
+      for (const p of reference.backbonePaths) {
+        assert.strictEqual(reference.predecessorOf.get(p), null, `${p} must open its own chain`);
+      }
+    });
+
+    it('keeps the numbered cross-module bridge that numbering actually justifies', () => {
+      const numbered = planAutoChainWithHygiene([
+        '01-beginners/02-last.md',
+        '02-intermediate/01-first.md',
+      ]);
+      assert.strictEqual(
+        numbered.predecessorOf.get('02-intermediate/01-first.md'),
+        '01-beginners/02-last.md',
+        'numbered module N still bridges from module N-1'
+      );
+    });
+
+    it('still bridges a parent dir into its own nested subdir (nesting is the signal)', () => {
+      assert.strictEqual(
+        plan.predecessorOf.get('01-beginners/solutions/01-solution.md'),
+        '01-beginners/02-first-app.md'
+      );
     });
 
     it('bridges the backbone over leaves instead of chaining through them', () => {
-      // Order inside 01-beginners puts for-teachers.md before README.md, so a
-      // spine that chained through it would gate README on an ad-hoc sibling.
-      assert.strictEqual(plan.predecessorOf.get('01-beginners/for-teachers.md'), '01-beginners/02-first-app.md');
-      assert.strictEqual(plan.predecessorOf.get('01-beginners/README.md'), '01-beginners/02-first-app.md');
+      // README now leads the directory, so the spine inside 01-beginners is
+      // README -> 01-setup -> 02-first-app, and the ad-hoc sibling that sorts
+      // after it is attached rather than gating.
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/README.md'), null);
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/01-setup.md'), '01-beginners/README.md');
+      assert.strictEqual(
+        plan.predecessorOf.get('01-beginners/for-teachers.md'),
+        '01-beginners/02-first-app.md'
+      );
       assert.ok(plan.leafPaths.includes('01-beginners/for-teachers.md'));
       assert.ok(plan.backbonePaths.includes('01-beginners/README.md'));
     });
@@ -262,10 +353,27 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
     });
 
     it('attaches leaves to the nearest preceding backbone node', () => {
-      const phasePlan = planAutoChainWithHygiene(vault);
       assert.strictEqual(
-        phasePlan.predecessorOf.get('01-beginners/solutions/01-solution.md'),
-        '01-beginners/README.md'
+        plan.predecessorOf.get('01-beginners/solutions/01-solution.md'),
+        '01-beginners/02-first-app.md'
+      );
+    });
+
+    it('keeps a same-dir lesson spine intact when the dir is nested under unnumbered parents', () => {
+      // The Class-1 rule must not damage real within-dir ordering.
+      const collection = planAutoChainWithHygiene([
+        'src/data-structures/linked-list/README.md',
+        'src/data-structures/linked-list/01-singly.ts',
+        'src/data-structures/linked-list/02-doubly.ts',
+      ]);
+      assert.strictEqual(collection.predecessorOf.get('src/data-structures/linked-list/README.md'), null);
+      assert.strictEqual(
+        collection.predecessorOf.get('src/data-structures/linked-list/01-singly.ts'),
+        'src/data-structures/linked-list/README.md'
+      );
+      assert.strictEqual(
+        collection.predecessorOf.get('src/data-structures/linked-list/02-doubly.ts'),
+        'src/data-structures/linked-list/01-singly.ts'
       );
     });
 

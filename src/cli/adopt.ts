@@ -314,6 +314,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
     /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
     const skippedInvalidId: string[] = [];
+    /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
+    const adoptedPaleeId = new Map<string, unknown>();
 
     const recordHygieneSkip = (reason: Tier0SkipReason, relPath: string): void => {
       const list = skippedByHygiene.get(reason);
@@ -343,6 +345,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           continue;
         }
         alreadyAdopted.push(relPath);
+        adoptedPaleeId.set(relPath, frontmatter.palee_id);
         continue;
       }
 
@@ -437,7 +440,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
-      chainPlan = planAutoChainWithHygiene([...planPaths]);
+      // The planner re-derives B7 from the ids the scan already parsed rather
+      // than trusting the scan's pre-filter: the two then cannot disagree about
+      // what is allowed to gate, and any other caller of this API inherits the
+      // same rule.
+      chainPlan = planAutoChainWithHygiene(
+        [...planPaths],
+        (relPath) => adoptedPaleeId.get(relPath)
+      );
       if (chainPlan.hasUnnumbered) {
         // B6 — the warning now carries numbers and concrete paths: it is the
         // stop sign telling the learner this vault needs `--exclude`.
