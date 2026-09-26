@@ -10,6 +10,7 @@ import {
   REPO_META_STEMS,
   PHASE_DIR_SEGMENTS,
   TRANSLATION_LANG_CODES,
+  LOCALE_REGION_ALIASES,
 } from '../src/engine/tier0-hygiene';
 
 /** Convenience: the class only, for assertions that do not care about the reason. */
@@ -34,6 +35,21 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
       for (const stem of required) {
         assert.ok(REPO_META_STEMS.includes(stem), `blocklist must contain '${stem}'`);
         assert.strictEqual(cls(`${stem}.md`), 'excluded', `${stem}.md should be excluded`);
+      }
+    });
+
+    // #205 named these in its own measured false edges (`HELP.md depends on
+    // FAQ.md`), but they sat only in GENERIC_DOC_STEMS — the loose locale arm —
+    // so an untranslated `FAQ.md` classified as a leaf: still adopted, still a
+    // legal TOC predecessor, and able to gate a real lesson.
+    it('excludes the meta names the audit cited but the blocklist missed', () => {
+      for (const stem of ['faq', 'help']) {
+        assert.ok(REPO_META_STEMS.includes(stem), `blocklist must contain '${stem}'`);
+        assert.deepStrictEqual(
+          classifyNoteForChain(`${stem.toUpperCase()}.md`),
+          { cls: 'excluded', reason: 'repo-meta' },
+          `${stem}.md should be excluded, not demoted`
+        );
       }
     });
 
@@ -95,6 +111,26 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
         // order and is exempt from the name arm (see the 02-es fixture).
         assert.strictEqual(cls(`01-x/guide.${code}.md`), 'leaf', `guide.${code}.md`);
       }
+    });
+
+    // A region alias names a locale the same way an ISO-639 code does, so the
+    // two arms have to agree. The alias arm used to require a trailing region
+    // before it counted, which is unreachable on its own — so `assignment.cn.md`
+    // stayed a backbone lesson that could gate, while the identical Spanish
+    // `assignment.es.md` demoted to leaf.
+    it('demotes a region-alias locale exactly like an ISO-639 code', () => {
+      for (const alias of LOCALE_REGION_ALIASES) {
+        assert.deepStrictEqual(
+          classifyNoteForChain(`assignment.${alias}.md`),
+          { cls: 'leaf', reason: 'translation' },
+          `assignment.${alias}.md must demote like assignment.es.md`
+        );
+      }
+      assert.deepStrictEqual(
+        classifyNoteForChain('assignment.es.md'),
+        classifyNoteForChain('assignment.cn.md'),
+        'the two locales must classify identically'
+      );
     });
 
     it('pins the guide-js false-positive guard in the safe direction', () => {

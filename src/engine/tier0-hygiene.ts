@@ -57,6 +57,8 @@ export const REPO_META_STEMS: readonly string[] = [
   'code-of-conduct',
   'security',
   'support',
+  'faq',
+  'help',
   'funding',
   'sponsor',
   'translations',
@@ -139,9 +141,14 @@ export const TRANSLATION_LANG_CODES: readonly string[] = [
 export const LOCALE_REGION_ALIASES: readonly string[] = ['cn', 'hk', 'mo', 'tw', 'sg'];
 
 /**
- * B2 false-positive guard — short tokens that collide with real language codes
- * but overwhelmingly name a programming language in a study vault, so
- * `guide-js.md` stays a content doc instead of being demoted as Japanese.
+ * B2 false-positive guard — tokens that collide with a language code a reader
+ * may add to {@link TRANSLATION_LANG_CODES} but that overwhelmingly name a
+ * programming language in a study vault. `js`, `ts` and `la` are absent from
+ * that list today, so this arm changes nothing until one of them is added; it
+ * is here so that adding `ja`-adjacent codes cannot silently demote
+ * `guide-js.md` further. Note the guard only stops the note being read as a
+ * translation: `guide-js.md` is still an unnumbered non-content sibling, so it
+ * classifies as a `leaf`, not as a backbone lesson.
  */
 export const LOCALE_CODE_COLLISIONS: readonly string[] = ['js', 'ts', 'la'];
 
@@ -202,9 +209,11 @@ function inList(list: readonly string[], value: string): boolean {
  *    suffix counts, including region aliases like `cn` that name a country,
  *    not an ISO-639 language. A copy of a repo-meta doc is never a lesson, so
  *    it is `excluded` rather than demoted (INV-46).
- * 2. **Anything else unnumbered**: only a listed translation language counts,
- *    and never a {@link LOCALE_CODE_COLLISIONS} token. This is what keeps
- *    `guide-js` (a JavaScript guide) on the backbone.
+ * 2. **Anything else unnumbered**: only a listed translation language or region
+ *    alias counts, and never a {@link LOCALE_CODE_COLLISIONS} token. A match
+ *    here demotes the note to `leaf` (INV-46), it does not promote anything to
+ *    the backbone — an unnumbered non-content sibling like `guide-js` is a
+ *    `leaf` either way.
  *
  * A stem that parses as a numbered lesson is exempt from both arms: the number
  * is an explicit order statement, and translated lessons are caught by the
@@ -226,7 +235,6 @@ function localeSuffixKind(stem: string): 'generic' | 'other' | null {
   }
   const base = match[1].toLowerCase();
   const primary = match[2].toLowerCase();
-  const secondary = match[3] ? match[3].toLowerCase() : null;
   if (inList(LOCALE_CODE_COLLISIONS, primary)) {
     return null;
   }
@@ -236,10 +244,14 @@ function localeSuffixKind(stem: string): 'generic' | 'other' | null {
   if (!/^[a-z]{2,3}$/.test(primary)) {
     return null;
   }
-  if (inList(TRANSLATION_LANG_CODES, primary)) {
+  // A region alias (`cn`, `tw`, …) names a locale just as an ISO-639 code does.
+  // Requiring a trailing region before it counted made `assignment.cn.md` a
+  // backbone lesson while `assignment.es.md` demoted to leaf — the same
+  // document read two ways, with only one of them able to gate.
+  if (inList(TRANSLATION_LANG_CODES, primary) || inList(LOCALE_REGION_ALIASES, primary)) {
     return 'other';
   }
-  return secondary !== null && inList(LOCALE_REGION_ALIASES, primary) ? 'other' : null;
+  return null;
 }
 
 /** Case-insensitive `.md` stem of a basename; `''` for non-markdown names. */
