@@ -563,12 +563,19 @@ export interface AdoptOptions {
   yes?: boolean;
   /**
    * Auto-wire `depends_on` from the numbered tree, extended by the TOC tier
-   * (#73, PAL-205-C). `true` (bare flag) means the `full` tier; a string is
-   * the requested tier (`strict` | `toc` | `full`), validated by the CLI —
-   * anything else is a usage error. Batch mode only; conflicts with
-   * `dependsOn`.
+   * (#73, PAL-205-C). A plain boolean: it takes no value, because an
+   * optional-value flag would swallow the following positional path. The tier
+   * is requested separately through {@link AdoptOptions#chainTier}. Batch mode
+   * only; conflicts with `dependsOn`.
    */
-  autoChain?: boolean | string;
+  autoChain?: boolean;
+  /**
+   * Which order signal `--auto-chain` may consume: `strict` (numbered tree
+   * only), `toc` (author enumeration only), or `full` (both). Optional; absent,
+   * `--auto-chain` runs the `full` tier. Validated by the CLI — anything else
+   * is a usage error — and meaningless without `--auto-chain`.
+   */
+  chainTier?: string;
 }
 
 /**

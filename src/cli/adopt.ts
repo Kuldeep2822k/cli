@@ -182,17 +182,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       return;
     }
 
-    // C4 (PAL-205-C): --auto-chain[=strict|toc|full]. A bare flag is `full`;
-    // anything outside the three tiers is a usage error, never a silent
-    // default back to chaining.
+    // C4 (PAL-205-C): the tier is a separate option, not an optional value on
+    // `--auto-chain`. An optional-value flag swallows the following positional,
+    // so `adopt --auto-chain MODULES` would have read `MODULES` as a tier and
+    // exited 2 having adopted nothing — a regression of a form this command has
+    // always accepted. A bare `--auto-chain` is `full`; anything outside the
+    // three tiers is a usage error, never a silent default back to chaining.
     let autoChainTier: AutoChainTier | null = null;
-    if (options.autoChain !== undefined && options.autoChain !== false) {
-      autoChainTier = parseAutoChainTier(options.autoChain);
+    if (options.autoChain) {
+      autoChainTier = options.chainTier === undefined ? 'full' : parseAutoChainTier(options.chainTier);
       if (autoChainTier === null) {
-        console.error('Error: --auto-chain expects one of: strict, toc, full');
+        console.error('Error: --chain-tier expects one of: strict, toc, full');
         process.exitCode = ExitCode.Usage;
         return;
       }
+    } else if (options.chainTier !== undefined) {
+      console.error('Error: --chain-tier requires --auto-chain');
+      process.exitCode = ExitCode.Usage;
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -329,6 +336,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     const toAdopt: StagedNote[] = [];
     const alreadyAdopted: string[] = [];
+    /**
+     * The already-adopted notes that passed `--include`/`--exclude`/`--tag`, and
+     * therefore the only ones the chain planner may see. Reported separately
+     * from {@link alreadyAdopted} because that list is the scan's accounting of
+     * the scope, while this one is a set of write-plan participants: a note the
+     * user excluded must not become a `depends_on` entry written to a new note.
+     */
+    const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
     /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
@@ -367,6 +382,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
         alreadyAdopted.push(relPath);
         adoptedPaleeId.set(relPath, frontmatter.palee_id);
+        // The scan's filters govern the plan, not just the writes. An adopted
+        // note that the user excluded still reaches the planner through
+        // `planPaths` below, so the next new lesson is given a `depends_on` edge
+        // pointing at the very note `--exclude` was written to drop — and that
+        // edge is persisted. Same for `--include` and `--tag`.
+        const passesFilters =
+          (!options.include || matchesPattern(relPath, options.include)) &&
+          !(options.exclude && matchesPattern(relPath, options.exclude)) &&
+          !(options.tag && !matchesTags(frontmatter.tags, options.tag));
+        if (passesFilters) {
+          plannableAdopted.push(relPath);
+        }
         continue;
       }
 
@@ -455,7 +482,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Planner input is the whole curriculum being laid, not just the rows
       // being inserted: notes already adopted inside the scanned scope join the
       // plan so the first new note after them chains onto them.
-      for (const relPath of alreadyAdopted) {
+      for (const relPath of plannableAdopted) {
         planPaths.add(relPath.replace(/\\/g, '/'));
       }
       for (const topic of existingTopics) {
@@ -501,15 +528,29 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         !tocLinksInScope &&
         tiered.tocEdgeCount === 0 &&
         tiered.numberedEdgeCount === 0;
-      if (chainPlan.hasUnnumbered) {
-        // B6 — the warning now carries numbers and concrete paths: it is the
-        // stop sign telling the learner this vault needs `--exclude`.
-        const examples = chainPlan.leafPaths.slice(0, 3);
-        console.log(
-          `⚠ Warning: ${chainPlan.leafPaths.length} of ${chainPlan.orderedPaths.length} ` +
-            `planned notes are not numbered lessons and chain in alphabetical order.`
+      // B6 — the warning carries numbers and concrete paths: it is the stop
+      // sign telling the learner this vault needs `--exclude`. The count and the
+      // examples both come from the set the warning describes, which the coarse
+      // `hasUnnumbered` flag is not: `leafPaths` holds numbered notes under
+      // phase subtrees and omits unnumbered backbone notes such as `README.md`,
+      // so counting it printed "0 of 2 planned notes are not numbered lessons"
+      // for a run that had just fallen back to alphabetical order — and the flag
+      // itself fires on any plan containing a module README.
+      const alphabetical = chainPlan.alphabeticalNotes;
+      const affected: string[] = [];
+      if (alphabetical.length > 0) {
+        affected.push(
+          `${alphabetical.length} of ${chainPlan.orderedPaths.length} planned notes have no number or phase in their name and chain in alphabetical order`
         );
-        for (const example of examples) {
+      }
+      if (chainPlan.directoryOrderAlphabetical) {
+        affected.push(
+          'some directories carry no numeric prefix, so the order between them is alphabetical'
+        );
+      }
+      if (affected.length > 0) {
+        console.log(`⚠ Warning: ${affected.join('; ')}.`);
+        for (const example of alphabetical.slice(0, 3)) {
           console.log(`    e.g. ${example}`);
         }
       }
@@ -623,10 +664,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           'Auto-chain:       0 edges (no numbered layout, no README TOC links) — consider palee roadmap'
         );
       } else {
-        const tocSuffix =
-          chainPlan && chainPlan.tocEdgeCount > 0 ? `, ${chainPlan.tocEdgeCount} from TOC` : '';
+        // Count the edges this run actually writes, by the tier that authored
+        // them. The previous wording promised `toAdopt.length` notes "chained by
+        // prefix order", which was wrong three ways at once: under `toc` and
+        // `full` some edges come from the README enumeration, a chain head
+        // receives no edge at all, and an already-adopted note bridged over is
+        // never rewritten.
+        const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
+        const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
         console.log(
-          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ${toAdopt.length} notes chained by prefix order${tocSuffix})`
+          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ` +
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
+            `${tocWritten} toc)`
         );
       }
       // B6 — per-tier hygiene report, printed identically on the dry-run and

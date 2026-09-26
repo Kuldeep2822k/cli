@@ -607,7 +607,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(dry.stdout, /Nothing left to chain/);
   });
 
-  // ── PAL-205-C: TOC tier, --auto-chain=strict|toc|full, depends_on_source ──
+  // ── PAL-205-C: TOC tier, --chain-tier strict|toc|full, depends_on_source ──
 
   /** Reads the `depends_on_source` label written for a note (C5). */
   function dependsOnSource(vaultDir: string, rel: string): string | undefined {
@@ -632,7 +632,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('TOC tier chains an unnumbered layout and labels edges toc', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
-    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
     const pathOf = (id: string): string => {
@@ -670,7 +670,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('strict tier never consumes TOC edges', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
-    const result = runCLI(['adopt', '--all', '--auto-chain=strict', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'strict', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     // Under strict the guide notes are unnumbered-dir leaves; since the
     // PAL-205-B rework an unjustified alphabetical cross-dir transition may
@@ -693,7 +693,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       '02-b.md': '# B\n',
     };
     const { vaultDir, configDir } = freshVault(files);
-    const result = runCLI(['adopt', '--all', '--auto-chain=full', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
     // Numbering says 01-a → 02-b even though the README enumerates backwards.
@@ -720,7 +720,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
     const { configDir } = freshVault(chainFiles);
-    const result = runCLI(['adopt', 'MODULES', '--auto-chain=banana', '--dry-run'], configDir);
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'banana', '--dry-run'], configDir);
     assert.strictEqual(result.status, 2);
     assert.match(result.stderr, /expects one of: strict, toc, full/);
   });
@@ -730,6 +730,43 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const bare = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
     assert.strictEqual(bare.status, 0, bare.stderr);
     assert.match(bare.stdout, /Auto-chain:.*full tier/);
+  });
+
+  // The tier is a separate option precisely because an optional-value flag
+  // takes the next token: with `--auto-chain [tier]`, the path in
+  // `--auto-chain MODULES` was read as a tier and the run exited 2 having
+  // adopted nothing — a form this command has always accepted.
+  test('--auto-chain does not consume the adoption path that follows it', () => {
+    const { vaultDir, configDir } = freshVault(chainFiles);
+    const result = runCLI(['adopt', '--auto-chain', 'MODULES', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.ok(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/01-a.md'), 'utf8'))
+        .frontmatter?.palee_id,
+      'the scanned directory was adopted, not swallowed as a tier'
+    );
+    assert.match(result.stdout, /Auto-chain:.*full tier/);
+  });
+
+  test('a directory named after a tier is still treated as the path', () => {
+    const { vaultDir, configDir } = freshVault({
+      'toc/01-a.md': '# A\n',
+      'toc/02-b.md': '# B\n',
+    });
+    const result = runCLI(['adopt', '--auto-chain', 'toc', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.ok(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'toc/01-a.md'), 'utf8')).frontmatter
+        ?.palee_id,
+      'the directory called `toc` was adopted'
+    );
+  });
+
+  test('--chain-tier without --auto-chain is a usage error (exit 2)', () => {
+    const { configDir } = freshVault(chainFiles);
+    const result = runCLI(['adopt', 'MODULES', '--chain-tier', 'strict', '--dry-run'], configDir);
+    assert.strictEqual(result.status, 2);
+    assert.match(result.stderr, /--chain-tier requires --auto-chain/);
   });
 
   test('C5 round trip: an old-reader parse of a depends_on_source file still loads the topic', () => {
@@ -746,5 +783,90 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     // And a downstream command must still read the vault without tripping.
     const validate = runCLI(['validate'], configDir);
     assert.strictEqual(validate.status, 0, validate.stdout + validate.stderr);
+  });
+
+  // An already-adopted note is planner input, so the scan's filters have to
+  // gate it as well. Running the filters only on the notes to be written let
+  // `--exclude` drop a note that the next lesson then depended on — persisting
+  // an edge to the exact file the user asked to leave alone.
+  test('--exclude keeps an already-adopted note out of the chain plan', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-draft.md': adoptedNote('Draft', 'T-draft-1'),
+      'MODULES/01-foundations/02-next.md': '# Next\n',
+    });
+
+    const dry = runCLI(
+      ['adopt', 'MODULES', '--auto-chain', '--exclude', '*draft*', '--dry-run'],
+      configDir
+    );
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.deepStrictEqual(
+      plannedEdges(dry.stdout),
+      [{ path: 'MODULES/01-foundations/02-next.md', dependsOn: null }],
+      'the excluded adopted note must be stepped over, not used as a predecessor'
+    );
+
+    const commit = runCLI(
+      ['adopt', 'MODULES', '--auto-chain', '--exclude', '*draft*', '-y'],
+      configDir
+    );
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-next.md'), []);
+  });
+
+  test('the alphabetical-order warning counts the notes it describes', () => {
+    // A fully numbered curriculum that happens to carry a module README: the
+    // README has no number in its name, but its position is fixed by rule, so
+    // nothing here was ordered by alphabetical accident. The old message called
+    // this "0 of 3 planned notes are not numbered lessons".
+    const numbered = freshVault({
+      'MODULES/01-foundations/README.md': '# Overview\n',
+      'MODULES/01-foundations/01-a.md': '# A\n',
+      'MODULES/01-foundations/02-b.md': '# B\n',
+    });
+    const clean = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], numbered.configDir);
+    assert.strictEqual(clean.status, 0, clean.stdout + clean.stderr);
+    assert.doesNotMatch(clean.stdout, /alphabetical order/);
+
+    // Ad-hoc unnumbered siblings really do order by name, and the warning has to
+    // name them — that is the stop sign telling the learner to use `--exclude`.
+    const adhoc = freshVault({
+      'MODULES/01-foundations/01-a.md': '# A\n',
+      'MODULES/01-foundations/for-teachers.md': '# For Teachers\n',
+      'MODULES/01-foundations/how-to-run.md': '# How To Run\n',
+    });
+    const warn = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], adhoc.configDir);
+    assert.strictEqual(warn.status, 0, warn.stdout + warn.stderr);
+    assert.match(
+      warn.stdout,
+      /Warning: 2 of 3 planned notes have no number or phase in their name and chain in alphabetical order\./
+    );
+    assert.match(warn.stdout, /e\.g\. MODULES\/01-foundations\/for-teachers\.md/);
+    assert.ok(
+      !/e\.g\. MODULES\/01-foundations\/01-a\.md/.test(warn.stdout),
+      'a numbered lesson must not be offered as an example of an unnumbered one'
+    );
+  });
+
+  // INV-46: a locale-suffixed repo-meta name is a translation copy, so it
+  // leaves the plan entirely rather than being adopted as a leaf.
+  test('a locale-suffixed repo-meta copy is reported and never adopted', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/README.md': '# Overview\n',
+      'MODULES/README.ko-KR.md': '# 개요\n',
+      'MODULES/01-a.md': '# A\n',
+    });
+    const run = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /Skipped \(translations\): 1 notes/);
+    const { frontmatter } = parseFrontmatter(
+      fs.readFileSync(path.join(vaultDir, 'MODULES', 'README.ko-KR.md'), 'utf8')
+    );
+    assert.ok(!frontmatter?.palee_id, 'a translation copy must not gain PALEE frontmatter');
+    assert.ok(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MODULES', 'README.md'), 'utf8'))
+        .frontmatter?.palee_id,
+      'the English README is still adopted'
+    );
   });
 });

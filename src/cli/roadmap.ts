@@ -377,7 +377,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     // Deferred to this point so a chain the validator then rejects never
     // announces itself as fact (#73 review item 3).
     if (chainResult) {
-      console.log(`Auto-chain: ${roadmap.topics.length} roadmap topics chained by order.`);
+      // The count is edges actually synthesized, not topics in the file: a
+      // cycle-closing edge is dropped into `skippedEdges` instead, and a topic
+      // that starts a chain received nothing at all, so reporting the topic
+      // count as "chained" overclaimed the work this pass did (INV-47).
+      console.log(
+        `Auto-chain: ${chainResult.synthesizedEdges.size} chain edge(s) synthesized across ${roadmap.topics.length} roadmap topics.`
+      );
       if (chainResult.skippedEdges.length > 0) {
         console.log(
           `Auto-chain: ${chainResult.skippedEdges.length} chain edge(s) skipped to keep the graph acyclic.`

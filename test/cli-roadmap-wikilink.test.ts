@@ -221,7 +221,7 @@ due_at: '2026-09-12'
     );
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /Auto-chain: 3 roadmap topics chained by order\./);
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized across 3 roadmap topics\./);
 
     // Explicit non-empty depends_on wins over the chain (points outside the roadmap: no cycle)
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/1.md').depends_on, [id0]);
@@ -291,7 +291,7 @@ due_at: '2026-09-12'
     );
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /Auto-chain: 3 roadmap topics chained by order\./);
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized across 3 roadmap topics\./);
 
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/a.md'), []);
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/b.md'), ['T-e2']);
@@ -363,9 +363,9 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic starts a new chain');
   });
 
-  // #73 review item 3, other half: `Auto-chain: N roadmap topics chained by
-  // order.` fired before the graph was validated, so a rejected chain still
-  // announced itself as fact. It is now logged only once validation has passed.
+  // #73 review item 3, other half: the chained-count line fired before the
+  // graph was validated, so a rejected chain still announced itself as fact. It
+  // is now logged only once validation has passed.
   test('--auto-chain logs the chained count only after validation passes', () => {
     const { vaultDir, configDir } = freshVault({
       'r/a.md': '# A\n',
@@ -385,7 +385,7 @@ due_at: '2026-09-12'
     assert.match(result.stderr, /Dependency cycle detected: T-X → T-Y → T-X/);
     assert.doesNotMatch(
       result.stdout,
-      /chained by order/,
+      /chain edge\(s\) synthesized/,
       'a chain the validator rejected must not report itself as chained'
     );
     assert.doesNotMatch(result.stdout, /Roadmap validated successfully/);
@@ -452,7 +452,7 @@ due_at: '2026-09-12'
     assert.match(result.stderr, /synthesized by --auto-chain/);
     assert.match(result.stderr, /T-C → T-B/);
     assert.match(result.stderr, /the rest are authored/);
-    assert.doesNotMatch(result.stdout, /chained by order/);
+    assert.doesNotMatch(result.stdout, /chain edge\(s\) synthesized/);
     assert.ok(!fs.existsSync(path.join(vaultDir, 'r/b.md')), 'no roadmap note may be written');
     assert.ok(!fs.existsSync(path.join(vaultDir, 'r/c.md')), 'no roadmap note may be written');
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/e.md'), ['T-C'], 'the pre-existing note is untouched');
