@@ -487,11 +487,18 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
   });
 
-  // #73 review item 5: the warning used to say the predecessor "is out of
-  // scope", which sent users to the wrong debug path — the predecessor IS in
-  // scope, it simply has no `palee_id` that `loadTopics` could resolve (here: a
-  // numeric frontmatter id, which the batch scan accepts and the loader rejects).
-  test('unresolvable chain predecessor warns about a missing topic id, not scope', () => {
+  // #73 review item 5 + PAL-205-B7. The warning used to say the predecessor
+  // "is out of scope", which sent users to the wrong debug path — the
+  // predecessor IS in scope, it simply has no `palee_id` that `loadTopics`
+  // could resolve (here: a numeric frontmatter id, which the batch scan accepts
+  // and the loader rejects).
+  //
+  // B7 supersedes the diagnostic itself: an unsatisfiable predecessor is now
+  // caught at classification time and reported as a counted Tier-0 skip, so it
+  // can never silently block whatever chains after it. The assertions item 5
+  // existed to protect (accurate wording, exit 0, dependent still adopts with an
+  // empty depends_on) are all kept.
+  test('unresolvable chain predecessor is a counted Tier-0 skip, not a silent block', () => {
     const { vaultDir, configDir } = freshVault({
       'MODULES/01-foundations/01-broken.md': [
         '---',
@@ -507,14 +514,78 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'MODULES/01-foundations/02-next.md': '# Next\n',
     });
 
-    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--verbose', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Invalid palee_id: 1 notes \(not adopted, not chained\)/);
     assert.match(
       result.stdout,
-      /chain predecessor MODULES\/01-foundations\/01-broken\.md has no resolvable topic id/
+      /palee_id is not a usable string \(B7\):[\s\S]*MODULES\/01-foundations\/01-broken\.md/
     );
     assert.doesNotMatch(result.stdout, /is out of scope/);
     // The dependent note still adopts, with an empty depends_on as promised.
     assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/02-next.md'), []);
+    // The unsatisfiable note is left exactly as found: never rewritten.
+    assert.strictEqual(
+      parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/01-broken.md'), 'utf8'))
+        .frontmatter?.palee_id,
+      12345,
+      'an invalid palee_id is reported, not repaired in place'
+    );
+  });
+
+  // PAL-205-B1..B6: Tier-0 hygiene must keep repo noise, translation copies and
+  // phase subtrees out of the written graph, and say so on the dry-run screen.
+  test('Tier-0 hygiene excludes noise from the plan and reports per-rule counts', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/LICENSE.md': '# License\n',
+      'MODULES/translations/01-setup.es.md': '# Copia\n',
+      'MODULES/01-foundations/01-setup.md': '# Setup\n',
+      'MODULES/01-foundations/02-first-app.md': '# First app\n',
+      'MODULES/01-foundations/for-teachers.md': '# Teachers\n',
+      'MODULES/01-foundations/solutions/01-solution.md': '# Solution\n',
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run', '--verbose'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Tier-0 hygiene:/);
+    assert.match(dry.stdout, /Backbone:\s+\d+ notes \(may gate the chain\)/);
+    assert.match(dry.stdout, /Leaves:\s+\d+ notes \(attached, never gate\)/);
+    assert.match(dry.stdout, /Phase subtrees: 1 notes collapsed to leaves/);
+    assert.match(
+      dry.stdout,
+      /Skipped by Tier-0 hygiene \(translation\):[\s\S]*translations\/01-setup\.es\.md/
+    );
+
+    const run = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+
+    // path -> id, derived from the canonical id -> path map.
+    const idOf = (rel: string): string => {
+      for (const [id, p] of idToPath(vaultDir)) {
+        if (p === rel) return id;
+      }
+      return `missing:${rel}`;
+    };
+    const adoptedPaths = new Set(idToPath(vaultDir).values());
+
+    assert.ok(adoptedPaths.has('MODULES/01-foundations/01-setup.md'));
+    assert.ok(adoptedPaths.has('MODULES/01-foundations/02-first-app.md'));
+    assert.ok(adoptedPaths.has('MODULES/01-foundations/for-teachers.md'), 'a leaf is still adopted');
+    assert.ok(adoptedPaths.has('MODULES/01-foundations/solutions/01-solution.md'));
+
+    // The gating spine is lesson -> lesson only.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/01-setup.md'), []);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/01-foundations/02-first-app.md'),
+      [idOf('MODULES/01-foundations/01-setup.md')]
+    );
+
+    // Nothing may gate the chain off a leaf or a phase subtree.
+    const gating = new Set<string>();
+    for (const rel of adoptedPaths) {
+      for (const dep of dependsOn(vaultDir, rel)) gating.add(dep);
+    }
+    assert.ok(!gating.has(idOf('MODULES/01-foundations/for-teachers.md')));
+    assert.ok(!gating.has(idOf('MODULES/01-foundations/solutions/01-solution.md')));
   });
 });

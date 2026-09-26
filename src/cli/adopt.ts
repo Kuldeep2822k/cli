@@ -23,7 +23,8 @@ import {
 } from '../storage';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
-import { planAutoChain, type ChainPlan } from '../engine/auto-chain';
+import { planAutoChainWithHygiene, type HygieneChainPlan } from '../engine/auto-chain';
+import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
 import { detectCyclesBounded } from '../engine/dependency';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
@@ -309,6 +310,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const alreadyAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
+    /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
+    const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
+    /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
+    const skippedInvalidId: string[] = [];
+
+    const recordHygieneSkip = (reason: Tier0SkipReason, relPath: string): void => {
+      const list = skippedByHygiene.get(reason);
+      if (list) {
+        list.push(relPath);
+      } else {
+        skippedByHygiene.set(reason, [relPath]);
+      }
+    };
 
     for (const filePath of allFiles) {
       const relPath = relativeVaultPath(vaultPath, filePath);
@@ -317,8 +331,30 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       // Check if already adopted
       if (frontmatter && frontmatter.palee_id) {
+        // B7 — a truthy non-string `palee_id` (e.g. `palee_id: 12345`, which YAML
+        // parses as a number) is invisible to `loadTopics`, which requires a
+        // non-empty string. Under `--auto-chain` such a note used to be treated
+        // as an adopted bridge note and then resolve to no id at all, making it
+        // an unsatisfiable predecessor that silently blocked everything chaining
+        // after it. It is now skipped with a counted reason: never rewritten
+        // (the learner's frontmatter is left alone) and never chained.
+        if (options.autoChain && !isValidPaleeId(frontmatter.palee_id)) {
+          skippedInvalidId.push(relPath);
+          continue;
+        }
         alreadyAdopted.push(relPath);
         continue;
+      }
+
+      // B1-B4 — repo meta, translation copies and templates are out of an
+      // auto-chain batch entirely: they must not become topics, and they must
+      // not be able to gate a real lesson.
+      if (options.autoChain) {
+        const decision = classifyNoteForChain(relPath);
+        if (decision.cls === 'excluded') {
+          recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
+          continue;
+        }
       }
 
       // Check include filter
@@ -357,7 +393,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // scanned scope — including notes already adopted there — so the chain
     // bridges over an adopted note instead of restarting; already-adopted
     // notes only ever appear as predecessors, never as write targets.
-    let chainPlan: ChainPlan | null = null;
+    let chainPlan: HygieneChainPlan | null = null;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
     // is recorded here at graph-build time rather than re-derived from
@@ -398,12 +434,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
-      chainPlan = planAutoChain([...planPaths]);
+      chainPlan = planAutoChainWithHygiene([...planPaths]);
       if (chainPlan.hasUnnumbered) {
+        // B6 — the warning now carries numbers and concrete paths: it is the
+        // stop sign telling the learner this vault needs `--exclude`.
+        const examples = chainPlan.leafPaths.slice(0, 3);
         console.log(
-          '⚠ Warning: some directories or notes lack numeric prefixes; ' +
-            'those entries chain in alphabetical order.'
+          `⚠ Warning: ${chainPlan.leafPaths.length} of ${chainPlan.orderedPaths.length} ` +
+            `planned notes are not numbered lessons and chain in alphabetical order.`
         );
+        for (const example of examples) {
+          console.log(`    e.g. ${example}`);
+        }
       }
 
       const plannedGraph = new Map<string, TopicNode>();
@@ -509,6 +551,35 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     console.log(`Difficulty:       ${difficulty}`);
     if (options.autoChain) {
       console.log(`Auto-chain:       enabled (${toAdopt.length} notes chained by prefix order)`);
+      // B6 — per-tier hygiene report, printed identically on the dry-run and
+      // the confirmation screen so what is reviewed is what is written.
+      if (chainPlan) {
+        const countFor = (reason: Tier0SkipReason): number => {
+          const scanList = skippedByHygiene.get(reason);
+          let count = scanList ? scanList.length : 0;
+          for (const r of chainPlan!.excluded.values()) {
+            if (r === reason) count += 1;
+          }
+          return count;
+        };
+        const excludedTotal =
+          countFor('repo-meta') + countFor('translation') + countFor('template');
+        console.log('Tier-0 hygiene:');
+        console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
+        console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
+        console.log(`  Skipped (meta): ${countFor('repo-meta')} notes`);
+        console.log(`  Skipped (translations): ${countFor('translation')} notes`);
+        console.log(`  Skipped (template): ${countFor('template')} notes`);
+        console.log(
+          `  Phase subtrees: ${chainPlan.counts.byReason['phase-subtree']} notes collapsed to leaves`
+        );
+        if (skippedInvalidId.length > 0) {
+          console.log(
+            `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
+          );
+        }
+        console.log(`  Excluded total: ${excludedTotal} notes`);
+      }
     }
 
     if (options.verbose) {
@@ -527,6 +598,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (skippedByTag.length > 0) {
         console.log('\nSkipped by tag filter:');
         skippedByTag.forEach((f) => console.log(`  ~ ${f}`));
+      }
+      if (options.autoChain) {
+        for (const [reason, list] of skippedByHygiene) {
+          console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
+          list.forEach((f) => console.log(`  ! ${f}`));
+        }
+        if (chainPlan && chainPlan.excluded.size > 0) {
+          console.log('\nExcluded from the chain by Tier-0 hygiene:');
+          for (const [relPath, reason] of chainPlan.excluded) {
+            console.log(`  ! ${relPath} (${reason})`);
+          }
+        }
+        if (skippedInvalidId.length > 0) {
+          console.log('\nSkipped: palee_id is not a usable string (B7):');
+          skippedInvalidId.forEach((f) => console.log(`  ! ${f}`));
+        }
       }
     }
 
