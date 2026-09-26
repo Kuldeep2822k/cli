@@ -481,7 +481,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // it, but the honest-refusal message must know whether a TOC signal
       // exists before claiming that none does.
       const tocEnumeration = deriveTocEnumeration(vaultPath, planPaths);
-      const tocSignalInScope = tocEnumeration.documentOrder.length > 1;
       const tiered = composeTieredChain({
         tier: autoChainTier ?? 'full',
         numbered: hygienePlan,
@@ -490,11 +489,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       chainPlan = tiered;
       chainSourceOf.clear();
       for (const [p, s] of tiered.sourceOf) chainSourceOf.set(p, s);
-      // C4 honest refusal means *no order signal exists at all* — under
-      // `strict` a usable TOC enumeration still exists in the vault; strict
-      // just declines it, which is a configuration outcome, not the
-      // no-signal case the roadmap pointer is for.
-      chainRefused = !tiered.hasNumberedLayout && !tocSignalInScope && !tiered.hasTocLayout;
+      // C4 honest refusal + the C-defect-1 message fix: the no-signal claim
+      // may only be made when the scoped enumeration resolves no TOC link at
+      // all AND the final plan writes no edge. A singleton enumeration keeps
+      // its justified numbered edge (compose no longer nulls heads over
+      // justified preds), so this branch cannot fire on a README that does
+      // have links.
+      const tocLinksInScope = tocEnumeration.documentOrder.length > 0;
+      chainRefused =
+        !tiered.hasNumberedLayout &&
+        !tocLinksInScope &&
+        tiered.tocEdgeCount === 0 &&
+        tiered.numberedEdgeCount === 0;
       if (chainPlan.hasUnnumbered) {
         // B6 — the warning now carries numbers and concrete paths: it is the
         // stop sign telling the learner this vault needs `--exclude`.

@@ -649,6 +649,25 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dependsOnSource(vaultDir, 'README.md'), undefined);
   });
 
+  test('C-defect-1: singleton README enumeration keeps the justified edge, no false refusal', () => {
+    // The ciu repro shape: root README enumerating exactly one adoptable
+    // note at the vault root. Full tier must still write README -> note,
+    // labeled numbered, and must NOT print the no-TOC-links refusal.
+    const files: Record<string, string> = {
+      'README.md': '# Course\n\n- [Resources](programming-language-resources.md)\n',
+      'programming-language-resources.md': '# Resources\n',
+    };
+    const { vaultDir, configDir } = freshVault(files);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stderr);
+    const ids = idToPath(vaultDir);
+    const readmeId = [...ids.entries()].find(([, p]) => p === 'README.md')?.[0];
+    assert.ok(readmeId, 'README adopted');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'programming-language-resources.md'), [readmeId]);
+    assert.strictEqual(dependsOnSource(vaultDir, 'programming-language-resources.md'), 'numbered');
+    assert.doesNotMatch(result.stdout, /no README TOC links/);
+  });
+
   test('strict tier never consumes TOC edges', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
     const result = runCLI(['adopt', '--all', '--auto-chain=strict', '-y'], configDir);

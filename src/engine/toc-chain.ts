@@ -535,13 +535,25 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const tocSet = new Set(tocPlan.orderedPaths);
   let tocEdges = 0;
   for (const p of tocPlan.orderedPaths) {
-    predecessorOf.set(p, tocPlan.predecessorOf.get(p) ?? null);
-    sourceOf.delete(p);
-    const pred = tocPlan.predecessorOf.get(p);
-    if (pred !== null && pred !== undefined) {
+    const tocPred = tocPlan.predecessorOf.get(p) ?? null;
+    if (tocPred !== null) {
+      predecessorOf.set(p, tocPred);
       sourceOf.set(p, 'toc');
       tocEdges++;
+      continue;
     }
+    // C-defect-1 (PAL-205-C rework): a TOC chain HEAD must never silently
+    // delete a justified numbered edge. Since the B rework every non-null
+    // numbered predecessor is structurally justified (alphabetical
+    // cross-dir gating was removed there), so a head keeps its existing
+    // edge and its `numbered` label. The one unsafe shape is a kept
+    // predecessor that is itself a TOC candidate: the TOC chain then runs
+    // from this head through that note, and keeping the edge would close a
+    // cycle — there the note opens the chain as intended.
+    const keptPred = predecessorOf.get(p) ?? null;
+    if (keptPred === null || !tocSet.has(keptPred)) continue;
+    predecessorOf.set(p, null);
+    sourceOf.delete(p);
   }
   // Display order: numbered rows the TOC tier took over move to the TOC
   // section so each tier still reads head-to-tail in dry-run output. The

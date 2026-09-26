@@ -231,6 +231,91 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       );
     });
 
+    it('C-defect-1: a singleton TOC head keeps its justified numbered edge (ciu shape)', () => {
+      // Root README enumerating exactly one adoptable note. B's plan gates
+      // the note on the README; the TOC pass must not silently null it.
+      const numbered = planAutoChainWithHygiene(['README.md', 'programming-language-resources.md']);
+      assert.strictEqual(numbered.predecessorOf.get('programming-language-resources.md'), 'README.md');
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['programming-language-resources.md'],
+      });
+      assert.strictEqual(out.predecessorOf.get('programming-language-resources.md'), 'README.md');
+      assert.strictEqual(out.sourceOf.get('programming-language-resources.md'), 'numbered');
+      assert.strictEqual(out.tocEdgeCount, 0);
+      assert.ok(out.numberedEdgeCount >= 1, 'the kept edge counts as numbered provenance');
+      assertAcyclicPlan(out.predecessorOf);
+    });
+
+    it('C-defect-1: TOC heads over justified preds keep B coverage on the three scored shapes', () => {
+      // ciu/math/Web-Dev shapes: root README + one out-of-tree note (ciu),
+      // numbered module + one README-named unnumbered remainder (math),
+      // numbered modules with the README bridging mid-list (Web-Dev).
+      const shapes: { paths: string[]; toc: string[] }[] = [
+        { paths: ['README.md', 'notes-only.md'], toc: ['notes-only.md'] },
+        {
+          paths: ['README.md', '01-setup/01-install.md', '01-setup/02-config.md', 'extras/cheatsheet.md'],
+          toc: ['01-setup/01-install.md', '01-setup/02-config.md', 'extras/cheatsheet.md'],
+        },
+        {
+          paths: ['README.md', '01-mod/README.md', '01-mod/01-lesson.md', '02-mod/README.md', '02-mod/01-lesson.md', 'out-of-tree/intro.md'],
+          toc: ['01-mod/01-lesson.md', 'out-of-tree/intro.md', '02-mod/01-lesson.md'],
+        },
+      ];
+      for (const shape of shapes) {
+        const numbered = planAutoChainWithHygiene(shape.paths);
+        const bEdges = [...numbered.predecessorOf.values()].filter((p) => p !== null).length;
+        const out = composeTieredChain({ tier: 'full', numbered, tocPaths: shape.toc });
+        const cEdges = [...out.predecessorOf.values()].filter((p) => p !== null).length;
+        assert.ok(
+          cEdges >= bEdges,
+          `final edges ${cEdges} must be >= B edges ${bEdges} for shape ${shape.paths[0]}…`
+        );
+        assertAcyclicPlan(out.predecessorOf);
+      }
+    });
+
+    it('C-defect-1 guard: a kept pred that the TOC chain itself runs through does NOT cycle', () => {
+      // Two numbered siblings (both TOC candidates, so the numbered-tree
+      // filter does not apply inside dir `m`... they ARE numbered-tree — the
+      // guard is exercised on the unnumbered-dir analogue instead): `02-b`
+      // has a justified numbered pred on `01-a`, and the enumeration lists
+      // `02-b` first. Keeping `02-b -> 01-a` while TOC says
+      // `01-a -> 02-b` would close a cycle, so the head must open the chain.
+      const numbered = planAutoChainWithHygiene(['m/01-a.md', 'm/02-b.md']);
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['m/02-b.md', 'm/01-a.md'],
+      });
+      // Both paths are in the numbered tree, so the TOC pass changes nothing
+      // at all here (C2): B's justified edge survives untouched.
+      assert.strictEqual(out.predecessorOf.get('m/02-b.md'), 'm/01-a.md');
+      assert.strictEqual(out.sourceOf.get('m/02-b.md'), 'numbered');
+      assert.strictEqual(out.tocEdgeCount, 0);
+      assertAcyclicPlan(out.predecessorOf);
+
+      // The real guard shape: same-dir backbone siblings named lab-01/02 —
+      // content docs (so B chains lab-02 -> lab-01) yet NOT in the numbered
+      // tree (so both stay TOC candidates). Enumerating them backwards makes
+      // the head's kept pred a downstream candidate: the guard must null it
+      // instead of closing a cycle.
+      const numbered2 = planAutoChainWithHygiene(['m/lab-01.md', 'm/lab-02.md']);
+      assert.strictEqual(numbered2.predecessorOf.get('m/lab-02.md'), 'm/lab-01.md');
+      const out2 = composeTieredChain({
+        tier: 'full',
+        numbered: numbered2,
+        tocPaths: ['m/lab-02.md', 'm/lab-01.md'],
+      });
+      assert.strictEqual(out2.predecessorOf.get('m/lab-02.md'), null);
+      assert.ok(!out2.sourceOf.has('m/lab-02.md'));
+      assert.strictEqual(out2.predecessorOf.get('m/lab-01.md'), 'm/lab-02.md');
+      assert.strictEqual(out2.sourceOf.get('m/lab-01.md'), 'toc');
+      assert.strictEqual(out2.tocEdgeCount, 1);
+      assertAcyclicPlan(out2.predecessorOf); // must not throw
+    });
+
     it('keeps the merged plan acyclic through composition', () => {
       const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({
