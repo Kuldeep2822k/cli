@@ -244,6 +244,36 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       );
       assert.strictEqual(directoriesOrderedAlphabetically(['01-a/01-x.md']), false);
     });
+
+    // A level scan that looks at every group independently conflates depths:
+    // `deep-dive` and `lab` really are unnumbered siblings, but they are not
+    // siblings of each other — `01-a` and `02-b` already decided which module
+    // comes first, so nothing at the deeper level chose anything.
+    it('does not let a deeper level contradict an order the top level decided', () => {
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['01-a/deep-dive/01-x.md', '02-b/lab/01-y.md']),
+        false
+      );
+      const plan = planAutoChain(['01-a/deep-dive/01-x.md', '02-b/lab/01-y.md']);
+      assert.strictEqual(plan.directoryOrderAlphabetical, false);
+      assert.deepStrictEqual(plan.orderedPaths, [
+        '01-a/deep-dive/01-x.md',
+        '02-b/lab/01-y.md',
+      ]);
+    });
+
+    it('still flags unnumbered siblings that share a decided-prefix parent', () => {
+      // Same nesting, but the choice genuinely is alphabetical this time: the
+      // two groups sit under one shared parent and differ only by name.
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['01-a/deep-dive/01-x.md', '01-a/lab/01-y.md']),
+        true
+      );
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['src/algorithms/caesar/README.md', 'src/algorithms/hill/README.md']),
+        true
+      );
+    });
   });
 
   describe('parseWikilink', () => {

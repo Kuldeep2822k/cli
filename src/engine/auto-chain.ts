@@ -242,21 +242,28 @@ export interface ChainPlan {
  * Whether the order between a set of note paths was decided by directory names.
  *
  * @param relativePaths - Vault-relative note paths (POSIX or Windows separators)
- * @returns True when some segment level at which two directories actually
- * differ is carried by at least one directory without a numeric prefix
+ * @returns True when the first segment at which some pair of directories
+ * differs is carried by at least one of them without a numeric prefix
  *
  * @remarks
- * The **vault-root group is excluded**. A note sitting at the root has no
- * sibling directory to be ordered against by name: `planAutoChainWithHygiene`
- * hoists the root group to the front of the plan on purpose (the owner-ruled
- * README bridge, PAL-205-G2), so its position is a structural decision, not an
- * alphabetical one. Counting the `'.'` sentinel made this report true for every
- * vault that has a root note *and* any directory — which is nearly all of them —
- * and the CLI then told learners to `--exclude` notes their layout numbers
- * correctly.
+ * Two rules, both inherited from what {@link compareDirs} actually does:
  *
- * Exported because the TOC tier recomputes the question over the notes its
- * enumeration did not order, and both callers must answer it the same way.
+ * - **The vault-root group is excluded.** A note sitting at the root has no
+ *   sibling directory to be ordered against by name: `planAutoChainWithHygiene`
+ *   hoists the root group to the front on purpose (the owner-ruled README
+ *   bridge, PAL-205-G2), so its position is structural. Counting the `'.'`
+ *   sentinel made this report true for every vault with a root note *and* any
+ *   directory — which is nearly all of them.
+ * - **Only the first differing segment of a pair counts.** Once two directories
+ *   disagree at some level, `compareDirs` has already chosen between them, so a
+ *   deeper level cannot have decided anything: `01-a/deep-dive` beside
+ *   `02-b/lab` is ordered by `01`/`02`, and the unnumbered `deep-dive`/`lab`
+ *   pair beneath them is not a fallback the author never relied on. A level
+ *   scan over all groups conflates those cases, which is why the comparison
+ *   walks down shared prefixes instead.
+ *
+ * Exported because the TOC tier re-asks the question over the notes its
+ * enumeration did not order, and both callers must use one implementation.
  */
 export function directoriesOrderedAlphabetically(relativePaths: string[]): boolean {
   const dirs = new Set<string>();
@@ -266,25 +273,39 @@ export function directoriesOrderedAlphabetically(relativePaths: string[]): boole
       dirs.add(dir);
     }
   }
-  const dirKeys = [...dirs].map(dirSortKey);
-  const maxDepth = dirKeys.reduce((max, key) => Math.max(max, key.length), 0);
-  for (let level = 0; level < maxDepth; level++) {
-    const distinct = new Set<string>();
-    for (const key of dirKeys) {
-      if (level < key.length) {
-        distinct.add(key[level].name);
-      }
-    }
-    if (distinct.size < 2) {
-      continue;
-    }
-    for (const key of dirKeys) {
-      if (level < key.length && key[level].n === null) {
-        return true;
-      }
+  return orderedBySegmentName([...dirs].map((dir) => dir.split('/')));
+}
+
+/**
+ * Walks one directory level for a set of groups that share every deeper prefix.
+ *
+ * @param segments - Each group's remaining path segments, all under the same
+ * parent by construction, so a difference here really is a choice between siblings
+ * @returns Whether any sibling pair at this level was ordered by name
+ */
+function orderedBySegmentName(segments: string[][]): boolean {
+  if (segments.length < 2) {
+    return false;
+  }
+  const byName = new Map<string, string[][]>();
+  for (const rest of segments) {
+    const list = byName.get(rest[0]);
+    if (list) {
+      list.push(rest.slice(1));
+    } else {
+      byName.set(rest[0], [rest.slice(1)]);
     }
   }
-  return false;
+  const names = [...byName.keys()];
+  if (names.length >= 2) {
+    // Distinct siblings at this level: their order is settled now, by number
+    // when both carry one and by name otherwise. Deeper segments cannot have
+    // decided a pair this level already separated.
+    return names.some((name) => parseNumericPrefix(name) === null);
+  }
+  // Nothing was decided here; the only siblings share this prefix, so the
+  // choice — if any — happens one level down.
+  return orderedBySegmentName((byName.get(names[0]) ?? []).filter((rest) => rest.length > 0));
 }
 
 /**
