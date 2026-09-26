@@ -375,9 +375,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     // Deferred to this point so a chain the validator then rejects never
-    // announces itself as fact (#73 review item 3).
+    // announces itself as fact (#73 review item 3). The count is the honest
+    // one per INV-47: only edges actually synthesized — cycle-skipped edges,
+    // authored deps that won, and chain heads are never counted as chained.
     if (chainResult) {
-      console.log(`Auto-chain: ${roadmap.topics.length} roadmap topics chained by order.`);
+      console.log(
+        `Auto-chain: ${chainResult.synthesizedEdges.size} chain edge(s) synthesized over ` +
+          `${roadmap.topics.length} roadmap topics chained by order.`
+      );
       if (chainResult.skippedEdges.length > 0) {
         console.log(
           `Auto-chain: ${chainResult.skippedEdges.length} chain edge(s) skipped to keep the graph acyclic.`

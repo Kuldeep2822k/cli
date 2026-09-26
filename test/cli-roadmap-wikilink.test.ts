@@ -221,7 +221,9 @@ due_at: '2026-09-12'
     );
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /Auto-chain: 3 roadmap topics chained by order\./);
+    // Honest count (INV-47 / PAL-205-A6): id2->id1 and id3->id2 synthesized;
+    // id1 keeps its authored dep and the head counts nothing.
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./);
 
     // Explicit non-empty depends_on wins over the chain (points outside the roadmap: no cycle)
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/1.md').depends_on, [id0]);
@@ -291,7 +293,8 @@ due_at: '2026-09-12'
     );
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /Auto-chain: 3 roadmap topics chained by order\./);
+    // 3 topics in one chain = 2 synthesized edges (head counts nothing; INV-47 honest count).
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./);
 
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/a.md'), []);
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/b.md'), ['T-e2']);
@@ -361,6 +364,46 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-A'], 'authored dep must survive');
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-C'], 'accepted chain edge must land');
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic starts a new chain');
+  });
+
+  // PAL-205-A6: the `Auto-chain: … chained` summary used to print
+  // `roadmap.topics.length`, inflating the count with the chain head, topics
+  // whose authored dep won, and cycle-skipped edges that were never
+  // synthesized. INV-47's honest-counting clause pins the summary to exactly
+  // the synthesized-edge count, with skips visible separately.
+  test('--auto-chain chained count is the honest synthesized-edge count on a cycle-containing vault (PAL-205-A6)', () => {
+    const { vaultDir, configDir } = freshVault({
+      'r/a.md': '# A\n',
+      'r/b.md': '# B\n',
+      'r/c.md': '# C\n',
+    });
+    const yamlPath = path.join(vaultDir, 'cyc-count.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      'topics:\n' +
+        '  - id: T-A\n    title: A\n    path: r/a.md\n' +
+        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-C\n    title: C\n    order: 1\n    depends_on: [T-A]\n    path: r/c.md\n'
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    // Sorted chain: T-C(1) -> T-B(2) -> T-A(unordered). T-C is the head (0 edges),
+    // T-B synthesizes B->C, T-A's edge onto T-B is skipped (would close
+    // A -> B -> C -> A). Honest count: exactly 1 synthesized edge.
+    assert.match(
+      result.stdout,
+      /Auto-chain: 1 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./
+    );
+    assert.doesNotMatch(
+      result.stdout,
+      /Auto-chain: [23] chain edge\(s\) synthesized/,
+      'the head and the cycle-skipped edge must never be counted as chained'
+    );
+    // Skipped edges stay visible in the output even though they are not counted.
+    assert.match(result.stdout, /chain edge T-A -> T-B skipped: would close a cycle/);
+    assert.match(result.stdout, /1 chain edge\(s\) skipped to keep the graph acyclic\./);
   });
 
   // #73 review item 3, other half: `Auto-chain: N roadmap topics chained by
