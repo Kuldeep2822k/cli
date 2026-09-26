@@ -693,6 +693,29 @@ export function parseWikilink(text: string): ParsedWikilink | null {
 const WIKILINK_GLOBAL = /\[\[([^[#\]|]+?)(?:#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 
 /**
+ * True when the character at `index` is escaped, judged by backslash parity.
+ *
+ * @param text - The text being scanned
+ * @param index - Offset of the token whose escapement is in question
+ * @returns `true` only when an **odd** run of backslashes precedes the token
+ *
+ * @remarks
+ * The parity matters, not just the last character: in `\\[[Alpha]]` the two
+ * backslashes escape *each other*, so `[[Alpha]]` is a live link and the note
+ * belongs in the chain. Reading only the immediately preceding character there
+ * skipped a real link, which loses its `depends_on` silently whenever the
+ * section holds other links too — the exact failure this guard exists to
+ * prevent, pointed the wrong way.
+ */
+function isEscapedAt(text: string, index: number): boolean {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
+}
+
+/**
  * Extracts every well-formed wikilink from a line or block of text, in order.
  *
  * @param text - Text to scan (a bullet item, a paragraph, …)
@@ -716,7 +739,7 @@ export function extractWikilinks(text: string): ParsedWikilink[] {
       // `[[Alpha]]` text, which is how a roadmap documents a link without
       // activating it. Importing it would rewrite Alpha's `depends_on` from an
       // example the author deliberately switched off.
-      if (match.index > 0 && text[match.index - 1] === '\\') {
+      if (isEscapedAt(text, match.index)) {
         continue;
       }
       const parsed = parseWikilink(match[0]);

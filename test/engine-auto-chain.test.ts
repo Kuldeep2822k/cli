@@ -333,5 +333,27 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       // literal character, and the link after it is real.
       assert.deepStrictEqual(extractWikilinks('[[Alpha]]').map((l) => l.target), ['Alpha']);
     });
+
+    // `\\[[Alpha]]` carries two backslashes, which escape each other — so the
+    // link is live. Judging escapement by the single preceding character read
+    // this as escaped and dropped a real chain entry silently.
+    it('keeps a wikilink preceded by an even run of backslashes', () => {
+      assert.deepStrictEqual(extractWikilinks('- \\\\[[Alpha]]').map((l) => l.target), ['Alpha']);
+      assert.deepStrictEqual(
+        extractWikilinks('- \\\\\\\\[[Alpha]]').map((l) => l.target),
+        ['Alpha'],
+        'four backslashes also leave the link active'
+      );
+      assert.deepStrictEqual(
+        extractWikilinks('- \\\\\\[[Alpha]]'),
+        [],
+        'three backslashes escape the bracket'
+      );
+      assert.deepStrictEqual(
+        extractWikilinks('- \\\\[[Alpha]] and \\[[Beta]]').map((l) => l.target),
+        ['Alpha'],
+        'both forms in one line, each judged on its own parity'
+      );
+    });
   });
 });
