@@ -73,6 +73,27 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.ok(targets.includes('b.md'));
     });
 
+    // The label and destination scanners walk forward until they find a closer,
+    // so a README full of stray brackets used to re-scan the whole remainder for
+    // every candidate: 200 KB of `[` stalled `adopt --auto-chain` for close to
+    // two minutes at 100 % CPU. `deriveTocEnumeration` reads every README in the
+    // vault unattended, so one pathological file was enough. The bound is loose
+    // on purpose — the defect it detects costs seconds, not milliseconds.
+    it('stays linear on a pathological run of stray brackets', () => {
+      for (const [label, junk] of [
+        ['unopened labels', '['.repeat(100000)],
+        ['unclosed destinations', '[x]('.repeat(50000)],
+      ] as const) {
+        const started = performance.now();
+        const targets = extractTocLinks(`[L](d/l.md)\n${junk}`)
+          .map((l) => l.destination)
+          .filter(Boolean);
+        const elapsed = performance.now() - started;
+        assert.ok(targets.includes('d/l.md'), `${label}: the real link must still be found`);
+        assert.ok(elapsed < 2000, `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms`);
+      }
+    });
+
     // A README documenting link syntax is not enumerating the curriculum. The
     // extractor used to scan raw text, so an example naming a note that really
     // exists put that note into the enumeration and gave it a written

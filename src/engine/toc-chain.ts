@@ -96,6 +96,11 @@ export function extractTocLinks(text: string): TocLink[] {
       i = open + 1;
       continue;
     }
+    // `findLabelEnd` walks to end-of-text when a label never closes, and the
+    // loop re-entered it for every remaining `[` — quadratic on a README of
+    // stray brackets. If no `]` exists at or after `open`, none exists for any
+    // later `[` either, so nothing past here can form a label.
+    if (scanned.indexOf(']', open) < 0) break;
     const close = findLabelEnd(scanned, open);
     if (close < 0) {
       i = open + 1;
@@ -106,6 +111,10 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 1;
       continue;
     }
+    // Same bail for the destination: `readDestination` scans forward until the
+    // `(` balances, so one unclosed `(` made every later link pay for a full
+    // text scan.
+    if (scanned.indexOf(')', close + 2) < 0) break;
     const dest = readDestination(scanned, close + 2);
     if (!dest) {
       i = close + 2;
