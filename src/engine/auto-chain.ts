@@ -350,6 +350,12 @@ function emptyRuleCounts(): Tier0RuleCounts {
  * than from alphabetical enumeration:
  *
  * - the same directory always qualifies;
+ * - **the vault root qualifies into the first numbered module** (owner ruling,
+ *   PAL-205-G2): a root `README.md` is the document that introduces the
+ *   curriculum, so `README → 01-…` is a real prerequisite edge, not an
+ *   alphabetical invention. It is the *only* root exception — a root note
+ *   reaching an unnumbered directory still refuses, because nothing ordered
+ *   that pair;
  * - an ancestor/descendant pair qualifies, because nesting is the signal;
  * - otherwise the first differing path segment decides, and the transition is
  *   justified only when **both** segments carry numeric prefixes — a numbered
@@ -365,6 +371,10 @@ function dirTransitionJustified(fromDir: string, toDir: string): boolean {
   if (fromDir === toDir) {
     return true;
   }
+  if (fromDir === '.') {
+    // Owner ruling: the vault-root README may gate into a numbered module.
+    return firstSegmentNumbered(toDir);
+  }
   const a = dirSortKey(fromDir);
   const b = dirSortKey(toDir);
   const len = Math.min(a.length, b.length);
@@ -376,6 +386,11 @@ function dirTransitionJustified(fromDir: string, toDir: string): boolean {
   }
   // One path is a prefix of the other: pure nesting, no alphabetical choice.
   return true;
+}
+
+/** True when a directory's first path segment carries a numeric lesson prefix. */
+function firstSegmentNumbered(dir: string): boolean {
+  return parseNumericPrefix(dir.split('/')[0]) !== null;
 }
 
 /**
@@ -504,7 +519,7 @@ export function planAutoChainWithHygiene(
   // Re-sort inside each directory run, keeping the directory sequence that
   // planAutoChain already chose. planAutoChain emits groups contiguously, so a
   // run is a maximal stretch of paths sharing a parent directory.
-  const orderedPaths: string[] = [];
+  const runs: { dir: string; files: string[] }[] = [];
   let runDir: string | null = null;
   let run: string[] = [];
   const flushRun = (): void => {
@@ -512,7 +527,7 @@ export function planAutoChainWithHygiene(
       return;
     }
     run.sort((a, b) => compareLessonOrderTier0(baseNameOf(a), baseNameOf(b)));
-    orderedPaths.push(...run);
+    runs.push({ dir: runDir!, files: run });
     run = [];
   };
   for (const p of base.orderedPaths) {
@@ -524,6 +539,24 @@ export function planAutoChainWithHygiene(
     run.push(p);
   }
   flushRun();
+
+  // Owner ruling (PAL-205-G2): the vault root is the entry point of a numbered
+  // curriculum, so the root group leads. planAutoChain ranks the unnumbered
+  // `'.'` group *after* every numbered module, which would strand a root
+  // README at the end of the chain and make README → module-01 unrepresentable
+  // as a backward edge. Hoisting it here keeps that correction inside the
+  // hygiene plan — the exported planAutoChain ordering Work Orders A/C/D are
+  // stacked on is left exactly as it was.
+  const rootAt = runs.findIndex((r) => r.dir === '.');
+  if (rootAt > 0) {
+    const [rootRun] = runs.splice(rootAt, 1);
+    runs.unshift(rootRun);
+  }
+
+  const orderedPaths: string[] = [];
+  for (const r of runs) {
+    orderedPaths.push(...r.files);
+  }
 
   const backbonePaths: string[] = [];
   const leafPaths: string[] = [];

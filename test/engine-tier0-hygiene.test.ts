@@ -319,6 +319,80 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
       );
     });
 
+    // Owner ruling PAL-205-G2: README -> module-01 is a real prerequisite edge.
+    describe('vault-root README bridge (owner ruling PAL-205-G2)', () => {
+      it('gates the first numbered module on the vault-root README', () => {
+        const bridged = planAutoChainWithHygiene([
+          'README.md',
+          '01-a/01-x.md',
+          '02-b/01-y.md',
+        ]);
+        assert.strictEqual(bridged.predecessorOf.get('README.md'), null, 'root README opens the chain');
+        assert.strictEqual(
+          bridged.predecessorOf.get('01-a/01-x.md'),
+          'README.md',
+          'module 01 depends on the vault README'
+        );
+        // The rest of the spine is unchanged: module 02 still bridges from 01.
+        assert.strictEqual(bridged.predecessorOf.get('02-b/01-y.md'), '01-a/01-x.md');
+        assert.strictEqual(bridged.backbonePaths[0], 'README.md', 'the root README leads the spine');
+      });
+
+      it('still refuses a root note reaching an UNNUMBERED directory', () => {
+        // The exception is specifically root -> numbered. Nothing ordered the
+        // pair root -> `foo/`, so that transition stays a refusal.
+        const unnumbered = planAutoChainWithHygiene(['README.md', 'foo/01-x.md']);
+        assert.strictEqual(unnumbered.predecessorOf.get('foo/01-x.md'), null);
+      });
+
+      it('cannot be reached by a root note that is not a content doc', () => {
+        // `guide.md` is an ad-hoc sibling, so it is a leaf and leaves never
+        // gate: the bridge cannot be abused to hang a lesson off a stray note.
+        const stray = planAutoChainWithHygiene(['guide.md', '01-a/01-x.md']);
+        assert.strictEqual(stray.decisions.get('guide.md')?.cls, 'leaf');
+        assert.strictEqual(stray.predecessorOf.get('01-a/01-x.md'), null);
+      });
+
+      it('keeps sibling README-to-README gating forbidden in a vault that also has a root README', () => {
+        // Both rules in one fixture: exactly one bridge edge exists (root ->
+        // first module); no sibling README gates another sibling README.
+        const mixed = planAutoChainWithHygiene([
+          'README.md',
+          'src/algorithms/caesar/README.md',
+          'src/algorithms/hill/README.md',
+          '01-first/01-a.md',
+          '02-second/01-b.md',
+        ]);
+        assert.strictEqual(mixed.predecessorOf.get('01-first/01-a.md'), 'README.md');
+        assert.strictEqual(mixed.predecessorOf.get('02-second/01-b.md'), '01-first/01-a.md');
+        assert.strictEqual(mixed.predecessorOf.get('src/algorithms/caesar/README.md'), null);
+        assert.strictEqual(mixed.predecessorOf.get('src/algorithms/hill/README.md'), null);
+        const dirOf = (p: string): string => p.slice(0, p.lastIndexOf('/'));
+        const numberedDir = (d: string): boolean => /^\d{1,3}(?:[-_.\s]|$)/.test(d.split('/')[0]);
+        const crossDirSiblingGates = [...mixed.predecessorOf].filter(
+          ([child, parent]) =>
+            parent !== null &&
+            parent !== 'README.md' &&
+            dirOf(parent) !== dirOf(child) &&
+            dirOf(parent) !== '.' &&
+            !numberedDir(dirOf(parent)) &&
+            !numberedDir(dirOf(child))
+        );
+        assert.deepStrictEqual(
+          crossDirSiblingGates,
+          [],
+          'no unnumbered sibling dir may gate another'
+        );
+      });
+
+      it('adds exactly one edge over the pre-ruling graph', () => {
+        const paths = ['README.md', '01-a/01-x.md', '02-b/01-y.md', '03-c/01-z.md'];
+        const p = planAutoChainWithHygiene(paths);
+        const edges = [...p.predecessorOf.values()].filter((v) => v !== null).length;
+        assert.strictEqual(edges, 3, 'one head + three edges across four notes');
+      });
+    });
+
     it('still bridges a parent dir into its own nested subdir (nesting is the signal)', () => {
       assert.strictEqual(
         plan.predecessorOf.get('01-beginners/solutions/01-solution.md'),
@@ -329,8 +403,10 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
     it('bridges the backbone over leaves instead of chaining through them', () => {
       // README now leads the directory, so the spine inside 01-beginners is
       // README -> 01-setup -> 02-first-app, and the ad-hoc sibling that sorts
-      // after it is attached rather than gating.
-      assert.strictEqual(plan.predecessorOf.get('01-beginners/README.md'), null);
+      // after it is attached rather than gating. The directory's own README is
+      // no longer the chain head because the vault-root README gates into it
+      // (owner ruling PAL-205-G2, pinned separately below).
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/README.md'), 'README.md');
       assert.strictEqual(plan.predecessorOf.get('01-beginners/01-setup.md'), '01-beginners/README.md');
       assert.strictEqual(
         plan.predecessorOf.get('01-beginners/for-teachers.md'),
