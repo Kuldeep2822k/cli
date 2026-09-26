@@ -183,7 +183,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({ tier: 'strict', numbered, tocPaths: ['unnum/intro.md'] });
       assert.strictEqual(out.tocEdgeCount, 0);
-      assert.strictEqual(out.sourceOf.get('01-a/README.md'), 'numbered');
+      assert.strictEqual(out.sourceOf.get('01-a/01-x.md'), 'numbered');
       assert.strictEqual(out.hasNumberedLayout, true);
     });
 
@@ -241,7 +241,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // composeTieredChain itself throws on a violated invariant; re-check
       // explicitly and confirm the TOC-taken notes moved to the TOC section.
       assertAcyclicPlan(out.predecessorOf);
-      assert.deepStrictEqual(out.orderedPaths, ['01-a/01-x.md', '01-a/README.md', 'unnum/notes.md', 'unnum/intro.md']);
+      assert.deepStrictEqual(out.orderedPaths, ['01-a/README.md', '01-a/01-x.md', 'unnum/notes.md', 'unnum/intro.md']);
     });
   });
 

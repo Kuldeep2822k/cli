@@ -334,9 +334,12 @@ function hasKeywordPrefix(stem: string, kw: string): boolean {
 }
 
 /**
- * Ranks one TOC-run basename for the same-directory phase resort (C1):
- * README-class 0 → numeric 1 (by number) → deep-dive/lab/exam 2 →
- * assignment/quiz/solution 3 → any other doc 4 (keeps document order).
+ * Ranks one TOC-run basename for the same-directory phase resort (C1),
+ * mirroring the hygiene planner's `compareLessonOrderTier0` from the PAL-205-B
+ * rework exactly: README-class 0 → numeric 1 (by number) → deep-dive/lab/exam
+ * 2 → any other doc 3 (keeps document order) → assignment/quiz/solution 4,
+ * LAST so homework never gates the docs that follow it — in the TOC run as
+ * well as the numbered backbone.
  */
 function tocLessonRank(basename: string): TocLessonRank {
   const stem = basename.toLowerCase().endsWith('.md') ? basename.slice(0, -3).toLowerCase() : '';
@@ -344,8 +347,8 @@ function tocLessonRank(basename: string): TocLessonRank {
   const prefix = parseNumericPrefix(basename);
   if (prefix !== null) return { rank: 1, n: prefix.n };
   if (TOC_PHASE_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) return { rank: 2, n: -1 };
-  if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) return { rank: 3, n: -1 };
-  return { rank: 4, n: -1 };
+  if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) return { rank: 4, n: -1 };
+  return { rank: 3, n: -1 };
 }
 
 /**

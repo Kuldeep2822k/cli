@@ -193,7 +193,7 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       });
       assert.deepStrictEqual(
         composed.orderedPaths,
-        ['mod/README.md', 'mod/lab-01.md', 'mod/assignment.md', 'mod/extra.md']
+        ['mod/README.md', 'mod/lab-01.md', 'mod/extra.md', 'mod/assignment.md']
       );
       assert.strictEqual(composed.tocEdgeCount, 3);
     });

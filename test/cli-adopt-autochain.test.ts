@@ -653,18 +653,14 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
     const result = runCLI(['adopt', '--all', '--auto-chain=strict', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
-    const ids = idToPath(vaultDir);
-    const pathOf = (id: string): string => {
-      const p = ids.get(id);
-      assert.ok(p, `unknown id ${id}`);
-      return p;
-    };
-    // The guide notes are leaves; under strict they only ever attach to the
-    // README backbone (Tier-0 leaf attach) — never to each other in TOC
-    // document order.
-    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/core.md').map(pathOf), ['README.md']);
-    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/intro.md').map(pathOf), ['README.md']);
-    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/wrapup.md').map(pathOf), ['README.md']);
+    // Under strict the guide notes are unnumbered-dir leaves; since the
+    // PAL-205-B rework an unjustified alphabetical cross-dir transition may
+    // not gate, so each opens its own chain. The point stands: no note ever
+    // follows the README's intro → core → wrapup order, and nothing carries
+    // a `toc` label.
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/core.md'), []);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/intro.md'), []);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'guide/wrapup.md'), []);
     assert.notStrictEqual(dependsOnSource(vaultDir, 'guide/core.md'), 'toc', 'no toc labels under strict');
   });
 
