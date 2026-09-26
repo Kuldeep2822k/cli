@@ -49,14 +49,29 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
   });
 
   describe('B2 translation-copy exclusion', () => {
-    it('matches every shape the work order pins', () => {
-      const pinned: Array<[string, string]> = [
-        ['README.ko-KR.md', 'readme.ko-KR'],
-        ['assignment.es.md', 'assignment.es'],
-        ['README-zh-Hans.md', 'readme-zh-Hans'],
-        ['README.cn.md', 'readme.cn'],
-      ];
-      for (const [path] of pinned) {
+    it('excludes a locale suffix on a generic doc name (INV-46)', () => {
+      // A locale-suffixed repo-meta name is the same document in another
+      // language, so it leaves the plan the way its English original does —
+      // adopting one would write PALEE frontmatter into a translation copy.
+      for (const path of [
+        'README.ko-KR.md',
+        'README-zh-Hans.md',
+        'README.cn.md',
+        'CHANGELOG.fr.md',
+      ]) {
+        assert.deepStrictEqual(
+          classifyNoteForChain(path),
+          { cls: 'excluded', reason: 'translation' },
+          `${path} must be excluded as a translation copy of a repo-meta doc`
+        );
+      }
+    });
+
+    it('demotes a locale suffix on any other name', () => {
+      // `assignment.es` may be a genuine Spanish assignment: the name alone does
+      // not license dropping a lesson, so it keeps a predecessor and gates
+      // nothing.
+      for (const path of ['assignment.es.md', 'guide.de.md']) {
         assert.deepStrictEqual(
           classifyNoteForChain(path),
           { cls: 'leaf', reason: 'translation' },
@@ -124,6 +139,31 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
       assert.strictEqual(cls('01-x/note-template.md'), 'excluded');
       assert.strictEqual(cls('templates/01-lab.md'), 'excluded');
       assert.strictEqual(cls('01-x/Templates/README.md'), 'excluded');
+    });
+
+    // The rule used to be `name.includes('template')`, which dropped real
+    // lessons: `02-templates.md` is the C++ templates module and
+    // `04-jinja-templates/` a whole numbered topic. A number is the author
+    // stating order, and a whole token is what actually names a template.
+    it('keeps a numbered lesson that merely contains the word template', () => {
+      assert.deepStrictEqual(classifyNoteForChain('03-cpp/02-templates.md'), { cls: 'backbone' });
+      assert.deepStrictEqual(classifyNoteForChain('04-jinja-templates/01-a.md'), { cls: 'backbone' });
+      assert.strictEqual(cls('01-x/02-template-literals.md'), 'backbone');
+    });
+
+    it('matches template as a whole token, not as a substring', () => {
+      // Hyphen-delimited tokens are scaffolding and stay excluded...
+      assert.deepStrictEqual(classifyNoteForChain('my-template-file.md'), {
+        cls: 'excluded',
+        reason: 'template',
+      });
+      // ...while a word that merely contains one names a subject, not a template.
+      assert.deepStrictEqual(classifyNoteForChain('01-x/templatelanguage.md'), { cls: 'leaf' });
+      assert.deepStrictEqual(classifyNoteForChain('01-x/03-templating.md'), { cls: 'backbone' });
+      assert.deepStrictEqual(classifyNoteForChain('templates.md'), {
+        cls: 'excluded',
+        reason: 'template',
+      });
     });
   });
 
@@ -343,6 +383,39 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
         // pair root -> `foo/`, so that transition stays a refusal.
         const unnumbered = planAutoChainWithHygiene(['README.md', 'foo/01-x.md']);
         assert.strictEqual(unnumbered.predecessorOf.get('foo/01-x.md'), null);
+      });
+
+      it('bridges a module under an unnumbered container (MODULES/ layout)', () => {
+        // Every curriculum example in this project is `MODULES/01-foundations/…`,
+        // so keying the ruling on the FIRST segment made it unreachable in the
+        // only vault shape it was written for. The number states the order
+        // wherever the author put it.
+        const bridged = planAutoChainWithHygiene([
+          'README.md',
+          'MODULES/01-foundations/01-intro.md',
+          'MODULES/02-linux/01-processes.md',
+        ]);
+        assert.strictEqual(
+          bridged.predecessorOf.get('MODULES/01-foundations/01-intro.md'),
+          'README.md',
+          'the first module of the container still opens on the root README'
+        );
+        assert.strictEqual(
+          bridged.predecessorOf.get('MODULES/02-linux/01-processes.md'),
+          'MODULES/01-foundations/01-intro.md'
+        );
+      });
+
+      it('still refuses a root note reaching a container with no numbers at all', () => {
+        // `src/algorithms/caesar` states no lesson order at any level, so the
+        // widening above must not let a reference collection gate by name.
+        const ref = planAutoChainWithHygiene([
+          'README.md',
+          'src/algorithms/caesar/README.md',
+          'src/algorithms/hill/README.md',
+        ]);
+        assert.strictEqual(ref.predecessorOf.get('src/algorithms/caesar/README.md'), null);
+        assert.strictEqual(ref.predecessorOf.get('src/algorithms/hill/README.md'), null);
       });
 
       it('cannot be reached by a root note that is not a content doc', () => {

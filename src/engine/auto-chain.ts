@@ -226,6 +226,14 @@ export interface ChainPlan {
    * keyword. The CLI warns that those entries fell back to alphabetical order.
    */
   hasUnnumbered: boolean;
+  /**
+   * The directory half of {@link hasUnnumbered} on its own: true when two
+   * directories differed at some segment level and at least one of them carries
+   * no numeric prefix there, so the order between whole modules came from their
+   * names. Split out because the flag's other half is about *files*, which the
+   * hygiene plan reports as a concrete path list.
+   */
+  directoryOrderAlphabetical: boolean;
 }
 
 /**
@@ -269,8 +277,8 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
   // with the same segmentation `compareDirs` sorts by.
   const dirKeys = [...groups.keys()].map(dirSortKey);
   const maxDepth = dirKeys.reduce((max, key) => Math.max(max, key.length), 0);
-  let hasUnnumbered = false;
-  for (let level = 0; level < maxDepth && !hasUnnumbered; level++) {
+  let directoryOrderAlphabetical = false;
+  for (let level = 0; level < maxDepth && !directoryOrderAlphabetical; level++) {
     const distinct = new Set<string>();
     for (const key of dirKeys) {
       if (level < key.length) {
@@ -282,11 +290,12 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
     }
     for (const key of dirKeys) {
       if (level < key.length && key[level].n === null) {
-        hasUnnumbered = true;
+        directoryOrderAlphabetical = true;
         break;
       }
     }
   }
+  let hasUnnumbered = directoryOrderAlphabetical;
   for (const p of normalized) {
     if (lessonRank(baseNameOf(p)).rank === 2) {
       hasUnnumbered = true;
@@ -307,7 +316,7 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
     }
   }
 
-  return { orderedPaths, predecessorOf, hasUnnumbered };
+  return { orderedPaths, predecessorOf, hasUnnumbered, directoryOrderAlphabetical };
 }
 
 /** Per-rule counters for B6: notes hygiene removed from the plan *or* demoted off the backbone. */
@@ -321,6 +330,22 @@ export interface HygieneChainPlan extends ChainPlan {
   leafPaths: string[];
   /** Notes removed from the plan entirely, with their counted reason */
   excluded: Map<string, Tier0SkipReason>;
+  /**
+   * Planned notes whose position came from their name rather than from a
+   * structure the author stated: no numeric prefix, no phase keyword, not
+   * README-class, and not homework.
+   *
+   * @remarks
+   * This is the set {@link ChainPlan.hasUnnumbered} was meant to describe and
+   * does not. That flag is a coarse boolean over the pre-hygiene order, so it
+   * fires on a fully numbered curriculum that merely has a module `README.md`
+   * (rank 2 in the public comparator), and it says nothing about which paths
+   * were affected. Homework names are excluded here on purpose: `assignment.md`
+   * and `quiz.md` are placed last by a structural rule, so calling their order
+   * alphabetical would be inaccurate, and a curriculum that numbers every
+   * lesson but names its assignments would warn on every single run.
+   */
+  alphabeticalNotes: string[];
   /** Classification of every path that survived, keyed by normalized path */
   decisions: Map<string, Tier0Decision>;
   /** Totals the CLI prints verbatim on the dry-run and confirmation screens */
@@ -353,9 +378,12 @@ function emptyRuleCounts(): Tier0RuleCounts {
  * - **the vault root qualifies into the first numbered module** (owner ruling,
  *   PAL-205-G2): a root `README.md` is the document that introduces the
  *   curriculum, so `README → 01-…` is a real prerequisite edge, not an
- *   alphabetical invention. It is the *only* root exception — a root note
- *   reaching an unnumbered directory still refuses, because nothing ordered
- *   that pair;
+ *   alphabetical invention. The module may sit under an unnumbered container —
+ *   the layout every example in this project uses is
+ *   `MODULES/01-foundations/01-intro.md`, and the ruling is about the numbered
+ *   *module*, not about which level carries the digits. It is the *only* root
+ *   exception — a root note reaching a directory that never states a lesson
+ *   number still refuses, because nothing ordered that pair;
  * - an ancestor/descendant pair qualifies, because nesting is the signal;
  * - otherwise the first differing path segment decides, and the transition is
  *   justified only when **both** segments carry numeric prefixes — a numbered
@@ -373,7 +401,7 @@ function dirTransitionJustified(fromDir: string, toDir: string): boolean {
   }
   if (fromDir === '.') {
     // Owner ruling: the vault-root README may gate into a numbered module.
-    return firstSegmentNumbered(toDir);
+    return leadsToNumberedSegment(toDir);
   }
   const a = dirSortKey(fromDir);
   const b = dirSortKey(toDir);
@@ -388,9 +416,21 @@ function dirTransitionJustified(fromDir: string, toDir: string): boolean {
   return true;
 }
 
-/** True when a directory's first path segment carries a numeric lesson prefix. */
-function firstSegmentNumbered(dir: string): boolean {
-  return parseNumericPrefix(dir.split('/')[0]) !== null;
+/**
+ * True when any segment of a directory path carries a numeric lesson prefix.
+ *
+ * @param dir - `/`-separated directory of a prospective chain successor
+ * @returns Whether the path descends into a numbered module at some level
+ *
+ * @remarks
+ * The root bridge is keyed on the module, not the depth at which the author
+ * chose to number it: `01-foundations` and `MODULES/01-foundations` state the
+ * same order, and only the second one is what a curriculum vault actually
+ * looks like. A path with no number anywhere (`foo/`, `src/algorithms/caesar`)
+ * states no order and stays a refusal.
+ */
+function leadsToNumberedSegment(dir: string): boolean {
+  return dir.split('/').some((segment) => parseNumericPrefix(segment) !== null);
 }
 
 /**
@@ -584,10 +624,14 @@ export function planAutoChainWithHygiene(
     if (decision.reason) byReason[decision.reason] += 1;
   }
 
+  const alphabeticalNotes = orderedPaths.filter((p) => tier0LessonRank(baseNameOf(p)).rank === 3);
+
   return {
     orderedPaths,
     predecessorOf,
     hasUnnumbered: base.hasUnnumbered,
+    directoryOrderAlphabetical: base.directoryOrderAlphabetical,
+    alphabeticalNotes,
     backbonePaths,
     leafPaths,
     excluded,
@@ -652,7 +696,8 @@ const WIKILINK_GLOBAL = /\[\[([^[#\]|]+?)(?:#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
  * Extracts every well-formed wikilink from a line or block of text, in order.
  *
  * @param text - Text to scan (a bullet item, a paragraph, …)
- * @returns Parsed links; malformed or nested `[[` sequences are skipped
+ * @returns Parsed links; malformed, nested `[[` and backslash-escaped sequences
+ * are skipped
  */
 export function extractWikilinks(text: string): ParsedWikilink[] {
   const links: ParsedWikilink[] = [];
@@ -667,6 +712,13 @@ export function extractWikilinks(text: string): ParsedWikilink[] {
       if (prefix.lastIndexOf('[[') > prefix.lastIndexOf(']]')) {
         continue;
       }
+      // `\[[Alpha]]` is an escaped bracket, not a link: it renders as literal
+      // `[[Alpha]]` text, which is how a roadmap documents a link without
+      // activating it. Importing it would rewrite Alpha's `depends_on` from an
+      // example the author deliberately switched off.
+      if (match.index > 0 && text[match.index - 1] === '\\') {
+        continue;
+      }
       const parsed = parseWikilink(match[0]);
       if (parsed) {
         links.push(parsed);
@@ -676,4 +728,75 @@ export function extractWikilinks(text: string): ParsedWikilink[] {
     WIKILINK_GLOBAL.lastIndex = 0;
   }
   return links;
+}
+
+/** A fence this scanner is currently inside: its marker character and run length. */
+interface OpenFence {
+  char: '`' | '~';
+  length: number;
+}
+
+/** ≤3 spaces of indentation, then a run of 3+ backticks or 3+ tildes, then the info string. */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/** Blank-preserving mask so a fenced region keeps its line and column shape. */
+function maskLine(line: string): string {
+  return line.replace(/\S/g, ' ');
+}
+
+/**
+ * Replaces the content of every fenced code block with spaces, keeping the
+ * document's line structure intact.
+ *
+ * @param text - Raw markdown text
+ * @returns The same text with fence bodies and fence lines blanked out
+ *
+ * @remarks
+ * CommonMark fence rules, because a caller's whole job is telling real content
+ * from an example: a fence opens on 3+ backticks **or** 3+ tildes indented at
+ * most three spaces, and closes only on the **same character**, run at least as
+ * long, with nothing after it. A mixed pair therefore never matches — the one
+ * regex this replaced allowed ` ``` ` to close a `~~~` block, which leaked an
+ * example's `[[links]]` and `# headings` back into the roadmap parser and the
+ * title resolver. An info string carrying a backtick cannot open a backtick
+ * fence, and an unclosed fence runs to the end of the document.
+ *
+ * Line structure is preserved rather than the block spliced out so that
+ * downstream line scans (`## Track` headings, list bullets) still see the same
+ * lines in the same order.
+ */
+export function stripFencedCodeBlocks(text: string): string {
+  const parts = text.split(/(\r?\n)/);
+  let fence: OpenFence | null = null;
+  for (let i = 0; i < parts.length; i++) {
+    const line = parts[i];
+    if (line.length === 0 || /^\r?\n$/.test(line)) {
+      continue;
+    }
+    const marker = FENCE_LINE.exec(line);
+    if (fence === null) {
+      if (!marker) {
+        continue;
+      }
+      const run = marker[1];
+      // An info string may not contain the opening character: ```` ```js ````
+      // opens, ```` ``` a`b ```` is just text that starts with backticks.
+      if (run[0] === '`' && marker[2].includes('`')) {
+        continue;
+      }
+      fence = { char: run[0] as '`' | '~', length: run.length };
+      parts[i] = maskLine(line);
+      continue;
+    }
+    parts[i] = maskLine(line);
+    if (
+      marker &&
+      marker[1][0] === fence.char &&
+      marker[1].length >= fence.length &&
+      marker[2].trim().length === 0
+    ) {
+      fence = null;
+    }
+  }
+  return parts.join('');
 }

@@ -9,6 +9,7 @@
 
 import path from 'path';
 import { parseFrontmatter } from './frontmatter';
+import { stripFencedCodeBlocks } from '../engine/auto-chain';
 
 /**
  * Resolves the display title for a Markdown note using hierarchical fallback strategies.
@@ -65,8 +66,9 @@ export function resolveNoteTitle(
   // Tier 2: First H1 heading (# Title) in body
   // Strip HTML comments
   let sanitizedBody = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
-  // Strip fenced code blocks (``` and ~~~)
-  sanitizedBody = sanitizedBody.replace(/(?:```|~~~)[^`~]*?\r?\n[\s\S]*?\r?\n\s*(?:```|~~~)/g, '');
+  // Strip fenced code blocks (``` and ~~~) so a `# heading` inside an example
+  // is never minted as this note's title
+  sanitizedBody = stripFencedCodeBlocks(sanitizedBody);
 
   const h1Match = sanitizedBody.match(/^[ \t]{0,3}#[ \t]+([^#\r\n].*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/m);
   if (h1Match && h1Match[1]) {

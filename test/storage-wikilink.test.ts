@@ -469,8 +469,69 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       fs.rmSync(adopted);
     });
 
-    it('rejects a note listed twice (it would depend on itself)', () => {
-      assert.throws(
+    // `fs.realpathSync` performs no case conversion on a case-insensitive
+    // volume, so `[[adopted]]` written in another casing resolved to the *same
+    // file* under a different string. Every caller keys notes by that string,
+    // so the lookup missed: the importer minted a fresh `palee_id` and wrote it
+    // over the learner's existing one, and the same note could enter a chain
+    // twice. Meaningful only where the volume folds case.
+    describe('on a case-insensitive volume', () => {
+      const adoptedMixed = (): string => path.join(vaultPath, 'Adopted Mixed.md');
+      const caseInsensitiveVolume = (): boolean => {
+        fs.writeFileSync(adoptedMixed(), '---\npalee_id: T-mixed-1\n---\n# Mixed\n');
+        const folds = fs.existsSync(path.join(vaultPath, 'adopted mixed.md'));
+        fs.rmSync(adoptedMixed(), { force: true });
+        return folds;
+      };
+
+      it('reuses the palee_id of a note written in another casing', (t) => {
+        if (!caseInsensitiveVolume()) {
+          t.skip('the filesystem distinguishes case, so no divergence is possible');
+          return;
+        }
+        fs.writeFileSync(
+          adoptedMixed(),
+          '---\npalee_id: T-mixed-1\npalee_schema: 1\ntitle: Mixed\ndepends_on: []\n---\n# Mixed\n'
+        );
+        try {
+          const roadmap = resolveWikilinkRoadmap(vaultPath, [
+            { track: '', links: [link('[[adopted mixed]]')] },
+          ]);
+          assert.strictEqual(
+            roadmap.topics[0].id,
+            'T-mixed-1',
+            'a differently-cased link must not re-mint an adopted note\'s id'
+          );
+          assert.strictEqual(roadmap.topics[0].path, 'Adopted Mixed.md');
+        } finally {
+          fs.rmSync(adoptedMixed(), { force: true });
+        }
+      });
+
+      it('detects one note listed under two casings as a duplicate', (t) => {
+        if (!caseInsensitiveVolume()) {
+          t.skip('the filesystem distinguishes case, so the two spellings are two notes');
+          return;
+        }
+        fs.writeFileSync(adoptedMixed(), '# Mixed\n');
+        try {
+          assert.throws(
+            () =>
+              resolveWikilinkRoadmap(vaultPath, [
+                {
+                  track: '',
+                  links: [link('[[adopted mixed]]'), link('[[Adopted Mixed]]')],
+                },
+              ]),
+            /Duplicate wikilink target/
+          );
+        } finally {
+          fs.rmSync(adoptedMixed(), { force: true });
+        }
+      });
+    });
+
+    it('rejects a note listed twice (it would depend on itself)', () => {      assert.throws(
         () =>
           resolveWikilinkRoadmap(vaultPath, [
             {

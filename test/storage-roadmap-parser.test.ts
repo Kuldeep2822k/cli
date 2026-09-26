@@ -257,8 +257,37 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     );
   });
 
-  test('collects bullets before any heading and returns null without lists', () => {
-    const noHeading = parseRoadmapContent('---\npalee_roadmap: true\n---\n- [[solo]]\n- [[duo]]\n', 'roadmap.md');
+  // The fence scanner used to let either marker close either block, so an
+  // example that showed both fence styles ended the example early: the
+  // `## Bad Track` heading and its `- [[Ghost]]` bullet came back as a real
+  // chain and rewrote Ghost's `depends_on`.
+  test('does not let a tilde line close a backtick fence', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n## Real Track\n\n- [[Calculus]]\n\n' +
+        '```markdown\n## Bad Track\n~~~\n- [[Ghost]]\n~~~\n```\n',
+      'syllabus.md'
+    );
+    assert.strictEqual(result.format, 'wikilink');
+    assert.strictEqual(result.sections?.length, 1, 'the example opens no second track');
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['Calculus']
+    );
+  });
+
+  test('does not let a backtick line close a tilde fence', () => {
+    const result = parseRoadmapContent(
+      '---\npalee_roadmap: true\n---\n## Real Track\n\n- [[Calculus]]\n\n' +
+        '~~~markdown\n# Heading\n```\n- [[Ghost]]\n```\n~~~\n',
+      'syllabus.md'
+    );
+    assert.deepStrictEqual(
+      (result.sections ?? []).flatMap((s) => s.links.map((l) => l.target)),
+      ['Calculus']
+    );
+  });
+
+  test('collects bullets before any heading and returns null without lists', () => {    const noHeading = parseRoadmapContent('---\npalee_roadmap: true\n---\n- [[solo]]\n- [[duo]]\n', 'roadmap.md');
     assert.strictEqual(noHeading.format, 'wikilink');
     assert.strictEqual(noHeading.sections?.length, 1);
     assert.strictEqual(noHeading.sections?.[0].track, '');
