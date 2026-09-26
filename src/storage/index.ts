@@ -40,8 +40,14 @@ import {
   recoverDraft,
   MAX_HOT_WORDS,
 } from './memory';
-import { parseRoadmapContent, type ParsedRoadmapResult } from './roadmap-parser';
+import {
+  parseRoadmapContent,
+  type ParsedRoadmapResult,
+  type WikilinkRoadmapSection,
+} from './roadmap-parser';
 import { matchesPattern, matchesTags, extractTags, validatePattern } from './pattern-matcher';
+import { resolveNoteTitle } from './note-title';
+import { resolveWikilinkRoadmap } from './wikilink';
 import { loadTopics, getTopicCache, type LoadedTopic, type LoadTopicsOptions } from './loader';
 import {
   loadSessions,
@@ -73,11 +79,13 @@ export {
 
   // Roadmap operations
   parseRoadmapContent,
+  resolveWikilinkRoadmap,
 
   // Frontmatter operations
   parseFrontmatter,
   updateFrontmatter,
   computeFingerprint,
+  resolveNoteTitle,
 
   // Locking
   Lock,
@@ -112,6 +120,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError };
+export type { ParsedRoadmapResult, WikilinkRoadmapSection, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError };
 
 

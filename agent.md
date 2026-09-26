@@ -72,7 +72,7 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.
 - `validate --fix` and `session end` are Phase-1 stubs ("not implemented"). `migrate` is read-only and fails closed on unrecognized schemas.
 - `computeTopicMastery()` and `resolveTopicMastery()` are implemented in `src/engine/mastery.ts` using the four-pillar formula `round((c + p + d + 2f) / 5, 4)` with `MASTERY_THRESHOLD = 0.70`; zero active topics ⇒ `global_mastery: null`, never numeric 0.
 - `config set-provider` is a single-string setter; `PaleeConfig` has no `apiKey`/`baseUrl` — blocks Phase-2 AI. Never print secrets from `config show`.
-- Roadmaps: `--from` is YAML-only; roadmap import validates before mutating, never touches the network, and a user roadmap is never silently rewritten. Import is transactional per-topic with partial-failure exit 1.
+- Roadmaps: `--from` accepts four formats — pure YAML, Markdown frontmatter YAML, an embedded YAML code fence, and the wikilink list format, which is recognised only in a Markdown document whose frontmatter sets `palee_roadmap: true` (any other `.md`, including an ordinary note with `[[links]]`, is rejected with exit `2` and zero writes). Roadmap import validates before mutating, never touches the network, and a user roadmap is never silently rewritten. Import is transactional per-topic with partial-failure exit 1.
 - Phase-2 `test`/`tutor` commands exist in README but not in code.
 
 ## Constraints that must never be violated
