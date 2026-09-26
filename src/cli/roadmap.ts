@@ -311,15 +311,25 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           let isNew = false;
           let existingData: Record<string, unknown> = {};
 
-          // A symlinked target is never a note. Reading through one pulls the
-          // outside file's body into the import as if it were the existing
-          // note, and the atomic write below then replaces the link itself, so
-          // content from outside the vault lands inside it and the link is
-          // destroyed. A topic path can arrive as a symlink because
+          // A symlinked target is never a note, whether or not it resolves.
+          // Reading through one pulls the outside file's body into the import as
+          // if it were the existing note, and the atomic write below then
+          // replaces the link itself, so content from outside the vault lands
+          // inside it and the link is destroyed. The existence test has to be
+          // `lstat`: `existsSync` follows the link and reports false for a
+          // dangling symlink, which would let the writer replace the link
+          // unseen. A topic path can arrive as a symlink because
           // `palee roadmap --from` is routinely pointed at cloned repos.
-          const targetExists = fs.existsSync(resolvedTargetPath);
-          if (targetExists) {
-            const targetStat = fs.lstatSync(resolvedTargetPath);
+          let targetStat: fs.Stats | null;
+          try {
+            targetStat = fs.lstatSync(resolvedTargetPath);
+          } catch (statErr) {
+            if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw statErr;
+            }
+            targetStat = null;
+          }
+          if (targetStat !== null) {
             if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
               console.error(`Skipped ${topic.id}: ${topic.path} is not a regular file`);
               failed++;
@@ -338,7 +348,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             }
           }
 
-          if (targetExists) {
+          if (targetStat !== null) {
             content = fs.readFileSync(resolvedTargetPath, 'utf8');
             fingerprint = computeFingerprint(content);
             const parsed = parseFrontmatter(content);

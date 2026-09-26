@@ -92,7 +92,42 @@ describe('roadmap import refuses a symlinked note path', () => {
     assert.ok(fs.lstatSync(linkPath).isSymbolicLink(), 'the symlink itself must not be replaced');
   });
 
-  test('a regular note inside the vault still imports normally', () => {
+  // A dangling link is the harder case: `existsSync` follows it and reports
+  // false, so an existence test built on that call never runs the guard and the
+  // atomic write silently renames over the directory entry, replacing the link.
+  test('a dangling symlinked target is not imported and survives as a link', (t) => {
+    const linkPath = path.join(vaultDir, 'dangling.md');
+    try {
+      fs.symlinkSync(path.join(outsideDir, 'never-created.md'), linkPath);
+    } catch {
+      t.skip('file symlink creation is not permitted on this platform');
+      return;
+    }
+
+    const result = runCLI(['roadmap', '--from', roadmapWith('dangling.md'), '--yes']);
+
+    assert.notStrictEqual(result.status, 0, 'a dangling symlink must not import successfully');
+    assert.match(result.stdout + result.stderr, /not a regular file/, 'the skip must be reported');
+    assert.ok(fs.lstatSync(linkPath).isSymbolicLink(), 'the dangling link must not be replaced');
+  });
+
+  // An ordinary existing note must still be updated, not skipped: the guard is
+  // about symlinks and escapes, not about refusing the normal path.
+  test('an existing regular note is updated rather than skipped', () => {
+    const notePath = path.join(vaultDir, 'known.md');
+    const body = ['---', 'title: Known', '---', '', 'Original learner text.', ''].join(NL);
+    fs.writeFileSync(notePath, body);
+
+    const result = runCLI(['roadmap', '--from', roadmapWith('known.md'), '--yes']);
+
+    assert.strictEqual(result.status, 0, `stdout: ${result.stdout} stderr: ${result.stderr}`);
+    assert.doesNotMatch(result.stdout + result.stderr, /not a regular file/, 'the guard must not fire');
+    const written = fs.readFileSync(notePath, 'utf8');
+    assert.ok(written.includes('Original learner text.'), 'the body must be preserved');
+    assert.match(written, /palee_id:/, 'the note must actually be adopted');
+  });
+
+  test('a new note inside the vault is still created', () => {
     const result = runCLI(['roadmap', '--from', roadmapWith('plain.md'), '--yes']);
     assert.strictEqual(result.status, 0, `stdout: ${result.stdout} stderr: ${result.stderr}`);
     assert.ok(fs.existsSync(path.join(vaultDir, 'plain.md')), 'the ordinary path must still import');
