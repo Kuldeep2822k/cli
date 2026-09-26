@@ -21,6 +21,12 @@
  *    resolution lives in `src/storage/wikilink.ts`; this module only parses.
  */
 
+import {
+  classifyNoteForChain,
+  type Tier0Decision,
+  type Tier0SkipReason,
+} from './tier0-hygiene';
+
 /** Numeric prefix parsed from a directory or file basename. */
 export interface NumericPrefix {
   /** The leading number, e.g. `1` for `01-foundations` */
@@ -300,6 +306,124 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
   }
 
   return { orderedPaths, predecessorOf, hasUnnumbered };
+}
+
+/** Per-rule counters for B6: notes hygiene removed from the plan *or* demoted off the backbone. */
+export type Tier0RuleCounts = Record<Tier0SkipReason, number>;
+
+/** A {@link ChainPlan} refined by Tier-0 hygiene filtering (PAL-205 B1–B5). */
+export interface HygieneChainPlan extends ChainPlan {
+  /** Ordered chain paths that may gate other notes (backbone only) */
+  backbonePaths: string[];
+  /** Ordered chain paths that attach to the chain but never gate it */
+  leafPaths: string[];
+  /** Notes removed from the plan entirely, with their counted reason */
+  excluded: Map<string, Tier0SkipReason>;
+  /** Classification of every path that survived, keyed by normalized path */
+  decisions: Map<string, Tier0Decision>;
+  /** Totals the CLI prints verbatim on the dry-run and confirmation screens */
+  counts: {
+    backbone: number;
+    leaf: number;
+    byReason: Tier0RuleCounts;
+  };
+}
+
+function emptyRuleCounts(): Tier0RuleCounts {
+  return {
+    'repo-meta': 0,
+    translation: 0,
+    template: 0,
+    'phase-subtree': 0,
+    'invalid-palee-id': 0,
+  };
+}
+
+/**
+ * Plans an auto-chain over the same order {@link planAutoChain} produces, after
+ * Tier-0 hygiene has removed repo noise and demoted non-lesson notes.
+ *
+ * @param relativePaths - Vault-relative note paths (POSIX or Windows separators)
+ * @param paleeIdOf - Optional lookup of a note's parsed frontmatter `palee_id`,
+ * used only to close the B7 unsatisfiable-predecessor hole
+ * @returns The hygiene-filtered plan, with per-tier counts for reporting
+ *
+ * @remarks
+ * The ordering is delegated to `planAutoChain` so the two plans can never
+ * drift apart; only the predecessor assignment changes. The rule that removes
+ * the measured false edges is that **a leaf never gates**:
+ *
+ * - a backbone note's predecessor is the previous *backbone* note, so leaves
+ *   and excluded notes are bridged over rather than chained through;
+ * - a leaf note's predecessor is the nearest preceding backbone note, so it
+ *   points at the chain (and still carries a `depends_on` for graph coverage)
+ *   without anything chaining off it;
+ * - excluded notes appear in neither list, so they gate nothing and are
+ *   reported under a counted reason.
+ *
+ * Acyclicity is preserved: every edge still points strictly backward in the
+ * same total order.
+ */
+export function planAutoChainWithHygiene(
+  relativePaths: string[],
+  paleeIdOf?: (relPath: string) => unknown
+): HygieneChainPlan {
+  const excluded = new Map<string, Tier0SkipReason>();
+  const decisions = new Map<string, Tier0Decision>();
+  const byReason: Tier0RuleCounts = emptyRuleCounts();
+
+  const kept: string[] = [];
+  for (const raw of relativePaths) {
+    const normalized = raw.replace(/\\/g, '/');
+    const decision = classifyNoteForChain(normalized, paleeIdOf ? paleeIdOf(normalized) : undefined);
+    if (decision.cls === 'excluded') {
+      const reason = decision.reason ?? 'repo-meta';
+      excluded.set(normalized, reason);
+      byReason[reason] += 1;
+      continue;
+    }
+    decisions.set(normalized, decision);
+    kept.push(normalized);
+  }
+
+  const base = planAutoChain(kept);
+
+  const backbonePaths: string[] = [];
+  const leafPaths: string[] = [];
+  const predecessorOf = new Map<string, string | null>();
+  let lastBackbone: string | null = null;
+  for (const p of base.orderedPaths) {
+    const cls = decisions.get(p)?.cls ?? 'leaf';
+    if (cls === 'backbone') {
+      backbonePaths.push(p);
+      predecessorOf.set(p, lastBackbone);
+      lastBackbone = p;
+    } else {
+      leafPaths.push(p);
+      // A leaf hangs off the chain; it never becomes the chain's spine.
+      predecessorOf.set(p, lastBackbone);
+    }
+  }
+
+  for (const decision of decisions.values()) {
+    if (decision.cls === 'backbone') continue;
+    if (decision.reason) byReason[decision.reason] += 1;
+  }
+
+  return {
+    orderedPaths: base.orderedPaths,
+    predecessorOf,
+    hasUnnumbered: base.hasUnnumbered,
+    backbonePaths,
+    leafPaths,
+    excluded,
+    decisions,
+    counts: {
+      backbone: backbonePaths.length,
+      leaf: leafPaths.length,
+      byReason,
+    },
+  };
 }
 
 /** A parsed Obsidian wikilink. */

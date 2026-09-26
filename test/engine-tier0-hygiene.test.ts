@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { planAutoChain, planAutoChainWithHygiene } from '../src/engine/auto-chain';
 import {
   classifyNoteForChain,
   isContentDocName,
@@ -202,6 +203,109 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
     it('normalizes Windows separators before classifying', () => {
       assert.strictEqual(cls('01-x\\solution\\a.md'), 'leaf');
       assert.strictEqual(cls('01-x\\02-y.md'), 'backbone');
+    });
+  });
+
+  describe('planAutoChainWithHygiene — filter application (B1-B5)', () => {
+    const vault = [
+      'LICENSE.md',
+      'README.md',
+      '01-beginners/01-setup.md',
+      '01-beginners/02-first-app.md',
+      '01-beginners/for-teachers.md',
+      '01-beginners/README.md',
+      '01-beginners/solutions/01-solution.md',
+      'translations/01-setup.es.md',
+      '02-mid/01-a.md',
+    ];
+    const plan = planAutoChainWithHygiene(vault);
+
+    it('removes excluded notes from the plan entirely', () => {
+      assert.ok(!plan.orderedPaths.includes('LICENSE.md'));
+      assert.ok(!plan.orderedPaths.includes('translations/01-setup.es.md'));
+      assert.strictEqual(plan.excluded.get('LICENSE.md'), 'repo-meta');
+      assert.strictEqual(plan.excluded.get('translations/01-setup.es.md'), 'translation');
+      assert.strictEqual(plan.counts.backbone + plan.counts.leaf, plan.orderedPaths.length);
+      assert.strictEqual(plan.orderedPaths.length, vault.length - plan.excluded.size);
+    });
+
+    it('never lets repo meta gate a real lesson', () => {
+      // Evidence of the false edge being removed: unfiltered, the root README
+      // depends on LICENSE.md, and LICENSE.md is itself a chain node.
+      const ungated = planAutoChain(vault);
+      assert.strictEqual(ungated.predecessorOf.get('README.md'), 'LICENSE.md');
+      // Hygiene takes meta out of the plan, so that edge cannot be written.
+      assert.ok(!plan.orderedPaths.includes('LICENSE.md'));
+      assert.notStrictEqual(plan.predecessorOf.get('README.md'), 'LICENSE.md');
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/01-setup.md'), null);
+    });
+
+    it('bridges the backbone over leaves instead of chaining through them', () => {
+      // Order inside 01-beginners puts for-teachers.md before README.md, so a
+      // spine that chained through it would gate README on an ad-hoc sibling.
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/for-teachers.md'), '01-beginners/02-first-app.md');
+      assert.strictEqual(plan.predecessorOf.get('01-beginners/README.md'), '01-beginners/02-first-app.md');
+      assert.ok(plan.leafPaths.includes('01-beginners/for-teachers.md'));
+      assert.ok(plan.backbonePaths.includes('01-beginners/README.md'));
+    });
+
+    it('collapses a phase subtree to leaves that never gate each other', () => {
+      const phase = planAutoChainWithHygiene([
+        '01-mod/solution/Julia/README.md',
+        '01-mod/solution/R/README.md',
+        '01-mod/01-lesson.md',
+      ]);
+      assert.strictEqual(phase.predecessorOf.get('01-mod/solution/Julia/README.md'), '01-mod/01-lesson.md');
+      // The measured regression: solution/R used to depend on solution/Julia.
+      assert.notStrictEqual(phase.predecessorOf.get('01-mod/solution/R/README.md'), '01-mod/solution/Julia/README.md');
+      assert.ok(!phase.backbonePaths.some((p) => p.includes('/solution/')));
+    });
+
+    it('attaches leaves to the nearest preceding backbone node', () => {
+      const phasePlan = planAutoChainWithHygiene(vault);
+      assert.strictEqual(
+        phasePlan.predecessorOf.get('01-beginners/solutions/01-solution.md'),
+        '01-beginners/README.md'
+      );
+    });
+
+    it('keeps every edge strictly backward, so the plan stays acyclic', () => {
+      const index = new Map(plan.orderedPaths.map((p, i) => [p, i]));
+      for (const [path, pred] of plan.predecessorOf) {
+        if (pred === null) {
+          continue;
+        }
+        assert.ok(index.get(pred)! < index.get(path)!, `${pred} must precede ${path}`);
+      }
+    });
+
+    it('reports per-rule counts for the B6 screen', () => {
+      assert.strictEqual(plan.counts.byReason['repo-meta'], 1);
+      assert.strictEqual(plan.counts.byReason.translation, 1);
+      assert.strictEqual(plan.counts.byReason['phase-subtree'], 1);
+      assert.strictEqual(plan.counts.backbone, 5);
+      assert.strictEqual(plan.counts.leaf, 2);
+    });
+
+    it('matches ungated planAutoChain order when nothing is filtered', () => {
+      const clean = ['01-a/01-x.md', '01-a/02-y.md', '02-b/01-z.md'];
+      const base = planAutoChain(clean);
+      const hygienic = planAutoChainWithHygiene(clean);
+      assert.deepStrictEqual(hygienic.orderedPaths, base.orderedPaths);
+      assert.deepStrictEqual([...hygienic.predecessorOf], [...base.predecessorOf]);
+      assert.strictEqual(hygienic.excluded.size, 0);
+    });
+
+    it('demotes an unsatisfiable predecessor instead of chaining onto it (B7)', () => {
+      const withBadId = planAutoChainWithHygiene(
+        ['01-a/01-x.md', '01-a/02-y.md', '01-a/03-z.md'],
+        (p) => (p === '01-a/02-y.md' ? 12345 : 'T-ok')
+      );
+      assert.strictEqual(withBadId.decisions.get('01-a/02-y.md')?.cls, 'leaf');
+      assert.strictEqual(withBadId.decisions.get('01-a/02-y.md')?.reason, 'invalid-palee-id');
+      // 03-z must bridge over the broken note rather than depend on it.
+      assert.strictEqual(withBadId.predecessorOf.get('01-a/03-z.md'), '01-a/01-x.md');
+      assert.strictEqual(withBadId.counts.byReason['invalid-palee-id'], 1);
     });
   });
 });

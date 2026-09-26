@@ -54,11 +54,13 @@ export const findMissingDependencies = dependency.findMissingDependencies;
 // Auto-chain exports
 /** Plans a hierarchical auto-chain over vault-relative note paths (#73) */
 export const planAutoChain = autoChain.planAutoChain;
+/** Plans a hierarchical auto-chain after Tier-0 hygiene filtering (PAL-205-B) */
+export const planAutoChainWithHygiene = autoChain.planAutoChainWithHygiene;
 /** Parses a single Obsidian wikilink string (#73) */
 export const parseWikilink = autoChain.parseWikilink;
 /** Extracts every well-formed wikilink from a text block, in order (#73) */
 export const extractWikilinks = autoChain.extractWikilinks;
-export type { NumericPrefix, ParsedWikilink, ChainPlan } from './auto-chain';
+export type { NumericPrefix, ParsedWikilink, ChainPlan, HygieneChainPlan, Tier0RuleCounts } from './auto-chain';
 
 // Tier-0 hygiene exports (PAL-205-B) — the predicate contract Work Order C rebases onto
 /** Classifies one vault-relative note path as backbone, leaf, or excluded (B1-B5, B7) */
