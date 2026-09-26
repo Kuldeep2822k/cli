@@ -308,6 +308,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     const toAdopt: StagedNote[] = [];
     const alreadyAdopted: string[] = [];
+    /**
+     * The already-adopted notes that passed `--include`/`--exclude`/`--tag`, and
+     * therefore the only ones the chain planner may see. Reported separately
+     * from {@link alreadyAdopted} because that list is the scan's accounting of
+     * the scope, while this one is a set of write-plan participants: a note the
+     * user excluded must not become a `depends_on` entry written to a new note.
+     */
+    const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
     /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
@@ -346,6 +354,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
         alreadyAdopted.push(relPath);
         adoptedPaleeId.set(relPath, frontmatter.palee_id);
+        // The scan's filters govern the plan, not just the writes. An adopted
+        // note that the user excluded still reaches the planner through
+        // `planPaths` below, so the next new lesson is given a `depends_on` edge
+        // pointing at the very note `--exclude` was written to drop — and that
+        // edge is persisted. Same for `--include` and `--tag`.
+        const passesFilters =
+          (!options.include || matchesPattern(relPath, options.include)) &&
+          !(options.exclude && matchesPattern(relPath, options.exclude)) &&
+          !(options.tag && !matchesTags(frontmatter.tags, options.tag));
+        if (passesFilters) {
+          plannableAdopted.push(relPath);
+        }
         continue;
       }
 
@@ -430,7 +450,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Planner input is the whole curriculum being laid, not just the rows
       // being inserted: notes already adopted inside the scanned scope join the
       // plan so the first new note after them chains onto them.
-      for (const relPath of alreadyAdopted) {
+      for (const relPath of plannableAdopted) {
         planPaths.add(relPath.replace(/\\/g, '/'));
       }
       for (const topic of existingTopics) {
@@ -448,15 +468,29 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         [...planPaths],
         (relPath) => adoptedPaleeId.get(relPath)
       );
-      if (chainPlan.hasUnnumbered) {
-        // B6 — the warning now carries numbers and concrete paths: it is the
-        // stop sign telling the learner this vault needs `--exclude`.
-        const examples = chainPlan.leafPaths.slice(0, 3);
-        console.log(
-          `⚠ Warning: ${chainPlan.leafPaths.length} of ${chainPlan.orderedPaths.length} ` +
-            `planned notes are not numbered lessons and chain in alphabetical order.`
+      // B6 — the warning carries numbers and concrete paths: it is the stop
+      // sign telling the learner this vault needs `--exclude`. The count and the
+      // examples both come from the set the warning describes, which the coarse
+      // `hasUnnumbered` flag is not: `leafPaths` holds numbered notes under
+      // phase subtrees and omits unnumbered backbone notes such as `README.md`,
+      // so counting it printed "0 of 2 planned notes are not numbered lessons"
+      // for a run that had just fallen back to alphabetical order — and the flag
+      // itself fires on any plan containing a module README.
+      const alphabetical = chainPlan.alphabeticalNotes;
+      const affected: string[] = [];
+      if (alphabetical.length > 0) {
+        affected.push(
+          `${alphabetical.length} of ${chainPlan.orderedPaths.length} planned notes have no number or phase in their name and chain in alphabetical order`
         );
-        for (const example of examples) {
+      }
+      if (chainPlan.directoryOrderAlphabetical) {
+        affected.push(
+          'some directories carry no numeric prefix, so the order between them is alphabetical'
+        );
+      }
+      if (affected.length > 0) {
+        console.log(`⚠ Warning: ${affected.join('; ')}.`);
+        for (const example of alphabetical.slice(0, 3)) {
           console.log(`    e.g. ${example}`);
         }
       }
