@@ -380,8 +380,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     // authored deps that won, and chain heads are never counted as chained.
     if (chainResult) {
       console.log(
-        `Auto-chain: ${chainResult.synthesizedEdges.size} chain edge(s) synthesized over ` +
-          `${roadmap.topics.length} roadmap topics chained by order.`
+        `Auto-chain: ${chainResult.synthesizedEdges.size} chain edge(s) synthesized across ${roadmap.topics.length} roadmap topics.`
       );
       if (chainResult.skippedEdges.length > 0) {
         console.log(

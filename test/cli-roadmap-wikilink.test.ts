@@ -223,7 +223,7 @@ due_at: '2026-09-12'
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
     // Honest count (INV-47 / PAL-205-A6): id2->id1 and id3->id2 synthesized;
     // id1 keeps its authored dep and the head counts nothing.
-    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./);
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized across 3 roadmap topics\./);
 
     // Explicit non-empty depends_on wins over the chain (points outside the roadmap: no cycle)
     assert.deepStrictEqual(frontmatterOf(vaultDir, 'n/1.md').depends_on, [id0]);
@@ -294,7 +294,7 @@ due_at: '2026-09-12'
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
     // 3 topics in one chain = 2 synthesized edges (head counts nothing; INV-47 honest count).
-    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./);
+    assert.match(result.stdout, /Auto-chain: 2 chain edge\(s\) synthesized across 3 roadmap topics\./);
 
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/a.md'), []);
     assert.deepStrictEqual(dependsOn(vaultDir, 'e/b.md'), ['T-e2']);
@@ -394,7 +394,7 @@ due_at: '2026-09-12'
     // A -> B -> C -> A). Honest count: exactly 1 synthesized edge.
     assert.match(
       result.stdout,
-      /Auto-chain: 1 chain edge\(s\) synthesized over 3 roadmap topics chained by order\./
+      /Auto-chain: 1 chain edge\(s\) synthesized across 3 roadmap topics\./
     );
     assert.doesNotMatch(
       result.stdout,
