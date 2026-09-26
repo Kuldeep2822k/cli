@@ -230,10 +230,61 @@ export interface ChainPlan {
    * The directory half of {@link hasUnnumbered} on its own: true when two
    * directories differed at some segment level and at least one of them carries
    * no numeric prefix there, so the order between whole modules came from their
-   * names. Split out because the flag's other half is about *files*, which the
-   * hygiene plan reports as a concrete path list.
+   * names. The vault-root group never contributes — its position is the hygiene
+   * planner's deliberate hoist, not an alphabetical choice. Split out because
+   * the flag's other half is about *files*, which the hygiene plan reports as a
+   * concrete path list.
    */
   directoryOrderAlphabetical: boolean;
+}
+
+/**
+ * Whether the order between a set of note paths was decided by directory names.
+ *
+ * @param relativePaths - Vault-relative note paths (POSIX or Windows separators)
+ * @returns True when some segment level at which two directories actually
+ * differ is carried by at least one directory without a numeric prefix
+ *
+ * @remarks
+ * The **vault-root group is excluded**. A note sitting at the root has no
+ * sibling directory to be ordered against by name: `planAutoChainWithHygiene`
+ * hoists the root group to the front of the plan on purpose (the owner-ruled
+ * README bridge, PAL-205-G2), so its position is a structural decision, not an
+ * alphabetical one. Counting the `'.'` sentinel made this report true for every
+ * vault that has a root note *and* any directory — which is nearly all of them —
+ * and the CLI then told learners to `--exclude` notes their layout numbers
+ * correctly.
+ *
+ * Exported because the TOC tier recomputes the question over the notes its
+ * enumeration did not order, and both callers must answer it the same way.
+ */
+export function directoriesOrderedAlphabetically(relativePaths: string[]): boolean {
+  const dirs = new Set<string>();
+  for (const raw of relativePaths) {
+    const dir = parentDirOf(raw.replace(/\\/g, '/'));
+    if (dir !== '.') {
+      dirs.add(dir);
+    }
+  }
+  const dirKeys = [...dirs].map(dirSortKey);
+  const maxDepth = dirKeys.reduce((max, key) => Math.max(max, key.length), 0);
+  for (let level = 0; level < maxDepth; level++) {
+    const distinct = new Set<string>();
+    for (const key of dirKeys) {
+      if (level < key.length) {
+        distinct.add(key[level].name);
+      }
+    }
+    if (distinct.size < 2) {
+      continue;
+    }
+    for (const key of dirKeys) {
+      if (level < key.length && key[level].n === null) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -270,31 +321,10 @@ export function planAutoChain(relativePaths: string[]): ChainPlan {
 
   // Alphabetical order only *decides* anything at a segment level where two
   // group directories actually differ, so that is the only place an unnumbered
-  // segment can have caused a fallback. Testing every segment instead would
-  // flag the canonical unnumbered `MODULES/` container from #73's own example
-  // (`palee adopt "MODULES/" --auto-chain`) on essentially every vault and turn
-  // the warning into noise. Reuses {@link dirSortKey} so the question is answered
-  // with the same segmentation `compareDirs` sorts by.
-  const dirKeys = [...groups.keys()].map(dirSortKey);
-  const maxDepth = dirKeys.reduce((max, key) => Math.max(max, key.length), 0);
-  let directoryOrderAlphabetical = false;
-  for (let level = 0; level < maxDepth && !directoryOrderAlphabetical; level++) {
-    const distinct = new Set<string>();
-    for (const key of dirKeys) {
-      if (level < key.length) {
-        distinct.add(key[level].name);
-      }
-    }
-    if (distinct.size < 2) {
-      continue;
-    }
-    for (const key of dirKeys) {
-      if (level < key.length && key[level].n === null) {
-        directoryOrderAlphabetical = true;
-        break;
-      }
-    }
-  }
+  // segment can have caused a fallback (see
+  // {@link directoriesOrderedAlphabetically}). Reuses the same predicate the TOC
+  // tier calls so the two can never disagree about what the flag means.
+  const directoryOrderAlphabetical = directoriesOrderedAlphabetically(normalized);
   let hasUnnumbered = directoryOrderAlphabetical;
   for (const p of normalized) {
     if (lessonRank(baseNameOf(p)).rank === 2) {

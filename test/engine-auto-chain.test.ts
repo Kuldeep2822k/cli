@@ -4,6 +4,8 @@ import {
   parseNumericPrefix,
   compareLessonOrder,
   planAutoChain,
+  planAutoChainWithHygiene,
+  directoriesOrderedAlphabetically,
   parseWikilink,
   extractWikilinks,
   stripFencedCodeBlocks,
@@ -205,7 +207,42 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
 
     it('does not flag fully numbered sibling directories', () => {
       const plan = planAutoChain(['01-a/01-x.md', '02-b/01-y.md']);
+      assert.strictEqual(plan.directoryOrderAlphabetical, false);
       assert.strictEqual(plan.hasUnnumbered, false);
+    });
+
+    // The vault-root group is hoisted to the front of the hygiene plan on
+    // purpose (the owner-ruled README bridge), so its position is never decided
+    // by name. Counting the `'.'` sentinel made the flag true for every vault
+    // with a root note and any directory at all — nearly all of them — and the
+    // CLI warned learners to `--exclude` a layout that numbers correctly.
+    it('never flags the vault-root group, which is hoisted rather than sorted', () => {
+      const withRoot = planAutoChain(['README.md', '01-a/01-x.md', '02-b/01-y.md']);
+      assert.strictEqual(withRoot.directoryOrderAlphabetical, false);
+
+      const rootVsUnnumbered = planAutoChain(['README.md', 'guide/01-x.md']);
+      assert.strictEqual(rootVsUnnumbered.directoryOrderAlphabetical, false);
+
+      const hygiene = planAutoChainWithHygiene(['README.md', '01-a/01-x.md', '01-a/02-y.md']);
+      assert.strictEqual(hygiene.directoryOrderAlphabetical, false);
+      assert.deepStrictEqual(hygiene.alphabeticalNotes, []);
+    });
+
+    it('still flags two genuinely unnumbered sibling directories', () => {
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['alpha/01-x.md', 'beta/01-y.md']),
+        true
+      );
+      // Root files must not mask a real fallback between two named dirs.
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['README.md', 'alpha/01-x.md', 'beta/01-y.md']),
+        true
+      );
+      assert.strictEqual(
+        directoriesOrderedAlphabetically(['01-a/01-x.md', '02-b/01-y.md']),
+        false
+      );
+      assert.strictEqual(directoriesOrderedAlphabetically(['01-a/01-x.md']), false);
     });
   });
 
