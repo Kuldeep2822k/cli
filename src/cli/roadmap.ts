@@ -311,7 +311,34 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           let isNew = false;
           let existingData: Record<string, unknown> = {};
 
-          if (fs.existsSync(resolvedTargetPath)) {
+          // A symlinked target is never a note. Reading through one pulls the
+          // outside file's body into the import as if it were the existing
+          // note, and the atomic write below then replaces the link itself, so
+          // content from outside the vault lands inside it and the link is
+          // destroyed. A topic path can arrive as a symlink because
+          // `palee roadmap --from` is routinely pointed at cloned repos.
+          const targetExists = fs.existsSync(resolvedTargetPath);
+          if (targetExists) {
+            const targetStat = fs.lstatSync(resolvedTargetPath);
+            if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
+              console.error(`Skipped ${topic.id}: ${topic.path} is not a regular file`);
+              failed++;
+              continue;
+            }
+            const relRealTarget = path.relative(resolvedVault, fs.realpathSync(resolvedTargetPath));
+            if (
+              path.isAbsolute(relRealTarget) ||
+              relRealTarget === '..' ||
+              relRealTarget.startsWith('..' + path.sep) ||
+              relRealTarget.split(path.sep).includes('..')
+            ) {
+              console.error(`Skipped ${topic.id}: ${topic.path} resolves outside the vault`);
+              failed++;
+              continue;
+            }
+          }
+
+          if (targetExists) {
             content = fs.readFileSync(resolvedTargetPath, 'utf8');
             fingerprint = computeFingerprint(content);
             const parsed = parseFrontmatter(content);
