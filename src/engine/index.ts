@@ -11,6 +11,7 @@ import * as dependency from './dependency';
 import * as mastery from './mastery';
 import * as autoChain from './auto-chain';
 import * as tier0Hygiene from './tier0-hygiene';
+import * as tocChain from './toc-chain';
 import * as topicId from './topic-id';
 
 /** Computes next SM-2 interval, ease factor, and repetition counters after a review */
@@ -90,6 +91,25 @@ export const LOCALE_REGION_ALIASES = tier0Hygiene.LOCALE_REGION_ALIASES;
 /** B2 short tokens excluded as locale codes to avoid programming-language collisions */
 export const LOCALE_CODE_COLLISIONS = tier0Hygiene.LOCALE_CODE_COLLISIONS;
 export type { Tier0Class, Tier0SkipReason, Tier0Decision } from './tier0-hygiene';
+
+// TOC tier exports (PAL-205-C) — author-enumeration chain sources
+/** Extracts inline markdown link destinations from a TOC document, in order */
+export const extractTocLinks = tocChain.extractTocLinks;
+/** Folds one link destination against its TOC file's directory into a vault-relative candidate */
+export const foldTocDestination = tocChain.foldTocDestination;
+/** Plans the linear TOC chain over resolved in-scope note paths (dedup + C1 resort) */
+export const planTocChain = tocChain.planTocChain;
+/** Re-verifies the strictly-backward-edge invariant of a TOC plan */
+export const assertBackwardEdges = tocChain.assertBackwardEdges;
+/** Re-verifies acyclicity of a merged (numbered + TOC) predecessor graph */
+export const assertAcyclicPlan = tocChain.assertAcyclicPlan;
+/** True when any path segment or the basename carries a numeric prefix (C2 dominance gate) */
+export const isInNumberedTree = tocChain.isInNumberedTree;
+/** Merges the numbered (hygiene) plan with the TOC enumeration under the selected tier */
+export const composeTieredChain = tocChain.composeTieredChain;
+/** Parses the `--auto-chain[=strict|toc|full]` value; `null` = reject */
+export const parseAutoChainTier = tocChain.parseAutoChainTier;
+export type { AutoChainTier, DependsOnSource, TocLink, TocSkipReason, TocTargetCandidate, TocChainPlan, TieredChainPlan, TieredComposition } from './toc-chain';
 
 // Topic ID exports
 /** Generates a unique topic identifier prefixed with `T-` (#29) */
