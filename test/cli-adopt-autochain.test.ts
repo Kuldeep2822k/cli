@@ -649,6 +649,28 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dependsOnSource(vaultDir, 'README.md'), undefined);
   });
 
+  test('an enumeration-chained vault still offers every note to palee plan', () => {
+    // The blast radius of a false edge: `intro → core → wrapup` is the README's
+    // order, not a prerequisite claim, and nothing in v0.5.x raises
+    // `topic_mastery`, so gating on it left the head of the chain as the only
+    // note the learner could ever be shown.
+    const { vaultDir, configDir } = freshVault(tocFiles);
+    const adopted = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
+    assert.strictEqual(adopted.status, 0, adopted.stderr);
+    assert.strictEqual(dependsOnSource(vaultDir, 'guide/wrapup.md'), 'toc', 'the edges really are enumeration-made');
+
+    const ids = idToPath(vaultDir);
+    const plan = runCLI(['plan', '--json'], configDir);
+    assert.strictEqual(plan.status, 0, plan.stdout + plan.stderr);
+    const ready: string[] = JSON.parse(plan.stdout).ready_to_learn.map((t: { id: string }) => t.id);
+
+    for (const rel of ['guide/intro.md', 'guide/core.md', 'guide/wrapup.md']) {
+      const id = [...ids.entries()].find(([, p]) => p === rel)?.[0];
+      assert.ok(id, `${rel} adopted`);
+      assert.ok(ready.includes(id), `${rel} is hidden from the plan by an edge the README invented`);
+    }
+  });
+
   test('C-defect-1: singleton README enumeration keeps the justified edge, no false refusal', () => {
     // The ciu repro shape: root README enumerating exactly one adoptable
     // note at the vault root. Full tier must still write README -> note,
@@ -725,11 +747,30 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(result.stderr, /expects one of: strict, toc, full/);
   });
 
-  test('bare --auto-chain stays backward compatible (defaults to full)', () => {
-    const { configDir } = freshVault(chainFiles);
-    const bare = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+  test('bare --auto-chain chains the numbered tree and leaves the TOC alone', () => {
+    // The default is `strict`, not `full`: enumeration order from a listing
+    // document was 76% non-prerequisites in the measured corpora, and a false
+    // edge hides a note from `palee plan`. The numbered tree is measured at
+    // 0.00% false, so it is what chaining alone now buys you; the README
+    // enumeration has to be asked for.
+    const { configDir } = freshVault(tocFiles);
+    const bare = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
     assert.strictEqual(bare.status, 0, bare.stderr);
-    assert.match(bare.stdout, /Auto-chain:.*full tier/);
+    assert.match(bare.stdout, /Auto-chain:.*strict tier/);
+    assert.match(bare.stdout, /0 numbered, 0 toc\)/, 'a bare --auto-chain writes no enumeration edge');
+    assert.deepStrictEqual(
+      plannedEdges(bare.stdout).filter((e) => e.dependsOn !== null),
+      [],
+      'no note may follow another under strict in this unnumbered layout'
+    );
+
+    const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
+    assert.strictEqual(asked.status, 0, asked.stderr);
+    assert.match(asked.stdout, /Auto-chain:.*full tier/);
+    assert.ok(
+      plannedEdges(asked.stdout).some((e) => e.dependsOn !== null),
+      'the explicit tier is what unlocks enumeration order'
+    );
   });
 
   // The tier is a separate option precisely because an optional-value flag
@@ -745,7 +786,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
         .frontmatter?.palee_id,
       'the scanned directory was adopted, not swallowed as a tier'
     );
-    assert.match(result.stdout, /Auto-chain:.*full tier/);
+    assert.match(result.stdout, /Auto-chain:.*strict tier/);
   });
 
   test('a directory named after a tier is still treated as the path', () => {
@@ -771,7 +812,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   test('C5 round trip: an old-reader parse of a depends_on_source file still loads the topic', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
-    const result = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
     // The old-reader contract: parseFrontmatter (unchanged since before C5)
     // must surface the palee fields and simply carry the unknown key.
@@ -881,7 +922,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'guide/alpha.md': '# A\n',
       'guide/middle.md': '# M\n',
     });
-    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.doesNotMatch(dry.stdout, /alphabetical order/);
     assert.doesNotMatch(dry.stdout, /⚠ Warning/);
@@ -897,7 +938,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'the chain follows the README, not the filenames'
     );
 
-    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
     assert.deepStrictEqual(dependsOn(vaultDir, 'guide/alpha.md').length, 1);
     assert.deepStrictEqual(dependsOn(vaultDir, 'guide/zeta.md'), [], 'the enumerated head has no dep');
@@ -910,7 +951,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'guide/alpha.md': '# A\n',
       'notes/loose.md': '# L\n',
     });
-    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.match(dry.stdout, /Warning: 1 of 4 planned notes have no number or phase/);
     assert.match(dry.stdout, /e\.g\. notes\/loose\.md/);

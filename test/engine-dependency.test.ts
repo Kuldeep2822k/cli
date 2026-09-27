@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
+  areDependenciesSatisfied,
   detectCycle,
   detectCycles,
   detectCyclesBounded,
@@ -692,6 +693,73 @@ describe('Dependency Graph', () => {
       getTopicDependencies({ palee_id: 'T-canonical', depends_on: ['T-prereq'], topic_mastery: 0 }),
       ['T-prereq']
     );
+  });
+
+  // ─── #205: toc-authored edges are advisory, never a gate ──────────────
+
+  test('a toc-labeled note is ready even though its prerequisite is unmastered', () => {
+    // The TOC tier derives an edge from a listing document's order, which is
+    // not a prerequisite claim; one such edge used to hide the note from
+    // `palee plan` permanently, because nothing in v0.5.x raises mastery.
+    const topics = new Map<string, TopicNode>([
+      ['T-head', { palee_id: 'T-head', depends_on: [], topic_mastery: 0 }],
+      ['T-second', { palee_id: 'T-second', depends_on: ['T-head'], depends_on_source: 'toc', topic_mastery: 0 }],
+    ]);
+
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-second')!, topics), true);
+    assert.deepStrictEqual(
+      getReadyTopics(topics).map((t) => t.palee_id),
+      ['T-head', 'T-second'],
+      'every note in a TOC-ordered chain must be offered, not just the head'
+    );
+  });
+
+  test('a numbered label still gates, so the exemption stays scoped to the toc tier', () => {
+    // The label is the whole discriminator: an identical graph whose edge came
+    // from the note's own numeric prefix must keep its gate.
+    const topics = new Map<string, TopicNode>([
+      ['T-head', { palee_id: 'T-head', depends_on: [], topic_mastery: 0 }],
+      ['T-second', { palee_id: 'T-second', depends_on: ['T-head'], depends_on_source: 'numbered', topic_mastery: 0 }],
+    ]);
+
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-second')!, topics), false);
+    assert.deepStrictEqual(getReadyTopics(topics).map((t) => t.palee_id), ['T-head']);
+  });
+
+  test('an unlabeled edge is learner-authored and gates', () => {
+    // Absent label = pre-existing behaviour. Old vaults and hand-written
+    // prerequisites are unaffected by the advisory rule.
+    const topics = new Map<string, TopicNode>([
+      ['T-head', { palee_id: 'T-head', depends_on: [], topic_mastery: 0 }],
+      ['T-second', { palee_id: 'T-second', depends_on: ['T-head'], topic_mastery: 0 }],
+    ]);
+
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-second')!, topics), false);
+  });
+
+  test('a dangling prerequisite still gates an unlabeled note but never a toc-labeled one', () => {
+    // `!depTopic` is the second blocking branch: a TOC edge pointing at a note
+    // the import skipped must not lock the learner out either.
+    const topics = new Map<string, TopicNode>([
+      ['T-broken', { palee_id: 'T-broken', depends_on: ['T-absent'], topic_mastery: 0 }],
+      ['T-toc', { palee_id: 'T-toc', depends_on: ['T-absent'], depends_on_source: 'toc', topic_mastery: 0 }],
+    ]);
+
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-broken')!, topics), false);
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-toc')!, topics), true);
+  });
+
+  test('advisory gating keeps toc edges in the cycle graph', () => {
+    // Containment, not removal: a TOC-ordered chain that closes a loop against
+    // authored edges must still be reported, or the label would silently
+    // downgrade a real structural defect.
+    const topics = new Map<string, TopicNode>([
+      ['T-a', { palee_id: 'T-a', depends_on: ['T-b'], depends_on_source: 'toc', topic_mastery: 0 }],
+      ['T-b', { palee_id: 'T-b', depends_on: ['T-a'], topic_mastery: 0 }],
+    ]);
+
+    assert.deepStrictEqual(detectCycles(topics), [['T-a', 'T-b', 'T-a']]);
+    assert.strictEqual(validateDependencyGraph(topics).valid, false);
   });
 
 });

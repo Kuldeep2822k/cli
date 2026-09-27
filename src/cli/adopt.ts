@@ -186,11 +186,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // `--auto-chain`. An optional-value flag swallows the following positional,
     // so `adopt --auto-chain MODULES` would have read `MODULES` as a tier and
     // exited 2 having adopted nothing — a regression of a form this command has
-    // always accepted. A bare `--auto-chain` is `full`; anything outside the
+    // always accepted. A bare `--auto-chain` chains the numbered tree only;
+    // enumeration order needs `--chain-tier toc|full`. Anything outside the
     // three tiers is a usage error, never a silent default back to chaining.
     let autoChainTier: AutoChainTier | null = null;
     if (options.autoChain) {
-      autoChainTier = options.chainTier === undefined ? 'full' : parseAutoChainTier(options.chainTier);
+      autoChainTier = options.chainTier === undefined ? 'strict' : parseAutoChainTier(options.chainTier);
       if (autoChainTier === null) {
         console.error('Error: --chain-tier expects one of: strict, toc, full');
         process.exitCode = ExitCode.Usage;
@@ -509,7 +510,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // exists before claiming that none does.
       const tocEnumeration = deriveTocEnumeration(vaultPath, planPaths);
       const tiered = composeTieredChain({
-        tier: autoChainTier ?? 'full',
+        tier: autoChainTier ?? 'strict',
         numbered: hygienePlan,
         tocPaths: autoChainTier === 'strict' ? [] : tocEnumeration.documentOrder,
       });
@@ -673,7 +674,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
         console.log(
-          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ` +
+          `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
             `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
             `${tocWritten} toc)`
         );

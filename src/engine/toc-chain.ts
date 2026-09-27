@@ -37,12 +37,13 @@ import {
   stripFencedCodeBlocks,
   type HygieneChainPlan,
 } from './auto-chain';
+import type { DependsOnSource } from '../types';
 
 /** Accepted values of `--chain-tier` (default `full`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
 
-/** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). */
-export type DependsOnSource = 'numbered' | 'toc';
+/** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). Declared in `src/types.ts`, re-exported here for engine consumers. */
+export type { DependsOnSource };
 
 /** A markdown link destination that is intentionally not a chain target. */
 export type TocSkipReason =

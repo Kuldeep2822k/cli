@@ -479,6 +479,34 @@ export interface ValidationResult {
 // ─── Dependency Graph ───────────────────────────────────────────────
 
 /**
+ * Which tier authored a note's `depends_on` (persisted as `depends_on_source`).
+ *
+ * @remarks
+ * `numbered` edges come from the note's own numeric prefix, `toc` edges from a
+ * listing document's enumeration order. Enumeration position is not a
+ * prerequisite claim, so a `toc` label makes a note's edges advisory: they still
+ * take part in cycle detection and ranking, they just never gate.
+ */
+export type DependsOnSource = 'numbered' | 'toc';
+
+/**
+ * Normalizes a raw `depends_on_source` frontmatter value.
+ *
+ * @param raw - Frontmatter value of unknown shape
+ * @returns The recognized source, or `undefined` when the value is absent or unrecognized
+ *
+ * @remarks
+ * Fail-closed on purpose: an unrecognized label yields `undefined`, which means
+ * "learner-authored, do gate" — the pre-existing behaviour. A typo must not
+ * silently demote hand-written prerequisites to advisory.
+ */
+export function normalizeDependsOnSource(raw: unknown): DependsOnSource | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim().toLowerCase();
+  return s === 'numbered' || s === 'toc' ? s : undefined;
+}
+
+/**
  * In-memory topic node representation for dependency graph analysis and scheduling.
  */
 export interface TopicNode {
@@ -504,6 +532,15 @@ export interface TopicNode {
   depends_on?: string[];
   /** Legacy alias forbidden on TopicNode (#140: rejected at construction time) */
   dependencies?: never;
+  /**
+   * Which tier authored `depends_on` (frontmatter `depends_on_source`).
+   *
+   * @remarks Absent means the learner authored it (or a numbered-tier chain
+   * wrote it) and the edges gate. `'toc'` means the edges came from a listing
+   * document's order, so `areDependenciesSatisfied` treats them as advisory.
+   * Anything other than a known literal parses to absent.
+   */
+  depends_on_source?: DependsOnSource;
   /** Computed overall mastery score (0.0 - 1.0) */
   topic_mastery: number;
 

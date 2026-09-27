@@ -747,10 +747,14 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
  * @param topic - The topic node whose dependencies are being evaluated
  * @param topics - Map of all known topic nodes in the vault
  * @param threshold - Minimum mastery score required (default: {@link MASTERY_THRESHOLD} = 0.70)
- * @returns `true` if all prerequisite dependencies exist and have `topic_mastery >= threshold`, otherwise `false`
+ * @returns `true` if the topic has no gating prerequisites or all of them exist with `topic_mastery >= threshold`
  *
  * @remarks
  * Validates that every prerequisite is present in the vault and has achieved the target mastery score.
+ *
+ * Edges labeled `depends_on_source: toc` are enumeration order from a listing document, not a
+ * prerequisite claim, so they gate nothing (#205). Such a note is satisfied outright; the edges
+ * still participate in cycle detection and in ordering.
  *
  * @example
  * ```typescript
@@ -762,6 +766,10 @@ function areDependenciesSatisfied(
   topics: Map<string, TopicNode>,
   threshold: number = MASTERY_THRESHOLD
 ): boolean {
+  if (topic.depends_on_source === 'toc') {
+    return true;
+  }
+
   const deps = getTopicDependencies(topic);
 
   for (const depId of deps) {
