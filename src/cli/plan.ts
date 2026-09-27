@@ -7,7 +7,7 @@ import { ExitCode } from './exit-codes';
  */
 
 import { loadTopics } from '../storage';
-import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
+import { getReadyTopics, getTopicDependencies, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
 
@@ -122,6 +122,33 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
     const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
 
+    // A topic whose prerequisites are unmet is simply absent from the ready
+    // list, which is indistinguishable from "nothing left to study" — and when
+    // the prerequisite id no longer resolves, no amount of reviewing will ever
+    // make it appear. Name the blocker and what would clear it.
+    const readyIds = new Set(readyTopics.map((t) => t.palee_id));
+    const blocked: { id: string; title: string; waiting_on: string[] }[] = [];
+    for (const [id, topic] of acyclicTopics) {
+      if ((topic.topic_mastery ?? 0) >= MASTERY_THRESHOLD) continue;
+      if (readyIds.has(id)) continue;
+      const waitingOn: string[] = [];
+      for (const depId of getTopicDependencies(topic)) {
+        const dep = topics.get(depId);
+        if (!dep) {
+          waitingOn.push(`${depId} is not in the vault (run palee validate)`);
+          continue;
+        }
+        const depMastery = dep.topic_mastery ?? 0;
+        if (depMastery < MASTERY_THRESHOLD) {
+          waitingOn.push(
+            `${dep.title ?? depId} (${depId}) at mastery ${depMastery.toFixed(2)}, needs ${MASTERY_THRESHOLD.toFixed(2)}`
+          );
+        }
+      }
+      if (waitingOn.length > 0) {
+        blocked.push({ id, title: topic.title ?? id, waiting_on: waitingOn });
+      }
+    }
 
     if (jsonMode) {
       console.log(JSON.stringify({
@@ -143,9 +170,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         })),
         quarantined_cycles: quarantinedCycles,
         quarantined_cycles_truncated: cyclesTruncated,
+        blocked,
         counts: {
           due: dueTopics.length,
           ready: readyTopics.length,
+          blocked: blocked.length,
           quarantined: topics.size - acyclicTopics.size,
           mastered: masteredCount,
           learning: learningCount,
@@ -198,7 +227,21 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
     console.log();
 
-    // Section 3: Summary stats
+    // Section 3: Blocked by prerequisites — the topics absent from the list
+    // above, and why.
+    if (blocked.length > 0) {
+      console.log(`Blocked by prerequisites: ${blocked.length}`);
+      for (const item of blocked.slice(0, 5)) {
+        console.log(`  • ${item.title} (${item.id}) — waiting on ${item.waiting_on.join('; ')}`);
+      }
+
+      if (blocked.length > 5) {
+        console.log(`  ... and ${blocked.length - 5} more`);
+      }
+      console.log();
+    }
+
+    // Section 4: Summary stats
     console.log('Progress Summary:');
     console.log(`  Total Topics: ${topics.size}`);
     console.log(`  Mastered (≥70%): ${masteredCount}`);

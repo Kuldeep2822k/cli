@@ -528,6 +528,79 @@ depends_on: []
       assert.ok(!readySection.includes('T-cycle-a'), 'ready list must exclude the cyclic pair');
       assert.strictEqual(process.exitCode, 0, 'plan continues on valid acyclic components');
     });
+
+    test('plan names what blocks a topic, distinguishing an unmet prereq from a dead one', async () => {
+      // A topic with unmet prerequisites is simply absent from Ready to Learn,
+      // which reads the same as "nothing to study"; a prerequisite id that no
+      // longer resolves never becomes satisfiable at all, and `validate` only
+      // warns. Both must be reported, and the dead one must say so.
+      fs.writeFileSync(
+        path.join(tmpDir, 'gated-behind-live.md'),
+        `---
+palee_schema: 1
+palee_id: T-gated-live
+title: Gated Behind Live
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-gatekeeper
+---
+# Gated
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'gated-behind-dead.md'),
+        `---
+palee_schema: 1
+palee_id: T-gated-dead
+title: Gated Behind Dead
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-never-existed
+---
+# Gated Dead
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'gatekeeper.md'),
+        `---
+palee_schema: 1
+palee_id: T-gatekeeper
+title: Gatekeeper
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+---
+# Gatekeeper
+`,
+        'utf8'
+      );
+
+      await planCommand({});
+      const human = loggedOutputs.join('\n');
+      const section = (human.split('Blocked by prerequisites: ')[1] ?? '').split('Progress Summary')[0];
+
+      assert.ok(section.includes('T-gated-live'), 'a topic behind an unmet prereq must be named');
+      assert.ok(section.includes('needs 0.70'), 'the report must state the threshold it is waiting on');
+      assert.ok(section.includes('T-gatekeeper'), 'the blocking prerequisite must be named');
+      assert.ok(section.includes('T-gated-dead'), 'a topic behind a dead prereq must be named');
+      assert.ok(
+        section.includes('T-never-existed is not in the vault'),
+        'an unresolvable prerequisite must be called out as missing, not as unmastered'
+      );
+      assert.ok(section.includes('palee validate'), 'the dead-prereq line must point at the fix');
+
+      loggedOutputs.length = 0;
+      await planCommand({ json: true });
+      const data = getLastParsedJson();
+      const dead = (data.blocked as { id: string; waiting_on: string[] }[]).find((b) => b.id === 'T-gated-dead');
+      assert.ok(dead, 'json mode must carry the same blocked list');
+      assert.match(dead!.waiting_on.join(' '), /not in the vault/);
+      assert.ok(data.counts.blocked >= 2, 'counts.blocked must include the blocked topics');
+    });
   });
 
   describe('Non-TTY (Piped/Redirected) Auto-JSON Selection', () => {
