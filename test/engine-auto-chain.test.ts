@@ -228,6 +228,48 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.deepStrictEqual(hygiene.alphabeticalNotes, []);
     });
 
+    // A pair like `02-a` / `02-b` states the same number twice, so
+    // `compareLessonOrderTier0` falls through to the filenames while still
+    // looking fully numbered to the learner. `alphabeticalNotes` cannot see it
+    // (both names carry a number) and neither can
+    // `directoryOrderAlphabetical` (there is one directory), so before this
+    // field the CLI reported nothing about an edge it went on to gate with.
+    it('names a same-number tie whose order came from the filenames', () => {
+      const tie = planAutoChainWithHygiene(['m/02-a.md', 'm/02-b.md']);
+      assert.deepStrictEqual(tie.alphabeticalTieNotes, ['m/02-b.md']);
+      assert.strictEqual(tie.predecessorOf.get('m/02-b.md'), 'm/02-a.md', 'the tie still decides the edge');
+
+      const phaseTie = planAutoChainWithHygiene(['m/lab-a.md', 'm/lab-b.md']);
+      assert.deepStrictEqual(phaseTie.alphabeticalTieNotes, ['m/lab-b.md']);
+
+      const three = planAutoChainWithHygiene(['m/02-a.md', 'm/02-b.md', 'm/02-c.md']);
+      assert.deepStrictEqual(three.alphabeticalTieNotes, ['m/02-b.md', 'm/02-c.md']);
+    });
+
+    it('reports no tie where numbering, phases or ranks already decide', () => {
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['m/01-a.md', 'm/02-b.md']).alphabeticalTieNotes,
+        [],
+        'different numbers are an author-stated order'
+      );
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['m/README.md', 'm/01-a.md']).alphabeticalTieNotes,
+        [],
+        'different ranks are ordered by rule, not by name'
+      );
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['a/01-x.md', 'b/01-y.md']).alphabeticalTieNotes,
+        [],
+        'a cross-directory pair is not a within-directory tie'
+      );
+    });
+
+    it('leaves genuinely unnumbered names to alphabeticalNotes, without double reporting', () => {
+      const unnumbered = planAutoChainWithHygiene(['m/alpha.md', 'm/beta.md']);
+      assert.deepStrictEqual(unnumbered.alphabeticalTieNotes, [], 'rank 3 is already reported');
+      assert.deepStrictEqual(unnumbered.alphabeticalNotes, ['m/alpha.md', 'm/beta.md']);
+    });
+
     it('still flags two genuinely unnumbered sibling directories', () => {
       assert.strictEqual(
         directoriesOrderedAlphabetically(['alpha/01-x.md', 'beta/01-y.md']),

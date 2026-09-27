@@ -451,7 +451,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     let chainPlan: TieredChainPlan | null = null;
     /** Note → tier that authored its planned edge (C5 `depends_on_source`) */
     const chainSourceOf: Map<string, DependsOnSource> = new Map();
-    /** C4 honest refusal: the scope carries no numbering and no TOC enumeration */
+    /** C4 honest refusal: the scope carries no numbering and no chainable enumeration */
     let chainRefused = false;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
@@ -517,18 +517,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       chainPlan = tiered;
       chainSourceOf.clear();
       for (const [p, s] of tiered.sourceOf) chainSourceOf.set(p, s);
-      // C4 honest refusal + the C-defect-1 message fix: the no-signal claim
-      // may only be made when the scoped enumeration resolves no TOC link at
-      // all AND the final plan writes no edge. A singleton enumeration keeps
-      // its justified numbered edge (compose no longer nulls heads over
-      // justified preds), so this branch cannot fire on a README that does
-      // have links.
-      const tocLinksInScope = tocEnumeration.documentOrder.length > 0;
+      // C4 honest refusal + the C-defect-1 message fix: the claim is about what
+      // this tier could chain, not about whether a README exists. Enumerating a
+      // note the plan then refuses to chain is a refusal too — printing
+      // `enabled … 0 edge(s) written` for it told the learner chaining had
+      // worked. A singleton enumeration keeps its justified numbered edge
+      // (compose no longer nulls heads over justified preds), so the written
+      // counts still cannot fire this branch on a README that does have links.
       chainRefused =
-        !tiered.hasNumberedLayout &&
-        !tocLinksInScope &&
-        tiered.tocEdgeCount === 0 &&
-        tiered.numberedEdgeCount === 0;
+        !tiered.hasNumberedLayout && tiered.tocEdgeCount === 0 && tiered.numberedEdgeCount === 0;
       // B6 — the warning carries numbers and concrete paths: it is the stop
       // sign telling the learner this vault needs `--exclude`. The count and the
       // examples both come from the set the warning describes, which the coarse
@@ -538,10 +535,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // for a run that had just fallen back to alphabetical order — and the flag
       // itself fires on any plan containing a module README.
       const alphabetical = chainPlan.alphabeticalNotes;
+      const ties = chainPlan.alphabeticalTieNotes;
       const affected: string[] = [];
       if (alphabetical.length > 0) {
         affected.push(
           `${alphabetical.length} of ${chainPlan.orderedPaths.length} planned notes have no number or phase in their name and chain in alphabetical order`
+        );
+      }
+      if (ties.length > 0) {
+        affected.push(
+          `${ties.length} of ${chainPlan.orderedPaths.length} planned notes have the same number or phase as the note before them, so the order between them is alphabetical`
         );
       }
       if (chainPlan.directoryOrderAlphabetical) {
@@ -551,7 +554,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
       if (affected.length > 0) {
         console.log(`⚠ Warning: ${affected.join('; ')}.`);
-        for (const example of alphabetical.slice(0, 3)) {
+        for (const example of [...alphabetical, ...ties].slice(0, 3)) {
           console.log(`    e.g. ${example}`);
         }
       }
@@ -659,10 +662,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     console.log(`Difficulty:       ${difficulty}`);
     if (options.autoChain) {
       if (chainRefused) {
-        // C4 honest refusal: no order signal anywhere in scope — exit 0 with
-        // zero edges instead of inventing alphabetical prerequisites.
+        // C4 honest refusal: nothing in scope was chainable under this tier —
+        // exit 0 with zero edges instead of inventing alphabetical
+        // prerequisites. Phrased about what the plan could chain rather than
+        // about whether a README exists, because a listing document whose every
+        // link resolves to a note this tier will not order is the same refusal.
         console.log(
-          'Auto-chain:       0 edges (no numbered layout, no README TOC links) — consider palee roadmap'
+          'Auto-chain:       0 edges (no numbered layout, no chainable order signal) — consider palee roadmap'
         );
       } else {
         // Count the edges this run actually writes, by the tier that authored

@@ -687,7 +687,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.ok(readmeId, 'README adopted');
     assert.deepStrictEqual(dependsOn(vaultDir, 'programming-language-resources.md'), [readmeId]);
     assert.strictEqual(dependsOnSource(vaultDir, 'programming-language-resources.md'), 'numbered');
-    assert.doesNotMatch(result.stdout, /no README TOC links/);
+    assert.doesNotMatch(result.stdout, /no numbered layout, no chainable order signal/);
   });
 
   test('strict tier never consumes TOC edges', () => {
@@ -733,11 +733,70 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dry.status, 0, dry.stderr);
     assert.match(
       dry.stdout,
-      /0 edges \(no numbered layout, no README TOC links\) — consider palee roadmap/
+      /0 edges \(no numbered layout, no chainable order signal\) — consider palee roadmap/
     );
     const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
     assert.strictEqual(commit.status, 0, commit.stderr);
     assert.deepStrictEqual(dependsOn(vaultDir, 'notes/loose-b.md'), []);
+  });
+
+  test('an unchainable README link is a refusal, not a silent zero-edge success', () => {
+    // The README does enumerate something, and the tier still chains nothing:
+    // a phase-subtree note is a leaf the TOC tier will not order. Reporting
+    // `enabled … 0 edge(s) written` told the learner chaining had worked and
+    // withheld the roadmap pointer that this vault actually needs.
+    const { vaultDir, configDir } = freshVault({
+      'README.md': '# Course\n\n- [Appendix](solution/appendix.md)\n',
+      'solution/appendix.md': '# Appendix\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(
+      dry.stdout,
+      /0 edges \(no numbered layout, no chainable order signal\) — consider palee roadmap/,
+      'a plan that writes nothing must not claim chaining is enabled'
+    );
+    assert.doesNotMatch(dry.stdout, /Auto-chain:\s+enabled/);
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stderr);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'solution/appendix.md'), []);
+  });
+
+  test('a same-number tie is named in the warning instead of passing as numbering', () => {
+    // `02-a` before `02-b` reads as a decision the learner made by numbering.
+    // Both carry `02`, so the order between them came from their filenames and
+    // the edge gates — the old report said nothing, because the tie is invisible
+    // to `alphabeticalNotes` (both notes are numbered) and to
+    // `directoryOrderAlphabetical` (there is only one directory).
+    const { configDir } = freshVault({
+      'm/02-a.md': '# A\n',
+      'm/02-b.md': '# B\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(
+      dry.stdout,
+      /1 of 2 planned notes have the same number or phase as the note before them, so the order between them is alphabetical/
+    );
+    assert.match(dry.stdout, /e\.g\. m\/02-b\.md/);
+    assert.ok(
+      plannedEdges(dry.stdout).some((e) => e.path === 'm/02-b.md' && e.dependsOn === 'm/02-a.md'),
+      'the tie still produces the edge; only the reporting was missing'
+    );
+  });
+
+  test('notes the enumeration placed are not reported as a name tie', () => {
+    // The composition recomposes both alphabetical claims: a README that
+    // orders `02-a` before `02-b` has stated that order, so warning about the
+    // filenames would contradict the edge list printed beside it.
+    const { configDir } = freshVault({
+      'README.md': '- [B](m/02-b.md)\n- [A](m/02-a.md)\n',
+      'm/02-b.md': '# B\n',
+      'm/02-a.md': '# A\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.doesNotMatch(dry.stdout, /share a number or phase/);
   });
 
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
@@ -756,21 +815,16 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const { configDir } = freshVault(tocFiles);
     const bare = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
     assert.strictEqual(bare.status, 0, bare.stderr);
-    assert.match(bare.stdout, /Auto-chain:.*strict tier/);
-    assert.match(bare.stdout, /0 numbered, 0 toc\)/, 'a bare --auto-chain writes no enumeration edge');
-    assert.deepStrictEqual(
-      plannedEdges(bare.stdout).filter((e) => e.dependsOn !== null),
-      [],
-      'no note may follow another under strict in this unnumbered layout'
+    assert.doesNotMatch(bare.stdout, /Auto-chain:.*full tier/, 'a bare --auto-chain is not the full tier');
+    assert.match(
+      bare.stdout,
+      /Planned dependency chain \(0 edges to write\)/,
+      'an unnumbered layout with only a README chain has nothing to write under strict'
     );
 
     const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(asked.status, 0, asked.stderr);
-    assert.match(asked.stdout, /Auto-chain:.*full tier/);
-    assert.ok(
-      plannedEdges(asked.stdout).some((e) => e.dependsOn !== null),
-      'the explicit tier is what unlocks enumeration order'
-    );
+    assert.match(asked.stdout, /Auto-chain:.*full tier — 2 edge\(s\) written: 0 numbered, 2 toc/);
   });
 
   // The tier is a separate option precisely because an optional-value flag

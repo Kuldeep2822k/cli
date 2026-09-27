@@ -397,6 +397,18 @@ export interface HygieneChainPlan extends ChainPlan {
    * lesson but names its assignments would warn on every single run.
    */
   alphabeticalNotes: string[];
+  /**
+   * Planned notes that sit behind a same-directory note stating the identical
+   * number or phase, so their order against it came from their filenames.
+   *
+   * @remarks
+   * `alphabeticalNotes` cannot describe these: both `02-a.md` and `02-b.md`
+   * carry a number, so the plan looked fully decided by numbering while the
+   * edge that gates `02-b` was an alphabetical tie-break nobody reported. The
+   * edge stays — a learner who writes `a` then `b` usually means that order —
+   * but the CLI says out loud which order it invented.
+   */
+  alphabeticalTieNotes: string[];
   /** Classification of every path that survived, keyed by normalized path */
   decisions: Map<string, Tier0Decision>;
   /** Totals the CLI prints verbatim on the dry-run and confirmation screens */
@@ -512,6 +524,33 @@ function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
     return ra.phase - rb.phase;
   }
   return compareStrings(aBasename, bBasename);
+}
+
+/**
+ * True when two names in the same directory state the *same* order, so
+ * {@link compareLessonOrderTier0} falls through to comparing them by filename.
+ *
+ * @remarks
+ * Only ranks 1 and 2 are reported. A rank-3 pair (`foo.md`, `bar.md`) is already
+ * named by {@link HygieneChainPlan.alphabeticalNotes}, and rank 4 is placed last
+ * by a structural rule the planner states rather than a number the learner wrote.
+ * The two ranks that matter are the ones that look decided: `02-a.md` and
+ * `02-b.md` both read as "the numbering chose this order", when in fact nothing
+ * but the alphabet did.
+ */
+function tiedByName(aBasename: string, bBasename: string): boolean {
+  const ra = tier0LessonRank(aBasename);
+  const rb = tier0LessonRank(bBasename);
+  if (ra.rank !== rb.rank || (ra.rank !== 1 && ra.rank !== 2)) {
+    return false;
+  }
+  if (ra.rank === 1 && ra.n !== rb.n) {
+    return false;
+  }
+  if (ra.rank === 2 && ra.phase !== rb.phase) {
+    return false;
+  }
+  return true;
 }
 
 /** Within-directory rank of a note under {@link compareLessonOrderTier0}. */
@@ -651,6 +690,7 @@ export function planAutoChainWithHygiene(
 
   const backbonePaths: string[] = [];
   const leafPaths: string[] = [];
+  const alphabeticalTieNotes: string[] = [];
   const predecessorOf = new Map<string, string | null>();
   let lastBackbone: string | null = null;
   for (const p of orderedPaths) {
@@ -659,6 +699,9 @@ export function planAutoChainWithHygiene(
       lastBackbone !== null && dirTransitionJustified(parentDirOf(lastBackbone), parentDirOf(p))
         ? lastBackbone
         : null;
+    if (candidate !== null && parentDirOf(candidate) === parentDirOf(p) && tiedByName(baseNameOf(candidate), baseNameOf(p))) {
+      alphabeticalTieNotes.push(p);
+    }
     if (cls === 'backbone') {
       backbonePaths.push(p);
       predecessorOf.set(p, candidate);
@@ -683,6 +726,7 @@ export function planAutoChainWithHygiene(
     hasUnnumbered: base.hasUnnumbered,
     directoryOrderAlphabetical: base.directoryOrderAlphabetical,
     alphabeticalNotes,
+    alphabeticalTieNotes,
     backbonePaths,
     leafPaths,
     excluded,

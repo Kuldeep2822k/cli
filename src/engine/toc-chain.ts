@@ -689,6 +689,7 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
     predecessorOf,
     sourceOf,
     alphabeticalNotes: numbered.alphabeticalNotes.filter((p) => !tocSet.has(p)),
+    alphabeticalTieNotes: numbered.alphabeticalTieNotes.filter((p) => !tocSet.has(p)),
     directoryOrderAlphabetical: directoriesOrderedAlphabetically(unenumerated),
     numberedEdgeCount: numberedEdges,
     tocEdgeCount: tocEdges,
