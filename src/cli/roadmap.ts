@@ -277,6 +277,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let updated = 0;
       let failed = 0;
       let conflicts = 0;
+      // Chain synthesis and validation both run against the *declared* topic
+      // list, so a topic whose note write fails still leaves its successors
+      // holding a `depends_on` that points at nothing — and the dependent note
+      // then disappears from `palee plan` with only a `validate` warning to say
+      // why. Track what actually landed so the batch can report its own edges.
+      const writtenIds = new Set<string>();
+      const writtenEdges: { from: string; to: string }[] = [];
 
       for (const topic of roadmap.topics) {
         const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
@@ -346,6 +353,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           } else {
             updated++;
           }
+          writtenIds.add(topic.id);
+          const writtenDeps = Array.isArray(paleeData.depends_on) ? (paleeData.depends_on as unknown[]) : [];
+          for (const dep of writtenDeps) {
+            if (typeof dep === 'string') writtenEdges.push({ from: topic.id, to: dep });
+          }
         } catch (err: unknown) {
           const targetPath = topic.path;
           const isConflict = isConflictError(err);
@@ -358,6 +370,21 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           failed++;
           continue;
         }
+      }
+
+      const knownIds = new Set<string>([...writtenIds, ...existingTopicsById.keys()]);
+      const danglingEdges = writtenEdges.filter((edge) => !knownIds.has(edge.to));
+      if (danglingEdges.length > 0) {
+        console.error(
+          `⚠ ${danglingEdges.length} dependency edge(s) point at topics that were not written:`
+        );
+        for (const edge of danglingEdges.slice(0, 10)) {
+          console.error(`    ${edge.from} → ${edge.to}`);
+        }
+        if (danglingEdges.length > 10) {
+          console.error(`    ... and ${danglingEdges.length - 10} more`);
+        }
+        console.error('    Those notes stay out of `palee plan` until the edge is removed or its target exists. Run palee validate.');
       }
 
       console.log();
