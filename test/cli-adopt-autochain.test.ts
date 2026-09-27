@@ -658,6 +658,11 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const adopted = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(adopted.status, 0, adopted.stderr);
     assert.strictEqual(dependsOnSource(vaultDir, 'guide/wrapup.md'), 'toc', 'the edges really are enumeration-made');
+    // All three chained notes are leaves, and the TOC tier still walks its spine
+    // through them — which is what made `Leaves: … (attached, never gate)` a
+    // false claim before the edges they author became advisory. Pinned here
+    // because the line is only true as long as nothing a leaf precedes is gated.
+    assert.match(adopted.stdout, /Leaves:\s+3 notes \(attached, never gate\)/);
 
     const ids = idToPath(vaultDir);
     const plan = runCLI(['plan', '--json'], configDir);
@@ -818,9 +823,10 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.doesNotMatch(bare.stdout, /Auto-chain:.*full tier/, 'a bare --auto-chain is not the full tier');
     assert.match(
       bare.stdout,
-      /Planned dependency chain \(0 edges to write\)/,
-      'an unnumbered layout with only a README chain has nothing to write under strict'
+      /0 edges \(no numbered layout; --chain-tier strict does not read a README enumeration\) — try --chain-tier toc/,
+      'strict must name itself as the reason, not send the learner to palee roadmap'
     );
+    assert.match(bare.stdout, /Planned dependency chain \(0 edges to write\)/);
 
     const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(asked.status, 0, asked.stderr);

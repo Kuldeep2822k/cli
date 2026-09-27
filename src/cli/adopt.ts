@@ -453,6 +453,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const chainSourceOf: Map<string, DependsOnSource> = new Map();
     /** C4 honest refusal: the scope carries no numbering and no chainable enumeration */
     let chainRefused = false;
+    /** Set when the selected tier declines to read an enumeration that does exist */
+    let tocLinksDeclined = false;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
     // is recorded here at graph-build time rather than re-derived from
@@ -526,6 +528,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // counts still cannot fire this branch on a README that does have links.
       chainRefused =
         !tiered.hasNumberedLayout && tiered.tocEdgeCount === 0 && tiered.numberedEdgeCount === 0;
+      // Distinct from "nothing to chain": under `strict` the enumeration may be
+      // full of usable links that the selected tier simply does not read. Point
+      // at the tier rather than at `palee roadmap`, which is advice for a vault
+      // with no order to state.
+      tocLinksDeclined = autoChainTier === 'strict' && tocEnumeration.documentOrder.length > 0;
       // B6 — the warning carries numbers and concrete paths: it is the stop
       // sign telling the learner this vault needs `--exclude`. The count and the
       // examples both come from the set the warning describes, which the coarse
@@ -668,7 +675,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // about whether a README exists, because a listing document whose every
         // link resolves to a note this tier will not order is the same refusal.
         console.log(
-          'Auto-chain:       0 edges (no numbered layout, no chainable order signal) — consider palee roadmap'
+          tocLinksDeclined
+            ? 'Auto-chain:       0 edges (no numbered layout; --chain-tier strict does not read a README enumeration) — try --chain-tier toc'
+            : 'Auto-chain:       0 edges (no numbered layout, no chainable order signal) — consider palee roadmap'
         );
       } else {
         // Count the edges this run actually writes, by the tier that authored
