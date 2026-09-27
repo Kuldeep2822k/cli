@@ -7,195 +7,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`palee validate --fix` now repairs invalid SM-2 fields**: `--fix` previously reported "not implemented"; it now repairs invalid SM-2 review fields and reports each repair in the output. ([#210](https://github.com/Kuldeep2822k/cli/pull/210))
+
+### Fixed
+
+- **Draft recovery exits 2 when input runs out**: the interactive recovery menu previously exited 0 silently when stdin ended mid-prompt, leaving the checkpoint unresolved; it now terminates with exit code 2. ([#202](https://github.com/Kuldeep2822k/cli/pull/202))
+- **Commander usage errors follow the ExitCode contract**: unknown commands/options and missing arguments previously bypassed the exit-code mapping (Commander defaulted to 1); help, `--version`, and bare invocation now exit 0, all other usage errors exit 2. ([#197](https://github.com/Kuldeep2822k/cli/pull/197))
+- **Roadmap import no longer mints zero-valued pillar scores**: absent assessment pillars resolved to `0.0` and were written onto notes, causing false mastery-drift warnings under `validate --strict`. ([#196](https://github.com/Kuldeep2822k/cli/pull/196))
+- **Hot-memory rebuild keeps sessions with unparseable timestamps**: unparseable `started_at` values previously wiped the derived hot memory to "No learning history recorded yet." while the session files stayed intact. ([#211](https://github.com/Kuldeep2822k/cli/pull/211))
+- **Stale draft timestamps clamped to 24h**: draft recovery and session-end draft selection now clamp `started_at` older than 24 hours, matching the draft-write freshness check. ([#208](https://github.com/Kuldeep2822k/cli/pull/208))
+
+### Changed
+
+- **Documentation site refresh**: resolved audit drift, navigation gaps, and Mermaid diagram clipping/layout issues; the navbar now displays the current package version. ([#189](https://github.com/Kuldeep2822k/cli/pull/189))
+- **Dependency updates**: `duriantaco/skylos` 4.36.1 → 4.38.0, `yaml` 2.9.0 → 2.9.1. ([#203](https://github.com/Kuldeep2822k/cli/pull/203), [#174](https://github.com/Kuldeep2822k/cli/pull/174))
+
 ---
 
 ## [0.5.2] - 2026-09-19
 
-### Fixes (fix)
+### Fixed
 
-- **Scanner unclosed-fence heuristic & frontmatter parser robustness**:
-  - Detected when Markdown body text is accidentally swallowed into frontmatter due to an unclosed opening fence followed by a thematic break (`hasBodyTextLines`), checking for headings, blockquotes, lists, and non-mapping colons. ([#171.11](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
-  - Supported quoted YAML mapping keys containing colons (e.g. `"custom: property": value`, `'other: property': value`, and escaped quotes). ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
-  - Supported unquoted YAML keys with spaces (e.g. `display name: Mathematics`), slashes (e.g. `schema/url: ...`), non-ASCII characters (e.g. `pré-requis: ...`), and arbitrary custom lengths without false-positive body text classification. ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
-  - Preserved `raw` and `body` in `parseFrontmatter` for whitespace-only fenced blocks (e.g. `---\n\n---`) so `updateFrontmatter` replaces them in-place instead of prepending duplicate fence blocks. ([#188](https://github.com/Kuldeep2822k/cli/pull/188))
-- **Exception safety in validation rule runner**: wrapped rule execution in `runRules` in try/catch blocks so rule crashes become structured validation findings (`field: 'rule-execution'`) rather than exit-5 crashes; guarded non-Error thrown values whose string conversion fails so subsequent rules continue executing. ([#171.10](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
-- **Validation barrel export order aligned**: rewrote `src/validation/index.ts` to export all 19 validation rules in exact registration order matching `src/cli/validate.ts`, verified by public barrel census tests. ([#171.9](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
-- **Validate legacy `dependencies` alias with migration advisory**: `valid-dependency-list` rule now validates the legacy `dependencies` key so the validator matches what the loader consumes, emitting an advisory warning to migrate to `depends_on` alongside full shape/self-ref/duplicate diagnostics for malformed values. ([#171.2](https://github.com/Kuldeep2822k/cli/issues/171), [#181](https://github.com/Kuldeep2822k/cli/issues/181), [#187](https://github.com/Kuldeep2822k/cli/pull/187))
+- **Frontmatter parser robustness**: detects body text swallowed into frontmatter by unclosed fences; supports quoted keys with colons and unquoted keys with spaces, slashes, or non-ASCII characters; preserves `raw`/`body` for whitespace-only fenced blocks. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **Validation rule runner is exception-safe**: rule crashes now surface as structured findings instead of exit-5 crashes. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **Validation barrel export order aligned** with rule registration order. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#188](https://github.com/Kuldeep2822k/cli/pull/188))
+- **`valid-dependency-list` covers the legacy `dependencies` alias** with an advisory warning to migrate to `depends_on`. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#181](https://github.com/Kuldeep2822k/cli/issues/181), [#187](https://github.com/Kuldeep2822k/cli/pull/187))
 
-### Documentation & Maintenance (docs)
+### Changed
 
-- **Document legacy `dependencies` alias advisory**: updated `valid-dependency-list` rule metadata, documentation (`docs/02-3-reporting-commands.md`), and Mermaid diagrams to reflect the advisory warning when `dependencies` is present on a topic note. ([#187](https://github.com/Kuldeep2822k/cli/pull/187))
+- **Documented the legacy `dependencies` alias advisory** in rule metadata, docs, and Mermaid diagrams. ([#187](https://github.com/Kuldeep2822k/cli/pull/187))
 
 ---
 
 ## [0.5.1] - 2026-09-18
 
-### Fixes (fix)
+### Fixed
 
-- **Report every dependency cycle, not just the first**: `no-dependency-cycle` rule switched to `detectCyclesBounded` (cap 1000); disjoint and overlapping cycles all surface. Truncation finding emitted when cycles exceed bound. ([#171.3](https://github.com/Kuldeep2822k/cli/issues/171), [#184](https://github.com/Kuldeep2822k/cli/pull/184))
-- **Prevent canonical session deletion during derived-view rebuild**: removed 4 `unlinkSync` sites in `regenerateIndex`/`rebuildHotAndIndex` — derived views must never mutate source data. Draft sessions now excluded from hot memory rebuild. ([#171.7](https://github.com/Kuldeep2822k/cli/issues/171), [#185](https://github.com/Kuldeep2822k/cli/pull/185))
-- **Preserve native `assessed_at` type through adopt/loader round-trip**: numeric epoch-ms values normalized to ISO 8601 via `normalizeAssessedAt()`; progress handles numeric-zero `assessed_at` correctly. ([#171.4](https://github.com/Kuldeep2822k/cli/issues/171), [#186](https://github.com/Kuldeep2822k/cli/pull/186))
-- **Strip leading BOM so frontmatter parses**: Windows editors emit U+FEFF before `---`; BOM now stripped in `parseFrontmatter` so topic notes aren't silently dropped. ([#171.1](https://github.com/Kuldeep2822k/cli/issues/171), [#183](https://github.com/Kuldeep2822k/cli/pull/183))
+- **`no-dependency-cycle` reports every cycle**, not just the first (bounded at 1000, with a truncation finding). ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#184](https://github.com/Kuldeep2822k/cli/pull/184))
+- **Derived-view rebuilds never delete canonical sessions**; draft sessions are excluded from the hot-memory rebuild. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#185](https://github.com/Kuldeep2822k/cli/pull/185))
+- **Numeric `assessed_at` values normalize to ISO 8601** through the adopt/loader round-trip. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#186](https://github.com/Kuldeep2822k/cli/pull/186))
+- **Leading BOM stripped** so frontmatter parses for files saved by Windows editors. ([#171](https://github.com/Kuldeep2822k/cli/issues/171), [#183](https://github.com/Kuldeep2822k/cli/pull/183))
 
-### Documentation & Maintenance (docs)
+### Changed
 
-- **ADR-0008 review clarifications**: clarify #32 `valid-difficulty` dissolved status and distinguish from #40 (externally-tested only). ([#182](https://github.com/Kuldeep2822k/cli/pull/182))
-- **Changelog overhaul**: move v0.5.0 entries out of `[Unreleased]`, condense paragraph-length entries to concise bullet points, and add missing `chore`/`ci` categories.
-
-### Maintenance (chore)
-
-- **Dependency bumps**: `duriantaco/skylos` 4.35.0 → 4.36.1. ([#175](https://github.com/Kuldeep2822k/cli/pull/175))
+- **ADR-0008 review clarifications**; v0.5.0 entries moved out of `[Unreleased]`. ([#182](https://github.com/Kuldeep2822k/cli/pull/182))
+- **Dependency updates**: `duriantaco/skylos` 4.35.0 → 4.36.1. ([#175](https://github.com/Kuldeep2822k/cli/pull/175))
 
 ---
 
 ## [0.5.0] - 2026-09-15
 
-### Features (feat)
+### Added
 
-- **Hot-memory and safe-vault-paths validation rules**: `valid-hot-memory` validates `.palee/hot.md` identity, word cap, and session references; `safe-vault-paths` audits managed paths against vault boundary for traversal and escape attempts. Shared `displayValue` helper fixes `NaN`/`Infinity` rendering in diagnostics. ([#43](https://github.com/Kuldeep2822k/cli/issues/43), [#45](https://github.com/Kuldeep2822k/cli/issues/45), [#166](https://github.com/Kuldeep2822k/cli/issues/166), [#169](https://github.com/Kuldeep2822k/cli/pull/169))
-- **Memory-subsystem validation rules**: four rules covering `valid-managed-note-kind`, `valid-session-schema`, `no-session-unknown-topic`, and `valid-session-index`; partial snapshots surface via `read-failure` rather than silently validating. ([#27](https://github.com/Kuldeep2822k/cli/issues/27), [#41](https://github.com/Kuldeep2822k/cli/issues/41), [#42](https://github.com/Kuldeep2822k/cli/issues/42), [#44](https://github.com/Kuldeep2822k/cli/issues/44), [#168](https://github.com/Kuldeep2822k/cli/pull/168))
-- **Review-state, review-dates, and dependency-list validation rules**: `valid-review-fields` (SM-2 contract), `valid-review-dates` (ISO date checks), and `valid-dependency-list` (array shape, self-ref, duplicate checks); `no-missing-dependency` findings downgraded to warnings per ADR-0008. ([#33](https://github.com/Kuldeep2822k/cli/issues/33), [#34](https://github.com/Kuldeep2822k/cli/issues/34), [#38](https://github.com/Kuldeep2822k/cli/issues/38), [#39](https://github.com/Kuldeep2822k/cli/issues/39), [#165](https://github.com/Kuldeep2822k/cli/pull/165))
-- **Assessment and mastery validation rules**: `valid-assessment-fields` enforces pillar score range and date format; `valid-topic-mastery` warns on drift from engine formula; #40 enforced as command-level regression tests. ([#36](https://github.com/Kuldeep2822k/cli/issues/36), [#37](https://github.com/Kuldeep2822k/cli/issues/37), [#40](https://github.com/Kuldeep2822k/cli/issues/40), [#163](https://github.com/Kuldeep2822k/cli/pull/163))
-- **Validation barrel + `--strict` warning escalation**: `src/validation/` public barrel with census test; `palee validate --strict` exits 3 on warnings-only vaults. ([#25](https://github.com/Kuldeep2822k/cli/issues/25), [#162](https://github.com/Kuldeep2822k/cli/pull/162))
-- **Schema, topic-id-format, and status validation rules**: `palee_schema: 1` enforcement, `T-` kebab-case topic ID policy (legacy IDs error), and four-state `status` validation; `adopt` now generates compliant IDs. ([#28](https://github.com/Kuldeep2822k/cli/issues/28), [#29](https://github.com/Kuldeep2822k/cli/issues/29), [#31](https://github.com/Kuldeep2822k/cli/issues/31), [#159](https://github.com/Kuldeep2822k/cli/pull/159))
-- **Validation rule framework with first rule catalog**: single-read vault collector, deterministic runner, human/JSON formatters; duplicate-ID, missing-dependency, and cycle checks ported as pure rules with `warning_count`/`warnings[]` JSON support. ([#25](https://github.com/Kuldeep2822k/cli/issues/25), [#26](https://github.com/Kuldeep2822k/cli/issues/26), [#30](https://github.com/Kuldeep2822k/cli/issues/30), [#158](https://github.com/Kuldeep2822k/cli/pull/158))
-- **Multi-cycle enumeration + quarantine in dependency engine**: iterative Tarjan SCC + Johnson-style cycle enumeration; `quarantineCyclicTopics` removes cyclic topics and dependents in O(V+E); bounded display (1000 cycles, `truncated` flag). ([#79](https://github.com/Kuldeep2822k/cli/issues/79), [#157](https://github.com/Kuldeep2822k/cli/pull/157))
+- **Validation rule framework**: single-read vault collector, deterministic runner, human/JSON formatters; duplicate-ID, missing-dependency, and cycle checks ported as pure rules. ([#25](https://github.com/Kuldeep2822k/cli/issues/25), [#26](https://github.com/Kuldeep2822k/cli/issues/26), [#30](https://github.com/Kuldeep2822k/cli/issues/30), [#158](https://github.com/Kuldeep2822k/cli/pull/158))
+- **Validation rules for schema, topic IDs, and status**: `palee_schema: 1` enforcement, `T-` kebab-case topic ID policy, four-state `status` validation; `adopt` generates compliant IDs. ([#28](https://github.com/Kuldeep2822k/cli/issues/28), [#29](https://github.com/Kuldeep2822k/cli/issues/29), [#31](https://github.com/Kuldeep2822k/cli/issues/31), [#159](https://github.com/Kuldeep2822k/cli/pull/159))
+- **`validate --strict` warning escalation** and a `src/validation/` public barrel with census test. ([#25](https://github.com/Kuldeep2822k/cli/issues/25), [#162](https://github.com/Kuldeep2822k/cli/pull/162))
+- **Assessment and mastery validation rules** (`valid-assessment-fields`, `valid-topic-mastery`); #40 enforced as command-level regression tests. ([#36](https://github.com/Kuldeep2822k/cli/issues/36), [#37](https://github.com/Kuldeep2822k/cli/issues/37), [#40](https://github.com/Kuldeep2822k/cli/issues/40), [#163](https://github.com/Kuldeep2822k/cli/pull/163))
+- **Review-state, review-dates, and dependency-list validation rules**; `no-missing-dependency` downgraded to warning per ADR-0008. ([#33](https://github.com/Kuldeep2822k/cli/issues/33), [#34](https://github.com/Kuldeep2822k/cli/issues/34), [#38](https://github.com/Kuldeep2822k/cli/issues/38), [#39](https://github.com/Kuldeep2822k/cli/issues/39), [#165](https://github.com/Kuldeep2822k/cli/pull/165))
+- **Memory-subsystem validation rules** (`valid-managed-note-kind`, `valid-session-schema`, `no-session-unknown-topic`, `valid-session-index`). ([#27](https://github.com/Kuldeep2822k/cli/issues/27), [#41](https://github.com/Kuldeep2822k/cli/issues/41), [#42](https://github.com/Kuldeep2822k/cli/issues/42), [#44](https://github.com/Kuldeep2822k/cli/issues/44), [#168](https://github.com/Kuldeep2822k/cli/pull/168))
+- **Hot-memory and safe-vault-paths validation rules**; shared `displayValue` helper fixes `NaN`/`Infinity` rendering in diagnostics. ([#43](https://github.com/Kuldeep2822k/cli/issues/43), [#45](https://github.com/Kuldeep2822k/cli/issues/45), [#166](https://github.com/Kuldeep2822k/cli/issues/166), [#169](https://github.com/Kuldeep2822k/cli/pull/169))
+- **Multi-cycle enumeration and quarantine** in the dependency engine (bounded display with `truncated` flag). ([#79](https://github.com/Kuldeep2822k/cli/issues/79), [#157](https://github.com/Kuldeep2822k/cli/pull/157))
 
-### Performance (perf)
+### Changed
 
-- **Parallel test execution + categorized scripts**: full suite ~112s → ~38s; added `test:unit`, `test:fast`, `test:e2e`, `test:fuzz` scripts. ([#121](https://github.com/Kuldeep2822k/cli/issues/121))
-- **Windows lock-directory stale recovery**: `EPERM`/`EBUSY` on lock-directory removal retried with bounded 5-attempt backoff instead of exit-5 crash. ([#121](https://github.com/Kuldeep2822k/cli/issues/121))
+- **Parallel test execution**: full suite ~112s → ~38s; added `test:unit`, `test:fast`, `test:e2e`, `test:fuzz` scripts. ([#121](https://github.com/Kuldeep2822k/cli/issues/121))
+- **Windows lock-directory stale recovery** with bounded 5-attempt backoff instead of exit-5 crashes. ([#121](https://github.com/Kuldeep2822k/cli/issues/121))
+- **Internal refactors**: single shared derivation for roadmap imports, centralized `hot.md` reads and exit-code mapping, injectable `loadTopics` cache. ([#139](https://github.com/Kuldeep2822k/cli/issues/139), [#130](https://github.com/Kuldeep2822k/cli/issues/130), [#129](https://github.com/Kuldeep2822k/cli/issues/129), [#128](https://github.com/Kuldeep2822k/cli/issues/128), [#154](https://github.com/Kuldeep2822k/cli/pull/154), [#145](https://github.com/Kuldeep2822k/cli/pull/145), [#151](https://github.com/Kuldeep2822k/cli/pull/151), [#144](https://github.com/Kuldeep2822k/cli/pull/144))
+- **ADR-0008: validation-framework decisions** recorded; dangling planning-doc references fixed. ([#170](https://github.com/Kuldeep2822k/cli/issues/170), [#172](https://github.com/Kuldeep2822k/cli/pull/172))
+- **Dependency and workflow updates**: npm OIDC trusted publishing with provenance, workflow security hardening, GitHub Actions bumps, dead-code detection via Skylos. ([#124](https://github.com/Kuldeep2822k/cli/pull/124), [#143](https://github.com/Kuldeep2822k/cli/pull/143), [#148](https://github.com/Kuldeep2822k/cli/pull/148), [#141](https://github.com/Kuldeep2822k/cli/pull/141))
 
-### Fixes (fix)
+### Fixed
 
-- **Vault-relative paths through symlinked roots**: `walkVault` resolves root via `realpathSync`; new `relativeVaultPath()` helper keeps paths clean. ([#160](https://github.com/Kuldeep2822k/cli/issues/160), [#161](https://github.com/Kuldeep2822k/cli/pull/161))
-- **Engine reads canonical `depends_on` only**: removed legacy `dependencies` alias from `TopicNode` interface. ([#140](https://github.com/Kuldeep2822k/cli/issues/140), [#152](https://github.com/Kuldeep2822k/cli/pull/152))
-- **Reject unsupported `palee_schema` in hot.md**: `readHotMemory()` only accepts `palee_schema: 1`; foreign hot.md triggers rebuild (ADR-0007). ([#130](https://github.com/Kuldeep2822k/cli/issues/130))
-- **Preserve explicit `0` in SM-2 fields**: `ease_factor`, `interval_days`, `repetition`, `lapses` no longer treated as missing when `0`. ([#127](https://github.com/Kuldeep2822k/cli/issues/127))
-- **Normalize `depends_on`/`dependencies` aliases consistently**: unified resolution in `normalizeDependencies` across loader, validator, and roadmap. ([#126](https://github.com/Kuldeep2822k/cli/issues/126))
-- **Exit code 4 on OCC conflict in `palee migrate --fix`**: per-note conflicts classified as exit 4; conflict outranks validation. ([#128](https://github.com/Kuldeep2822k/cli/issues/128), [#144](https://github.com/Kuldeep2822k/cli/pull/144))
-- **npm audit fixes applied**. ([#156](https://github.com/Kuldeep2822k/cli/pull/156))
-- **Optimize published package files**: updated `.npmignore` to reduce tarball size. ([#173](https://github.com/Kuldeep2822k/cli/pull/173))
+- **Vault-relative paths through symlinked roots** via `realpathSync`. ([#160](https://github.com/Kuldeep2822k/cli/issues/160), [#161](https://github.com/Kuldeep2822k/cli/pull/161))
+- **Exit code 4 on OCC conflict** in `palee migrate --fix`. ([#128](https://github.com/Kuldeep2822k/cli/issues/128), [#144](https://github.com/Kuldeep2822k/cli/pull/144))
+- **Explicit `0` preserved in SM-2 fields** (`ease_factor`, `interval_days`, `repetition`, `lapses`). ([#127](https://github.com/Kuldeep2822k/cli/issues/127))
+- **`depends_on`/`dependencies` aliases normalized consistently** across loader, validator, and roadmap. ([#126](https://github.com/Kuldeep2822k/cli/issues/126))
+- **Unsupported `palee_schema` in hot.md triggers rebuild** (ADR-0007). ([#130](https://github.com/Kuldeep2822k/cli/issues/130))
+- **npm audit fixes applied**; published package files optimized via `.npmignore`. ([#156](https://github.com/Kuldeep2822k/cli/pull/156), [#173](https://github.com/Kuldeep2822k/cli/pull/173))
 
-### Refactor (refactor)
+### Removed
 
-- **Single shared derivation for roadmap imports**: `resolveTopicUpdates()` is now the single source for both validation and writeback passes. ([#139](https://github.com/Kuldeep2822k/cli/issues/139), [#154](https://github.com/Kuldeep2822k/cli/pull/154))
-- **Centralize `hot.md` reads**: `readHotMemory()` in `src/storage/memory.ts` replaces six parse sites in `session.ts`. ([#130](https://github.com/Kuldeep2822k/cli/issues/130), [#145](https://github.com/Kuldeep2822k/cli/pull/145))
-- **Injectable `loadTopics` cache**: accepts a dedicated `FileCache<LoadedTopic>` via backward-compatible options overload. ([#129](https://github.com/Kuldeep2822k/cli/issues/129), [#151](https://github.com/Kuldeep2822k/cli/pull/151))
-- **Extract `resolveTopicMastery` helper**: consolidated three mastery fallback blocks into one helper with `pillars-first` and `existing-first` modes. ([#127](https://github.com/Kuldeep2822k/cli/issues/127), [#142](https://github.com/Kuldeep2822k/cli/pull/142))
-- **Merge duplicate `WalkOptions`**: single interface retaining `followSymlinks` and `excludeDirs`. ([#125](https://github.com/Kuldeep2822k/cli/issues/125), [#132](https://github.com/Kuldeep2822k/cli/pull/132))
-- **Centralize exit-code mapping**: `ExitCode` enum and `exitCodeFor()` replace copy-pasted ternaries. ([#128](https://github.com/Kuldeep2822k/cli/issues/128), [#144](https://github.com/Kuldeep2822k/cli/pull/144))
-
-### Documentation & Maintenance (docs)
-
-- **ADR-0008: validation-framework decisions**: records product and architecture decisions for the #25 rule backlog; fixes all dangling references to removed planning docs. ([#170](https://github.com/Kuldeep2822k/cli/issues/170), [#172](https://github.com/Kuldeep2822k/cli/pull/172))
-- **Storage barrel census + JSDoc reservations**: complete export census with `@remarks` reservation markers and contract tests. ([#131](https://github.com/Kuldeep2822k/cli/issues/131), [#146](https://github.com/Kuldeep2822k/cli/pull/146))
-- **CLI flag documentation alignment**: `next`/`plan` JSDoc and `@example` blocks match registered CLI flags. ([#131](https://github.com/Kuldeep2822k/cli/issues/131), [#146](https://github.com/Kuldeep2822k/cli/pull/146))
-- **Phase-2 type reservation**: `Topic`/`Assessment`/`Review`/`Progress`/`Session`/`CompletedSession`/`DraftSession` documented as reserved. ([#125](https://github.com/Kuldeep2822k/cli/issues/125))
-- **Changelog condensed**: entries reformatted to Keep a Changelog style. ([#167](https://github.com/Kuldeep2822k/cli/pull/167))
-
-### Maintenance (chore)
-
-- **Workflow security hardening**: permissions, timeouts, and `persist-credentials: false`. ([#143](https://github.com/Kuldeep2822k/cli/pull/143))
-- **Remove obsolete planning docs**: Phase 1 sprint logs and checklists deleted.
-- **Dependency bumps**: `actions/deploy-pages` 5.0.1, `softprops/action-gh-release` 3.0.3, `actions/configure-pages` 6.0.0, dev-dependencies group updates. ([#148](https://github.com/Kuldeep2822k/cli/pull/148), [#149](https://github.com/Kuldeep2822k/cli/pull/149), [#134](https://github.com/Kuldeep2822k/cli/pull/134), [#133](https://github.com/Kuldeep2822k/cli/pull/133), [#135](https://github.com/Kuldeep2822k/cli/pull/135), [#150](https://github.com/Kuldeep2822k/cli/pull/150))
-- **Dead code detector added**: Skylos integration for detecting unused exports as the codebase scales. ([#141](https://github.com/Kuldeep2822k/cli/pull/141))
-- **Issue-to-project label sync CI**. ([#141](https://github.com/Kuldeep2822k/cli/pull/141))
-
-### Removed (removed)
-
-- **Lock internals removed from storage barrel**: `HEARTBEAT_INTERVAL` and `STALE_TIMEOUT` pruned from public exports (remain in `src/storage/lock.ts`). ([#131](https://github.com/Kuldeep2822k/cli/issues/131))
+- **Lock internals pruned from the storage barrel** (`HEARTBEAT_INTERVAL`, `STALE_TIMEOUT`; still in `src/storage/lock.ts`). ([#131](https://github.com/Kuldeep2822k/cli/issues/131))
 
 ---
 
 ## [0.4.0] - 2026-08-31
 
-### Features (feat)
-- **Storage Layer Isolation & Unified Facade**: Encapsulated all vault filesystem mutations behind `src/storage/index.ts` facade, eliminating raw `fs` calls from CLI handlers. ([#86](https://github.com/Kuldeep2822k/cli/issues/86), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **True Session Duration & Timestamp Persistence**: Persisted true start timestamps into `.palee/hot.md` and draft checkpoints with accurate study durations. ([#88](https://github.com/Kuldeep2822k/cli/issues/88), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **Resilient Multi-Topic Roadmap Batch Ingestion**: Per-topic parse/write exceptions isolated so single malformed notes don't block remaining imports. ([#89](https://github.com/Kuldeep2822k/cli/issues/89), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **Mermaid Interactive Pan-Zoom Controller**: GitHub-style inline controls, 60 FPS pan-zoom, drag threshold, and full-screen modal. ([#115](https://github.com/Kuldeep2822k/cli/pull/115), [#116](https://github.com/Kuldeep2822k/cli/pull/116))
-- **Automatic Schema Migration (`palee migrate --fix`)**: `--fix` flag upgrades schema-less notes to `palee_schema: 1` atomically. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Custom Vault Traversal Exclusions**: `excludeDirs` option in `walkVault` and `WalkOptions`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Session Draft Checkpoint Invariants**: exit code 2 and `status: 'drafts_pending'` JSON when drafts block `session start`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Flexible Dependency Aliases**: `dependencies` alias supported alongside `depends_on`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+### Added
 
-### Fixes (fix)
-- **Review OCC TOCTOU Elimination**: re-read target note before atomic write; emit exit 4 on concurrent modifications. ([#87](https://github.com/Kuldeep2822k/cli/issues/87), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **Mastery Output & Dashboard Alignment**: standardized `XX.X%` formatting and 62-character ASCII borders. ([#91](https://github.com/Kuldeep2822k/cli/issues/91), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **Deterministic FileCache Operation**: removed environment bypasses; guaranteed 2,000 ms unsettled horizon. ([#90](https://github.com/Kuldeep2822k/cli/issues/90), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
-- **macOS Canonical Path Resolution**: `realpathSync` in `walkVault` and `deleteSessionNote` for macOS symlinked `/var/folders`. ([#122](https://github.com/Kuldeep2822k/cli/pull/122))
-- **macOS Draft Delete Test Stub**: updated stub to match draft ID substring for realpath targets. ([#123](https://github.com/Kuldeep2822k/cli/pull/123))
-- **Config Resilience & Atomic Saves**: `SyntaxError` recovery in `loadConfig()` with atomic `saveConfig()`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Timezone-Safe Due Date Computation**: fixed negative-UTC-offset date calculation and 2-digit year guard. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Atomic Write Concurrency**: cryptographic random entropy in temporary filenames. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **CST Document Frontmatter Formatting**: unified serialization using `Document` CST for clean YAML block lists. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **Duplicate Topic ID Dependency Graph Retention**: merged dependencies from duplicate notes for complete edge connectivity. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
-- **CLI Fatal JSON Formatting**: structured JSON error on unhandled rejections with `--json`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Storage layer isolation**: all vault filesystem mutations behind the `src/storage/index.ts` facade. ([#86](https://github.com/Kuldeep2822k/cli/issues/86), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **True session durations** persisted to `.palee/hot.md` and draft checkpoints. ([#88](https://github.com/Kuldeep2822k/cli/issues/88), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **Resilient roadmap batch ingestion**: per-topic failures no longer block remaining imports. ([#89](https://github.com/Kuldeep2822k/cli/issues/89), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **Interactive Mermaid pan-zoom controls** in the docs site. ([#115](https://github.com/Kuldeep2822k/cli/pull/115), [#116](https://github.com/Kuldeep2822k/cli/pull/116))
+- **`palee migrate --fix`**: atomically upgrades schema-less notes to `palee_schema: 1`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Custom vault traversal exclusions** (`excludeDirs`). ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Session draft checkpoint invariants**: exit code 2 and `drafts_pending` JSON when drafts block `session start`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Flexible dependency aliases**: `dependencies` supported alongside `depends_on`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
 
-### Maintenance & CI (chore)
-- **npm OIDC Trusted Publishing & Provenance**: tokenless npm OIDC publishing with build provenance attestations. ([#124](https://github.com/Kuldeep2822k/cli/pull/124))
-- **CodeRabbit Code Review Hardening**: signal handling, CI budget tolerance, and JSDoc fixes. ([#120](https://github.com/Kuldeep2822k/cli/pull/120))
+### Fixed
+
+- **Review OCC race eliminated**: target note re-read before atomic write; exit 4 on concurrent modification. ([#87](https://github.com/Kuldeep2822k/cli/issues/87), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **Mastery output and dashboard alignment** standardized. ([#91](https://github.com/Kuldeep2822k/cli/issues/91), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **Deterministic file-cache operation** (2,000 ms unsettled horizon). ([#90](https://github.com/Kuldeep2822k/cli/issues/90), [#120](https://github.com/Kuldeep2822k/cli/pull/120))
+- **macOS canonical path resolution** for symlinked `/var/folders` paths. ([#122](https://github.com/Kuldeep2822k/cli/pull/122))
+- **Config resilience**: `SyntaxError` recovery in `loadConfig()` with atomic saves. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Timezone-safe due-date computation** with 2-digit year guard. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Atomic write concurrency** via cryptographic entropy in temp filenames. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Duplicate topic IDs**: dependencies merged for complete graph connectivity. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+- **Structured JSON errors** on unhandled rejections with `--json`. ([#117](https://github.com/Kuldeep2822k/cli/pull/117))
+
+### Changed
+
+- **npm OIDC trusted publishing** with build provenance attestations. ([#124](https://github.com/Kuldeep2822k/cli/pull/124))
 
 ---
 
 ## [0.3.1] - 2026-08-23
 
 ### Fixed
-- **NPM Readme Asset Resolution**: Fixed README logo URL pointing to raw GitHub asset for npm registry rendering.
+
+- **README logo URL** fixed for npm registry rendering.
 
 ### Changed
-- **CI / CD Action Version Upgrades**: Bumped GitHub Actions dependencies ([#99](https://github.com/Kuldeep2822k/cli/pull/99), [#100](https://github.com/Kuldeep2822k/cli/pull/100), [#101](https://github.com/Kuldeep2822k/cli/pull/101), [#102](https://github.com/Kuldeep2822k/cli/pull/102)).
+
+- **GitHub Actions dependencies bumped**. ([#99](https://github.com/Kuldeep2822k/cli/pull/99), [#100](https://github.com/Kuldeep2822k/cli/pull/100), [#101](https://github.com/Kuldeep2822k/cli/pull/101), [#102](https://github.com/Kuldeep2822k/cli/pull/102))
 
 ---
 
 ## [0.3.0] - 2026-08-20
 
 ### Added
-- **Batch Note Adoption (`palee adopt`)**: Recursive directory and whole-vault adoption with `--dry-run`, `--yes`, `--tag`, `--include`, and `--exclude` glob filters. ([#50](https://github.com/Kuldeep2822k/cli/pull/50), [#74](https://github.com/Kuldeep2822k/cli/pull/74))
-- **Multi-Format Roadmap Parser**: Supported pure YAML, frontmatter YAML, and embedded code fence YAML roadmaps. ([#112](https://github.com/Kuldeep2822k/cli/pull/112))
-- **Technical Documentation Suite**: 35-chapter VitePress documentation with 53 interactive architecture diagrams, JSDoc specs, and ADRs. ([#108](https://github.com/Kuldeep2822k/cli/pull/108), [#112](https://github.com/Kuldeep2822k/cli/pull/112), [#114](https://github.com/Kuldeep2822k/cli/pull/114))
-- **OCC & Lock Conflict Exit Codes**: Distinct exit code 4 on OCC and file lock conflicts. ([#76](https://github.com/Kuldeep2822k/cli/pull/76), [#107](https://github.com/Kuldeep2822k/cli/pull/107))
+
+- **Batch note adoption (`palee adopt`)** with `--dry-run`, `--yes`, `--tag`, `--include`, `--exclude` filters. ([#50](https://github.com/Kuldeep2822k/cli/pull/50), [#74](https://github.com/Kuldeep2822k/cli/pull/74))
+- **Multi-format roadmap parser** (pure YAML, frontmatter YAML, embedded code-fence YAML). ([#112](https://github.com/Kuldeep2822k/cli/pull/112))
+- **Technical documentation suite**: 35-chapter VitePress docs with interactive architecture diagrams. ([#108](https://github.com/Kuldeep2822k/cli/pull/108), [#112](https://github.com/Kuldeep2822k/cli/pull/112), [#114](https://github.com/Kuldeep2822k/cli/pull/114))
+- **Distinct exit code 4** on OCC and file-lock conflicts. ([#76](https://github.com/Kuldeep2822k/cli/pull/76), [#107](https://github.com/Kuldeep2822k/cli/pull/107))
 
 ### Changed
-- **CLI Exit Code Standardization**: Replaced `process.exit()` with `process.exitCode` for clean stream flushing. ([#77](https://github.com/Kuldeep2822k/cli/pull/77), [#110](https://github.com/Kuldeep2822k/cli/pull/110))
-- **Centralized Vault Validation**: All handlers routed through `validateVaultPath` for uniform checks. ([#78](https://github.com/Kuldeep2822k/cli/issues/78), [#111](https://github.com/Kuldeep2822k/cli/pull/111))
-- **Storage Layer Boundary Unification**: Centralized `loadTopics` with in-memory caching and single-pass discovery. ([#98](https://github.com/Kuldeep2822k/cli/pull/98))
-- **Shared Mastery Engine Refactoring**: Extracted `MASTERY_THRESHOLD` and unified mastery calculation. ([#85](https://github.com/Kuldeep2822k/cli/pull/85), [#94](https://github.com/Kuldeep2822k/cli/pull/94), [#95](https://github.com/Kuldeep2822k/cli/pull/95), [#106](https://github.com/Kuldeep2822k/cli/pull/106))
+
+- **Exit-code standardization**: `process.exitCode` replaces `process.exit()` for clean stream flushing. ([#77](https://github.com/Kuldeep2822k/cli/issues/77), [#110](https://github.com/Kuldeep2822k/cli/pull/110))
+- **Centralized vault validation** through `validateVaultPath`. ([#78](https://github.com/Kuldeep2822k/cli/issues/78), [#111](https://github.com/Kuldeep2822k/cli/pull/111))
+- **Unified storage layer boundary** with in-memory caching and single-pass discovery. ([#98](https://github.com/Kuldeep2822k/cli/pull/98))
+- **Shared mastery engine** with extracted `MASTERY_THRESHOLD`. ([#85](https://github.com/Kuldeep2822k/cli/issues/85), [#94](https://github.com/Kuldeep2822k/cli/pull/94), [#95](https://github.com/Kuldeep2822k/cli/pull/95), [#106](https://github.com/Kuldeep2822k/cli/pull/106))
 
 ### Fixed
-- **Archived Topic Exclusion**: Excluded archived topics from global mastery calculation. ([#97](https://github.com/Kuldeep2822k/cli/pull/97))
-- **Invalid Date Guard in Progress**: Guarded progress date parsing against invalid dates. ([#96](https://github.com/Kuldeep2822k/cli/pull/96))
+
+- **Archived topics excluded** from global mastery calculation. ([#97](https://github.com/Kuldeep2822k/cli/pull/97))
+- **Invalid-date guard** in progress date parsing. ([#96](https://github.com/Kuldeep2822k/cli/pull/96))
 
 ---
 
 ## [0.2.0] - 2026-08-14
 
 ### Added
-- **Machine-Readable `--json` Output (Invariant #45)**: Added `--json` option across all reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, and `session list`). Piped or redirected output automatically defaults to JSON mode when stdout is non-TTY.
-- **Structured JSON Setup Errors**: Vault validation and configuration errors emit structured `{"error": "..."}` JSON with exit code 2 when run in JSON or non-TTY mode.
-- **Standardized `Difficulty` Enum & Runtime Helper**: Defined `Difficulty = 'beginner' | 'intermediate' | 'advanced'` in `src/types.ts` and added `normalizeDifficulty()` runtime helper supporting string folding, whitespace trimming, and numeric mappings (1 -> beginner, 2..3 -> intermediate, 4..5 -> advanced).
-- **Empty Vault Onboarding Guidance**: Added centralized `printEmptyVaultOnboarding()` helper to provide actionable commands (`palee adopt`, `palee roadmap --from`) across empty vault states.
-- **Session Topic Option**: Added `--topic <id>` option to `palee session` and implemented `resolveSessionTopic()` with active topic fallback.
+
+- **Machine-readable `--json` output** across reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`); non-TTY output defaults to JSON.
+- **Structured JSON setup errors** with exit code 2 in JSON/non-TTY mode.
+- **Standardized `Difficulty` enum** (`beginner` | `intermediate` | `advanced`) with `normalizeDifficulty()` runtime helper.
+- **Empty-vault onboarding guidance** pointing at `palee adopt` and `palee roadmap --from`.
+- **`--topic <id>` option** for `palee session` with active-topic fallback.
 
 ### Fixed
-- **Dashboard Division-by-Zero Guard**: Added explicit `total > 0` ternary check in `src/cli/dashboard.ts` to prevent `NaN%` display on empty vaults.
-- **Vault Validation & Permissions**: Replaced abrupt `process.exit(0)` with clean `return` on empty states and added directory/read-permission (`R_OK`) checks at vault root.
-- **Phantom Topic Elimination**: Eliminated default creation of phantom `T-general` topic notes during session operations.
+
+- **Dashboard division-by-zero guard** against `NaN%` on empty vaults.
+- **Vault validation and permissions**: clean returns on empty states plus directory/read-permission checks at the vault root.
+- **Phantom topic elimination**: no more default `T-general` topic notes during session operations.
 
 ---
 
 ## [0.1.0] - 2026-08-12
 
 ### Added
-- Setup & Architecture with `commander`, `yaml`, and Node.js testing.
-- Conflict-Aware Atomic Storage Layer with file fingerprinting, OCC, and robust file locking.
-- Deterministic Engine Core (SM-2, mastery calculation, dependency graph resolution, cycle detection).
-- Comprehensive CLI Layer with deterministic commands (`plan`, `next`, `progress`, `review`, `validate`, `roadmap --from`, `adopt`).
-- Phase 1 Session Memory System (`hot.md`, `index.md`, durable session logs, draft recovery).
+
+- Project setup with `commander`, `yaml`, and Node.js testing.
+- Conflict-aware atomic storage layer with file fingerprinting, OCC, and robust file locking.
+- Deterministic engine core (SM-2, mastery calculation, dependency graph resolution, cycle detection).
+- CLI layer with deterministic commands (`plan`, `next`, `progress`, `review`, `validate`, `roadmap --from`, `adopt`).
+- Phase 1 session memory system (`hot.md`, `index.md`, durable session logs, draft recovery).
 - Full Windows path and lock-recovery support.
 - Interactive draft checkpoint recovery.
 
 ### Fixed
-- Fixed strict TypeScript enforcement and removed all dead code.
-- Purged all narrative comments to conform to strict code standards.
+
+- Strict TypeScript enforcement with dead code removed.
+- Narrative comments purged to conform to strict code standards.
