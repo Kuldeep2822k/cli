@@ -16,6 +16,7 @@ import nextCommand from '../src/cli/next';
 import planCommand from '../src/cli/plan';
 import progressCommand from '../src/cli/progress';
 import reviewCommand from '../src/cli/review';
+import assessCommand from '../src/cli/assess';
 import validateCommand from '../src/cli/validate';
 import roadmapCommand from '../src/cli/roadmap';
 import migrateCommand from '../src/cli/migrate';
@@ -85,6 +86,17 @@ program
   .argument('<topic>', 'Topic ID or unique name fragment')
   .argument('<quality>', 'Quality rating (0-5)')
   .action(reviewCommand);
+
+// palee assess
+program
+  .command('assess')
+  .description('Record a four-pillar assessment and recompute topic mastery')
+  .argument('<topic>', 'Topic ID or unique name fragment')
+  .option('--conceptual <score>', 'Conceptual understanding score (0-1)')
+  .option('--practical <score>', 'Practical application score (0-1)')
+  .option('--debug <score>', 'Debugging & troubleshooting score (0-1)')
+  .option('--feynman <score>', 'Feynman articulation score (0-1)')
+  .action(assessCommand);
 
 // palee validate
 program
