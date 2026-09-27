@@ -229,18 +229,26 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(result.stderr, /batch-only/);
   });
 
+  // The excluded note used to be named `template.md`, which Tier-0 hygiene also
+  // drops — so the fixture could not tell which of the two mechanisms bridged it
+  // over, and read like a test of the template rule while exercising `--exclude`.
+  // A name hygiene leaves alone makes the exclusion the only possible cause.
   test('excluded notes are bridged over in the chain', () => {
     const { vaultDir, configDir } = freshVault({
       ...chainFiles,
-      'MODULES/01-foundations/template.md': '# Template\n',
+      'MODULES/01-foundations/appendix-notes.md': '# Notes\n',
     });
     const result = runCLI(
-      ['adopt', 'MODULES', '--auto-chain', '--exclude', '*template*', '-y'],
+      ['adopt', 'MODULES', '--auto-chain', '--exclude', '*appendix-notes*', '-y'],
       configDir
     );
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
-    assert.ok(!ids.has('MODULES/01-foundations/template.md'));
+    assert.ok(!ids.has('MODULES/01-foundations/appendix-notes.md'));
+    // Proof it was `--exclude` and not hygiene: hygiene would have counted the
+    // note as skipped, and reports a skip it acted on.
+    assert.match(result.stdout, /Skipped \(meta\): 0 notes/);
+    assert.match(result.stdout, /Skipped \(template\): 0 notes/);
     // 02-b still chains to 01-a; the excluded template is skipped, not a gap
     const bDeps = dependsOn(vaultDir, 'MODULES/01-foundations/02-b.md');
     assert.strictEqual(bDeps.length, 1);
