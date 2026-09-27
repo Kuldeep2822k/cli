@@ -270,6 +270,55 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.deepStrictEqual(unnumbered.alphabeticalNotes, ['m/alpha.md', 'm/beta.md']);
     });
 
+    // R4: demoting homework to last inside its own directory also made it the
+    // note the next directory followed, because the bridge used the previous
+    // group's final backbone. Solving a quiz is not a prerequisite for the next
+    // module's first lesson.
+    it('bridges to the next module from its last lesson, not from its homework', () => {
+      const plan = planAutoChainWithHygiene([
+        '01-foundations/README.md',
+        '01-foundations/01-a.md',
+        '01-foundations/assignment.md',
+        '02-search/01-b.md',
+      ]);
+      assert.strictEqual(
+        plan.predecessorOf.get('02-search/01-b.md'),
+        '01-foundations/01-a.md',
+        'the cross-directory bridge must skip the assignment'
+      );
+      assert.strictEqual(
+        plan.predecessorOf.get('01-foundations/assignment.md'),
+        '01-foundations/01-a.md',
+        'homework still follows the lesson it assesses'
+      );
+    });
+
+    it('opens a new chain when a module\'s only backbone is homework', () => {
+      const plan = planAutoChainWithHygiene([
+        '01-only/assignment.md',
+        '02-next/01-a.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('01-only/assignment.md'), null);
+      assert.strictEqual(
+        plan.predecessorOf.get('02-next/01-a.md'),
+        null,
+        'a group with no lesson of its own exports nothing to the next one'
+      );
+    });
+
+    it('still bridges across a directory that holds only leaves', () => {
+      // The carry-forward is what `lastBackbone` did before homework was
+      // demoted: a `your-work/` subtree collapses to leaves and must not break
+      // the chain between the modules around it.
+      const plan = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '02-b/your-work/notes.md',
+        '03-c/01-y.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('02-b/your-work/notes.md'), '01-a/01-x.md');
+      assert.strictEqual(plan.predecessorOf.get('03-c/01-y.md'), '01-a/01-x.md');
+    });
+
     it('still flags two genuinely unnumbered sibling directories', () => {
       assert.strictEqual(
         directoriesOrderedAlphabetically(['alpha/01-x.md', 'beta/01-y.md']),

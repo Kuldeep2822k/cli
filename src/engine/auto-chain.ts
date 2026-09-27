@@ -693,12 +693,32 @@ export function planAutoChainWithHygiene(
   const alphabeticalTieNotes: string[] = [];
   const predecessorOf = new Map<string, string | null>();
   let lastBackbone: string | null = null;
+  let walkingDir: string | null = null;
+  /** Last backbone of the group being walked that is not homework. */
+  let lessonOfGroup: string | null = null;
+  /** The same for the group just left — what a cross-directory bridge may use. */
+  let exitOfLastGroup: string | null = null;
   for (const p of orderedPaths) {
+    const dir = parentDirOf(p);
+    if (dir !== walkingDir) {
+      // A group of leaves alone has no exit of its own, so the bridge carries on
+      // from the last group that had one — which is what walking `lastBackbone`
+      // forward did before homework was demoted.
+      if (lessonOfGroup !== null) exitOfLastGroup = lessonOfGroup;
+      lessonOfGroup = null;
+      walkingDir = dir;
+    }
     const cls = decisions.get(p)?.cls ?? 'leaf';
-    const candidate =
-      lastBackbone !== null && dirTransitionJustified(parentDirOf(lastBackbone), parentDirOf(p))
-        ? lastBackbone
-        : null;
+    // A module's exit note is the one the next module opens with. Placing
+    // `assignment|quiz|solution` last inside its own directory — which is what
+    // stops a lesson depending on its own homework — also made homework the exit
+    // note of every module, so `02-search/01-b` ended up gated behind
+    // `01-foundations/assignment.md`: 48 of 88 measured edges in
+    // ML-For-Beginners, 29 of 72 in Web-Dev. The bridge uses the group's last
+    // lesson instead, and a group whose only backbone is homework opens a new
+    // chain rather than handing its assignment to everything downstream.
+    const spine = lastBackbone !== null && parentDirOf(lastBackbone) === dir ? lastBackbone : exitOfLastGroup;
+    const candidate = spine !== null && dirTransitionJustified(parentDirOf(spine), dir) ? spine : null;
     if (candidate !== null && parentDirOf(candidate) === parentDirOf(p) && tiedByName(baseNameOf(candidate), baseNameOf(p))) {
       alphabeticalTieNotes.push(p);
     }
@@ -706,6 +726,7 @@ export function planAutoChainWithHygiene(
       backbonePaths.push(p);
       predecessorOf.set(p, candidate);
       lastBackbone = p;
+      if (tier0LessonRank(baseNameOf(p)).rank !== 4) lessonOfGroup = p;
     } else {
       leafPaths.push(p);
       // A leaf hangs off the chain; it never becomes the chain's spine.
