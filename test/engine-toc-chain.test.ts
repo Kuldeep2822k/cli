@@ -295,6 +295,35 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(out.predecessorOf.get('01-a/01-x.md'), before);
     });
 
+    it('numbering dominance holds against an enumeration that leads with an unnumbered note', () => {
+      // The case above is identity-weak on its own: both of its paths live in
+      // the numbered tree, so the C2 filter drops them before planning and the
+      // assertion compares the numbered plan with itself. This shape gives the
+      // enumeration a chance to win — it puts an unnumbered note directly in
+      // front of a numbered one, which is the re-parenting dominance forbids.
+      const numbered = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '01-a/02-y.md',
+        'zz-reference/intro.md',
+      ]);
+      assert.strictEqual(numbered.predecessorOf.get('01-a/02-y.md'), '01-a/01-x.md');
+
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['zz-reference/intro.md', '01-a/02-y.md'],
+      });
+
+      assert.strictEqual(out.predecessorOf.get('01-a/02-y.md'), '01-a/01-x.md');
+      assert.strictEqual(out.sourceOf.get('01-a/02-y.md'), 'numbered');
+      assert.notStrictEqual(
+        out.predecessorOf.get('01-a/02-y.md'),
+        'zz-reference/intro.md',
+        'a README that lists a reference note first must not make it a lesson prerequisite'
+      );
+      assert.strictEqual(out.tocEdgeCount, 0, 'the unnumbered note alone cannot form an edge');
+    });
+
     it('TOC edges replace the alphabetical fallback for the unnumbered remainder', () => {
       const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({
@@ -523,6 +552,63 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(parseAutoChainTier(undefined), null);
       assert.strictEqual(parseAutoChainTier(false), null);
       assert.strictEqual(parseAutoChainTier(42), null);
+    });
+  });
+
+  // Every other call site in this file asserts `assertAcyclicPlan` does not
+  // throw. That proves it is not over-eager and proves nothing about whether it
+  // can catch the one thing it exists to catch: neutralising its throw left the
+  // whole suite green.
+  describe('assertAcyclicPlan detects the cycles it claims to detect', () => {
+    it('throws on a two-node predecessor loop and names the node', () => {
+      const cyclic = new Map<string, string | null>([
+        ['m/01-a.md', 'm/02-b.md'],
+        ['m/02-b.md', 'm/01-a.md'],
+      ]);
+      assert.throws(
+        () => assertAcyclicPlan(cyclic),
+        /toc-chain invariant violated: predecessor cycle through/
+      );
+    });
+
+    it('throws on a loop the walk only reaches after a chain head', () => {
+      // Starting from `head` terminates cleanly; the loop is downstream. A check
+      // that only walked from null-predecessor roots would miss this entirely.
+      const cyclic = new Map<string, string | null>([
+        ['m/00-intro.md', null],
+        ['m/01-a.md', 'm/02-b.md'],
+        ['m/02-b.md', 'm/03-c.md'],
+        ['m/03-c.md', 'm/01-a.md'],
+      ]);
+      assert.throws(() => assertAcyclicPlan(cyclic), /predecessor cycle through/);
+    });
+
+    it('throws on a self-loop', () => {
+      const self = new Map<string, string | null>([['m/01-a.md', 'm/01-a.md']]);
+      assert.throws(() => assertAcyclicPlan(self), /predecessor cycle through m\/01-a\.md/);
+    });
+
+    it('accepts two notes sharing one predecessor, which is fan-in and not a cycle', () => {
+      // The `done` memo is what keeps this linear. Without it the shared
+      // predecessor is re-walked from every dependent, and a legitimate plan is
+      // reported as a violation.
+      const fanIn = new Map<string, string | null>([
+        ['m/README.md', null],
+        ['m/01-a.md', 'm/README.md'],
+        ['m/02-b.md', 'm/README.md'],
+        ['m/03-c.md', 'm/README.md'],
+      ]);
+      assert.doesNotThrow(() => assertAcyclicPlan(fanIn));
+    });
+
+    it('accepts a long acyclic spine without re-walking it per node', () => {
+      const spine = new Map<string, string | null>();
+      for (let i = 0; i < 5000; i++) {
+        spine.set(`n/${i}.md`, i === 0 ? null : `n/${i - 1}.md`);
+      }
+      const started = Date.now();
+      assert.doesNotThrow(() => assertAcyclicPlan(spine));
+      assert.ok(Date.now() - started < 2000, 'the memo must make the scan linear, not quadratic');
     });
   });
 });

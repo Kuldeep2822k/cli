@@ -439,14 +439,27 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
 
   const docIndex = new Map<string, number>();
   normalized.forEach((p, i) => docIndex.set(p, i));
-  const dirFirstSeen = new Map<string, number>();
-  normalized.forEach((p, i) => {
-    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
-    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
-  });
 
   const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
   const baseOf = (p: string): string => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
+
+  const dirFirstSeen = new Map<string, number>();
+  normalized.forEach((p, i) => {
+    const dir = parentOf(p);
+    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
+  });
+
+  // The grouping key above and the lookup key below must be produced by the
+  // same expression, or a directory present in the plan is missing from
+  // `dirFirstSeen` and the comparison sorts against `undefined` — which the `!`
+  // assertions cannot catch and which silently reorders the whole tier. Asserted
+  // rather than trusted, in the manner of `assertBackwardEdges`.
+  for (const p of normalized) {
+    const dir = parentOf(p);
+    if (!dirFirstSeen.has(dir)) {
+      throw new Error(`toc-chain invariant violated: no first-seen rank for directory "${dir}"`);
+    }
+  }
 
   const orderedPaths = [...normalized].sort((a, b) => {
     const da = dirFirstSeen.get(parentOf(a))!;

@@ -634,6 +634,12 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
     const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
+    // The refusal is keyed on edges written, so a plan with TOC edges in it must
+    // not reach that branch — otherwise dropping that one condition from
+    // `chainRefused` would keep the whole suite green while the CLI told the
+    // learner to go and write a roadmap for a chain it had just built.
+    assert.doesNotMatch(result.stdout, /0 edges \(no numbered layout/);
+    assert.match(result.stdout, /Auto-chain:\s+enabled \(full tier — 2 edge\(s\) written: 0 numbered, 2 toc\)/);
     const ids = idToPath(vaultDir);
     const pathOf = (id: string): string => {
       const p = ids.get(id);
@@ -692,7 +698,10 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.ok(readmeId, 'README adopted');
     assert.deepStrictEqual(dependsOn(vaultDir, 'programming-language-resources.md'), [readmeId]);
     assert.strictEqual(dependsOnSource(vaultDir, 'programming-language-resources.md'), 'numbered');
-    assert.doesNotMatch(result.stdout, /no numbered layout, no chainable order signal/);
+    // Positive rather than a matched absence: this run writes exactly one
+    // numbered edge, so any report other than `enabled … 1 numbered` is a lie,
+    // whichever refusal wording the CLI reached for.
+    assert.match(result.stdout, /enabled \(strict tier — 1 edge\(s\) written: 1 numbered, 0 toc\)/);
   });
 
   test('strict tier never consumes TOC edges', () => {
@@ -802,6 +811,58 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.doesNotMatch(dry.stdout, /share a number or phase/);
+  });
+
+  test('a numbered layout with nothing left to chain is not called a missing signal', () => {
+    // One note says "I am a numbered curriculum" and has no pair to order, so
+    // the honest line is `enabled … 0 edge(s) written`. The `hasNumberedLayout`
+    // conjunct is what keeps the refusal from claiming a numbered vault states
+    // no order — remove it and every single-note module reports a missing
+    // signal.
+    const { vaultDir, configDir } = freshVault({ '01-only.md': '# Only\n' });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.doesNotMatch(dry.stdout, /0 edges \(no numbered layout/);
+    assert.match(dry.stdout, /Auto-chain:\s+enabled \(strict tier — 0 edge\(s\) written: 0 numbered, 0 toc\)/);
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stderr);
+    assert.doesNotMatch(commit.stdout, /0 edges \(no numbered layout/);
+    assert.deepStrictEqual(dependsOn(vaultDir, '01-only.md'), []);
+  });
+
+  test('the hygiene report counts each skip reason it claims to count', () => {
+    // No test anywhere asserted a single `Skipped (…)` line, so the whole
+    // per-reason block was unobserved. `countFor` unions two sources — notes the
+    // scan dropped on the way to adoption, and notes the planner excluded among
+    // paths already adopted — and the second term is reachable only through an
+    // already-adopted note, so nothing exercised it. Silencing the plan side
+    // under-counts a learner's dropped files, which is the failure this report
+    // exists to prevent.
+    const { vaultDir, configDir } = freshVault({
+      '01-a/01-x.md': '# X\n',
+      '01-a/02-y.md': '# Y\n',
+      'LICENSE.md': '# MIT\n',
+      'README.ko-KR.md': '# Korean copy\n',
+      'template.md': '# Starter\n',
+      '02-b/template.md': adoptedNote('Starter', 'T-starter'),
+    });
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Already Adopted:\s+1 notes/);
+    assert.match(result.stdout, /Skipped \(meta\): 1 notes/);
+    assert.match(result.stdout, /Skipped \(translations\): 1 notes/);
+    assert.match(result.stdout, /Skipped \(template\): 2 notes/, 'one from the scan, one already adopted');
+    assert.match(result.stdout, /Excluded total: 4 notes/);
+    assert.match(result.stdout, /Backbone:\s+2 notes \(may gate the chain\)/);
+
+    const ids = idToPath(vaultDir);
+    for (const dropped of ['LICENSE.md', 'README.ko-KR.md', 'template.md']) {
+      assert.ok(
+        ![...ids.values()].includes(dropped),
+        `${dropped} is reported as skipped but was adopted anyway`
+      );
+    }
+    assert.strictEqual(ids.size, 3, 'the two lessons plus the pre-adopted starter');
   });
 
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
