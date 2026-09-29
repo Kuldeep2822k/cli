@@ -79,20 +79,30 @@ const FUNCTION_WORDS = new Set([
 ]);
 
 /**
- * True when a `requires` object reads as a name rather than the start of a clause.
+ * True when a `requires` object reads as the name of a note.
  *
  * @remarks
- * The screen rejects a phrase containing any function word, so
- * "requires patience and practice" and "requires a working knowledge of the
- * material" yield no candidate while "requires Gradient Descent" does. The cost
- * is a real one: "Data Structures and Algorithms" is not read from prose either.
- * A name written in a `## Prerequisites` link is still read, because a link is an
- * unambiguous statement and a sentence is not — and an unread declaration loses an
- * edge, while an invented one gates a learner behind a note nobody named.
+ * Two screens, both learned from measuring the extractor over real curricula.
+ *
+ * A phrase containing any function word is a clause, not a name: "requires
+ * patience and practice" and "requires a working knowledge of the material"
+ * yield nothing. The cost is real — "Data Structures and Algorithms" is not read
+ * from prose either — but a name written in a `## Prerequisites` link is,
+ * because a link is unambiguous and a sentence is not.
+ *
+ * The first word must also begin capitalized. Across 11,168 notes in two Azure
+ * curricula every prose candidate that named no note was lower-case prose
+ * ("attention", "more complex implementation", "identifying which data must
+ * persist versus", "careful condition management"), while the note names in
+ * those same sections were capitalized. An uncapitalized object is a description
+ * of what the lesson involves, and inventing a gate from one is the failure this
+ * screen exists to stop. The miss it costs — "requires knowledge of python" —
+ * loses an edge and keeps whatever the numbered tree justified.
  */
 function isPlausibleName(text: string): boolean {
   const words = text.trim().split(/\s+/);
   if (words.length === 0 || words.length > 6) return false;
+  if (!/^[A-Z]/.test(words[0] as string)) return false;
   return words.every((word) => {
     const core = word.toLowerCase().replace(/[^a-z]/g, '');
     return core.length > 0 && !FUNCTION_WORDS.has(core);

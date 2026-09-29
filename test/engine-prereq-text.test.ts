@@ -128,6 +128,28 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     );
   });
 
+  test('uncapitalized prose objects are dropped, as the measured corpora require', () => {
+    // Run over 11,168 notes in two Azure curricula, every prose candidate that
+    // named no existing note began lower-case, and every note name those same
+    // sections linked was capitalized. These are the strings that run produced;
+    // they live here so the screen cannot quietly loosen back into noise.
+    const corpus = [
+      'This lesson requires careful scrutiny of the sources.',
+      'Requires attention to detail throughout.',
+      'It requires more complex implementation than the last lesson.',
+      'Requires identifying which data must persist versus transient state.',
+      'Requires organized file structures across the project.',
+      'This requires careful condition management.',
+    ].join('\n');
+    assert.deepStrictEqual(extractDeclaredPrerequisites(corpus), []);
+
+    // The shape that does pay keeps working.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('This lesson requires knowledge of Gradient Descent.\n'),
+      [{ name: 'Gradient Descent', form: 'prose' }]
+    );
+  });
+
   test('the same note declared twice becomes one edge', () => {
     // Two forms of one name stay two *references* — a wikilink and a prose
     // mention resolve by different rules, so they must not be merged before
