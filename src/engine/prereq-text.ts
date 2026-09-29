@@ -110,21 +110,30 @@ function isPlausibleName(text: string): boolean {
 }
 
 /** A negation in the clause directly governing `requires` means the note rules the name out. */
-const NEGATION = /(?:\b(?:not|never|neither|without|nor|skip)\b|n['’]t\b|\bno\s+(?:longer|more)\b)/i;
+const NEGATION = /(?:\b(?:not|no|none|never|neither|without|nor|skip)\b|n['’]t\b)/i;
 
-/** Contrastive conjunctions that start a new clause and reset earlier polarity. */
-const CONTRASTIVE_CONJUNCTION = /\b(?:but|however|although|though|whereas|while|yet)\b/gi;
+/**
+ * Contrastive conjunctions that start a new clause and reset earlier polarity.
+ *
+ * @remarks
+ * `yet` acts as a contrastive conjunction when introducing a clause (e.g.
+ * "No calculator is needed, yet this lesson requires Matrices"), but acts as
+ * an adverb of time when following a negation ("not yet", "n't yet"). In the
+ * latter case, it modifies the negation and must not discard it.
+ */
+const CONTRASTIVE_CONJUNCTION =
+  /\b(?:but|however|although|though|whereas|while)\b|(?<!\b(?:not|never|neither|no|none)\b[\s,]*|n['’]t[\s,]*)\byet\b/gi;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
  *
  * @remarks
  * Bounded by the nearest sentence terminator or clause break before the verb,
- * so "This lesson does not require Setup" yields nothing while "No calculator
- * is needed, but this lesson requires Matrices" still reads the requirement.
- * A negated requirement is the worst possible invention: the author stated
- * the note is *not* needed, and a gating edge would lock the learner behind
- * exactly that note.
+ * so "This lesson does not require Setup" and "No lesson requires Setup" yield
+ * nothing while "No calculator is needed, but this lesson requires Matrices"
+ * still reads the requirement. A negated requirement is the worst possible
+ * invention: the author stated the note is *not* needed, and a gating edge
+ * would lock the learner behind exactly that note.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
@@ -135,7 +144,8 @@ function negatedBefore(text: string, index: number): boolean {
     text.lastIndexOf(':', index),
     text.lastIndexOf('\n', index),
   ];
-  const start = Math.max(0, ...boundaries) + 1;
+  const lastBoundary = Math.max(...boundaries);
+  const start = lastBoundary === -1 ? 0 : lastBoundary + 1;
   let clause = text.slice(start, index);
   CONTRASTIVE_CONJUNCTION.lastIndex = 0;
   let match: RegExpExecArray | null;

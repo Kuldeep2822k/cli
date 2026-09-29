@@ -144,6 +144,10 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       extractDeclaredPrerequisites('No calculator is needed, but this lesson does not require Setup.\n'),
       []
     );
+    assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson requires Setup.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson does not yet require Set Theory.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites("This lesson doesn't yet require Set Theory.\n"), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('None of the lessons require Setup.\n'), []);
   });
 
   test('a requires phrase inside a task item declares nothing', () => {
