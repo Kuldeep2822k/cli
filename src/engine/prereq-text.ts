@@ -110,40 +110,65 @@ function isPlausibleName(text: string): boolean {
 }
 
 /**
- * Verbal negation directly in the immediate clause governing `require`.
- * Matches `not`, `never`, `neither`, `nor`, `without`, `n't`, or `no longer/more`.
+ * A parenthetical aside: content set off by paired parentheses, paired dashes,
+ * or a single comma-flanked insertion. Removed before clause analysis so a
+ * negation reads across the interruption — "does not — strictly speaking —
+ * require", "does not, however, require", "does not, and it bears repeating,
+ * require" all reduce to "does not require". Comma pairs are consumed
+ * left-to-right; a lone boundary comma ("…, but this lesson requires") has no
+ * partner and survives to split clauses below.
  */
-const VERBAL_NEGATION =
-  /(?:\b(?:does|doesn't|do|don't|did|didn't|will|won't|would|wouldn't|can|cannot|can't|could|couldn't|should|shouldn't|is|isn't|are|aren't|was|wasn't|were|weren't|must|mustn't|may|might)\s+)?(?:\b(?:not|never|neither|nor|without)\b|n['’]t\b|\bno\s+(?:longer|more)\b)/i;
-
-/** Punctuation and conjunctions separating clauses. */
-const CLAUSE_SPLIT =
-  /(?:,\s*(?:however|therefore|nevertheless|nonetheless|so|but|yet|and|or|for|nor|because|since|although|though|whereas|while)\b|\b(?:however|therefore|so|but|because|since|although|though|whereas|while)\b|,\s*(?:this|it|that|we|you|the|each|every|all)\b|,)/i;
+const PAREN_ASIDE = /\([^()\n]*\)/g;
+const DASH_ASIDE = /[—–][^—–\n]*[—–]/g;
+const COMMA_ASIDE = /,[^,\n]*,/g;
 
 /**
- * A negative subject directly governing `require` in the immediate clause
- * (e.g. `No lesson`, `No lesson from Chapter 2`, `None of the lessons`, `Nobody`, `Nothing`).
+ * A clause boundary: a comma that outlived aside removal, or a conjunction or
+ * conjunctive adverb that opens a fresh clause. The clause immediately
+ * governing `require` is the segment after the last boundary.
+ *
+ * `yet`, `as`, `for`, and `nor` are deliberately absent from the bare set:
+ * unpunctuated they read far more often as an adverb ("does not yet require")
+ * or a preposition ("as it requires") than as a clause break, and a comma in
+ * front of a real one ("…, yet this lesson requires") already splits it off.
  */
-const NEGATIVE_SUBJECT =
-  /^(?:no\s+.+|none(?:\s+of\s+.+)?|neither(?:\s+of\s+.+|\s+.+)?|nothing|nobody|no\s+one)$/i;
+const CLAUSE_BOUNDARY =
+  /(?:,|\b(?:and|but|or|so|unless|because|although|though|whereas|while|however|therefore|nevertheless|nonetheless|since|if|when)\b)/i;
+
+/**
+ * A verbal negation on the immediate clause's verb: `not`, `n't`, `never`,
+ * `cannot`, `neither`, `nor`, or a governing `without` ("without requiring X").
+ */
+const VERBAL_NEGATION = /\b(?:not|never|cannot|neither|nor|without)\b|n['’]t\b/i;
+
+/**
+ * A negative subject opening the immediate clause: `No lesson`, `No student in
+ * this class`, `None of the lessons`, `Neither`, `Nobody`, `Nothing`.
+ */
+const NEGATIVE_SUBJECT = /^(?:none|nobody|nothing|neither|no\s+one|no)\b/i;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
  *
  * @remarks
- * A prerequisite is negated if and only if either:
- * 1. The verb phrase itself is verbally negated in the immediate clause
- *    (e.g. "This lesson does not in any way require Setup", "This lesson does
- *    not, and it bears repeating, require Setup", "This lesson does not yet
- *    require Setup").
- * 2. The subject governing `requires` in the immediate clause is negative
- *    (e.g. "No lesson requires Setup", "No lesson from Chapter 2 requires
- *    Setup", "None of the lessons require Setup").
+ * Rather than pattern-match whole sentences, this isolates the one clause that
+ * governs `require` and asks a local question of it. Two steps:
  *
- * An earlier negation in a preceding clause (e.g. "No calculator is needed,
- * but this lesson requires Matrices", "There is no video, however this lesson
- * requires Setup", "There is no video, so this lesson requires Setup") does
- * not negate the requirement.
+ * 1. Parenthetical asides — paired parentheses, paired dashes, and comma-flanked
+ *    insertions — are removed, so the words that a negation is stretched across
+ *    ("does not, under any circumstances, ever require") close back up ("does
+ *    not ever require").
+ * 2. What remains is split on clause boundaries ({@link CLAUSE_BOUNDARY}) and
+ *    the last segment — the clause `require` actually sits in — is tested.
+ *
+ * A prerequisite is negated when that immediate clause is verbally negated
+ * ({@link VERBAL_NEGATION}, e.g. "…does not yet require Setup") or opens with a
+ * negative subject ({@link NEGATIVE_SUBJECT}, e.g. "No lesson requires Setup").
+ *
+ * A negation in an earlier clause does not carry: "No calculator is needed, but
+ * this lesson requires Matrices" and "This lesson does not need a calculator and
+ * requires Setup" both keep the requirement, because the boundary (`but`, `and`)
+ * ends the segment the negation lived in before `require` begins.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
@@ -155,26 +180,23 @@ function negatedBefore(text: string, index: number): boolean {
     text.lastIndexOf('\n', index),
   ];
   const sentStart = Math.max(...boundaries);
-  const sentence = text.slice(sentStart === -1 ? 0 : sentStart + 1, index);
+  const prefix = text.slice(sentStart === -1 ? 0 : sentStart + 1, index);
 
-  // Strip parentheticals ending directly before the verb:
-  // e.g. "does not, and it bears repeating, " -> "does not "
-  // e.g. "does not (strictly speaking) " -> "does not "
-  // e.g. "does not — strictly speaking — " -> "does not "
-  const withoutParenthetical = sentence
-    .replace(/,\s*[^,\n]+?\s*,\s*$/g, ' ')
-    .replace(/\([^)\n]+?\)\s*$/g, ' ')
-    .replace(/[—–]\s*[^—–\n]+?\s*[—–]\s*$/g, ' ');
+  // Remove asides so a negation reads across them, then keep only the clause
+  // that immediately governs `require`.
+  const clause = prefix
+    .replace(PAREN_ASIDE, ' ')
+    .replace(DASH_ASIDE, ' ')
+    .replace(COMMA_ASIDE, ' ');
+  const segments = clause.split(CLAUSE_BOUNDARY);
+  const immediateClause = (segments[segments.length - 1] ?? '').trim();
 
-  const parts = withoutParenthetical.split(CLAUSE_SPLIT);
-  const immediateClause = (parts[parts.length - 1] ?? '').trim();
-
-  // 1. Verbal negation directly in the immediate clause:
+  // 1. Verbal negation on the immediate clause's verb:
   if (VERBAL_NEGATION.test(immediateClause)) {
     return true;
   }
 
-  // 2. Negative subject in the immediate clause:
+  // 2. Negative subject opening the immediate clause:
   if (NEGATIVE_SUBJECT.test(immediateClause)) {
     return true;
   }

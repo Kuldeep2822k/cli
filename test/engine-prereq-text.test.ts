@@ -182,6 +182,45 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson does not yet require Set Theory.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites("This lesson doesn't yet require Set Theory.\n"), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('None of the lessons require Setup.\n'), []);
+    // A parenthetical aside must not shield the negation, even when an adverb
+    // trails it before the verb.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('This lesson does not, under any circumstances, ever require Setup.\n'),
+      []
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('This lesson does not, however, require Setup.\n'),
+      []
+    );
+    // Bare negative subjects and a governing `without` also negate.
+    assert.deepStrictEqual(extractDeclaredPrerequisites('Neither requires Setup.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('Never requires Setup.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('Without requiring Setup, do this.\n'), []);
+  });
+
+  test('a requirement in its own clause survives an earlier negation', () => {
+    // The mirror of the negation test: a note that genuinely states a
+    // prerequisite must keep it, even when an earlier clause or subject carried
+    // a negation. Dropping it here silently loses an author's declaration.
+    const affirmative: [string, string][] = [
+      ['There is no video; however, this lesson requires Setup.\n', 'Setup'],
+      ['Although there is no video, this lesson requires Setup.\n', 'Setup'],
+      ['With no prerequisites, this lesson requires Setup.\n', 'Setup'],
+      ['No doubt, this lesson requires Setup.\n', 'Setup'],
+      // The negation governs a different, conjoined verb ("does not need … and requires").
+      ['This lesson does not need a calculator and requires Setup.\n', 'Setup'],
+      // A negative subject on a separate clause, split off by `unless`.
+      ['No lesson is complete unless it requires Setup.\n', 'Setup'],
+      ['Requires care. Set up first, as it requires Setup.\n', 'Setup'],
+      ['Without Setup, this lesson requires Config.\n', 'Config'],
+    ];
+    for (const [text, name] of affirmative) {
+      assert.deepStrictEqual(
+        extractDeclaredPrerequisites(text),
+        [{ name, form: 'prose' }],
+        `expected ${name} from: ${text.trim()}`
+      );
+    }
   });
 
   test('a requires phrase inside a task item declares nothing', () => {
