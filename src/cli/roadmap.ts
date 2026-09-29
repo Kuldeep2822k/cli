@@ -474,22 +474,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             if (value !== undefined) paleeData[key] = value;
           }
 
-          // The import replaces the prerequisite list, so a note the TOC tier had
-          // chained must not keep claiming `depends_on_source: toc` over edges this
-          // roadmap authored — that label makes edges advisory, so the
-          // prerequisite the learner asked for would never gate.
-          //
-          // Keyed to the list actually changing, not to the write happening:
-          // `resolveTopicUpdates` preserves a note's existing prerequisites when
-          // the entry omits `depends_on`, so a title-only import would otherwise
-          // drop a still-accurate label and silently turn advisory edges back into
-          // gates — re-locking notes, the opposite of what the label is for.
-          const writtenDeps = paleeData.depends_on as string[] | undefined;
-          const existingDeps = existingData.depends_on as string[] | undefined;
-          const edgeListChanged =
-            writtenDeps !== undefined &&
-            JSON.stringify([...writtenDeps].sort()) !== JSON.stringify([...(existingDeps ?? [])].sort());
-          const removals = edgeListChanged
+          // Authorship rather than list comparison. A roadmap entry that declares
+          // prerequisites is making the learner's claim, whatever was stored
+          // before, so a leftover `toc` label would make them advisory and the
+          // gate would never bite. Comparing the written list against what the note
+          // held gets both directions wrong: an identical declaration kept a stale
+          // label, and a title-only import — whose preserved list comes back
+          // unioned with the legacy `dependencies` key — looked like a change and
+          // silently turned advisory edges back into gates, re-locking the note.
+          // An entry that omits `depends_on` preserves the note's own edges and the
+          // label recording who authored them.
+          const removals = topic.depends_on !== undefined
             ? ['dependencies', 'depends_on_source']
             : ['dependencies'];
           const updatedContent = updateFrontmatter(content, paleeData, removals);

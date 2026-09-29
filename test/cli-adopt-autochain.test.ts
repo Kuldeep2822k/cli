@@ -914,6 +914,24 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(ids.size, 3, 'the two lessons plus the pre-adopted starter');
   });
 
+  test('a lone chainable note in the enumeration does not earn the tier advice', () => {
+    // One candidate is a chain head, so `--chain-tier toc` would write no edge
+    // here either; pointing at it instead of the roadmap sends the learner to a
+    // second identical refusal.
+    const { configDir } = freshVault({
+      'README.md': '# Course\n\n- [Only](guide/only.md)\n',
+      'guide/only.md': '# Only\n',
+    });
+    const strict = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(strict.status, 0, strict.stdout + strict.stderr);
+    assert.doesNotMatch(strict.stdout, /does not read a README enumeration/);
+    assert.match(strict.stdout, /no chainable order signal\) — consider palee roadmap/);
+
+    const toc = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    assert.strictEqual(toc.status, 0, toc.stdout + toc.stderr);
+    assert.match(toc.stdout, /no chainable order signal\) — consider palee roadmap/);
+  });
+
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
     const { configDir } = freshVault(chainFiles);
     const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'banana', '--dry-run'], configDir);
