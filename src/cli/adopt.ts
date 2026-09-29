@@ -539,8 +539,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // `--chain-tier toc`, which refuses there for the same reason, costing them
       // the roadmap pointer that does apply. `tocCandidateCount` is what a toc/full
       // tier could have ordered, so the advice is only offered when it leads
-      // somewhere.
-      tocLinksDeclined = autoChainTier === 'strict' && tiered.tocCandidateCount > 0;
+      // somewhere — and "somewhere" needs more than one note, since a lone
+      // candidate is the chain head and `toc` would write no edge either.
+      tocLinksDeclined = autoChainTier === 'strict' && tiered.tocCandidateCount > 1;
       // B6 — the warning carries numbers and concrete paths: it is the stop
       // sign telling the learner this vault needs `--exclude`. The count and the
       // examples both come from the set the warning describes, which the coarse

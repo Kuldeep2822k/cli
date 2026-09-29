@@ -122,4 +122,53 @@ describe('Roadmap import must not inherit a stale depends_on_source (#223 grepti
     assert.strictEqual(beta.title, 'Beta Renamed', 'the import ran');
     assert.strictEqual(beta.depends_on_source, 'toc', 'an untouched edge list keeps its author');
   });
+
+  test('a re-declared prerequisite list drops the toc label', () => {
+    // The roadmap declares exactly the ids already on the note, so comparing the
+    // two lists sees no change — but the entry declared them, and a declared
+    // prerequisite is the learner's claim, not an advisory one.
+    const { vaultDir, configDir } = freshVault(TOC_VAULT);
+    const betaId = adoptChained(vaultDir, configDir);
+    const alphaId = String(frontmatterOf(vaultDir, 'guide/alpha.md').palee_id);
+
+    const file = path.join(tempDir, `roadmap-same-${betaId}.yaml`);
+    fs.writeFileSync(
+      file,
+      ['topics:', `  - id: ${betaId}`, '    title: Beta', '    path: guide/beta.md', `    depends_on: [${alphaId}]`, ''].join('\n')
+    );
+    const imported = runCLI(['roadmap', '--from', file, '--yes'], configDir);
+    assert.strictEqual(imported.status, 0, imported.stdout + imported.stderr);
+    assert.strictEqual(
+      frontmatterOf(vaultDir, 'guide/beta.md').depends_on_source,
+      undefined,
+      'an explicit declaration must not stay advisory because the list matched'
+    );
+  });
+
+  test('a title-only import on a note also carrying the legacy dependencies key keeps its label', () => {
+    // The loader unions `depends_on` with the legacy `dependencies` key, so the
+    // effective preserved list is longer than the stored `depends_on` even though
+    // this entry declares no prerequisites. Comparing the two would call that a
+    // change and strip the label — locking the note behind an id nobody asked to
+    // gate on.
+    const { vaultDir, configDir } = freshVault(TOC_VAULT);
+    const betaId = adoptChained(vaultDir, configDir);
+
+    const betaPath = path.join(vaultDir, 'guide/beta.md');
+    const before = fs.readFileSync(betaPath, 'utf8');
+    const withLegacy = before.replace('topic_mastery:', 'dependencies: [T-gate]\ntopic_mastery:');
+    assert.notStrictEqual(withLegacy, before, 'fixture gained a legacy key');
+    fs.writeFileSync(betaPath, withLegacy);
+
+    const file = path.join(tempDir, `roadmap-legacy-${betaId}.yaml`);
+    fs.writeFileSync(
+      file,
+      ['topics:', `  - id: ${betaId}`, '    title: Beta Renamed', '    path: guide/beta.md', ''].join('\n')
+    );
+    const imported = runCLI(['roadmap', '--from', file, '--yes'], configDir);
+    assert.strictEqual(imported.status, 0, imported.stdout + imported.stderr);
+    const beta = frontmatterOf(vaultDir, 'guide/beta.md');
+    assert.strictEqual(beta.title, 'Beta Renamed', 'the import ran');
+    assert.strictEqual(beta.depends_on_source, 'toc', 'a preserved list keeps its authorship label');
+  });
 });
