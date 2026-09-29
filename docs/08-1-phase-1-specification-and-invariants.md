@@ -136,6 +136,6 @@ All Phase 1 gates have been verified as of August 2026.
 ### Known Gaps (Phase 2)
 
 - AI Integration: `test` and `tutor` commands remain stubs until Phase 2 AI module implementation [planning/PHASE_2_GAPS.md#112-128](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L128)
-- Transactional Auto-Fix: `validate --fix` remains a future enhancement — fixability is modeled in rule metadata (`fixable`), the engine itself is deferred per [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
+- Transactional Auto-Fix: `validate --fix` performs the scoped BUG-003 repair — resetting corrupted `valid-review-fields` (SM-2) values to adopt defaults via OCC-safe atomic writes; the general transactional fix engine remains a future enhancement — fixability is modeled in rule metadata (`fixable`), the engine itself is deferred per [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 
 Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)
