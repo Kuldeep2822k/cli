@@ -601,14 +601,31 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.doesNotThrow(() => assertAcyclicPlan(fanIn));
     });
 
-    it('accepts a long acyclic spine without re-walking it per node', () => {
-      const spine = new Map<string, string | null>();
-      for (let i = 0; i < 5000; i++) {
-        spine.set(`n/${i}.md`, i === 0 ? null : `n/${i - 1}.md`);
-      }
-      const started = Date.now();
-      assert.doesNotThrow(() => assertAcyclicPlan(spine));
-      assert.ok(Date.now() - started < 2000, 'the memo must make the scan linear, not quadratic');
+    it('stays linear as the spine grows, judged against itself rather than a clock', () => {
+      // 200 passes over a 1000-node spine and 10 passes over a 20000-node spine
+      // visit the same 2e5 nodes, so equal work must cost about the same. Without
+      // the `done` memo the walk restarts at every node, per-pass cost goes with
+      // the square of the length, and the large case costs about 20x — a shape
+      // comparison a busy test host cannot fake, unlike a fixed deadline that
+      // fails for reasons unrelated to the algorithm.
+      const build = (n: number): Map<string, string | null> => {
+        const spine = new Map<string, string | null>();
+        for (let i = 0; i < n; i++) spine.set(`n/${i}.md`, i === 0 ? null : `n/${i - 1}.md`);
+        return spine;
+      };
+      const cost = (spine: Map<string, string | null>, reps: number): number => {
+        const started = Date.now();
+        for (let i = 0; i < reps; i++) assertAcyclicPlan(spine);
+        return Math.max(1, Date.now() - started);
+      };
+
+      const small = cost(build(1000), 200);
+      const large = cost(build(20000), 10);
+
+      assert.ok(
+        large < small * 5,
+        `equal work over different spine lengths cost ${small}ms and ${large}ms`
+      );
     });
   });
 });

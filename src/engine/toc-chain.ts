@@ -443,23 +443,17 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
   const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
   const baseOf = (p: string): string => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
 
+  // The grouping key and the sort's lookup key are the same `parentOf` by
+  // construction, which is the whole guarantee here: two separate inline
+  // computations could have drifted and made the comparison sort against
+  // `undefined`. An assert over these same paths could not fail, so there is
+  // none — unlike `assertBackwardEdges`, which checks a property of data that
+  // arrives from elsewhere and genuinely can violate it.
   const dirFirstSeen = new Map<string, number>();
   normalized.forEach((p, i) => {
     const dir = parentOf(p);
     if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
   });
-
-  // The grouping key above and the lookup key below must be produced by the
-  // same expression, or a directory present in the plan is missing from
-  // `dirFirstSeen` and the comparison sorts against `undefined` — which the `!`
-  // assertions cannot catch and which silently reorders the whole tier. Asserted
-  // rather than trusted, in the manner of `assertBackwardEdges`.
-  for (const p of normalized) {
-    const dir = parentOf(p);
-    if (!dirFirstSeen.has(dir)) {
-      throw new Error(`toc-chain invariant violated: no first-seen rank for directory "${dir}"`);
-    }
-  }
 
   const orderedPaths = [...normalized].sort((a, b) => {
     const da = dirFirstSeen.get(parentOf(a))!;
