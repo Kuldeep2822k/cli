@@ -244,7 +244,19 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
     assert.strictEqual(result.status, 0, result.stderr);
     const ids = idToPath(vaultDir);
-    assert.ok(!ids.has('MODULES/01-foundations/appendix-notes.md'));
+    // `ids` is keyed by palee_id with paths as values, so `ids.has(path)` could
+    // never be true and asserted nothing. Check the values, and the note itself:
+    // an adopted note carries a `palee_id`.
+    assert.ok(
+      ![...ids.values()].includes('MODULES/01-foundations/appendix-notes.md'),
+      '--exclude was ignored and the note was adopted'
+    );
+    assert.ok(
+      !parseFrontmatter(
+        fs.readFileSync(path.join(vaultDir, 'MODULES/01-foundations/appendix-notes.md'), 'utf8')
+      ).frontmatter?.palee_id,
+      'the excluded note was adopted anyway'
+    );
     // Proof it was `--exclude` and not hygiene: hygiene would have counted the
     // note as skipped, and reports a skip it acted on.
     assert.match(result.stdout, /Skipped \(meta\): 0 notes/);
