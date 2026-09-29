@@ -178,4 +178,74 @@ describe('roadmap import reports edges to notes it did not write', () => {
     assert.strictEqual(second.status, 0, secondOutput);
     assert.doesNotMatch(secondOutput, /edge\(s\) point at topics that were not written/);
   });
+
+  test('an overwrite declared by absolute path still retires the id it replaced', () => {
+    // Matching a written note against the loader's vault-relative paths is what
+    // makes the superseded-id rule work. Declaring the same note by an absolute
+    // in-vault path — which the write path accepts — bypassed that match entirely,
+    // so `T-old` was still counted as present and the edge naming it went
+    // unreported.
+    fs.writeFileSync(
+      path.join(vaultDir, 'abs-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: T-old-abs', 'title: Old Abs', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-abs.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-new-abs',
+        '    title: New Abs',
+        `    path: ${path.join(vaultDir, 'abs-1.md')}`,
+        '  - id: T-dep-abs',
+        '    title: Dep Abs',
+        '    path: abs-2.md',
+        '    depends_on: [T-old-abs]',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /T-dep-abs → T-old-abs/, 'an absolute declared path must retire the id it overwrote');
+  });
+
+  test('an edge from a note the same batch later overwrote is not reported', () => {
+    // Two spellings of one path — `dup.md` and `./dup.md` — resolve to the same
+    // note, which the declared-path duplicate check cannot see. The first writer
+    // puts an edge onto a topic whose own write then fails; the second writer
+    // replaces that note outright, so the edge is on no file on disk. Reporting it
+    // sends the learner to fix a dependency that exists nowhere.
+    fs.mkdirSync(path.join(vaultDir, 'ghost.md'), { recursive: true });
+    const yamlPath = path.join(tempDir, 'roadmap-dup.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-ghost',
+        '    title: Ghost',
+        '    path: ghost.md',
+        '  - id: T-first',
+        '    title: First Writer',
+        '    path: dup.md',
+        '    depends_on: [T-ghost]',
+        '  - id: T-second',
+        '    title: Second Writer',
+        '    path: ./dup.md',
+        '    depends_on: []',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 1, output);
+    assert.match(output, /Failed T-ghost/, 'precondition: a write really did fail');
+    assert.doesNotMatch(
+      output,
+      /T-first → T-ghost/,
+      'T-first no longer exists on disk, so its edge must not be reported'
+    );
+  });
 });

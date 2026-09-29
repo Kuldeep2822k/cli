@@ -143,7 +143,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         const depMastery = dep.topic_mastery ?? 0;
         if (depMastery < MASTERY_THRESHOLD) {
           waitingOn.push(
-            `${dep.title ?? depId} (${depId}) at mastery ${depMastery.toFixed(2)}, needs ${MASTERY_THRESHOLD.toFixed(2)}`
+            `${dep.title ?? depId} (${depId}) at mastery ${depMastery.toFixed(4)}, needs ${MASTERY_THRESHOLD.toFixed(2)}`
           );
         }
       }

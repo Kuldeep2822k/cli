@@ -283,8 +283,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       // then disappears from `palee plan` with only a `validate` warning to say
       // why. Track what actually landed so the batch can report its own edges.
       const writtenIds = new Set<string>();
-      /** Vault-relative notes this import wrote, for the replaced-topic check below. */
-      const writtenPaths = new Set<string>();
+      /**
+       * Final writer of each note this import touched, keyed by the path resolved
+       * against the vault. Keyed on where the bytes actually landed rather than on
+       * the declared path: an absolute in-vault path, and a `n/./1.md` spelling,
+       * both write the one note the loader knows by a single relative path — and
+       * only the last id to win a path has edges that survive on disk.
+       */
+      const finalIdByPath = new Map<string, string>();
       const writtenEdges: { from: string; to: string }[] = [];
 
       for (const topic of roadmap.topics) {
@@ -356,7 +362,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             updated++;
           }
           writtenIds.add(topic.id);
-          writtenPaths.add(topic.path.replace(/\\/g, '/'));
+          finalIdByPath.set(
+            path.relative(resolvedVault, resolvedTargetPath).replace(/\\/g, '/'),
+            topic.id
+          );
           const writtenDeps = Array.isArray(paleeData.depends_on) ? (paleeData.depends_on as unknown[]) : [];
           for (const dep of writtenDeps) {
             if (typeof dep === 'string') writtenEdges.push({ from: topic.id, to: dep });
@@ -375,15 +384,24 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         }
       }
 
-      // A topic that already existed stops existing when this import writes a
-      // different id over its note, so it cannot count as a known target just
-      // because the vault scan saw it before the batch. An edge naming the
-      // superseded id is dangling, and this check exists to say so.
+      // A topic stops existing when this import writes a different id over the note
+      // it lived on, so it cannot count as a known target just because the vault
+      // scan saw it before the batch. An edge naming the superseded id is dangling,
+      // and this check exists to say so.
       const survivingExistingIds = [...existingTopicsById.entries()]
-        .filter(([id, t]) => writtenIds.has(id) || !writtenPaths.has(t.path.replace(/\\/g, '/')))
+        .filter(([id, t]) => {
+          const finalId = finalIdByPath.get((t.path ?? '').replace(/\\/g, '/'));
+          return finalId === undefined || finalId === id;
+        })
         .map(([id]) => id);
       const knownIds = new Set<string>([...writtenIds, ...survivingExistingIds]);
-      const danglingEdges = writtenEdges.filter((edge) => !knownIds.has(edge.to));
+      // An id that lost its note later in the same batch has no edges left on
+      // disk either — the file was rewritten under another id — so reporting its
+      // edges would name a dependency that no longer exists anywhere.
+      const finalSourceIds = new Set(finalIdByPath.values());
+      const danglingEdges = writtenEdges.filter(
+        (edge) => finalSourceIds.has(edge.from) && !knownIds.has(edge.to)
+      );
       if (danglingEdges.length > 0) {
         console.error(
           `⚠ ${danglingEdges.length} dependency edge(s) point at topics that were not written:`

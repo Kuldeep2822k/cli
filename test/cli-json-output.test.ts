@@ -636,10 +636,22 @@ depends_on: []
       loggedOutputs.length = 0;
       await planCommand({ json: true });
       const data = getLastParsedJson();
-      const dead = (data.blocked as { id: string; waiting_on: string[] }[]).find((b) => b.id === 'T-gated-dead');
-      assert.ok(dead, 'json mode must carry the same blocked list');
-      assert.match(dead!.waiting_on.join(' '), /not in the vault/);
-      assert.ok(data.counts.blocked >= 2, 'counts.blocked must include the blocked topics');
+      // The whole list, not a search for one entry: finding `T-gated-dead` passes
+      // whether or not `T-gated-live` was reported, and whether or not the
+      // available gatekeeper was wrongly included.
+      const blocked = (data.blocked as { id: string; waiting_on: string[] }[])
+        .map((b) => [b.id, b.waiting_on.join(' | ')] as const)
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      assert.deepStrictEqual(blocked, [
+        ['T-gated-dead', 'T-never-existed is not in the vault (run palee validate)'],
+        ['T-gated-live', 'Gatekeeper (T-gatekeeper) at mastery 0.0000, needs 0.70'],
+      ]);
+      assert.strictEqual(data.counts.blocked, 2, 'counts must agree with the list length');
+      assert.deepStrictEqual(
+        (data.ready_to_learn as { id: string }[]).map((t) => t.id),
+        ['T-gatekeeper'],
+        'the available prerequisite is ready, not blocked'
+      );
     });
   });
 
