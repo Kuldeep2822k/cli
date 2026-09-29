@@ -34,6 +34,10 @@ import {
   type TieredChainPlan,
 } from '../engine/toc-chain';
 import { detectCyclesBounded } from '../engine/dependency';
+import {
+  extractDeclaredPrerequisites,
+  resolveDeclaredPrerequisites,
+} from '../engine/prereq-text';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
 import { resolveNoteTitle } from '../storage/note-title';
@@ -455,6 +459,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     let chainRefused = false;
     /** Set when the selected tier declines to read an enumeration that does exist */
     let tocLinksDeclined = false;
+    /** Notes whose own text declares their prerequisites, replacing the inferred edge */
+    const declaredDeps = new Map<string, { id: string; path: string }[]>();
+    /** Declared names that matched no single note — counted, never fatal */
+    let declaredSkippedCount = 0;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
     // is recorded here at graph-build time rather than re-derived from
@@ -495,6 +503,51 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
+      // WS6 — a note's own words outrank any inference about it. The name index
+      // holds only what this batch can point at: the notes being adopted, whose
+      // ids were just minted, and every topic already in the vault.
+      type PrereqTarget = { id: string; path: string };
+      const prereqByPath = new Map<string, PrereqTarget[]>();
+      const prereqByBase = new Map<string, PrereqTarget[]>();
+      const addIndexed = (index: Map<string, PrereqTarget[]>, key: string, target: PrereqTarget): void => {
+        if (key.length === 0) return;
+        const list = index.get(key);
+        if (list) {
+          if (!list.some((t) => t.id === target.id)) list.push(target);
+        } else {
+          index.set(key, [target]);
+        }
+      };
+      const addPrereqTarget = (rawPath: string, id: string): void => {
+        const relPath = rawPath.replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+        if (relPath.length === 0) return;
+        const target: PrereqTarget = { id, path: rawPath.replace(/\\/g, '/') };
+        addIndexed(prereqByPath, relPath, target);
+        addIndexed(prereqByBase, relPath.slice(relPath.lastIndexOf('/') + 1), target);
+      };
+      for (const [relPath, id] of idByPath) addPrereqTarget(relPath, id);
+      for (const topic of existingTopics) addPrereqTarget(topic.path, topic.id);
+
+      for (const note of toAdopt) {
+        const refs = extractDeclaredPrerequisites(note.content);
+        if (refs.length === 0) continue;
+        const selfPath = note.relativePath.replace(/\\/g, '/');
+        const { resolved, skipped } = resolveDeclaredPrerequisites(refs, (name) => {
+          const key = name.trim().replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+          if (key.length === 0) return [];
+          // A qualified name is a path and gets no basename fallback; a bare one
+          // is a basename and gets no path match. Guessing between the two is how
+          // an unrelated `README` would inherit someone else's prerequisite.
+          const candidates = key.includes('/')
+            ? prereqByPath.get(key)
+            : prereqByBase.get(key);
+          return (candidates ?? []).filter((t) => t.path !== selfPath);
+        });
+        declaredSkippedCount += skipped.length;
+        if (resolved.length === 0) continue;
+        declaredDeps.set(selfPath, resolved.map((r) => r.target));
+      }
+
       // The planner re-derives B7 from the ids the scan already parsed rather
       // than trusting the scan's pre-filter: the two then cannot disagree about
       // what is allowed to gate, and any other caller of this API inherits the
@@ -530,7 +583,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // (compose no longer nulls heads over justified preds), so the written
       // counts still cannot fire this branch on a README that does have links.
       chainRefused =
-        !tiered.hasNumberedLayout && tiered.tocEdgeCount === 0 && tiered.numberedEdgeCount === 0;
+        !tiered.hasNumberedLayout &&
+        tiered.tocEdgeCount === 0 &&
+        tiered.numberedEdgeCount === 0 &&
+        declaredDeps.size === 0;
       // Distinct from "nothing to chain": under `strict` the enumeration may hold
       // links the selected tier simply does not read, and naming the tier is the
       // useful advice. Keyed on the enumeration's *presence* it lies in the other
@@ -589,19 +645,34 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           chainBridgedPaths.push(relPath);
           continue;
         }
+        const declared = declaredDeps.get(relPath);
         const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
         const predecessorId = predecessorPath ? idByPath.get(predecessorPath) : undefined;
         const dependsOn: string[] = [];
-        if (predecessorId) {
+        if (declared) {
+          // The declared list replaces the inferred edge rather than joining it.
+          // One `depends_on_source` label covers a note's whole list, so keeping
+          // an inferred `toc` edge beside a declared one would quietly promote an
+          // enumeration guess into a gate — the exact defect PAL-205 exists to
+          // contain. A note that states its prerequisites has no need of a guess.
+          dependsOn.push(...declared.map((t) => t.id));
+          chainSourceOf.set(relPath, 'declared');
+          for (const target of declared) {
+            chainWritePlan.push({ path: relPath, dependsOnPath: target.path });
+          }
+        } else if (predecessorId) {
           dependsOn.push(predecessorId);
-        } else if (predecessorPath) {
-          console.log(
-            `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
-              `${relPath} keeps an empty depends_on.`
-          );
+          chainWritePlan.push({ path: relPath, dependsOnPath: predecessorPath });
+        } else {
+          if (predecessorPath) {
+            console.log(
+              `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
+                `${relPath} keeps an empty depends_on.`
+            );
+          }
+          chainWritePlan.push({ path: relPath, dependsOnPath: null });
         }
         chainDependsOn.set(relPath, dependsOn);
-        chainWritePlan.push({ path: relPath, dependsOnPath: predecessorId ? predecessorPath : null });
         plannedGraph.set(id, { palee_id: id, depends_on: dependsOn, topic_mastery: 0 });
       }
 
@@ -696,12 +767,27 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // receives no edge at all, and an already-adopted note bridged over is
         // never rewritten.
         const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
+        const declaredWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'declared').length;
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
         console.log(
           `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
-            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - declaredWritten} numbered, ` +
             `${tocWritten} toc)`
         );
+        if (declaredWritten > 0 || declaredSkippedCount > 0) {
+          // Its own line rather than a third bucket in the tier count above,
+          // because a declared edge *replaces* the inferred one: the tier numbers
+          // say what the plan could chain, this says what the notes themselves
+          // said. The skip count rides along — a name that matched nothing, or
+          // matched two notes, cost its own edge and nothing else, and silence
+          // there would read as a complete list.
+          console.log(
+            `Declared:         ${declaredWritten} edge(s) from the notes' own prerequisite text` +
+              (declaredSkippedCount > 0
+                ? ` (${declaredSkippedCount} name(s) resolved to no single note)`
+                : '')
+          );
+        }
       }
       // B6 — per-tier hygiene report, printed identically on the dry-run and
       // the confirmation screen so what is reviewed is what is written. It is

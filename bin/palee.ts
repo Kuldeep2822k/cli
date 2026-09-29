@@ -52,7 +52,7 @@ program
   .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter')
   .option('--dry-run', 'Simulate adoption and print summary without modifying files')
   .option('--verbose', 'Print detailed file-by-file inspection list')
-  .option('--auto-chain', 'Auto-wire depends_on from the numbered tree (batch mode only)')
+  .option('--auto-chain', 'Auto-wire depends_on from a note\'s own prerequisites, else the numbered tree (batch mode only)')
   .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; toc/full add listing order, which never gates')
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(adoptCommand);

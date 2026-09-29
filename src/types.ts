@@ -483,11 +483,14 @@ export interface ValidationResult {
  *
  * @remarks
  * `numbered` edges come from the note's own numeric prefix, `toc` edges from a
- * listing document's enumeration order. Enumeration position is not a
- * prerequisite claim, so a `toc` label makes a note's edges advisory: they still
- * take part in cycle detection and ranking, they just never gate.
+ * listing document's enumeration order, and `declared` edges from the note's own
+ * text — a `## Prerequisites` section or a "requires X" sentence. Enumeration
+ * position is not a prerequisite claim, so a `toc` label makes a note's edges
+ * advisory: they still take part in cycle detection and ranking, they just
+ * never gate. `numbered` and `declared` both gate, because each states an order
+ * someone wrote down on purpose.
  */
-export type DependsOnSource = 'numbered' | 'toc';
+export type DependsOnSource = 'numbered' | 'toc' | 'declared';
 
 /**
  * Normalizes a raw `depends_on_source` frontmatter value.
@@ -503,7 +506,7 @@ export type DependsOnSource = 'numbered' | 'toc';
 export function normalizeDependsOnSource(raw: unknown): DependsOnSource | undefined {
   if (typeof raw !== 'string') return undefined;
   const s = raw.trim().toLowerCase();
-  return s === 'numbered' || s === 'toc' ? s : undefined;
+  return s === 'numbered' || s === 'toc' || s === 'declared' ? s : undefined;
 }
 
 /**
