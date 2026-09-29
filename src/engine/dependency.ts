@@ -6,7 +6,7 @@
  * verifies prerequisite satisfaction thresholds, and determines which topics are ready for study.
  */
 
-import { TopicNode, ValidationError, ValidationResult } from '../types';
+import { TopicNode, ValidationError, ValidationResult, isAdvisoryDependsOnSource } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
 /**
@@ -752,9 +752,11 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
  * @remarks
  * Validates that every prerequisite is present in the vault and has achieved the target mastery score.
  *
- * Edges labeled `depends_on_source: toc` are enumeration order from a listing document, not a
- * prerequisite claim, so they gate nothing (#205). Such a note is satisfied outright; the edges
- * still participate in cycle detection and in ordering.
+ * Edges labeled `depends_on_source: toc` are enumeration order from a listing document, and
+ * edges labeled `tie` come from filename collation between two notes the numbered tree left
+ * at the same rank. Neither is a prerequisite claim, so neither gates (#205). Such a note is
+ * satisfied outright; the edges still participate in cycle detection and in ordering. Any
+ * other source — authored, `numbered`, or an unrecognized label — gates.
  *
  * @example
  * ```typescript
@@ -766,7 +768,7 @@ function areDependenciesSatisfied(
   topics: Map<string, TopicNode>,
   threshold: number = MASTERY_THRESHOLD
 ): boolean {
-  if (topic.depends_on_source === 'toc') {
+  if (isAdvisoryDependsOnSource(topic.depends_on_source)) {
     return true;
   }
 
