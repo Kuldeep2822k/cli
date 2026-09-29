@@ -320,6 +320,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // dangling symlink, which would let the writer replace the link
           // unseen. A topic path can arrive as a symlink because
           // `palee roadmap --from` is routinely pointed at cloned repos.
+          //
+          // This is a check-then-write, so a link planted between the test and the
+          // atomic write below is not caught. Closing that window portably is
+          // tracked in #217 — a descriptor-bound open is not the fix here, because
+          // `fs.constants.O_NOFOLLOW` is undefined on win32 and the open follows
+          // the link anyway.
           let targetStat: fs.Stats | null;
           try {
             targetStat = fs.lstatSync(resolvedTargetPath);
