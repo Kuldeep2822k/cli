@@ -110,35 +110,35 @@ function isPlausibleName(text: string): boolean {
 }
 
 /**
- * Verbal negation directly modifying the `require` verb phrase.
- * Matches an optional auxiliary followed by a negation word and optional
- * adverbs (e.g. `does not require`, `does not yet require`, `never requires`,
- * `no longer requires`, `without requiring`).
+ * Verbal negation directly in the immediate clause governing `require`.
+ * Matches `not`, `never`, `neither`, `nor`, `without`, `n't`, or `no longer/more`.
  */
 const VERBAL_NEGATION =
-  /(?:\b(?:does|doesn't|do|don't|did|didn't|will|won't|would|wouldn't|can|cannot|can't|could|couldn't|should|shouldn't|is|isn't|are|aren't|was|wasn't|were|weren't|must|mustn't|may|might)\s+)?(?:\b(?:not|never|neither|nor|without)\b|n['’]t\b|\bno\s+(?:longer|more)\b)(?:\s+(?:yet|even|always|ever|[a-z]+ly))*\s*$/i;
+  /(?:\b(?:does|doesn't|do|don't|did|didn't|will|won't|would|wouldn't|can|cannot|can't|could|couldn't|should|shouldn't|is|isn't|are|aren't|was|wasn't|were|weren't|must|mustn't|may|might)\s+)?(?:\b(?:not|never|neither|nor|without)\b|n['’]t\b|\bno\s+(?:longer|more)\b)/i;
 
-/** Punctuation and conjunctions that introduce a new clause. */
+/** Punctuation and conjunctions separating clauses. */
 const CLAUSE_SPLIT =
-  /(?:[,;:—–]|\b(?:so|but|however|and|because|since|although|though|whereas|while|therefore)\b)/i;
+  /(?:,\s*(?:however|therefore|nevertheless|nonetheless|so|but|yet|and|or|for|nor|because|since|although|though|whereas|while)\b|\b(?:however|therefore|so|but|because|since|although|though|whereas|while)\b|,\s*(?:this|it|that|we|you|the|each|every|all)\b|,)/i;
 
 /**
  * A negative subject directly governing `require` in the immediate clause
- * (e.g. `No lesson`, `No topic`, `None of the lessons`, `Nobody`, `Nothing`).
+ * (e.g. `No lesson`, `No lesson from Chapter 2`, `None of the lessons`, `Nobody`, `Nothing`).
  */
 const NEGATIVE_SUBJECT =
-  /^\s*(?:no\s+(?:(?:other|prior|subsequent|single|particular)\s+)?[a-z0-9_-]+(?:\s+(?:of|in|for)\s+(?:the\s+|this\s+)?[a-z0-9_-]+)?|none(?:\s+of\s+(?:the\s+|these\s+)?[a-z0-9_-]+)?|neither(?:\s+of\s+(?:the\s+|these\s+)?[a-z0-9_-]+|\s+[a-z0-9_-]+)?|nothing|nobody|no\s+one)\s*$/i;
+  /^(?:no\s+.+|none(?:\s+of\s+.+)?|neither(?:\s+of\s+.+|\s+.+)?|nothing|nobody|no\s+one)$/i;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
  *
  * @remarks
  * A prerequisite is negated if and only if either:
- * 1. The verb phrase itself is verbally negated (e.g. "This lesson does not
- *    require Setup", "This lesson does not, and it bears repeating, require
- *    Setup", "This lesson does not yet require Setup").
+ * 1. The verb phrase itself is verbally negated in the immediate clause
+ *    (e.g. "This lesson does not in any way require Setup", "This lesson does
+ *    not, and it bears repeating, require Setup", "This lesson does not yet
+ *    require Setup").
  * 2. The subject governing `requires` in the immediate clause is negative
- *    (e.g. "No lesson requires Setup", "None of the lessons require Setup").
+ *    (e.g. "No lesson requires Setup", "No lesson from Chapter 2 requires
+ *    Setup", "None of the lessons require Setup").
  *
  * An earlier negation in a preceding clause (e.g. "No calculator is needed,
  * but this lesson requires Matrices", "There is no video, however this lesson
@@ -154,28 +154,28 @@ function negatedBefore(text: string, index: number): boolean {
     text.lastIndexOf(':', index),
     text.lastIndexOf('\n', index),
   ];
-  const lastBoundary = Math.max(...boundaries);
-  const start = lastBoundary === -1 ? 0 : lastBoundary + 1;
-  const rawClause = text.slice(start, index);
+  const sentStart = Math.max(...boundaries);
+  const sentence = text.slice(sentStart === -1 ? 0 : sentStart + 1, index);
 
-  // Strip parentheticals enclosed in commas, parentheses, or em-dashes:
-  // e.g. "does not, and it bears repeating, require" -> "does not require"
-  // e.g. "does not, in fact, require" -> "does not require"
-  // e.g. "does not (strictly speaking) require" -> "does not require"
-  const normalized = rawClause
-    .replace(/,\s*[^,\n]+?\s*,/g, ' ')
-    .replace(/\([^)\n]+?\)/g, ' ')
-    .replace(/[—–]\s*[^—–\n]+?\s*[—–]/g, ' ');
+  // Strip parentheticals ending directly before the verb:
+  // e.g. "does not, and it bears repeating, " -> "does not "
+  // e.g. "does not (strictly speaking) " -> "does not "
+  // e.g. "does not — strictly speaking — " -> "does not "
+  const withoutParenthetical = sentence
+    .replace(/,\s*[^,\n]+?\s*,\s*$/g, ' ')
+    .replace(/\([^)\n]+?\)\s*$/g, ' ')
+    .replace(/[—–]\s*[^—–\n]+?\s*[—–]\s*$/g, ' ');
 
-  // Mechanism 1: The verb phrase governing `require` is negated
-  if (VERBAL_NEGATION.test(normalized)) {
+  const parts = withoutParenthetical.split(CLAUSE_SPLIT);
+  const immediateClause = (parts[parts.length - 1] ?? '').trim();
+
+  // 1. Verbal negation directly in the immediate clause:
+  if (VERBAL_NEGATION.test(immediateClause)) {
     return true;
   }
 
-  // Mechanism 2: The subject of `require` in the immediate clause is negative
-  const parts = rawClause.split(CLAUSE_SPLIT);
-  const immediateClause = parts[parts.length - 1];
-  if (immediateClause !== undefined && NEGATIVE_SUBJECT.test(immediateClause)) {
+  // 2. Negative subject in the immediate clause:
+  if (NEGATIVE_SUBJECT.test(immediateClause)) {
     return true;
   }
 

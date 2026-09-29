@@ -172,7 +172,12 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       extractDeclaredPrerequisites('There is no video, however this lesson requires Setup.\n'),
       [{ name: 'Setup', form: 'prose' }]
     );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('This lesson does not in any way require Setup.\n'),
+      []
+    );
     assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson requires Setup.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson from Chapter 2 requires Setup.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('No student in this class requires Setup.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson does not yet require Set Theory.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites("This lesson doesn't yet require Set Theory.\n"), []);
