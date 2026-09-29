@@ -113,16 +113,28 @@ function isPlausibleName(text: string): boolean {
 const NEGATION = /(?:\b(?:not|no|none|never|neither|without|nor|skip)\b|n['’]t\b)/i;
 
 /**
- * Contrastive conjunctions that start a new clause and reset earlier polarity.
+ * Conjunctions that start a new clause and reset earlier polarity.
  *
  * @remarks
- * `yet` acts as a contrastive conjunction when introducing a clause (e.g.
- * "No calculator is needed, yet this lesson requires Matrices"), but acts as
- * an adverb of time when following a negation ("not yet", "n't yet"). In the
- * latter case, it modifies the negation and must not discard it.
+ * Coordinating and subordinating conjunctions (`so`, `but`, `and`, `because`,
+ * `since`, `although`, `though`, `whereas`, `while`) begin a new clause. `yet`
+ * acts as a conjunction when introducing a clause (e.g. "No calculator is
+ * needed, yet this lesson requires Matrices"), but acts as an adverb of time
+ * when following a negation ("not yet", "n't yet"). In the latter case, it
+ * modifies the negation and must not discard it.
  */
-const CONTRASTIVE_CONJUNCTION =
-  /\b(?:but|however|although|though|whereas|while)\b|(?<!\b(?:not|never|neither|no|none)\b[\s,]*|n['’]t[\s,]*)\byet\b/gi;
+const CLAUSE_CONJUNCTION =
+  /\b(?:so|but|and|because|since|although|though|whereas|while)\b|(?<!\b(?:not|never|neither|no|none)\b[\s,]*|n['’]t[\s,]*)\byet\b/gi;
+
+/**
+ * A comma followed by a conjunction or new clause subject introduces a new
+ * clause, resetting earlier polarity (e.g. "There is no video, so this lesson
+ * requires Setup", "Because there is no video, this lesson requires Setup").
+ * A comma followed only by adverbs (e.g. "does not, in fact, require") does
+ * not reset polarity.
+ */
+const NEW_CLAUSE_AFTER_COMMA =
+  /,\s*(?:(?:so|but|and|yet|or|nor|for)\s+)?(?:this|it|that|these|those|we|you|the|each|every|all)\b/gi;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
@@ -131,9 +143,10 @@ const CONTRASTIVE_CONJUNCTION =
  * Bounded by the nearest sentence terminator or clause break before the verb,
  * so "This lesson does not require Setup" and "No lesson requires Setup" yield
  * nothing while "No calculator is needed, but this lesson requires Matrices"
- * still reads the requirement. A negated requirement is the worst possible
- * invention: the author stated the note is *not* needed, and a gating edge
- * would lock the learner behind exactly that note.
+ * and "There is no video, so this lesson requires Setup" still read the
+ * requirement. A negated requirement is the worst possible invention: the
+ * author stated the note is *not* needed, and a gating edge would lock the
+ * learner behind exactly that note.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
@@ -147,14 +160,21 @@ function negatedBefore(text: string, index: number): boolean {
   const lastBoundary = Math.max(...boundaries);
   const start = lastBoundary === -1 ? 0 : lastBoundary + 1;
   let clause = text.slice(start, index);
-  CONTRASTIVE_CONJUNCTION.lastIndex = 0;
+
+  let lastResetEnd = -1;
+  CLAUSE_CONJUNCTION.lastIndex = 0;
   let match: RegExpExecArray | null;
-  let lastContrastEnd = -1;
-  while ((match = CONTRASTIVE_CONJUNCTION.exec(clause)) !== null) {
-    lastContrastEnd = match.index + match[0].length;
+  while ((match = CLAUSE_CONJUNCTION.exec(clause)) !== null) {
+    lastResetEnd = Math.max(lastResetEnd, match.index + match[0].length);
   }
-  if (lastContrastEnd !== -1) {
-    clause = clause.slice(lastContrastEnd);
+
+  NEW_CLAUSE_AFTER_COMMA.lastIndex = 0;
+  while ((match = NEW_CLAUSE_AFTER_COMMA.exec(clause)) !== null) {
+    lastResetEnd = Math.max(lastResetEnd, match.index + 1);
+  }
+
+  if (lastResetEnd !== -1) {
+    clause = clause.slice(lastResetEnd);
   }
   return NEGATION.test(clause);
 }
