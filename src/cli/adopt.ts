@@ -697,10 +697,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // never rewritten.
         const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
+        const tieWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'tie').length;
         console.log(
           `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
-            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
-            `${tocWritten} toc)`
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - tieWritten} numbered, ` +
+            `${tocWritten} toc${tieWritten > 0 ? `, ${tieWritten} tie (advisory)` : ''})`
         );
       }
       // B6 — per-tier hygiene report, printed identically on the dry-run and

@@ -342,6 +342,22 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.ok(out.hasTocLayout);
     });
 
+    it('a same-rank tie is labelled apart from the numbering that decided everything else', () => {
+      // `02-a` and `02-b` carry the same number, so the tree said nothing about
+      // their order and the filenames did. The label is what lets the gate rule
+      // tell those two claims apart, and the edge still counts as written — the
+      // honest-refusal signal asks whether any order exists, not whether it gates.
+      const numbered = planAutoChainWithHygiene([
+        'm/02-a.md',
+        'm/02-b.md',
+        'm/03-c.md',
+      ]);
+      const out = composeTieredChain({ tier: 'strict', numbered, tocPaths: [] });
+      assert.strictEqual(out.sourceOf.get('m/02-b.md'), 'tie');
+      assert.strictEqual(out.sourceOf.get('m/03-c.md'), 'numbered');
+      assert.strictEqual(out.numberedEdgeCount, 2, 'a tie is still an edge the planner wrote');
+    });
+
     // The hygiene plan derives its two alphabetical claims before composition
     // runs. Carrying them through unchanged made the CLI tell a learner that
     // notes their own README had just sequenced "chain in alphabetical order"

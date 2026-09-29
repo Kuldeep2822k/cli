@@ -825,13 +825,14 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.deepStrictEqual(dependsOn(vaultDir, 'solution/appendix.md'), []);
   });
 
-  test('a same-number tie is named in the warning instead of passing as numbering', () => {
-    // `02-a` before `02-b` reads as a decision the learner made by numbering.
-    // Both carry `02`, so the order between them came from their filenames and
-    // the edge gates — the old report said nothing, because the tie is invisible
-    // to `alphabeticalNotes` (both notes are numbered) and to
-    // `directoryOrderAlphabetical` (there is only one directory).
-    const { configDir } = freshVault({
+  test('a same-number tie is named in the warning and does not gate', () => {
+    // `02-a` before `02-b` looks like a decision the learner made by numbering.
+    // Both carry `02`, so the order between them came from filename collation —
+    // which is list position wearing a number's clothing, and the report already
+    // admits it. The edge is still written, because it ranks the notes and takes
+    // part in cycle detection, but it is labelled `tie` so it never locks a
+    // learner out of a note nobody ordered on purpose.
+    const { vaultDir, configDir } = freshVault({
       'm/02-a.md': '# A\n',
       'm/02-b.md': '# B\n',
     });
@@ -846,6 +847,24 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       plannedEdges(dry.stdout).some((e) => e.path === 'm/02-b.md' && e.dependsOn === 'm/02-a.md'),
       'the tie still produces the edge; only the reporting was missing'
     );
+
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.match(
+      commit.stdout,
+      /1 edge\(s\) written: 0 numbered, 0 toc, 1 tie \(advisory\)/,
+      `the report must separate the tie from the numbering:\n${commit.stdout}`
+    );
+    assert.strictEqual(dependsOnSource(vaultDir, 'm/02-b.md'), 'tie');
+
+    // The measurable consequence: with `02-a` at zero mastery, `02-b` used to
+    // vanish from the ready list. An advisory edge leaves it offered.
+    const planned = runCLI(['plan', '--json'], configDir);
+    assert.strictEqual(planned.status, 0, planned.stderr);
+    const ready = (JSON.parse(planned.stdout) as { ready_to_learn: { path: string }[] })
+      .ready_to_learn.map((t) => t.path);
+    assert.ok(ready.includes('m/02-a.md'), `both notes must be offered: ${ready.join(', ')}`);
+    assert.ok(ready.includes('m/02-b.md'), `both notes must be offered: ${ready.join(', ')}`);
   });
 
   test('notes the enumeration placed are not reported as a name tie', () => {
