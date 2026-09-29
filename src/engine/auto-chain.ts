@@ -298,10 +298,18 @@ function orderedBySegmentName(segments: string[][]): boolean {
   }
   const names = [...byName.keys()];
   if (names.length >= 2) {
-    // Distinct siblings at this level: their order is settled now, by number
-    // when both carry one and by name otherwise. Deeper segments cannot have
-    // decided a pair this level already separated.
-    return names.some((name) => parseNumericPrefix(name) === null);
+    // Distinct siblings at this level settle their own order here: by number
+    // when both carry one, by name otherwise. That says nothing about the pairs
+    // this level never separated, and those still get decided one level down —
+    // `01-a/01-x.md, 02-b/deep-dive/y.md, 02-b/lab/z.md` has a numbered split at
+    // the top and an alphabetical one inside `02-b`, which the single-group
+    // equivalent below already reports as true.
+    if (names.some((name) => parseNumericPrefix(name) === null)) {
+      return true;
+    }
+    return [...byName.values()].some((group) =>
+      orderedBySegmentName(group.filter((rest) => rest.length > 0))
+    );
   }
   // Nothing was decided here; the only siblings share this prefix, so the
   // choice — if any — happens one level down.

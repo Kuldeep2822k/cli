@@ -274,6 +274,23 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
         true
       );
     });
+
+    it('flags an alphabetical choice deeper down when the top level also split numerically', () => {
+      // The two cases above are the easy halves. Here the top level really is
+      // decided — `01-a` before `02-b` — but that only settles pairs this level
+      // separated. `deep-dive` and `lab` are siblings under `02-b` and nothing
+      // numbered ever ordered them, so the flag has to say so as plainly as it
+      // does when `02-b` is the only group present.
+      const mixed = ['01-a/01-x.md', '02-b/deep-dive/y.md', '02-b/lab/z.md'];
+      assert.strictEqual(directoriesOrderedAlphabetically(mixed), true);
+      assert.strictEqual(planAutoChain(mixed).directoryOrderAlphabetical, true);
+
+      // Same nesting, nothing alphabetical anywhere: the flag must not start
+      // firing on a curriculum that numbers every directory.
+      const numbered = ['01-a/01-x.md', '02-b/01-y.md', '02-b/02-z.md'];
+      assert.strictEqual(directoriesOrderedAlphabetically(numbered), false);
+      assert.strictEqual(planAutoChain(numbered).directoryOrderAlphabetical, false);
+    });
   });
 
   describe('parseWikilink', () => {
