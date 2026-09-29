@@ -126,7 +126,7 @@ describe('CLI assess — making topic_mastery reachable', () => {
         assert.strictEqual(process.exitCode ?? 0, 0, output);
         assert.match(output, /mastery\s+0 → 0\.82/);
         assert.match(output, /Mastered \(≥ 0\.70\)/);
-        assert.match(output, /1 topic\(s\) gated behind it are now reachable/);
+        assert.match(output, /1 topic\(s\) newly offered by palee plan: T-gated-lesson/);
 
         assert.deepStrictEqual(
           await readyIds(),
@@ -272,6 +272,98 @@ describe('CLI assess — making topic_mastery reachable', () => {
         for (const file of ['alpha.md', 'alphabeta.md']) {
           assert.strictEqual(readFrontmatter(vaultPath, file).topic_mastery, 0, `${file} untouched`);
         }
+      }
+    );
+  });
+
+  test('a corrupt stored pillar is refused, not clamped into an unlock', async () => {
+    // `normalizeScore` clamps, so reading `feynman: 2` as 1.0 and recomputing
+    // mastery from it would open a prerequisite gate on the strength of a number
+    // the learner never entered. The note is left alone and the problem named.
+    const gate = [
+      '---', 'palee_schema: 1', 'palee_id: T-gate', 'title: Corrupt Gate', 'depends_on: []',
+      'topic_mastery: 0', 'conceptual: 0', 'practical: 0', 'debug: 0', 'feynman: 2', '---', '', '# Gate', '',
+    ].join('\n');
+    await runInTempVault(
+      { 'gate.md': gate, 'child.md': note('Behind Gate', ['T-gate']) },
+      async (vaultPath) => {
+        const before = fs.readFileSync(path.join(vaultPath, 'gate.md'), 'utf8');
+        assert.deepStrictEqual(await readyIds(), ['T-gate']);
+
+        const output = await captureOutput(() => assessCommand('Corrupt Gate', { debug: '0.5' }));
+        assert.match(output, /stored feynman score .* is not a number between 0 and 1/);
+        assert.strictEqual(process.exitCode ?? 0, 2);
+        assert.strictEqual(fs.readFileSync(path.join(vaultPath, 'gate.md'), 'utf8'), before, 'nothing written');
+        assert.deepStrictEqual(await readyIds(), ['T-gate'], 'the dependent stays gated');
+
+        // Naming the pillar explicitly is still the way past it.
+        const repaired = await captureOutput(() =>
+          assessCommand('Corrupt Gate', { conceptual: '1', practical: '1', debug: '1', feynman: '1' })
+        );
+        assert.match(repaired, /mastery\s+0 → 1/);
+        assert.deepStrictEqual(await readyIds(), ['T-behind-gate']);
+      }
+    );
+  });
+
+  test('a pillar the learner did not name is not rewritten', async () => {
+    // The stored value is read for the computation, but writing it back through
+    // `normalizeScore` would silently round a learner's `0.123456789` to four
+    // decimals on an unrelated assess call.
+    const partial = [
+      '---', 'palee_schema: 1', 'palee_id: T-partial', 'title: Partial Pillars', 'depends_on: []',
+      'topic_mastery: 0', 'conceptual: 0.123456789', 'practical: 0', 'debug: 0', 'feynman: 0', '---',
+      '', '# Partial', '',
+    ].join('\n');
+    await runInTempVault({ 'partial.md': partial }, async (vaultPath) => {
+      await captureOutput(() => assessCommand('Partial Pillars', { practical: '1' }));
+      const raw = fs.readFileSync(path.join(vaultPath, 'partial.md'), 'utf8');
+      assert.ok(raw.includes('conceptual: 0.123456789'), `conceptual was rewritten:\n${raw}`);
+      assert.strictEqual(readFrontmatter(vaultPath, 'partial.md').practical, 1);
+      // (0.1235 + 1 + 0 + 0) / 5
+      assert.strictEqual(readFrontmatter(vaultPath, 'partial.md').topic_mastery, 0.2247);
+    });
+  });
+
+  test('the unlock count reports what plan really offers, not a dependents tally', async () => {
+    // A dependent carrying a second unmet prerequisite stays blocked, and one
+    // inside a cycle is excluded from the ready list altogether — both were
+    // reported as "reachable" when the count was a depends_on scan.
+    await runInTempVault(
+      {
+        'a.md': note('Topic A'),
+        'b.md': note('Topic B'),
+        'needs-both.md': note('Needs Both', ['T-topic-a', 'T-topic-b']),
+      },
+      async () => {
+        const output = await captureOutput(() =>
+          assessCommand('Topic A', { conceptual: '1', practical: '1', debug: '1', feynman: '1' })
+        );
+        assert.match(output, /Mastered \(≥ 0\.70\)/);
+        assert.match(output, /No topic changes availability; a dependent may gate on something else\./);
+        assert.doesNotMatch(output, /newly offered/);
+        // A is mastered so it leaves the list, B is still unmastered with no
+        // prerequisites, and Needs Both stays blocked behind B — not behind A.
+        assert.deepStrictEqual(await readyIds(), ['T-topic-b']);
+      }
+    );
+  });
+
+  test('an exact palee_id wins over a neighbour that contains it', async () => {
+    // `T-math` is a substring of `T-math-2`, so a substring scan matched both and
+    // the command refused to write either — the learner had named the topic
+    // precisely and got an ambiguity error instead.
+    await runInTempVault(
+      {
+        'math.md': note('Math Basics', [], 0, '0').replace('T-math-basics', 'T-math'),
+        'math2.md': note('Math Two', [], 0, '0').replace('T-math-two', 'T-math-2'),
+      },
+      async (vaultPath) => {
+        const output = await captureOutput(() => assessCommand('T-math', { conceptual: '1', practical: '1', debug: '1', feynman: '1' }));
+        assert.match(output, /Assessment recorded for Math Basics \(T-math\)/);
+        assert.strictEqual(process.exitCode ?? 0, 0, output);
+        assert.strictEqual(readFrontmatter(vaultPath, 'math.md').topic_mastery, 1);
+        assert.strictEqual(readFrontmatter(vaultPath, 'math2.md').topic_mastery, 0, 'the neighbour was not touched');
       }
     );
   });

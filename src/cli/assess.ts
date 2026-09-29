@@ -10,7 +10,8 @@ import {
   atomicWrite,
 } from '../storage';
 import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../engine/mastery';
-import { AssessOptions, NodeError } from '../types';
+import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
+import { AssessOptions, NodeError, type TopicNode } from '../types';
 
 /** The four pillar flags, in the order they are printed and validated. */
 const PILLARS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
@@ -41,6 +42,54 @@ function parsePillar(flag: string, raw: string): { value?: number; error?: strin
     return { error: `Error: --${flag} expects a number between 0 and 1 (received ${raw})` };
   }
   return { value: normalizeScore(parsed) };
+}
+
+/**
+ * Reads a pillar score already stored in a note, without clamping it.
+ *
+ * @param flag - The pillar name, for the error message
+ * @param raw - The frontmatter value as found on disk
+ * @returns `{ value }` when it is a usable score, or `{ error }` naming the field
+ *
+ * @remarks
+ * `normalizeScore` clamps to `[0, 1]`, which is the right treatment for a field
+ * being displayed and the wrong one for a number that is about to decide whether
+ * a prerequisite gate opens. A stored `feynman: 2` contributing a full mark would
+ * unlock a topic the learner never assessed, so it is refused instead — and the
+ * pillar can still be set by naming it explicitly on the command line.
+ */
+function readScoreRange(flag: string, raw: unknown): { value?: number; error?: string } {
+  const parsed = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    return {
+      error:
+        `Error: stored ${flag} score on this note is not a number between 0 and 1 ` +
+        `(received ${JSON.stringify(raw)}). Pass --${flag} to set it, or repair the note with palee validate.`,
+    };
+  }
+  return { value: normalizeScore(parsed) };
+}
+
+/**
+ * Which topics `palee plan` would offer, computed the way plan computes it:
+ * cyclic topics quarantined first, then every prerequisite checked.
+ *
+ * @param topics - Every loaded topic, before the assessment being recorded
+ * @param assessmentId - The topic whose mastery this call overrides
+ * @param mastery - The mastery to assume for that topic
+ * @returns The set of palee ids plan would list as ready
+ *
+ * @remarks Counting dependents instead would overstate what an assessment
+ * unlocked: a dependent with a second unmet prerequisite stays blocked, and one
+ * inside a dependency cycle is excluded from the ready list entirely.
+ */
+function readyTopicIds(topics: TopicNode[], assessmentId: string, mastery: number): Set<string> {
+  const map = new Map<string, TopicNode>();
+  for (const t of topics) {
+    map.set(t.palee_id, t.palee_id === assessmentId ? { ...t, topic_mastery: mastery } : t);
+  }
+  const { acyclic } = quarantineCyclicTopics(map);
+  return new Set(getReadyTopics(acyclic, MASTERY_THRESHOLD).map((t) => t.palee_id));
 }
 
 /**
@@ -93,12 +142,17 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const vaultPath = validateVaultPath(config.vaultPath);
     if (!vaultPath) return;
     const loaded = loadTopics(vaultPath);
-    const candidates = loaded.filter(
-      (t) =>
-        t.palee_id === topicQuery ||
-        t.palee_id.includes(topicQuery) ||
-        t.title.toLowerCase().includes(topicQuery.toLowerCase())
-    );
+    // An exact id wins outright: `T-math` is the learner naming a topic, and a
+    // neighbour called `T-math-2` matching it by substring must not turn a
+    // specific request into an ambiguity error that writes nothing.
+    const exact = loaded.filter((t) => t.palee_id === topicQuery);
+    const candidates = exact.length > 0
+      ? exact
+      : loaded.filter(
+          (t) =>
+            t.palee_id.includes(topicQuery) ||
+            t.title.toLowerCase().includes(topicQuery.toLowerCase())
+        );
 
     if (candidates.length === 0) {
       console.error(`Error: No topic found matching "${topicQuery}"`);
@@ -149,12 +203,26 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const { frontmatter: rawFm } = parseFrontmatter(freshContent);
     const frontmatter = rawFm || {};
 
-    const scores: Record<Pillar, number> = {
-      conceptual: normalizeScore(frontmatter.conceptual),
-      practical: normalizeScore(frontmatter.practical),
-      debug: normalizeScore(frontmatter.debug),
-      feynman: normalizeScore(frontmatter.feynman),
-    };
+    // A pillar the learner did not name is read, never rewritten. Passing every
+    // stored value through `normalizeScore` and writing it back would clamp a
+    // corrupt `feynman: 2` to 1 silently and feed a mastery contribution nobody
+    // entered — which can open a prerequisite gate. An unusable stored score is
+    // reported instead of guessed at.
+    const scores: Record<Pillar, number> = { conceptual: 0, practical: 0, debug: 0, feynman: 0 };
+    for (const pillar of PILLARS) {
+      // An explicitly supplied score replaces whatever was stored, so a corrupt
+      // value in that field is not the learner's problem here.
+      if (parsed.has(pillar)) continue;
+      const raw = frontmatter[pillar];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const stored = readScoreRange(pillar, raw);
+      if (stored.error) {
+        console.error(stored.error);
+        process.exitCode = 2;
+        return;
+      }
+      scores[pillar] = stored.value as number;
+    }
     for (const [pillar, value] of parsed) {
       scores[pillar] = value;
     }
@@ -163,17 +231,28 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const topicMastery = computeTopicMastery(scores.conceptual, scores.practical, scores.debug, scores.feynman);
 
     const updates: Record<string, unknown> = {
-      conceptual: scores.conceptual,
-      practical: scores.practical,
-      debug: scores.debug,
-      feynman: scores.feynman,
       topic_mastery: topicMastery,
       assessed_at: new Date().toISOString(),
     };
+    for (const [pillar, value] of parsed) {
+      updates[pillar] = value;
+    }
 
     const updatedContent = updateFrontmatter(freshContent, updates);
 
     await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
+
+    const readyBefore = readyTopicIds(loaded, topic.palee_id, previousMastery);
+    const readyAfter = readyTopicIds(loaded, topic.palee_id, topicMastery);
+
+    // The topic being assessed drops out of the ready list once mastered — that
+    // is the point of the call, not a lockout — so it is excluded from both
+    // differences and only the other topics' availability is reported.
+    const others = (ids: Set<string>): string[] => [...ids].filter((id) => id !== topic.palee_id);
+    const before = others(readyBefore);
+    const after = others(readyAfter);
+    const unlocked = after.filter((id) => !readyBefore.has(id));
+    const newlyBlocked = before.filter((id) => !readyAfter.has(id));
 
     const threshold = MASTERY_THRESHOLD.toFixed(2);
     console.log(`✓ Assessment recorded for ${topic.title} (${topic.palee_id})`);
@@ -184,20 +263,20 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     console.log(`  mastery     ${previousMastery} → ${topicMastery}`);
 
     if (topicMastery >= MASTERY_THRESHOLD) {
-      const gated = loaded.filter(
-        (t) => t.palee_id !== topic.palee_id && (t.depends_on ?? []).includes(topic.palee_id)
-      );
-      const unlocked = gated.filter((t) => normalizeScore(t.topic_mastery) < MASTERY_THRESHOLD);
       console.log(`  Mastered (≥ ${threshold}).`);
-      console.log(
-        unlocked.length > 0
-          ? `  ${unlocked.length} topic(s) gated behind it are now reachable in palee plan.`
-          : '  No open topic gates on it.'
-      );
     } else {
+      console.log(`  Below the ${threshold} threshold, so it still gates what depends on it.`);
+    }
+    if (unlocked.length > 0) {
+      const listed = unlocked.slice(0, 3).join(', ');
       console.log(
-        `  Below the ${threshold} threshold, so anything gated behind it stays blocked.`
+        `  ${unlocked.length} topic(s) newly offered by palee plan: ${listed}` +
+          (unlocked.length > 3 ? `, +${unlocked.length - 3} more` : '')
       );
+    } else if (newlyBlocked.length > 0) {
+      console.log(`  ${newlyBlocked.length} topic(s) are no longer offered by palee plan.`);
+    } else {
+      console.log('  No topic changes availability; a dependent may gate on something else.');
     }
   } catch (e: unknown) {
     const err = e as Error;
