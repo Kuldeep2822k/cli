@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
  * as a warning and exits 0 — so nothing along the path tells the learner the
  * note is gone or why.
  */
-describe('roadmap import reports edges to notes it did not write', () => {
+describe('roadmap import reports edges to notes that do not exist', () => {
   let tempDir: string;
   let vaultDir: string;
   let origConfigDir: string | undefined;
@@ -86,7 +86,7 @@ describe('roadmap import reports edges to notes it did not write', () => {
     assert.match(output, /Failed T-2/, 'the failed write must still be reported');
     assert.match(
       output,
-      /dependency edge\(s\) point at topics that were not written/,
+      /dependency edge\(s\) point at topics that do not exist/,
       'the dangling edge must be named, not left for validate to warn about'
     );
     assert.match(output, /T-3 → T-2/, 'the report must give the exact edge');
@@ -121,7 +121,7 @@ describe('roadmap import reports edges to notes it did not write', () => {
     assert.strictEqual(result.status, 0, `clean import must succeed: ${output}`);
     assert.doesNotMatch(
       output,
-      /dependency edge\(s\) point at topics that were not written/,
+      /dependency edge\(s\) point at topics that do not exist/,
       'a complete import must not raise the warning'
     );
   });
@@ -176,7 +176,7 @@ describe('roadmap import reports edges to notes it did not write', () => {
     const second = runCLI(['roadmap', '--from', keep, '--yes']);
     const secondOutput = second.stdout + second.stderr;
     assert.strictEqual(second.status, 0, secondOutput);
-    assert.doesNotMatch(secondOutput, /edge\(s\) point at topics that were not written/);
+    assert.doesNotMatch(secondOutput, /edge\(s\) point at topics that do not exist/);
   });
 
   test('an overwrite declared by absolute path still retires the id it replaced', () => {
@@ -247,5 +247,43 @@ describe('roadmap import reports edges to notes it did not write', () => {
       /T-first → T-ghost/,
       'T-first no longer exists on disk, so its edge must not be reported'
     );
+  });
+
+  test('an id this batch wrote and then overwrote is not a known edge target', () => {
+    // The mirror of the case above. `T-was` lands on disk, then a second spelling
+    // of the same path rewrites that note under `T-now`, so `T-was` exists nowhere
+    // once the batch finishes. It was still written, though, so a known-set built
+    // from every id the batch touched counted it as a target and hid the edge
+    // naming it — the same lockout the report exists to surface, one write earlier.
+    const yamlPath = path.join(tempDir, 'roadmap-retired.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-was',
+        '    title: Written First',
+        '    path: retired.md',
+        '  - id: T-now',
+        '    title: Written Last',
+        '    path: ./retired.md',
+        '  - id: T-after',
+        '    title: Points At The Retired Id',
+        '    path: retired-dep.md',
+        '    depends_on: [T-was]',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /T-after → T-was/, 'a retired id must not count as a written topic');
+
+    // The defect is on disk, not just in the report: the note the learner is left
+    // with depends on an id no file carries.
+    const written = fs.readFileSync(path.join(vaultDir, 'retired-dep.md'), 'utf8');
+    assert.ok(written.includes('T-was'), 'the dangling depends_on is what the learner is left with');
+    const survivor = fs.readFileSync(path.join(vaultDir, 'retired.md'), 'utf8');
+    assert.ok(survivor.includes('T-now') && !survivor.includes('T-was'), 'T-was was retired by the overwrite');
   });
 });

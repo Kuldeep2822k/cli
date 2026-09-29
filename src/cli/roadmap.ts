@@ -282,13 +282,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       // holding a `depends_on` that points at nothing — and the dependent note
       // then disappears from `palee plan` with only a `validate` warning to say
       // why. Track what actually landed so the batch can report its own edges.
-      const writtenIds = new Set<string>();
       /**
        * Final writer of each note this import touched, keyed by the path resolved
        * against the vault. Keyed on where the bytes actually landed rather than on
        * the declared path: an absolute in-vault path, and a `n/./1.md` spelling,
        * both write the one note the loader knows by a single relative path — and
-       * only the last id to win a path has edges that survive on disk.
+       * only the last id to win a path is a topic that still exists, with edges
+       * that survive on disk.
        */
       const finalIdByPath = new Map<string, string>();
       const writtenEdges: { from: string; to: string }[] = [];
@@ -361,7 +361,6 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           } else {
             updated++;
           }
-          writtenIds.add(topic.id);
           finalIdByPath.set(
             path.relative(resolvedVault, resolvedTargetPath).replace(/\\/g, '/'),
             topic.id
@@ -394,17 +393,18 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           return finalId === undefined || finalId === id;
         })
         .map(([id]) => id);
-      const knownIds = new Set<string>([...writtenIds, ...survivingExistingIds]);
       // An id that lost its note later in the same batch has no edges left on
       // disk either — the file was rewritten under another id — so reporting its
-      // edges would name a dependency that no longer exists anywhere.
-      const finalSourceIds = new Set(finalIdByPath.values());
+      // edges would name a dependency that no longer exists anywhere, and counting
+      // it as known would hide the edges pointing at it.
+      const finalWriters = new Set(finalIdByPath.values());
+      const knownIds = new Set<string>([...finalWriters, ...survivingExistingIds]);
       const danglingEdges = writtenEdges.filter(
-        (edge) => finalSourceIds.has(edge.from) && !knownIds.has(edge.to)
+        (edge) => finalWriters.has(edge.from) && !knownIds.has(edge.to)
       );
       if (danglingEdges.length > 0) {
         console.error(
-          `⚠ ${danglingEdges.length} dependency edge(s) point at topics that were not written:`
+          `⚠ ${danglingEdges.length} dependency edge(s) point at topics that do not exist:`
         );
         for (const edge of danglingEdges.slice(0, 10)) {
           console.error(`    ${edge.from} → ${edge.to}`);
