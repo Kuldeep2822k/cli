@@ -762,6 +762,35 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.deepStrictEqual(dependsOn(vaultDir, 'notes/loose-b.md'), []);
   });
 
+  test('tier advice is withheld when the other tiers would refuse too', () => {
+    // The advice was keyed on the enumeration having links, so a README whose only
+    // link is a note no tier will chain told the learner to `try --chain-tier toc`
+    // — and toc refuses there for exactly the same reason, while the roadmap
+    // pointer that does apply was suppressed.
+    const unchainable = runCLI(
+      ['adopt', '--all', '--auto-chain', '--dry-run'],
+      freshVault({
+        'README.md': '# Course\n\n- [Appendix](solution/appendix.md)\n',
+        'solution/appendix.md': '# Appendix\n',
+      }).configDir
+    );
+    assert.strictEqual(unchainable.status, 0, unchainable.stdout + unchainable.stderr);
+    assert.doesNotMatch(
+      unchainable.stdout,
+      /does not read a README enumeration/,
+      'switching tiers cannot help when no tier can chain what the README lists'
+    );
+    assert.match(unchainable.stdout, /no chainable order signal\) — consider palee roadmap/);
+
+    // The advice a chainable enumeration does earn.
+    const chainable = runCLI(
+      ['adopt', '--all', '--auto-chain', '--dry-run'],
+      freshVault(tocFiles).configDir
+    );
+    assert.strictEqual(chainable.status, 0, chainable.stdout + chainable.stderr);
+    assert.match(chainable.stdout, /does not read a README enumeration\) — try --chain-tier toc/);
+  });
+
   test('an unchainable README link is a refusal, not a silent zero-edge success', () => {
     // The README does enumerate something, and the tier still chains nothing:
     // a phase-subtree note is a leaf the TOC tier will not order. Reporting

@@ -474,7 +474,25 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             if (value !== undefined) paleeData[key] = value;
           }
 
-          const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
+          // The import replaces the prerequisite list, so a note the TOC tier had
+          // chained must not keep claiming `depends_on_source: toc` over edges this
+          // roadmap authored — that label makes edges advisory, so the
+          // prerequisite the learner asked for would never gate.
+          //
+          // Keyed to the list actually changing, not to the write happening:
+          // `resolveTopicUpdates` preserves a note's existing prerequisites when
+          // the entry omits `depends_on`, so a title-only import would otherwise
+          // drop a still-accurate label and silently turn advisory edges back into
+          // gates — re-locking notes, the opposite of what the label is for.
+          const writtenDeps = paleeData.depends_on as string[] | undefined;
+          const existingDeps = existingData.depends_on as string[] | undefined;
+          const edgeListChanged =
+            writtenDeps !== undefined &&
+            JSON.stringify([...writtenDeps].sort()) !== JSON.stringify([...(existingDeps ?? [])].sort());
+          const removals = edgeListChanged
+            ? ['dependencies', 'depends_on_source']
+            : ['dependencies'];
+          const updatedContent = updateFrontmatter(content, paleeData, removals);
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
 
           if (isNew) {

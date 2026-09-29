@@ -514,7 +514,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const tiered = composeTieredChain({
         tier: autoChainTier ?? 'strict',
         numbered: hygienePlan,
-        tocPaths: autoChainTier === 'strict' ? [] : tocEnumeration.documentOrder,
+        // Passed whole under every tier: the strict tier consumes none of it but
+        // still has to report whether the toc tier could have, which is what the
+        // refusal advice is keyed to.
+        tocPaths: tocEnumeration.documentOrder,
       });
       chainPlan = tiered;
       chainSourceOf.clear();
@@ -528,11 +531,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // counts still cannot fire this branch on a README that does have links.
       chainRefused =
         !tiered.hasNumberedLayout && tiered.tocEdgeCount === 0 && tiered.numberedEdgeCount === 0;
-      // Distinct from "nothing to chain": under `strict` the enumeration may be
-      // full of usable links that the selected tier simply does not read. Point
-      // at the tier rather than at `palee roadmap`, which is advice for a vault
-      // with no order to state.
-      tocLinksDeclined = autoChainTier === 'strict' && tocEnumeration.documentOrder.length > 0;
+      // Distinct from "nothing to chain": under `strict` the enumeration may hold
+      // links the selected tier simply does not read, and naming the tier is the
+      // useful advice. Keyed on the enumeration's *presence* it lies in the other
+      // case — a README linking only to notes no tier will order (a `solution/`
+      // subtree, a translation copy) would send the learner to
+      // `--chain-tier toc`, which refuses there for the same reason, costing them
+      // the roadmap pointer that does apply. `tocCandidateCount` is what a toc/full
+      // tier could have ordered, so the advice is only offered when it leads
+      // somewhere.
+      tocLinksDeclined = autoChainTier === 'strict' && tiered.tocCandidateCount > 0;
       // B6 — the warning carries numbers and concrete paths: it is the stop
       // sign telling the learner this vault needs `--exclude`. The count and the
       // examples both come from the set the warning describes, which the coarse

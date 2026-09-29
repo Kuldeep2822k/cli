@@ -319,6 +319,34 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.strictEqual(plan.predecessorOf.get('03-c/01-y.md'), '01-a/01-x.md');
     });
 
+    it('a homework-only module in the middle ends the chain instead of skipping ahead', () => {
+      // The leaf-only case above carries the bridge forward; a homework-only
+      // module must not, because it is a module the learner has to pass through
+      // and inheriting a lesson from two modules back hands out an edge that
+      // skips it. Measured shape: `01-a/01-x → 01-a/assignment → 02-b/quiz →
+      // 03-c/01-y`, where the quiz legitimately follows the lesson.
+      const plan = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '01-a/assignment.md',
+        '02-b/quiz.md',
+        '03-c/01-y.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('01-a/assignment.md'), '01-a/01-x.md');
+      assert.strictEqual(plan.predecessorOf.get('02-b/quiz.md'), '01-a/01-x.md');
+      assert.strictEqual(
+        plan.predecessorOf.get('03-c/01-y.md'),
+        null,
+        'the module after a homework-only one opens its own chain'
+      );
+      for (const p of plan.orderedPaths) {
+        const pred = plan.predecessorOf.get(p);
+        assert.ok(
+          !pred || !/assignment|quiz|solution/.test(pred),
+          `nothing may gate on homework, but ${p} gates on ${pred}`
+        );
+      }
+    });
+
     it('still flags two genuinely unnumbered sibling directories', () => {
       assert.strictEqual(
         directoriesOrderedAlphabetically(['alpha/01-x.md', 'beta/01-y.md']),
