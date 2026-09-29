@@ -254,10 +254,8 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
     });
     const result = adopt(vaultDir, configDir);
     assert.strictEqual(result.status, 3, `a declared cycle must exit 3:\n${result.stdout}${result.stderr}`);
-    assert.ok(
-      !fs.existsSync(path.join(vaultDir, 'm', '01-a.md')) ||
-        frontmatterOf(vaultDir, 'm/01-a.md')?.palee_id === undefined,
-      'the cycle check runs before any write, so no note is left half-adopted'
-    );
+    for (const rel of ['m/01-a.md', 'm/02-b.md']) {
+      assert.strictEqual(frontmatterOf(vaultDir, rel)?.palee_id, undefined, `${rel} was written`);
+    }
   });
 });

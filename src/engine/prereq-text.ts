@@ -48,7 +48,7 @@ export interface DeclaredPrereqResolution<T> {
  * dependency list.
  */
 const PREREQ_HEADING =
-  /^\s{0,3}#{1,6}\s+(?:prior\s+)?(?:prerequisites?|requires?|required\s+knowledge|dependen(?:t|cy)\s+on)s?\s*:?\s*$/i;
+  /^\s{0,3}#{1,6}\s+(?:prior\s+)?(?:prerequisites?|requires?|required\s+knowledge|(?:depends?|dependen(?:t|cy))\s+on)s?\s*:?\s*$/i;
 
 /** Any ATX heading closes a prerequisites section. */
 const ANY_HEADING = /^\s{0,3}#{1,6}\s+\S/;

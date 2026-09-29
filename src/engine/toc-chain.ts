@@ -439,14 +439,21 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
 
   const docIndex = new Map<string, number>();
   normalized.forEach((p, i) => docIndex.set(p, i));
-  const dirFirstSeen = new Map<string, number>();
-  normalized.forEach((p, i) => {
-    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
-    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
-  });
 
   const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
   const baseOf = (p: string): string => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
+
+  // The grouping key and the sort's lookup key are the same `parentOf` by
+  // construction, which is the whole guarantee here: two separate inline
+  // computations could have drifted and made the comparison sort against
+  // `undefined`. An assert over these same paths could not fail, so there is
+  // none — unlike `assertBackwardEdges`, which checks a property of data that
+  // arrives from elsewhere and genuinely can violate it.
+  const dirFirstSeen = new Map<string, number>();
+  normalized.forEach((p, i) => {
+    const dir = parentOf(p);
+    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
+  });
 
   const orderedPaths = [...normalized].sort((a, b) => {
     const da = dirFirstSeen.get(parentOf(a))!;
@@ -601,9 +608,14 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const sourceOf = new Map<string, DependsOnSource>();
   const predecessorOf = new Map(numbered.predecessorOf);
   const numberedSet = new Set<string>();
+  const tieNotes = new Set(numbered.alphabeticalTieNotes);
   for (const p of numbered.orderedPaths) {
     if (isInNumberedTree(p)) numberedSet.add(p);
-    if (numbered.predecessorOf.get(p)) sourceOf.set(p, 'numbered');
+    // A pair carrying the same number or phase is ordered by filename collation,
+    // which the numbered tree did not decide and the author never stated. Labelled
+    // `tie` so the gate rule can decline it, while the edge still ranks the note
+    // and still takes part in cycle detection.
+    if (numbered.predecessorOf.get(p)) sourceOf.set(p, tieNotes.has(p) ? 'tie' : 'numbered');
   }
   const numberedEdgeCount = sourceOf.size;
   const orderedPaths = [...numbered.orderedPaths];
@@ -680,10 +692,13 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   assertAcyclicPlan(predecessorOf);
 
   // Recompute from the final labels: a TOC edge that replaced an alphabetical
-  // fallback edge removes that note from the numbered count.
+  // fallback edge removes that note from the numbered count. `tie` counts here
+  // too — the count answers "did any planner write an edge", which is the C4
+  // refusal's question, and a same-rank tie is still an edge the numbered
+  // planner produced. Only the *gate* treats `tie` as advisory.
   let numberedEdges = 0;
   for (const source of sourceOf.values()) {
-    if (source === 'numbered') numberedEdges++;
+    if (source === 'numbered' || source === 'tie') numberedEdges++;
   }
 
   // The hygiene plan derived its two alphabetical claims from the numbered

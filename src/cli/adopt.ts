@@ -745,7 +745,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // cannot close a cycle, and any loop reported below predates this run.
         // (Contrast `roadmap --auto-chain`, where a synthesized edge CAN close a
         // cycle against authored deps; that path labels its own edges.)
-        if (cycles.length > 0) {
+        const declaredIds = new Set(
+          [...declaredDeps.keys()].map((p) => idByPath.get(p)).filter(Boolean)
+        );
+        const involvesDeclared = cycles.some((c) => c.some((id) => declaredIds.has(id)));
+        if (cycles.length > 0 && involvesDeclared) {
+          console.error("  A cycle includes edges declared in the notes' own prerequisite text.");
+        } else if (cycles.length > 0) {
           console.error('  These edges are pre-existing vault dependencies, not chain-synthesized ones.');
         }
         if (truncated) {
@@ -799,10 +805,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
         const declaredWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'declared').length;
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
+        const tieWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'tie').length;
         console.log(
           `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
-            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - declaredWritten} numbered, ` +
-            `${tocWritten} toc)`
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - declaredWritten - tieWritten} numbered, ` +
+            `${tocWritten} toc${tieWritten > 0 ? `, ${tieWritten} tie (advisory)` : ''})`
         );
         if (declaredWritten > 0 || declaredSkippedCount > 0) {
           // Its own line rather than a third bucket in the tier count above,

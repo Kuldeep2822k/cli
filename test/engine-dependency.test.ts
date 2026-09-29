@@ -714,6 +714,23 @@ describe('Dependency Graph', () => {
     );
   });
 
+  test('a tie-labeled note is ready too, because a filename collation is not an order', () => {
+    // Two notes carrying the same number are separated only by how their
+    // filenames sort. That is list position wearing a number's clothing, and the
+    // planner admits it in its own warning, so it may rank and must not gate.
+    const topics = new Map<string, TopicNode>([
+      ['T-head', { palee_id: 'T-head', depends_on: [], topic_mastery: 0 }],
+      ['T-tail', { palee_id: 'T-tail', depends_on: ['T-head'], depends_on_source: 'tie', topic_mastery: 0 }],
+    ]);
+
+    assert.strictEqual(areDependenciesSatisfied(topics.get('T-tail')!, topics), true);
+    assert.deepStrictEqual(
+      getReadyTopics(topics).map((t) => t.palee_id),
+      ['T-head', 'T-tail'],
+      'a tied pair must be offered in either order, not locked behind a collation'
+    );
+  });
+
   test('a numbered label still gates, so the exemption stays scoped to the toc tier', () => {
     // The label is the whole discriminator: an identical graph whose edge came
     // from the note's own numeric prefix must keep its gate.

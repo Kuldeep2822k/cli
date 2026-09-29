@@ -46,6 +46,17 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs.map((r) => r.name), ['MODULES/01-foundations/01-a', '02-b']);
   });
 
+  test('extracts links under ## Depends on and ## Required knowledge headings', () => {
+    const refs = extractDeclaredPrerequisites([
+      '## Depends on',
+      '- [[01-foundations]]',
+      '',
+      '## Required knowledge',
+      '- [[02-intro]]',
+    ].join('\n'));
+    assert.deepStrictEqual(refs.map((r) => r.name), ['01-foundations', '02-intro']);
+  });
+
   test('a Prerequisites block inside a fenced example declares nothing', () => {
     // This is how a course teaches its own template. Reading it would hand the
     // example's fictional prerequisite a real, gating edge.

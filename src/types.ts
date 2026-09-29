@@ -484,13 +484,34 @@ export interface ValidationResult {
  * @remarks
  * `numbered` edges come from the note's own numeric prefix, `toc` edges from a
  * listing document's enumeration order, and `declared` edges from the note's own
- * text — a `## Prerequisites` section or a "requires X" sentence. Enumeration
- * position is not a prerequisite claim, so a `toc` label makes a note's edges
- * advisory: they still take part in cycle detection and ranking, they just
- * never gate. `numbered` and `declared` both gate, because each states an order
- * someone wrote down on purpose.
+ * text — a `## Prerequisites` section or a "requires X" sentence. `tie` edges
+ * join two notes carrying the *same* number or phase, where the tree declined to
+ * order them and the filename collation did.
+ *
+ * Enumeration position is not a prerequisite claim, so `toc` and `tie` are
+ * advisory: their edges still take part in cycle detection and ranking, they
+ * just never gate. `numbered` and `declared` both gate, because each records an
+ * order someone wrote down on purpose.
  */
-export type DependsOnSource = 'numbered' | 'toc' | 'declared';
+export type DependsOnSource = 'numbered' | 'toc' | 'declared' | 'tie';
+
+/** Sources that order or rank but never gate a note. */
+const ADVISORY_DEPENDS_ON_SOURCES: readonly DependsOnSource[] = ['toc', 'tie'];
+
+/**
+ * Whether a provenance label marks its edges as advisory rather than gating.
+ *
+ * @param source - The parsed label, or `undefined` for a note with none
+ * @returns `true` only for an explicit advisory source
+ *
+ * @remarks
+ * Fail-closed by construction: `undefined` and every unlisted source gate, so a
+ * typo or a label an older build invented can only ever keep a gate in place,
+ * never relax one.
+ */
+export function isAdvisoryDependsOnSource(source: DependsOnSource | undefined): boolean {
+  return source !== undefined && ADVISORY_DEPENDS_ON_SOURCES.includes(source);
+}
 
 /**
  * Normalizes a raw `depends_on_source` frontmatter value.
@@ -506,7 +527,7 @@ export type DependsOnSource = 'numbered' | 'toc' | 'declared';
 export function normalizeDependsOnSource(raw: unknown): DependsOnSource | undefined {
   if (typeof raw !== 'string') return undefined;
   const s = raw.trim().toLowerCase();
-  return s === 'numbered' || s === 'toc' || s === 'declared' ? s : undefined;
+  return s === 'numbered' || s === 'toc' || s === 'declared' || s === 'tie' ? s : undefined;
 }
 
 /**
