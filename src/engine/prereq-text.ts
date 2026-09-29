@@ -16,10 +16,18 @@ import { extractTocLinks } from './toc-chain';
 
 /** One prerequisite reference found in a note's own text, before resolution. */
 export interface DeclaredPrereqRef {
-  /** Reference as written: a link target or destination, or a `requires` object */
+  /**
+   * Reference exactly as written: a wikilink target, a markdown link
+   * destination, or the object of a `requires` phrase. Never reduced to a
+   * basename — the directory a link carries is the part that makes it unique.
+   */
   name: string;
-  /** Which form carried it */
-  form: 'link' | 'prose';
+  /**
+   * Which form carried it, because each has a different resolution rule: a
+   * wikilink names a vault path or a note name, a markdown link is relative to
+   * the note holding it, and prose names a note the author expects to be found.
+   */
+  form: 'wikilink' | 'mdlink' | 'prose';
 }
 
 /** Why a candidate did not become an edge. */
@@ -91,13 +99,28 @@ function isPlausibleName(text: string): boolean {
   });
 }
 
-/** Basename of a link destination, without its `.md` suffix. */
-function destinationName(destination: string): string | null {
-  const trimmed = destination.trim();
-  if (trimmed.length === 0) return null;
-  const base = trimmed.slice(trimmed.lastIndexOf('/') + 1);
-  if (base.length === 0) return null;
-  return base.toLowerCase().endsWith('.md') ? base.slice(0, -3) : base;
+/** A negation anywhere in the clause before `requires` means the note rules the name out. */
+const NEGATION = /(?:\b(?:not|no|never|neither|without|nor|skip)\b|n['’]t\b)/i;
+
+/**
+ * True when the clause leading up to a `requires` match negates it.
+ *
+ * @remarks
+ * Bounded by the nearest sentence terminator before the verb, so "This lesson
+ * does not require Setup" yields nothing while "Requires care. Set up first, as
+ * it requires Setup" still reads the second clause. A negated requirement is the
+ * worst possible invention: the author stated the note is *not* needed, and a
+ * gating edge would lock the learner behind exactly that note.
+ */
+function negatedBefore(text: string, index: number): boolean {
+  const boundaries = [
+    text.lastIndexOf('.', index),
+    text.lastIndexOf('!', index),
+    text.lastIndexOf('?', index),
+    text.lastIndexOf('\n', index),
+  ];
+  const start = Math.max(0, ...boundaries) + 1;
+  return NEGATION.test(text.slice(start, index));
 }
 
 /**
@@ -110,7 +133,7 @@ function destinationName(destination: string): string | null {
  * @remarks
  * A section is a heading matching {@link PREREQ_HEADING} collecting links from
  * its list items until the next heading of any level; prose is a `requires …`
- * phrase anywhere in the text.
+ * phrase anywhere in the rest of the text.
  *
  * Fenced code is blanked before either scan, so a `## Prerequisites` block
  * inside a documentation example — exactly how a course teaches its own
@@ -118,22 +141,29 @@ function destinationName(destination: string): string | null {
  * {@link extractWikilinks} and images and reference-style links by
  * {@link extractTocLinks}, for the same reason: a link written to be read is
  * not a link written to be followed.
+ *
+ * Task items are dropped from both scans, not just the section one, and a
+ * `requires` phrase preceded by a negation in its own clause is dropped. Both
+ * are gate-invention paths: an unchecked `- [ ] requires X` is a to-do the
+ * author has not committed to, and "does not require X" says the opposite of a
+ * prerequisite.
  */
 export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] {
   const scanned = stripFencedCodeBlocks(text);
+  const lines = scanned.split(/\r?\n/);
   const refs: DeclaredPrereqRef[] = [];
   const seen = new Set<string>();
   const push = (name: string, form: DeclaredPrereqRef['form']): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0) return;
-    const key = trimmed.toLowerCase();
+    const key = `${form}:${trimmed.toLowerCase()}`;
     if (seen.has(key)) return;
     seen.add(key);
     refs.push({ name: trimmed, form });
   };
 
   let inSection = false;
-  for (const line of scanned.split(/\r?\n/)) {
+  for (const line of lines) {
     if (ANY_HEADING.test(line)) {
       inSection = PREREQ_HEADING.test(line);
       continue;
@@ -144,23 +174,22 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
     const content = (item ? item[1] : line).trim();
     if (content.length === 0) continue;
     for (const link of extractWikilinks(content)) {
-      push(link.target, 'link');
+      push(link.target, 'wikilink');
     }
     for (const link of extractTocLinks(content)) {
-      if (link.destination === null) continue;
-      const name = destinationName(link.destination);
-      if (name !== null) push(name, 'link');
+      if (link.destination !== null) push(link.destination, 'mdlink');
     }
   }
 
+  const prose = lines.map((line) => (TASK_ITEM.test(line) ? '' : line)).join('\n');
   REQUIRES_PHRASE.lastIndex = 0;
   try {
     let match: RegExpExecArray | null;
-    while ((match = REQUIRES_PHRASE.exec(scanned)) !== null) {
+    while ((match = REQUIRES_PHRASE.exec(prose)) !== null) {
       const candidate = match[1];
-      if (candidate !== undefined && isPlausibleName(candidate)) {
-        push(candidate, 'prose');
-      }
+      if (candidate === undefined || !isPlausibleName(candidate)) continue;
+      if (negatedBefore(prose, match.index)) continue;
+      push(candidate, 'prose');
     }
   } finally {
     REQUIRES_PHRASE.lastIndex = 0;
@@ -173,8 +202,10 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
  * Resolves declared references to targets through a caller-owned lookup.
  *
  * @param refs - Candidates from {@link extractDeclaredPrerequisites}
- * @param lookup - Every target a name could mean, possibly none. What a name
- * means is the caller's business — a vault basename index, a topic-title table.
+ * @param lookup - Every target a reference could mean, possibly none. What a
+ * reference means is the caller's business, and the whole {@link DeclaredPrereqRef}
+ * is handed over because a link resolves against the note holding it while a
+ * bare name resolves against an index — a name alone cannot tell those apart.
  * @returns Unique hits and the counted misses
  *
  * @remarks
@@ -185,7 +216,7 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
  */
 export function resolveDeclaredPrerequisites<T>(
   refs: DeclaredPrereqRef[],
-  lookup: (name: string) => readonly T[]
+  lookup: (ref: DeclaredPrereqRef) => readonly T[]
 ): DeclaredPrereqResolution<T> {
   const resolved: { name: string; target: T }[] = [];
   const skipped: { name: string; reason: DeclaredPrereqSkip }[] = [];
@@ -193,7 +224,7 @@ export function resolveDeclaredPrerequisites<T>(
 
   for (const ref of refs) {
     const matches: T[] = [];
-    for (const candidate of lookup(ref.name)) {
+    for (const candidate of lookup(ref)) {
       if (!matches.includes(candidate)) matches.push(candidate);
     }
     if (matches.length === 0) {

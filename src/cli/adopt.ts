@@ -504,8 +504,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       // WS6 — a note's own words outrank any inference about it. The name index
-      // holds only what this batch can point at: the notes being adopted, whose
-      // ids were just minted, and every topic already in the vault.
+      // holds only the notes this batch may point at: the ones being adopted,
+      // whose ids were just minted, and the already-adopted notes inside the
+      // scanned scope. Deliberately *not* every topic in the vault — a note the
+      // learner excluded with `--exclude`, `--include` or `--tag` must not become
+      // a new `depends_on` entry through someone else's prose, which is the same
+      // guarantee the chain itself already honours.
       type PrereqTarget = { id: string; path: string };
       const prereqByPath = new Map<string, PrereqTarget[]>();
       const prereqByBase = new Map<string, PrereqTarget[]>();
@@ -526,21 +530,47 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         addIndexed(prereqByBase, relPath.slice(relPath.lastIndexOf('/') + 1), target);
       };
       for (const [relPath, id] of idByPath) addPrereqTarget(relPath, id);
-      for (const topic of existingTopics) addPrereqTarget(topic.path, topic.id);
+
+      /**
+       * Folds a markdown link destination against the directory of the note
+       * holding it, the way a renderer would. `[home](x1/README.md)` inside
+       * `m/03-c.md` names `m/x1/README.md`; keeping only its basename would
+       * throw away the directory that made the target unique and turn a precise
+       * link into an ambiguous name.
+       */
+      const foldLinkDestination = (destination: string, noteDir: string): string | null => {
+        let raw = destination.trim().replace(/\\/g, '/').toLowerCase();
+        if (raw.length === 0) return null;
+        if (raw.endsWith('/')) raw += 'readme';
+        const withoutSuffix = raw.replace(/\.md$/, '');
+        const joined = withoutSuffix.startsWith('/')
+          ? withoutSuffix.slice(1)
+          : path.posix.join(noteDir, withoutSuffix);
+        const folded = path.posix.normalize(joined);
+        if (folded === '' || folded === '.' || folded.startsWith('..')) return null;
+        return folded;
+      };
 
       for (const note of toAdopt) {
         const refs = extractDeclaredPrerequisites(note.content);
         if (refs.length === 0) continue;
         const selfPath = note.relativePath.replace(/\\/g, '/');
-        const { resolved, skipped } = resolveDeclaredPrerequisites(refs, (name) => {
-          const key = name.trim().replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+        const noteDir = selfPath.includes('/') ? selfPath.slice(0, selfPath.lastIndexOf('/')) : '';
+        const { resolved, skipped } = resolveDeclaredPrerequisites(refs, (ref) => {
+          const key = ref.name.trim().replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
           if (key.length === 0) return [];
-          // A qualified name is a path and gets no basename fallback; a bare one
-          // is a basename and gets no path match. Guessing between the two is how
-          // an unrelated `README` would inherit someone else's prerequisite.
-          const candidates = key.includes('/')
-            ? prereqByPath.get(key)
-            : prereqByBase.get(key);
+          let candidates: PrereqTarget[] | undefined;
+          if (ref.form === 'mdlink') {
+            const folded = foldLinkDestination(ref.name, noteDir);
+            candidates = folded === null ? undefined : prereqByPath.get(folded);
+          } else if (ref.form === 'wikilink') {
+            // A qualified wikilink is a vault path and gets no basename fallback;
+            // a bare one is a note name and gets no path match. Guessing between
+            // the two is how an unrelated `README` inherits someone's prerequisite.
+            candidates = key.includes('/') ? prereqByPath.get(key) : prereqByBase.get(key);
+          } else {
+            candidates = prereqByBase.get(key);
+          }
           return (candidates ?? []).filter((t) => t.path !== selfPath);
         });
         declaredSkippedCount += skipped.length;

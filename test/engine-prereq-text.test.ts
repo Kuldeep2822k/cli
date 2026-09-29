@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   extractDeclaredPrerequisites,
   resolveDeclaredPrerequisites,
+  type DeclaredPrereqRef,
 } from '../src/engine/prereq-text';
 
 /**
@@ -30,7 +31,9 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       'MIT',
       '',
     ].join('\n'));
-    assert.deepStrictEqual(refs, [{ name: 'README', form: 'link' }]);
+    // The destination survives whole: the directory is what makes `README.md`
+    // here mean one note rather than the two the vault holds.
+    assert.deepStrictEqual(refs, [{ name: '../1-Clustering/README.md', form: 'mdlink' }]);
   });
 
   test('reads wikilinks and bare names from a bulleted section', () => {
@@ -101,14 +104,47 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs.map((r) => r.name), ['genuine']);
   });
 
-  test('repeated names collapse to one reference', () => {
+  test('a negated requirement declares nothing', () => {
+    // The worst invention available: the author says the note is *not* needed,
+    // and a gate would lock the learner behind precisely that note.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('This lesson does not require Setup.\n'),
+      []
+    );
+    assert.deepStrictEqual(extractDeclaredPrerequisites('Without Gradient Descent, skip this.\n'), []);
+    // The negation is bounded by the sentence, so a later clause still counts.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('No calculator is needed. It requires Matrices.\n'),
+      [{ name: 'Matrices', form: 'prose' }]
+    );
+  });
+
+  test('a requires phrase inside a task item declares nothing', () => {
+    // The section scanner declines checkboxes; the prose scan must too, or
+    // `- [ ] requires knowledge of Setup` gates on a to-do nobody has done.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('# Lesson\n\n- [ ] requires knowledge of Setup\n'),
+      []
+    );
+  });
+
+  test('the same note declared twice becomes one edge', () => {
+    // Two forms of one name stay two *references* — a wikilink and a prose
+    // mention resolve by different rules, so they must not be merged before
+    // resolution — but resolution deduplicates by target, so one note is one
+    // predecessor.
     const refs = extractDeclaredPrerequisites([
       '## Prerequisites',
       '- [[Setup]]',
       '- [[setup]]',
       'It requires Setup.',
     ].join('\n'));
-    assert.strictEqual(refs.length, 1);
+    assert.deepStrictEqual(refs.map((r) => r.form), ['wikilink', 'prose']);
+
+    const { resolved } = resolveDeclaredPrerequisites(refs, (ref) =>
+      ref.form === 'wikilink' ? ['/vault/setup.md'] : []
+    );
+    assert.deepStrictEqual(resolved, [{ name: 'Setup', target: '/vault/setup.md' }]);
   });
 });
 
@@ -117,11 +153,12 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
     ['setup', ['/vault/01-setup.md']],
     ['quiz', ['/vault/a/quiz.md', '/vault/b/quiz.md']],
   ]);
-  const lookup = (name: string): string[] => index.get(name.toLowerCase().trim()) ?? [];
+  const lookup = (ref: DeclaredPrereqRef): string[] =>
+    ref.form === 'prose' ? [] : index.get(ref.name.toLowerCase().trim()) ?? [];
 
   test('a unique hit becomes an edge', () => {
     const { resolved, skipped } = resolveDeclaredPrerequisites(
-      [{ name: 'setup', form: 'link' }],
+      [{ name: 'setup', form: 'wikilink' }],
       lookup
     );
     assert.deepStrictEqual(resolved, [{ name: 'setup', target: '/vault/01-setup.md' }]);
@@ -133,8 +170,8 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
     // behind a note nobody said, while a missed edge leaves the numbered tree's.
     const { resolved, skipped } = resolveDeclaredPrerequisites(
       [
-        { name: 'nothing-here', form: 'prose' },
-        { name: 'Quiz', form: 'link' },
+        { name: 'nothing-here', form: 'wikilink' },
+        { name: 'Quiz', form: 'wikilink' },
       ],
       lookup
     );
@@ -145,9 +182,29 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
     ]);
   });
 
+  test('the lookup receives the form, not just the name', () => {
+    // A markdown link resolves against its note's directory and a bare prose
+    // name against an index. Handed the name alone, the caller cannot tell the
+    // two apart, and folding one way through the other is how `x1/README.md`
+    // became the ambiguous basename `README`.
+    const seen: string[] = [];
+    resolveDeclaredPrerequisites(
+      [
+        { name: 'x1/README.md', form: 'mdlink' },
+        { name: 'Setup', form: 'prose' },
+        { name: 'm/01-a', form: 'wikilink' },
+      ],
+      (ref) => {
+        seen.push(`${ref.form}:${ref.name}`);
+        return [];
+      }
+    );
+    assert.deepStrictEqual(seen, ['mdlink:x1/README.md', 'prose:Setup', 'wikilink:m/01-a']);
+  });
+
   test('the same target reported twice is not ambiguity', () => {
     const { resolved, skipped } = resolveDeclaredPrerequisites(
-      [{ name: 'dup', form: 'link' }],
+      [{ name: 'dup', form: 'wikilink' }],
       () => ['/vault/x.md', '/vault/x.md']
     );
     assert.deepStrictEqual(resolved, [{ name: 'dup', target: '/vault/x.md' }]);
@@ -157,11 +214,16 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
   test('fan-in keeps every unique hit and each target once', () => {
     const { resolved } = resolveDeclaredPrerequisites(
       [
-        { name: 'setup', form: 'link' },
-        { name: 'Setup', form: 'prose' },
-        { name: 'lecture', form: 'link' },
+        { name: 'setup', form: 'wikilink' },
+        { name: 'Setup', form: 'mdlink' },
+        { name: 'lecture', form: 'wikilink' },
       ],
-      (name) => (name === 'setup' ? ['/vault/01-setup.md'] : name === 'lecture' ? ['/vault/02.md'] : [])
+      (ref) =>
+        ref.name.toLowerCase() === 'setup' && ref.form === 'wikilink'
+          ? ['/vault/01-setup.md']
+          : ref.name === 'lecture'
+            ? ['/vault/02.md']
+            : []
     );
     assert.deepStrictEqual(resolved.map((r) => r.target), ['/vault/01-setup.md', '/vault/02.md']);
   });

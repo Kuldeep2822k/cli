@@ -74,6 +74,11 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
     return runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
   }
 
+  /** YAML frontmatter of an already-adopted note with a fixed id and no deps. */
+  function adoptedNote(title: string, id: string): string {
+    return ['---', `palee_id: ${id}`, 'palee_schema: 1', `title: ${title}`, 'depends_on: []', 'topic_mastery: 0', '---', '', `# ${title}`, ''].join('\n');
+  }
+
   /** The `ready_to_learn` ids `palee plan` offers, via its JSON mode. */
   function readyIds(configDir: string): string[] {
     const result = runCLI(['plan', '--json'], configDir);
@@ -131,8 +136,6 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
     const { vaultDir, configDir } = freshVault({
       'm/01-a.md': '# A\n\n',
       'm/02-b.md': '# B\n\n',
-      'm/x1/README.md': '# Course home, first copy\n\n',
-      'm/x2/README.md': '# Course home, second copy\n\n',
       'm/q1/quiz.md': '# Quiz, first copy\n\n',
       'm/q2/quiz.md': '# Quiz, second copy\n\n',
       'm/03-c.md': [
@@ -140,9 +143,8 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
         '',
         '## Prerequisites',
         '',
-        '[course home](x1/README.md)',
-        '',
         '- [[quiz]]',
+        '- [[nothing-names-this]]',
       ].join('\n'),
     });
     const result = adopt(vaultDir, configDir);
@@ -196,6 +198,51 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
       [idOf(vaultDir, 'm/01-a.md'), idOf(vaultDir, 'm/02-b.md')].sort()
     );
     assert.match(result.stdout, /Declared:\s+2 edge\(s\)/);
+  });
+
+  test('a markdown link resolves against its own note, not its basename', () => {
+    // `[setup](01-a.md)` inside `m/03-c.md` names `m/01-a.md`. Reducing it to
+    // `01-a` made the directory disappear, so the identical note under `z/`
+    // turned a precise declaration into an ambiguous name and the edge was lost.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-a.md': '# Setup\n\n',
+      'm/02-b.md': '# B\n\n',
+      'z/01-a.md': '# An unrelated note with the same name\n\n',
+      'm/03-c.md': ['# C', '', '## Prerequisites', '', '[setup](01-a.md)'].join('\n'),
+    });
+    const result = adopt(vaultDir, configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'm/03-c.md'), [idOf(vaultDir, 'm/01-a.md')]);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/03-c.md')?.depends_on_source, 'declared');
+  });
+
+  test('a note the batch excludes cannot become a declared prerequisite', () => {
+    // The chain already honours `--exclude`: a note the learner filtered out is
+    // neither adopted nor used as a predecessor. Reading a declaration through a
+    // vault-wide index bypassed that, so prose could gate a learner behind the
+    // very note they asked to be left alone.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-a.md': '# A\n\n',
+      'notes/appendix.md': adoptedNote('Appendix', 'T-appendix'),
+    });
+    const first = runCLI(['adopt', '--all', '-y'], configDir);
+    assert.strictEqual(first.status, 0, first.stdout + first.stderr);
+
+    fs.writeFileSync(
+      path.join(vaultDir, 'm', '02-b.md'),
+      ['# B', '', '## Prerequisites', '', '- [[notes/appendix]]'].join('\n')
+    );
+    const result = runCLI(['adopt', '--all', '--auto-chain', '--exclude', '*appendix*', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'm/02-b.md'), [idOf(vaultDir, 'm/01-a.md')]);
+    assert.strictEqual(
+      frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source,
+      'numbered',
+      'an excluded note must not become a declared prerequisite'
+    );
+    assert.match(result.stdout, /Declared:\s+0 edge\(s\).*\(1 name\(s\) resolved to no single note\)/);
   });
 
   test('a declared cycle fails closed and writes nothing', () => {
