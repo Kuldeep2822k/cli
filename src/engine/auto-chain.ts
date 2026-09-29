@@ -696,16 +696,23 @@ export function planAutoChainWithHygiene(
   let walkingDir: string | null = null;
   /** Last backbone of the group being walked that is not homework. */
   let lessonOfGroup: string | null = null;
+  /** How many backbone notes the group being walked has held. */
+  let backbonesInGroup = 0;
   /** The same for the group just left — what a cross-directory bridge may use. */
   let exitOfLastGroup: string | null = null;
   for (const p of orderedPaths) {
     const dir = parentDirOf(p);
     if (dir !== walkingDir) {
-      // A group of leaves alone has no exit of its own, so the bridge carries on
-      // from the last group that had one — which is what walking `lastBackbone`
-      // forward did before homework was demoted.
-      if (lessonOfGroup !== null) exitOfLastGroup = lessonOfGroup;
+      // Two different kinds of empty-handed group, and they must not be
+      // conflated. A group of leaves alone never claimed to be a module, so the
+      // bridge carries on from the last group that did — which is what walking
+      // `lastBackbone` forward did before homework was demoted. A group whose
+      // backbones are all homework IS a module, and it has no lesson to hand on:
+      // its exit is nothing, so the next module opens its own chain instead of
+      // inheriting a lesson from two modules back and silently skipping the quiz.
+      if (backbonesInGroup > 0) exitOfLastGroup = lessonOfGroup;
       lessonOfGroup = null;
+      backbonesInGroup = 0;
       walkingDir = dir;
     }
     const cls = decisions.get(p)?.cls ?? 'leaf';
@@ -715,8 +722,10 @@ export function planAutoChainWithHygiene(
     // note of every module, so `02-search/01-b` ended up gated behind
     // `01-foundations/assignment.md`: 48 of 88 measured edges in
     // ML-For-Beginners, 29 of 72 in Web-Dev. The bridge uses the group's last
-    // lesson instead, and a group whose only backbone is homework opens a new
-    // chain rather than handing its assignment to everything downstream.
+    // lesson instead. A module whose only backbone is homework exports nothing,
+    // and the chain carries on from the last real lesson rather than restarting:
+    // `01-a/01-x → 01-a/assignment → 02-b/quiz → 03-c/01-y` gates the quiz and
+    // the next lesson on `01-x`, never on homework.
     const spine = lastBackbone !== null && parentDirOf(lastBackbone) === dir ? lastBackbone : exitOfLastGroup;
     const candidate = spine !== null && dirTransitionJustified(parentDirOf(spine), dir) ? spine : null;
     if (candidate !== null && parentDirOf(candidate) === parentDirOf(p) && tiedByName(baseNameOf(candidate), baseNameOf(p))) {
@@ -726,6 +735,7 @@ export function planAutoChainWithHygiene(
       backbonePaths.push(p);
       predecessorOf.set(p, candidate);
       lastBackbone = p;
+      backbonesInGroup += 1;
       if (tier0LessonRank(baseNameOf(p)).rank !== 4) lessonOfGroup = p;
     } else {
       leafPaths.push(p);

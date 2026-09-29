@@ -520,6 +520,12 @@ export interface TieredChainPlan extends HygieneChainPlan {
   numberedEdgeCount: number;
   /** Edges authored by author enumeration (TOC tier) */
   tocEdgeCount: number;
+  /**
+   * Paths the enumeration offered that a toc/full tier could order, whether or not
+   * the selected tier consumed any. The CLI's `--chain-tier toc` advice is only
+   * honest when this is above zero.
+   */
+  tocCandidateCount: number;
   /** True when any scoped path carries a numeric prefix (the C4 refusal gate) */
   hasNumberedLayout: boolean;
   /** True when the TOC tier contributed at least one edge */
@@ -604,6 +610,18 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
 
   const hasNumberedLayout = numberedSet.size > 0;
 
+  // Computed for every tier, including `strict`, which consumes none of it. The
+  // CLI tells a learner running `strict` to try `--chain-tier toc`; that advice is
+  // only worth giving when the enumeration holds something the toc tier could
+  // actually order, and this is the one place that knows which paths those are.
+  const tocCandidates: string[] = [];
+  for (const raw of tocPaths) {
+    const p = raw.replace(/\\/g, '/');
+    if (numberedSet.has(p)) continue;
+    if (!tocChainable(p)) continue;
+    tocCandidates.push(p);
+  }
+
   if (tier === 'strict') {
     return {
       ...numbered,
@@ -612,18 +630,13 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
       sourceOf,
       numberedEdgeCount,
       tocEdgeCount: 0,
+      tocCandidateCount: tocCandidates.length,
       hasNumberedLayout,
       hasTocLayout: false,
     };
   }
 
-  const candidates: string[] = [];
-  for (const raw of tocPaths) {
-    const p = raw.replace(/\\/g, '/');
-    if (numberedSet.has(p)) continue;
-    if (!tocChainable(p)) continue;
-    candidates.push(p);
-  }
+  const candidates = tocCandidates;
 
   const tocPlan = planTocChain(candidates);
   const tocSet = new Set(tocPlan.orderedPaths);
@@ -693,6 +706,7 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
     directoryOrderAlphabetical: directoriesOrderedAlphabetically(unenumerated),
     numberedEdgeCount: numberedEdges,
     tocEdgeCount: tocEdges,
+    tocCandidateCount: tocCandidates.length,
     hasNumberedLayout,
     hasTocLayout: tocEdges > 0,
   };
