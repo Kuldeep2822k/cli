@@ -81,9 +81,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           ready_to_learn: [],
           quarantined_cycles: [],
           quarantined_cycles_truncated: false,
+          blocked: [],
           counts: {
             due: 0,
             ready: 0,
+            blocked: 0,
             quarantined: 0,
             mastered: 0,
             learning: 0,

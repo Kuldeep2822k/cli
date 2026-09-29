@@ -125,4 +125,57 @@ describe('roadmap import reports edges to notes it did not write', () => {
       'a complete import must not raise the warning'
     );
   });
+
+  test('an id this import superseded counts as a dangling edge target', () => {
+    // The note at `repl-1.md` already carries T-old. This import writes T-new
+    // over the same path, so T-old exists nowhere — but the pre-import scan
+    // still held it, and treating it as known hid the edge pointing at it,
+    // which is exactly the case this report exists to catch.
+    fs.writeFileSync(
+      path.join(vaultDir, 'repl-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: T-old', 'title: Old One', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-replace.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-new',
+        '    title: New One',
+        '    path: repl-1.md',
+        '  - id: T-dep',
+        '    title: Dependent',
+        '    path: repl-2.md',
+        '    depends_on: [T-old]',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /T-dep → T-old/, 'the superseded id must be named');
+
+    // Scoped to the note actually overwritten: an edge onto a topic this same
+    // batch wrote must stay unreported.
+    const keep = path.join(tempDir, 'roadmap-keep.yaml');
+    fs.writeFileSync(
+      keep,
+      [
+        'topics:',
+        '  - id: T-fresh',
+        '    title: Fresh',
+        '    path: keep-1.md',
+        '  - id: T-fresh-dep',
+        '    title: Fresh Dependent',
+        '    path: keep-2.md',
+        '    depends_on: [T-fresh]',
+        '',
+      ].join('\n')
+    );
+    const second = runCLI(['roadmap', '--from', keep, '--yes']);
+    const secondOutput = second.stdout + second.stderr;
+    assert.strictEqual(second.status, 0, secondOutput);
+    assert.doesNotMatch(secondOutput, /edge\(s\) point at topics that were not written/);
+  });
 });

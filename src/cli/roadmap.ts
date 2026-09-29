@@ -283,6 +283,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       // then disappears from `palee plan` with only a `validate` warning to say
       // why. Track what actually landed so the batch can report its own edges.
       const writtenIds = new Set<string>();
+      /** Vault-relative notes this import wrote, for the replaced-topic check below. */
+      const writtenPaths = new Set<string>();
       const writtenEdges: { from: string; to: string }[] = [];
 
       for (const topic of roadmap.topics) {
@@ -354,6 +356,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             updated++;
           }
           writtenIds.add(topic.id);
+          writtenPaths.add(topic.path.replace(/\\/g, '/'));
           const writtenDeps = Array.isArray(paleeData.depends_on) ? (paleeData.depends_on as unknown[]) : [];
           for (const dep of writtenDeps) {
             if (typeof dep === 'string') writtenEdges.push({ from: topic.id, to: dep });
@@ -372,7 +375,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         }
       }
 
-      const knownIds = new Set<string>([...writtenIds, ...existingTopicsById.keys()]);
+      // A topic that already existed stops existing when this import writes a
+      // different id over its note, so it cannot count as a known target just
+      // because the vault scan saw it before the batch. An edge naming the
+      // superseded id is dangling, and this check exists to say so.
+      const survivingExistingIds = [...existingTopicsById.entries()]
+        .filter(([id, t]) => writtenIds.has(id) || !writtenPaths.has(t.path.replace(/\\/g, '/')))
+        .map(([id]) => id);
+      const knownIds = new Set<string>([...writtenIds, ...survivingExistingIds]);
       const danglingEdges = writtenEdges.filter((edge) => !knownIds.has(edge.to));
       if (danglingEdges.length > 0) {
         console.error(

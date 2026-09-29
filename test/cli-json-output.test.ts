@@ -111,6 +111,46 @@ describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
       assert.strictEqual(data.counts.quarantined, 0);
     });
 
+    test('plan --json reports the same keys for an empty vault as for a populated one', async () => {
+      // The empty-vault response is a separate literal from the populated one,
+      // and `blocked` / `counts.blocked` were added to only the latter — so a
+      // client that reads the documented shape gets `undefined` exactly when the
+      // vault is empty. Comparing the two key sets makes any future one-sided
+      // addition fail here rather than in a consumer.
+      await planCommand({ json: true });
+      const empty = getLastParsedJson();
+
+      fs.writeFileSync(
+        path.join(tmpDir, 'one.md'),
+        `---
+palee_schema: 1
+palee_id: T-shape-one
+title: Shape One
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+---
+# Shape One
+`,
+        'utf8'
+      );
+      await planCommand({ json: true });
+      const populated = getLastParsedJson();
+
+      assert.deepStrictEqual(
+        Object.keys(empty).sort(),
+        Object.keys(populated).sort(),
+        'top-level keys must not diverge between the two response branches'
+      );
+      assert.deepStrictEqual(
+        Object.keys(empty.counts).sort(),
+        Object.keys(populated.counts).sort(),
+        'counts keys must not diverge between the two response branches'
+      );
+      assert.deepStrictEqual(empty.blocked, []);
+      assert.strictEqual(empty.counts.blocked, 0);
+    });
+
     test('progress --json on empty vault produces valid JSON structure', async () => {
       await progressCommand({ json: true });
       const data = getLastParsedJson();
