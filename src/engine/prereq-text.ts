@@ -109,44 +109,41 @@ function isPlausibleName(text: string): boolean {
   });
 }
 
-/** A negation in the clause directly governing `requires` means the note rules the name out. */
-const NEGATION = /(?:\b(?:not|no|none|never|neither|without|nor|skip)\b|n['’]t\b)/i;
+/**
+ * Verbal negation directly modifying the `require` verb phrase.
+ * Matches an optional auxiliary followed by a negation word and optional
+ * adverbs (e.g. `does not require`, `does not yet require`, `never requires`,
+ * `no longer requires`, `without requiring`).
+ */
+const VERBAL_NEGATION =
+  /(?:\b(?:does|doesn't|do|don't|did|didn't|will|won't|would|wouldn't|can|cannot|can't|could|couldn't|should|shouldn't|is|isn't|are|aren't|was|wasn't|were|weren't|must|mustn't|may|might)\s+)?(?:\b(?:not|never|neither|nor|without)\b|n['’]t\b|\bno\s+(?:longer|more)\b)(?:\s+(?:yet|even|always|ever|[a-z]+ly))*\s*$/i;
+
+/** Punctuation and conjunctions that introduce a new clause. */
+const CLAUSE_SPLIT =
+  /(?:[,;:—–]|\b(?:so|but|however|and|because|since|although|though|whereas|while|therefore)\b)/i;
 
 /**
- * Conjunctions that start a new clause and reset earlier polarity.
- *
- * @remarks
- * Coordinating and subordinating conjunctions (`so`, `but`, `and`, `because`,
- * `since`, `although`, `though`, `whereas`, `while`) begin a new clause. `yet`
- * acts as a conjunction when introducing a clause (e.g. "No calculator is
- * needed, yet this lesson requires Matrices"), but acts as an adverb of time
- * when following a negation ("not yet", "n't yet"). In the latter case, it
- * modifies the negation and must not discard it.
+ * A negative subject directly governing `require` in the immediate clause
+ * (e.g. `No lesson`, `No topic`, `None of the lessons`, `Nobody`, `Nothing`).
  */
-const CLAUSE_CONJUNCTION =
-  /\b(?:so|but|and|because|since|although|though|whereas|while)\b|(?<!\b(?:not|never|neither|no|none)\b[\s,]*|n['’]t[\s,]*)\byet\b/gi;
-
-/**
- * A comma followed by a conjunction or new clause subject introduces a new
- * clause, resetting earlier polarity (e.g. "There is no video, so this lesson
- * requires Setup", "Because there is no video, this lesson requires Setup").
- * A comma followed only by adverbs (e.g. "does not, in fact, require") does
- * not reset polarity.
- */
-const NEW_CLAUSE_AFTER_COMMA =
-  /,\s*(?:(?:so|but|and|yet|or|nor|for)\s+)?(?:this|it|that|these|those|we|you|the|each|every|all)\b/gi;
+const NEGATIVE_SUBJECT =
+  /^\s*(?:no\s+(?:(?:other|prior|subsequent|single|particular)\s+)?[a-z0-9_-]+(?:\s+(?:of|in|for)\s+(?:the\s+|this\s+)?[a-z0-9_-]+)?|none(?:\s+of\s+(?:the\s+|these\s+)?[a-z0-9_-]+)?|neither(?:\s+of\s+(?:the\s+|these\s+)?[a-z0-9_-]+|\s+[a-z0-9_-]+)?|nothing|nobody|no\s+one)\s*$/i;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
  *
  * @remarks
- * Bounded by the nearest sentence terminator or clause break before the verb,
- * so "This lesson does not require Setup" and "No lesson requires Setup" yield
- * nothing while "No calculator is needed, but this lesson requires Matrices"
- * and "There is no video, so this lesson requires Setup" still read the
- * requirement. A negated requirement is the worst possible invention: the
- * author stated the note is *not* needed, and a gating edge would lock the
- * learner behind exactly that note.
+ * A prerequisite is negated if and only if either:
+ * 1. The verb phrase itself is verbally negated (e.g. "This lesson does not
+ *    require Setup", "This lesson does not, and it bears repeating, require
+ *    Setup", "This lesson does not yet require Setup").
+ * 2. The subject governing `requires` in the immediate clause is negative
+ *    (e.g. "No lesson requires Setup", "None of the lessons require Setup").
+ *
+ * An earlier negation in a preceding clause (e.g. "No calculator is needed,
+ * but this lesson requires Matrices", "There is no video, however this lesson
+ * requires Setup", "There is no video, so this lesson requires Setup") does
+ * not negate the requirement.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
@@ -159,24 +156,30 @@ function negatedBefore(text: string, index: number): boolean {
   ];
   const lastBoundary = Math.max(...boundaries);
   const start = lastBoundary === -1 ? 0 : lastBoundary + 1;
-  let clause = text.slice(start, index);
+  const rawClause = text.slice(start, index);
 
-  let lastResetEnd = -1;
-  CLAUSE_CONJUNCTION.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = CLAUSE_CONJUNCTION.exec(clause)) !== null) {
-    lastResetEnd = Math.max(lastResetEnd, match.index + match[0].length);
+  // Strip parentheticals enclosed in commas, parentheses, or em-dashes:
+  // e.g. "does not, and it bears repeating, require" -> "does not require"
+  // e.g. "does not, in fact, require" -> "does not require"
+  // e.g. "does not (strictly speaking) require" -> "does not require"
+  const normalized = rawClause
+    .replace(/,\s*[^,\n]+?\s*,/g, ' ')
+    .replace(/\([^)\n]+?\)/g, ' ')
+    .replace(/[—–]\s*[^—–\n]+?\s*[—–]/g, ' ');
+
+  // Mechanism 1: The verb phrase governing `require` is negated
+  if (VERBAL_NEGATION.test(normalized)) {
+    return true;
   }
 
-  NEW_CLAUSE_AFTER_COMMA.lastIndex = 0;
-  while ((match = NEW_CLAUSE_AFTER_COMMA.exec(clause)) !== null) {
-    lastResetEnd = Math.max(lastResetEnd, match.index + 1);
+  // Mechanism 2: The subject of `require` in the immediate clause is negative
+  const parts = rawClause.split(CLAUSE_SPLIT);
+  const immediateClause = parts[parts.length - 1];
+  if (immediateClause !== undefined && NEGATIVE_SUBJECT.test(immediateClause)) {
+    return true;
   }
 
-  if (lastResetEnd !== -1) {
-    clause = clause.slice(lastResetEnd);
-  }
-  return NEGATION.test(clause);
+  return false;
 }
 
 /**
