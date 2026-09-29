@@ -306,6 +306,27 @@ describe('CLI assess — making topic_mastery reachable', () => {
     );
   });
 
+  test('a sequence in a pillar field is not read as a score', async () => {
+    // `Number(String([1]))` is `1`, so a one-element YAML sequence would count as
+    // a perfect mark here while `loadTopics` reads it as 0 and `palee validate`
+    // rejects the field — and this command is the one that opens gates.
+    const gate = [
+      '---', 'palee_schema: 1', 'palee_id: T-seq-gate', 'title: Sequence Gate', 'depends_on: []',
+      'topic_mastery: 0', 'conceptual: 0', 'practical: 0', 'debug: 0', 'feynman: [1]', '---', '', '# Gate', '',
+    ].join('\n');
+    await runInTempVault(
+      { 'seq.md': gate, 'seqchild.md': note('Seq Child', ['T-seq-gate']) },
+      async (vaultPath) => {
+        const before = fs.readFileSync(path.join(vaultPath, 'seq.md'), 'utf8');
+        const output = await captureOutput(() => assessCommand('Sequence Gate', { debug: '0.5' }));
+        assert.match(output, /stored feynman score .* is not a number between 0 and 1/);
+        assert.strictEqual(process.exitCode ?? 0, 2);
+        assert.strictEqual(fs.readFileSync(path.join(vaultPath, 'seq.md'), 'utf8'), before);
+        assert.deepStrictEqual(await readyIds(), ['T-seq-gate'], 'the dependent must stay gated');
+      }
+    );
+  });
+
   test('a pillar the learner did not name is not rewritten', async () => {
     // The stored value is read for the computation, but writing it back through
     // `normalizeScore` would silently round a learner's `0.123456789` to four

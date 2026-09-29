@@ -59,7 +59,18 @@ function parsePillar(flag: string, raw: string): { value?: number; error?: strin
  * pillar can still be set by naming it explicitly on the command line.
  */
 function readScoreRange(flag: string, raw: unknown): { value?: number; error?: string } {
-  const parsed = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  // Scalars only. `Number(String([1]))` is `1`, so a one-element YAML sequence
+  // would otherwise read as a perfect score while `loadTopics` sees 0 and
+  // `palee validate` rejects the field — three different answers from one note,
+  // with this command giving the most permissive of them.
+  if (typeof raw !== 'number' && typeof raw !== 'string') {
+    return {
+      error:
+        `Error: stored ${flag} score on this note is not a number between 0 and 1 ` +
+        `(received ${JSON.stringify(raw)}). Pass --${flag} to set it, or repair the note with palee validate.`,
+    };
+  }
+  const parsed = typeof raw === 'number' ? raw : Number(raw.trim());
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
     return {
       error:
