@@ -109,28 +109,44 @@ function isPlausibleName(text: string): boolean {
   });
 }
 
-/** A negation anywhere in the clause before `requires` means the note rules the name out. */
-const NEGATION = /(?:\b(?:not|no|never|neither|without|nor|skip)\b|n['’]t\b)/i;
+/** A negation in the clause directly governing `requires` means the note rules the name out. */
+const NEGATION = /(?:\b(?:not|never|neither|without|nor|skip)\b|n['’]t\b|\bno\s+(?:longer|more)\b)/i;
+
+/** Contrastive conjunctions that start a new clause and reset earlier polarity. */
+const CONTRASTIVE_CONJUNCTION = /\b(?:but|however|although|though|whereas|while|yet)\b/gi;
 
 /**
  * True when the clause leading up to a `requires` match negates it.
  *
  * @remarks
- * Bounded by the nearest sentence terminator before the verb, so "This lesson
- * does not require Setup" yields nothing while "Requires care. Set up first, as
- * it requires Setup" still reads the second clause. A negated requirement is the
- * worst possible invention: the author stated the note is *not* needed, and a
- * gating edge would lock the learner behind exactly that note.
+ * Bounded by the nearest sentence terminator or clause break before the verb,
+ * so "This lesson does not require Setup" yields nothing while "No calculator
+ * is needed, but this lesson requires Matrices" still reads the requirement.
+ * A negated requirement is the worst possible invention: the author stated
+ * the note is *not* needed, and a gating edge would lock the learner behind
+ * exactly that note.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
     text.lastIndexOf('.', index),
     text.lastIndexOf('!', index),
     text.lastIndexOf('?', index),
+    text.lastIndexOf(';', index),
+    text.lastIndexOf(':', index),
     text.lastIndexOf('\n', index),
   ];
   const start = Math.max(0, ...boundaries) + 1;
-  return NEGATION.test(text.slice(start, index));
+  let clause = text.slice(start, index);
+  CONTRASTIVE_CONJUNCTION.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let lastContrastEnd = -1;
+  while ((match = CONTRASTIVE_CONJUNCTION.exec(clause)) !== null) {
+    lastContrastEnd = match.index + match[0].length;
+  }
+  if (lastContrastEnd !== -1) {
+    clause = clause.slice(lastContrastEnd);
+  }
+  return NEGATION.test(clause);
 }
 
 /**

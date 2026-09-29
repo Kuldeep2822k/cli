@@ -123,10 +123,26 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       []
     );
     assert.deepStrictEqual(extractDeclaredPrerequisites('Without Gradient Descent, skip this.\n'), []);
-    // The negation is bounded by the sentence, so a later clause still counts.
+    // The negation is bounded by the sentence or contrastive clause, so a later clause still counts.
     assert.deepStrictEqual(
       extractDeclaredPrerequisites('No calculator is needed. It requires Matrices.\n'),
       [{ name: 'Matrices', form: 'prose' }]
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('No calculator is needed, but this lesson requires Matrices.\n'),
+      [{ name: 'Matrices', form: 'prose' }]
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('No calculator is needed; this lesson requires Matrices.\n'),
+      [{ name: 'Matrices', form: 'prose' }]
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('No calculator is needed, yet this lesson requires Matrices.\n'),
+      [{ name: 'Matrices', form: 'prose' }]
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('No calculator is needed, but this lesson does not require Setup.\n'),
+      []
     );
   });
 
