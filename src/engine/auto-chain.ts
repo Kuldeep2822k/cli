@@ -405,6 +405,18 @@ export interface HygieneChainPlan extends ChainPlan {
    * lesson but names its assignments would warn on every single run.
    */
   alphabeticalNotes: string[];
+  /**
+   * Planned notes that sit behind a same-directory note stating the identical
+   * number or phase, so their order against it came from their filenames.
+   *
+   * @remarks
+   * `alphabeticalNotes` cannot describe these: both `02-a.md` and `02-b.md`
+   * carry a number, so the plan looked fully decided by numbering while the
+   * edge that gates `02-b` was an alphabetical tie-break nobody reported. The
+   * edge stays — a learner who writes `a` then `b` usually means that order —
+   * but the CLI says out loud which order it invented.
+   */
+  alphabeticalTieNotes: string[];
   /** Classification of every path that survived, keyed by normalized path */
   decisions: Map<string, Tier0Decision>;
   /** Totals the CLI prints verbatim on the dry-run and confirmation screens */
@@ -520,6 +532,33 @@ function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
     return ra.phase - rb.phase;
   }
   return compareStrings(aBasename, bBasename);
+}
+
+/**
+ * True when two names in the same directory state the *same* order, so
+ * {@link compareLessonOrderTier0} falls through to comparing them by filename.
+ *
+ * @remarks
+ * Only ranks 1 and 2 are reported. A rank-3 pair (`foo.md`, `bar.md`) is already
+ * named by {@link HygieneChainPlan.alphabeticalNotes}, and rank 4 is placed last
+ * by a structural rule the planner states rather than a number the learner wrote.
+ * The two ranks that matter are the ones that look decided: `02-a.md` and
+ * `02-b.md` both read as "the numbering chose this order", when in fact nothing
+ * but the alphabet did.
+ */
+function tiedByName(aBasename: string, bBasename: string): boolean {
+  const ra = tier0LessonRank(aBasename);
+  const rb = tier0LessonRank(bBasename);
+  if (ra.rank !== rb.rank || (ra.rank !== 1 && ra.rank !== 2)) {
+    return false;
+  }
+  if (ra.rank === 1 && ra.n !== rb.n) {
+    return false;
+  }
+  if (ra.rank === 2 && ra.phase !== rb.phase) {
+    return false;
+  }
+  return true;
 }
 
 /** Within-directory rank of a note under {@link compareLessonOrderTier0}. */
@@ -659,18 +698,53 @@ export function planAutoChainWithHygiene(
 
   const backbonePaths: string[] = [];
   const leafPaths: string[] = [];
+  const alphabeticalTieNotes: string[] = [];
   const predecessorOf = new Map<string, string | null>();
   let lastBackbone: string | null = null;
+  let walkingDir: string | null = null;
+  /** Last backbone of the group being walked that is not homework. */
+  let lessonOfGroup: string | null = null;
+  /** How many backbone notes the group being walked has held. */
+  let backbonesInGroup = 0;
+  /** The same for the group just left — what a cross-directory bridge may use. */
+  let exitOfLastGroup: string | null = null;
   for (const p of orderedPaths) {
+    const dir = parentDirOf(p);
+    if (dir !== walkingDir) {
+      // Two different kinds of empty-handed group, and they must not be
+      // conflated. A group of leaves alone never claimed to be a module, so the
+      // bridge carries on from the last group that did — which is what walking
+      // `lastBackbone` forward did before homework was demoted. A group whose
+      // backbones are all homework IS a module, and it has no lesson to hand on:
+      // its exit is nothing, so the next module opens its own chain instead of
+      // inheriting a lesson from two modules back and silently skipping the quiz.
+      if (backbonesInGroup > 0) exitOfLastGroup = lessonOfGroup;
+      lessonOfGroup = null;
+      backbonesInGroup = 0;
+      walkingDir = dir;
+    }
     const cls = decisions.get(p)?.cls ?? 'leaf';
-    const candidate =
-      lastBackbone !== null && dirTransitionJustified(parentDirOf(lastBackbone), parentDirOf(p))
-        ? lastBackbone
-        : null;
+    // A module's exit note is the one the next module opens with. Placing
+    // `assignment|quiz|solution` last inside its own directory — which is what
+    // stops a lesson depending on its own homework — also made homework the exit
+    // note of every module, so `02-search/01-b` ended up gated behind
+    // `01-foundations/assignment.md`: 48 of 88 measured edges in
+    // ML-For-Beginners, 29 of 72 in Web-Dev. The bridge uses the group's last
+    // lesson instead. A module whose only backbone is homework exports nothing,
+    // and the chain carries on from the last real lesson rather than restarting:
+    // `01-a/01-x → 01-a/assignment → 02-b/quiz → 03-c/01-y` gates the quiz and
+    // the next lesson on `01-x`, never on homework.
+    const spine = lastBackbone !== null && parentDirOf(lastBackbone) === dir ? lastBackbone : exitOfLastGroup;
+    const candidate = spine !== null && dirTransitionJustified(parentDirOf(spine), dir) ? spine : null;
+    if (candidate !== null && parentDirOf(candidate) === parentDirOf(p) && tiedByName(baseNameOf(candidate), baseNameOf(p))) {
+      alphabeticalTieNotes.push(p);
+    }
     if (cls === 'backbone') {
       backbonePaths.push(p);
       predecessorOf.set(p, candidate);
       lastBackbone = p;
+      backbonesInGroup += 1;
+      if (tier0LessonRank(baseNameOf(p)).rank !== 4) lessonOfGroup = p;
     } else {
       leafPaths.push(p);
       // A leaf hangs off the chain; it never becomes the chain's spine.
@@ -691,6 +765,7 @@ export function planAutoChainWithHygiene(
     hasUnnumbered: base.hasUnnumbered,
     directoryOrderAlphabetical: base.directoryOrderAlphabetical,
     alphabeticalNotes,
+    alphabeticalTieNotes,
     backbonePaths,
     leafPaths,
     excluded,
