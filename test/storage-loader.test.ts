@@ -293,6 +293,7 @@ depends_on_source: ${label}
 
     write('toc.md', 'toc');
     write('numbered.md', 'numbered');
+    write('declared.md', 'declared');
     write('tie.md', 'tie');
     write('junk.md', '"toc-ish"');
     write('missing.md', 'null');
@@ -300,6 +301,7 @@ depends_on_source: ${label}
     const byName = new Map(loadTopics(tmpVault).map((t) => [t.palee_id, t]));
     assert.strictEqual(byName.get('T-toc.md')!.depends_on_source, 'toc');
     assert.strictEqual(byName.get('T-numbered.md')!.depends_on_source, 'numbered');
+    assert.strictEqual(byName.get('T-declared.md')!.depends_on_source, 'declared');
     assert.strictEqual(byName.get('T-tie.md')!.depends_on_source, 'tie');
     assert.strictEqual(byName.get('T-junk.md')!.depends_on_source, undefined, 'an unknown label must not be trusted');
     assert.strictEqual(byName.get('T-missing.md')!.depends_on_source, undefined);
