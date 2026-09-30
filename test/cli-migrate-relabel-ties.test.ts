@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
-import migrateCommand, { tieStillHolds } from '../src/cli/migrate';
+import migrateCommand, { predecessorIntact, type StoredTie } from '../src/cli/migrate';
 
 /**
  * A note adopted before #234 stores an alphabetical tiebreak as
@@ -216,20 +216,95 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     assert.ok(!readyIds(configDir).includes('T-a'), 'and it must still gate');
   });
 
-  test('the write-time recheck refuses a note that no longer matches the scan', () => {
-    // The audit and the write are separated, so a decision made against the scan
-    // must be re-made against the bytes about to be written. No single-process
-    // run can edit a note inside that window, which is why the predicate is
-    // tested directly rather than through the CLI.
-    const scanned = storedNote('T-b', 'Second of the pair', ['T-a'], 'numbered');
-    assert.ok(tieStillHolds(scanned, 'T-a'), 'the scanned shape still holds');
-    assert.ok(!tieStillHolds(scanned, 'T-z'), 'a different predecessor is not the same edge');
-    assert.ok(!tieStillHolds(scanned.replace('depends_on_source: numbered', 'depends_on_source: tie'), 'T-a'),
-      'a label already changed by someone else is not ours to rewrite');
-    assert.ok(!tieStillHolds(scanned.replace('depends_on: [T-a]', 'depends_on: [T-a, T-c]'), 'T-a'),
-      'a list that grew since the scan covers an edge we never classified');
-    assert.ok(!tieStillHolds(scanned.replace('depends_on: [T-a]', 'depends_on: []'), 'T-a'),
-      'a list emptied since the scan gates nothing');
+  test('a predecessor renamed into a numbering-decided slot is left gated', () => {
+    // A tie is a claim about a pair, so the pass asks the vault what the pair
+    // looks like now instead of trusting anything it printed earlier. Here the
+    // sibling moves from `02-a` to `01-a`: the numbering now genuinely orders the
+    // two, which is precisely the edge that has to keep gating.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    fs.renameSync(path.join(vaultDir, 'm', '02-a.md'), path.join(vaultDir, 'm', '01-a.md'));
+
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+      '01-a → 02-b is decided by the numbers, so it is not a stale tie');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered');
+    assert.ok(!readyIds(configDir).includes('T-b'), 'and the note stays behind its prerequisite');
+  });
+
+  test('a dependent re-pointed at another earlier sibling is relabelled, not skipped', () => {
+    // Three same-rank notes chained a → b → c. Every one of those edges is an
+    // alphabetical tie, so all qualify together: a pass that carried a remembered
+    // predecessor id forward would drop `02-c` the moment its edge named someone
+    // other than the note it first looked at, exit 0, and leave it gated.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First sibling', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Second sibling', ['T-a'], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Third sibling', ['T-b'], 'numbered'),
+    });
+
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Relabelled 2 of 2 notes/,
+      `both ties in a chained run are found in one pass:\n${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, 'tie',
+      'a qualifying edge must never be passed over because its predecessor moved');
+    assert.deepStrictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on, ['T-b'],
+      'and its prerequisite list is untouched');
+  });
+
+  test('the predecessor check follows identity, not bytes or inode', () => {
+    // What the derivation relied on is that this id still lives at this path.
+    // Everything else about the predecessor is beside the point: which of the
+    // two notes the numbering puts first depends on their names and directory, so
+    // an edit is not drift — and this pass makes exactly that edit as it walks a
+    // chained run of ties, which is why checking bytes or inode here made
+    // `02-a → 02-b → 02-c` unfinishable (each write invalidated the next check).
+    const dir = fs.mkdtempSync(path.join(tempDir, 'predecessor-'));
+    const pred = path.join(dir, '02-a.md');
+    const tie: StoredTie = {
+      filePath: path.join(dir, '02-b.md'),
+      predecessorPath: '02-a.md',
+      predecessorFilePath: pred,
+      noteFingerprint: 'not consulted by this check',
+      predecessorId: 'T-a',
+    };
+    fs.writeFileSync(pred, storedNote('T-a', 'First of the pair', [], 'numbered'));
+    assert.ok(predecessorIntact(dir, tie), 'the same id at the same path is the pair it decided on');
+
+    fs.writeFileSync(pred, storedNote('T-a', 'First of the pair, rewritten', [], 'numbered'));
+    assert.ok(predecessorIntact(dir, tie), 'an edit is not a rename; the ranking is unchanged');
+
+    fs.writeFileSync(pred, storedNote('T-impostor', 'A different note', [], 'numbered'));
+    assert.ok(!predecessorIntact(dir, tie), 'another topic behind that name is a different pair');
+
+    fs.renameSync(pred, path.join(dir, '01-a.md'));
+    assert.ok(!predecessorIntact(dir, tie),
+      'a renamed predecessor is the drift that flips a tie into a numbering decision');
+  });
+
+  test('a note whose ids carry surrounding whitespace is still relabelled', () => {
+    // The loader trims `palee_id` and each `depends_on` entry, so ` T-a ` and
+    // `T-a` are the same topic to it. A check that parses the frontmatter by hand
+    // sees ` T-a ` and concludes the predecessor became some other note — the
+    // note that needed no fixing at all is then passed over, and the vault keeps
+    // a gate the pass was invoked to relax.
+    const padded = (id: string, title: string, deps: string[]): string => [
+      '---', `palee_id: " ${id} "`, 'palee_schema: 1', `title: ${title}`,
+      `depends_on: ["${deps.join('", "')}"]`, 'depends_on_source: numbered',
+      'topic_mastery: 0', '---', '', `# ${title}`, '',
+    ].join('\n');
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': padded('T-a', 'First of the pair', []),
+      'm/02-b.md': padded('T-b', 'Second of the pair', [' T-a ']),
+    });
+
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Relabelled 1 of 1 notes/,
+      `a padded id is the same topic, not drift:\n${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+    assert.ok(readyIds(configDir).includes('T-b'), 'and the note comes off the gated side');
   });
 
   test('a write error fails the command instead of reporting success', async () => {

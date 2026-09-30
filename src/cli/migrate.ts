@@ -8,19 +8,33 @@ import {
   updateFrontmatter,
   computeFingerprint,
   atomicWrite,
-  parseFrontmatter,
   type LoadedTopic,
 } from '../storage';
 import { tiedByName, compareLessonOrderTier0 } from '../engine/auto-chain';
 import { MigrateOptions } from '../types';
 
-/** A note stored as `depends_on_source: numbered` whose edge a filename decided. */
-interface StoredTie {
+/** A note whose stored `depends_on` was ordered by its filename, not its number. */
+export interface StoredTie {
   /** Absolute path of the gated note */
   filePath: string;
   /** Vault-relative path of the predecessor it is gated behind */
   predecessorPath: string;
-  /** Id of that predecessor, re-checked against the bytes immediately before writing */
+  /** Absolute path of that predecessor, whose identity the write is confirmed against */
+  predecessorFilePath: string;
+  /** Fingerprint of the gated note as it was when the tie was derived */
+  noteFingerprint: string;
+  /**
+   * The predecessor's topic id at that instant.
+   *
+   * Not its content, and not its inode. A tie is decided by two names in one
+   * directory, so editing the predecessor says nothing about the edge — and this
+   * pass edits predecessors constantly, because relabelling `02-b` is exactly
+   * what happens immediately before `02-c`'s turn. Checking its bytes made a
+   * chained run of ties unfinishable, and checking its inode failed for the same
+   * reason one level down: `atomicWrite` replaces the file through a rename, so
+   * even an unchanged note gets a new inode from the pass's own write. What the
+   * derivation actually relied on is that this id still lives at this path.
+   */
   predecessorId: string;
 }
 
@@ -28,11 +42,11 @@ interface StoredTie {
 interface RelabelOutcome {
   /** Notes rewritten */
   relabelled: number;
-  /** Notes skipped because the file changed between the scan and the write */
+  /** Notes skipped because a file moved under the pass between deriving and writing */
   stale: number;
   /** Writes that failed for a reason other than a conflict */
   failed: number;
-  /** True when any write hit an OCC conflict or an active lock */
+  /** True when a write conflicted, or a note drifted while the pass held it */
   hadConflict: boolean;
 }
 
@@ -74,8 +88,7 @@ function findStoredTies(topics: LoadedTopic[]): StoredTie[] {
     if (t.depends_on_source !== 'numbered') continue;
     const deps = t.depends_on ?? [];
     if (deps.length !== 1) continue;
-    const predecessorId = deps[0] as string;
-    const pred = byId.get(predecessorId);
+    const pred = byId.get(deps[0] as string);
     if (pred === undefined) continue;
     if (path.dirname(pred.filePath) !== path.dirname(t.filePath)) continue;
     const predBase = path.basename(pred.filePath);
@@ -85,55 +98,87 @@ function findStoredTies(topics: LoadedTopic[]): StoredTie[] {
     found.push({
       filePath: t.filePath,
       predecessorPath: pred.path,
-      predecessorId,
+      predecessorFilePath: pred.filePath,
+      noteFingerprint: computeFingerprint(t.content),
+      predecessorId: pred.id,
     });
   }
   return found;
 }
 
 /**
- * Re-checks the tie against the bytes about to be written, not the scan.
+ * True while the predecessor is still the same topic the tie was derived from.
  *
- * @param content - The note as just read from disk
- * @param predecessorId - The predecessor the scan matched
- * @returns True when the note still carries a single `numbered` edge to it
+ * @param vaultPath - The validated vault root
+ * @param tie - The derived candidate
+ * @returns `false` when it has been renamed away or replaced under its own name
  *
  * @remarks
- * The audit and the write are separated by console output and, in a batch, by
- * however long the user spends reading it. Anything editing notes in that window
- * would otherwise have its genuine gate demoted by a decision made against
- * content that no longer exists, so each candidate is confirmed against its own
- * fresh bytes before `atomicWrite` is called.
+ * Cheap on purpose: one note re-loaded, no fingerprint. A rename is the change
+ * that can flip a tie into a numbering-decided edge, and it surfaces here as the
+ * path going missing or holding some other topic. An edit that leaves the same
+ * id at the same name cannot change which of the two notes the numbering puts
+ * first, so it is not this check's business — and the pass makes that edit
+ * itself, one note at a time, down a chained run of ties.
  *
- * Exported so the window it closes has a test that can fail: no single-process
- * CLI run can edit a note between this module's scan and its write, and a guard
- * nothing can reach is a guard nobody knows still works.
+ * It goes through `loadTopics` rather than parsing the frontmatter here, because
+ * the loader owns how an id is read: it trims `palee_id` and every `depends_on`
+ * entry, so a note stored as `palee_id: " T-a "` *is* `T-a` to the derivation.
+ * Comparing a loaded id against a hand-parsed one calls that note a different
+ * topic, and the pass then refuses work the vault still needs — which is why the
+ * same value must come from the same reader on both sides.
+ *
+ * Exported so the predicate has a test that can fail. The window it guards is
+ * between deriving a tie and promoting its write, which no single-process run
+ * can be made to hit on command; the call site runs on every write regardless.
  */
-export function tieStillHolds(content: string, predecessorId: string): boolean {
-  const parsed = parseFrontmatter(content).frontmatter;
-  if (parsed === null || parsed.depends_on_source !== 'numbered') return false;
-  const deps = parsed.depends_on;
-  return Array.isArray(deps) && deps.length === 1 && String(deps[0]) === predecessorId;
+export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
+  try {
+    const reloaded = loadTopics(vaultPath, [tie.predecessorFilePath]);
+    return reloaded.length === 1 && reloaded[0].id === tie.predecessorId;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Prints the stored-tie audit and, when asked, rewrites the label.
+ * Reports the stored ties in the vault and, when asked, rewrites their labels.
  *
  * @param vaultPath - The validated vault root
- * @param ties - Candidates from {@link findStoredTies}
+ * @param scanned - The topics the command already loaded, for the report only
  * @param apply - True when `--relabel-ties` was given
  * @param dryRun - True when `--dry-run` was given: report, and write nothing even
  *   alongside `--relabel-ties`, so a caller that always passes the flag can be
  *   made safe without editing the command.
  * @returns What the pass did; zero writes and no conflict on a report-only run
+ *
+ * @remarks
+ * One list, printed and then written from. A run that is going to write reads the
+ * vault for that purpose rather than accepting the caller's scan, so the set is
+ * whatever the pairs look like at the moment of the write — a predecessor renamed
+ * into a numbering-decided slot drops out and keeps its gate, and an edge
+ * re-pointed at another earlier same-rank sibling is in it — and no note can be
+ * reported one way and treated another. A report-only run has no decision to go
+ * stale, so it reuses the scan already in hand.
+ *
+ * Each write is then confirmed against the state its own decision read: the gated
+ * note's fingerprint, and the predecessor's identity. A mismatch means the vault
+ * moved while the pass was writing it — the note is left exactly as it is and the
+ * caller is told to re-run, rather than the pass guessing which of the two states
+ * it is entitled to rewrite.
+ *
+ * The second read is deliberately confined to the writing path. Scanning on a
+ * report-only run too was tried, and it shifted a pre-existing `migrate --fix`
+ * test that counts reads of a note to inject a concurrent edit at a chosen one.
  */
 async function reportStoredTies(
   vaultPath: string,
-  ties: StoredTie[],
+  scanned: LoadedTopic[],
   apply: boolean,
   dryRun: boolean
 ): Promise<RelabelOutcome> {
   const none: RelabelOutcome = { relabelled: 0, stale: 0, failed: 0, hadConflict: false };
+  const ties = findStoredTies(scanned);
   if (ties.length === 0) return none;
   console.log(`Prerequisite labels:  ${ties.length} note(s) gate behind a same-directory sibling`);
   console.log('                    their stored label says `numbered`, but the numbering did not'
@@ -147,7 +192,8 @@ async function reportStoredTies(
 
   if (!apply || dryRun) {
     if (apply) {
-      console.log(`Dry run: would relabel ${ties.length} note(s) to \`depends_on_source: tie\`. Nothing written.`);
+      console.log(`Dry run: would relabel ${ties.length} note(s) to \`depends_on_source: tie\`.`
+        + ' Nothing written.');
       console.log();
     } else {
       console.log('Tip: Run "palee migrate --relabel-ties" to rewrite the label. `depends_on` is');
@@ -161,14 +207,20 @@ async function reportStoredTies(
   for (const tie of ties) {
     try {
       const content = fs.readFileSync(tie.filePath, 'utf8');
-      if (!tieStillHolds(content, tie.predecessorId)) {
-        console.error(`  Skipped ${tie.filePath}: its stored prerequisites changed since the scan.`);
+      if (computeFingerprint(content) !== tie.noteFingerprint
+        || !predecessorIntact(vaultPath, tie)) {
+        // The note's own bytes are what the decision read, and the predecessor's
+        // identity is what the ranking depended on. If either moved, neither
+        // state is one this pass may rewrite from: the note is left gated and the
+        // caller is told to re-run.
+        console.error(`  Skipped ${tie.filePath}: ${path.relative(vaultPath, tie.predecessorFilePath)}`
+          + ' or the note itself changed while the pass was running. Re-run to retry.');
         outcome.stale++;
+        outcome.hadConflict = true;
         continue;
       }
-      const expectedFingerprint = computeFingerprint(content);
       const updated = updateFrontmatter(content, { depends_on_source: 'tie' });
-      await atomicWrite(vaultPath, tie.filePath, updated, expectedFingerprint);
+      await atomicWrite(vaultPath, tie.filePath, updated, tie.noteFingerprint);
       outcome.relabelled++;
     } catch (err: unknown) {
       console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
@@ -177,7 +229,7 @@ async function reportStoredTies(
     }
   }
   console.log(`✓ Relabelled ${outcome.relabelled} of ${ties.length} notes to \`depends_on_source: tie\`.`
-    + (outcome.stale ? ` (${outcome.stale} changed since the scan and were skipped)` : '')
+    + (outcome.stale ? ` (${outcome.stale} skipped: changed while writing)` : '')
     + (outcome.failed ? ` (${outcome.failed} write error(s))` : ''));
   console.log();
   return outcome;
@@ -190,12 +242,12 @@ async function reportStoredTies(
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
  * process.exitCode = 3 if unrecognized schemas remain, process.exitCode = 4 if any
- * note update hits an OCC/lock conflict during `--fix` or `--relabel-ties`, and
- * process.exitCode = 5 on unexpected runtime exceptions — including a
- * `--relabel-ties` write that fails for any other reason (permissions, disk), so
- * a caller never sees success on a migration that did not finish. A note skipped
- * because its prerequisites changed since the scan is reported and counted and
- * leaves the exit code alone: it simply no longer matches the pattern.
+ * note update hits an OCC/lock conflict during `--fix` or `--relabel-ties` — or if
+ * a note or its predecessor changed while `--relabel-ties` held it, which is the
+ * same "re-run to retry" instruction — and process.exitCode = 5 on unexpected
+ * runtime exceptions, including a `--relabel-ties` write that fails for any other
+ * reason (permissions, disk), so a caller never sees success on a migration that
+ * did not finish.
  *
  * @example
  * ```typescript
@@ -213,11 +265,11 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     // code here: a learner whose vault has an unrecognized schema still needs to
     // be told they are locked out of a note, and handling the failure in this
     // block keeps the schema pass's `exitCode === Conflict` check from reading
-    // this write's conflict as its own.
-    const ties = findStoredTies(loaded);
+    // this write's conflict as its own. The pass scans for itself, so `loaded`
+    // serves the schema report below and nothing here carries a stale decision.
     const tieOutcome = await reportStoredTies(
       vaultPath,
-      ties,
+      loaded,
       options.relabelTies === true,
       options.dryRun === true
     );
