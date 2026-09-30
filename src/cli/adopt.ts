@@ -503,13 +503,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
-      // WS6 — a note's own words outrank any inference about it. The name index
+      // WS6 — a note's own links outrank any inference about it. The name index
       // holds only the notes this batch may point at: the ones being adopted,
       // whose ids were just minted, and the already-adopted notes inside the
       // scanned scope. Deliberately *not* every topic in the vault — a note the
       // learner excluded with `--exclude`, `--include` or `--tag` must not become
-      // a new `depends_on` entry through someone else's prose, which is the same
-      // guarantee the chain itself already honours.
+      // a new `depends_on` entry because another note linked to it, which is the
+      // same guarantee the chain itself already honours.
       type PrereqTarget = { id: string; path: string };
       const prereqByPath = new Map<string, PrereqTarget[]>();
       const prereqByBase = new Map<string, PrereqTarget[]>();
@@ -563,13 +563,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           if (ref.form === 'mdlink') {
             const folded = foldLinkDestination(ref.name, noteDir);
             candidates = folded === null ? undefined : prereqByPath.get(folded);
-          } else if (ref.form === 'wikilink') {
+          } else {
             // A qualified wikilink is a vault path and gets no basename fallback;
             // a bare one is a note name and gets no path match. Guessing between
             // the two is how an unrelated `README` inherits someone's prerequisite.
             candidates = key.includes('/') ? prereqByPath.get(key) : prereqByBase.get(key);
-          } else {
-            candidates = prereqByBase.get(key);
           }
           return (candidates ?? []).filter((t) => t.path !== selfPath);
         });

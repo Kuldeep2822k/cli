@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 /**
- * A note's own `## Prerequisites` section, or a "requires X" sentence, is a
+ * A note's own `## Prerequisites` section, when it links its predecessors, is a
  * statement by the author rather than an inference about where the file sits —
  * so the edge it produces is written, labelled `declared`, and gates. These run
  * the real CLI end to end: the unit tests on the extractor stay green when the
@@ -114,8 +114,9 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
   });
 
   test('a declared edge gates the note out of the ready list', () => {
-    // The whole point of treating prose as authorship: the gate holds all the way
-    // through `palee plan`, not just in the frontmatter the command wrote.
+    // The whole point of treating a stated prerequisite as authorship: the gate
+    // holds all the way through `palee plan`, not just in the frontmatter the
+    // command wrote.
     const { vaultDir, configDir } = freshVault({
       'm/01-gate.md': '# Gate\n\n',
       'm/02-behind.md': ['# Behind', '', '## Prerequisites', '', '- [[m/01-gate]]'].join('\n'),
@@ -198,6 +199,32 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
       [idOf(vaultDir, 'm/01-a.md'), idOf(vaultDir, 'm/02-b.md')].sort()
     );
     assert.match(result.stdout, /Declared:\s+2 edge\(s\)/);
+  });
+
+  test('a note named only in prose is not made a prerequisite', () => {
+    // The extractor's own tests show sentences are ignored, but a prose scan
+    // re-added anywhere in the adoption path would still leave them green. This
+    // runs the CLI on the exact input that used to become a permanent gate: a
+    // real, uniquely resolvable note named in one sentence and linked nowhere.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-setup.md': '# Setup\n\n',
+      'm/02-a.md': '# A\n\n',
+      'm/03-b.md': ['# B', '', 'This lesson requires knowledge of Setup.', '', 'Body.'].join('\n'),
+    });
+    const result = adopt(vaultDir, configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.doesNotMatch(result.stdout, /Declared:/, 'a sentence declares nothing');
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'm/03-b.md'),
+      [idOf(vaultDir, 'm/02-a.md')],
+      'the note keeps the edge the numbered tree justified, not one read out of prose'
+    );
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/03-b.md')?.depends_on_source, 'numbered');
+    assert.ok(
+      !dependsOn(vaultDir, 'm/03-b.md').includes(idOf(vaultDir, 'm/01-setup.md')),
+      'Setup is named only in a sentence, so it must not hold B off the ready list'
+    );
   });
 
   test('a markdown link resolves against its own note, not its basename', () => {

@@ -10,13 +10,13 @@ import {
  * A note that writes its own prerequisites is making an author statement, the
  * same class as hand-typed `depends_on`. Everything downstream — that these
  * edges gate, that an inferred edge yields to them — rests on this extraction,
- * so each rule here is a rule about which sentences are allowed to lock a
- * learner out of a note.
+ * so each rule here is a rule about which statements are allowed to lock a
+ * learner out of a note. Only links are.
  */
 describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
   test('reads a markdown link out of a Prerequisites section', () => {
     // The ML-For-Beginners shape: the section is prose plus one link to the
-    // lesson before it, and the link's destination basename is the name.
+    // lesson before it, and the link's destination is the reference.
     const refs = extractDeclaredPrerequisites([
       '# K-Means clustering',
       '',
@@ -36,7 +36,7 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs, [{ name: '../1-Clustering/README.md', form: 'mdlink' }]);
   });
 
-  test('reads wikilinks and bare names from a bulleted section', () => {
+  test('reads wikilinks from a bulleted section and ignores a plain bullet', () => {
     const refs = extractDeclaredPrerequisites([
       '## Prerequisites',
       '- [[MODULES/01-foundations/01-a|Linear regression]]',
@@ -90,21 +90,6 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs, []);
   });
 
-  test('reads a requires phrase from prose', () => {
-    const refs = extractDeclaredPrerequisites(
-      'You will need the earlier material.\nThis lesson requires knowledge of Gradient Descent.\n'
-    );
-    assert.deepStrictEqual(refs, [{ name: 'Gradient Descent', form: 'prose' }]);
-  });
-
-  test('rejects a requires object that begins a clause rather than a name', () => {
-    const refs = extractDeclaredPrerequisites([
-      'It requires a working knowledge of the material before you start.',
-      'This requires patience and practice.',
-    ].join('\n'));
-    assert.deepStrictEqual(refs, []);
-  });
-
   test('task-list checkboxes and escaped links do not count', () => {
     const refs = extractDeclaredPrerequisites([
       '## Prerequisites',
@@ -115,165 +100,58 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs.map((r) => r.name), ['genuine']);
   });
 
-  test('a negated requirement declares nothing', () => {
-    // The worst invention available: the author says the note is *not* needed,
-    // and a gate would lock the learner behind precisely that note.
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(extractDeclaredPrerequisites('Without Gradient Descent, skip this.\n'), []);
-    // The negation is bounded by the sentence or contrastive clause, so a later clause still counts.
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('No calculator is needed. It requires Matrices.\n'),
-      [{ name: 'Matrices', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('No calculator is needed, but this lesson requires Matrices.\n'),
-      [{ name: 'Matrices', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('No calculator is needed; this lesson requires Matrices.\n'),
-      [{ name: 'Matrices', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('No calculator is needed, yet this lesson requires Matrices.\n'),
-      [{ name: 'Matrices', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('No calculator is needed, but this lesson does not require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('There is no video, so this lesson requires Setup.\n'),
-      [{ name: 'Setup', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('Because there is no video, this lesson requires Setup.\n'),
-      [{ name: 'Setup', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('There is no video, so this lesson does not require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not, in fact, require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not, and it bears repeating, require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not — strictly speaking — require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('There is no video, however this lesson requires Setup.\n'),
-      [{ name: 'Setup', form: 'prose' }]
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not in any way require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson from Chapter 2 requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('No student in this class requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson does not yet require Set Theory.\n'), []);
-    // `no longer` retires a prerequisite the note once had. Reading it as a
-    // requirement would gate a learner behind the one note the author removed.
-    assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson no longer requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('This course no longer requires Prior Reading.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites("This lesson doesn't yet require Set Theory.\n"), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('None of the lessons require Setup.\n'), []);
-    // A parenthetical aside must not shield the negation, even when an adverb
-    // trails it before the verb.
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not, under any circumstances, ever require Setup.\n'),
-      []
-    );
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson does not, however, require Setup.\n'),
-      []
-    );
-    // Bare negative subjects and a governing `without` also negate.
-    assert.deepStrictEqual(extractDeclaredPrerequisites('Neither requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('Never requires Setup.\n'), []);
-    assert.deepStrictEqual(extractDeclaredPrerequisites('Without requiring Setup, do this.\n'), []);
-  });
-
-  test('a requirement in its own clause survives an earlier negation', () => {
-    // The mirror of the negation test: a note that genuinely states a
-    // prerequisite must keep it, even when an earlier clause or subject carried
-    // a negation. Dropping it here silently loses an author's declaration.
-    const affirmative: [string, string][] = [
-      ['There is no video; however, this lesson requires Setup.\n', 'Setup'],
-      ['Although there is no video, this lesson requires Setup.\n', 'Setup'],
-      ['With no prerequisites, this lesson requires Setup.\n', 'Setup'],
-      ['No doubt, this lesson requires Setup.\n', 'Setup'],
-      // The negation governs a different, conjoined verb ("does not need … and requires").
-      ['This lesson does not need a calculator and requires Setup.\n', 'Setup'],
-      // The same with the second clause set off by a comma-flanked phrase: the
-      // aside ends in front of a new subject, so the earlier `not` cannot reach
-      // across it and erase a prerequisite the author did state.
-      ['This lesson does not need a calculator, but for the lab, it requires Setup.\n', 'Setup'],
-      // A negative subject on a separate clause, split off by `unless`.
-      ['No lesson is complete unless it requires Setup.\n', 'Setup'],
-      ['Requires care. Set up first, as it requires Setup.\n', 'Setup'],
-      ['Without Setup, this lesson requires Config.\n', 'Config'],
-    ];
-    for (const [text, name] of affirmative) {
-      assert.deepStrictEqual(
-        extractDeclaredPrerequisites(text),
-        [{ name, form: 'prose' }],
-        `expected ${name} from: ${text.trim()}`
-      );
-    }
-  });
-
-  test('a requires phrase inside a task item declares nothing', () => {
-    // The section scanner declines checkboxes; the prose scan must too, or
-    // `- [ ] requires knowledge of Setup` gates on a to-do nobody has done.
-    assert.deepStrictEqual(
-      extractDeclaredPrerequisites('# Lesson\n\n- [ ] requires knowledge of Setup\n'),
-      []
-    );
-  });
-
-  test('uncapitalized prose objects are dropped, as the measured corpora require', () => {
-    // Run over 11,168 notes in two Azure curricula, every prose candidate that
-    // named no existing note began lower-case, and every note name those same
-    // sections linked was capitalized. These are the strings that run produced;
-    // they live here so the screen cannot quietly loosen back into noise.
-    const corpus = [
-      'This lesson requires careful scrutiny of the sources.',
+  test('a sentence never declares a prerequisite, linked or not', () => {
+    // Deliberately the load-bearing test of this module's scope. An earlier
+    // revision read `requires X` phrases out of prose and had to grow clause,
+    // aside and negation analysis to stop the false gates it invented; measured
+    // over 11,168 notes in two Azure curricula it produced no edge at all, while
+    // every real one came from a link. These strings are what that scan either
+    // misread or was written to catch — under the current scope all of them
+    // declare nothing, and a prose scanner added back would fail here.
+    const sentences = [
+      'This lesson requires knowledge of Gradient Descent.',
       'Requires attention to detail throughout.',
       'It requires more complex implementation than the last lesson.',
       'Requires identifying which data must persist versus transient state.',
-      'Requires organized file structures across the project.',
-      'This requires careful condition management.',
+      'This lesson does not require Setup.',
+      'This lesson no longer requires Setup.',
+      'This lesson does not, and it bears repeating, require Setup.',
+      'This lesson does not need a calculator, but for the lab, it requires Setup.',
+      'This lesson does not, under any circumstances, when it is hard, require Setup.',
+      'No lesson requires Setup.',
     ].join('\n');
-    assert.deepStrictEqual(extractDeclaredPrerequisites(corpus), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites(sentences), []);
 
-    // The shape that does pay keeps working.
+    // Not even inside a Prerequisites section, where the heading would make a
+    // bare word look intentional: `- Setup` names nothing the engine can resolve
+    // without guessing at a basename, and guessing is what this cut removes.
     assert.deepStrictEqual(
-      extractDeclaredPrerequisites('This lesson requires knowledge of Gradient Descent.\n'),
-      [{ name: 'Gradient Descent', form: 'prose' }]
+      extractDeclaredPrerequisites(['## Prerequisites', '', 'Requires Setup.', '- Setup'].join('\n')),
+      []
+    );
+  });
+
+  test('a requires heading that only holds prose declares nothing', () => {
+    // The heading is a trigger, not a licence: what follows still has to be a
+    // link for anything to be read.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('# Lesson\n\n## Requires\n\n- [ ] requires knowledge of Setup\n'),
+      []
     );
   });
 
   test('the same note declared twice becomes one edge', () => {
-    // Two forms of one name stay two *references* — a wikilink and a prose
-    // mention resolve by different rules, so they must not be merged before
+    // Two forms of one name stay two *references* — a wikilink and a markdown
+    // link resolve by different rules, so they must not be merged before
     // resolution — but resolution deduplicates by target, so one note is one
     // predecessor.
     const refs = extractDeclaredPrerequisites([
       '## Prerequisites',
       '- [[Setup]]',
       '- [[setup]]',
-      'It requires Setup.',
+      '- [Setup again](../01-foundations/setup.md)',
     ].join('\n'));
-    assert.deepStrictEqual(refs.map((r) => r.form), ['wikilink', 'prose']);
+    assert.deepStrictEqual(refs.map((r) => r.form), ['wikilink', 'mdlink']);
 
     const { resolved } = resolveDeclaredPrerequisites(refs, (ref) =>
       ref.form === 'wikilink' ? ['/vault/setup.md'] : []
@@ -287,8 +165,7 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
     ['setup', ['/vault/01-setup.md']],
     ['quiz', ['/vault/a/quiz.md', '/vault/b/quiz.md']],
   ]);
-  const lookup = (ref: DeclaredPrereqRef): string[] =>
-    ref.form === 'prose' ? [] : index.get(ref.name.toLowerCase().trim()) ?? [];
+  const lookup = (ref: DeclaredPrereqRef): string[] => index.get(ref.name.toLowerCase().trim()) ?? [];
 
   test('a unique hit becomes an edge', () => {
     const { resolved, skipped } = resolveDeclaredPrerequisites(
@@ -317,15 +194,15 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
   });
 
   test('the lookup receives the form, not just the name', () => {
-    // A markdown link resolves against its note's directory and a bare prose
-    // name against an index. Handed the name alone, the caller cannot tell the
-    // two apart, and folding one way through the other is how `x1/README.md`
-    // became the ambiguous basename `README`.
+    // A markdown link resolves against its note's directory and a bare wikilink
+    // against an index. Handed the name alone, the caller cannot tell the two
+    // apart, and folding one way through the other is how `x1/README.md` became
+    // the ambiguous basename `README`.
     const seen: string[] = [];
     resolveDeclaredPrerequisites(
       [
         { name: 'x1/README.md', form: 'mdlink' },
-        { name: 'Setup', form: 'prose' },
+        { name: 'setup', form: 'wikilink' },
         { name: 'm/01-a', form: 'wikilink' },
       ],
       (ref) => {
@@ -333,7 +210,7 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
         return [];
       }
     );
-    assert.deepStrictEqual(seen, ['mdlink:x1/README.md', 'prose:Setup', 'wikilink:m/01-a']);
+    assert.deepStrictEqual(seen, ['mdlink:x1/README.md', 'wikilink:setup', 'wikilink:m/01-a']);
   });
 
   test('the same target reported twice is not ambiguity', () => {
