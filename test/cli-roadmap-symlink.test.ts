@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { readBoundNote } from '../src/cli/roadmap';
 
 /**
  * `palee roadmap --from` reads a topic path that already exists as a note, and
@@ -131,5 +132,54 @@ describe('roadmap import refuses a symlinked note path', () => {
     const result = runCLI(['roadmap', '--from', roadmapWith('plain.md'), '--yes']);
     assert.strictEqual(result.status, 0, `stdout: ${result.stdout} stderr: ${result.stderr}`);
     assert.ok(fs.existsSync(path.join(vaultDir, 'plain.md')), 'the ordinary path must still import');
+  });
+});
+
+/**
+ * The guards above are `lstat`-and-resolve, and neither binds anything: they
+ * report what stood at the path at one instant. These pin the read to the file
+ * that instant described — the part of the window that closes portably, since
+ * `fs.constants.O_NOFOLLOW` is undefined on win32 and a no-follow open is not
+ * available to do it another way.
+ */
+describe('the bound read refuses a path that changed after validation', () => {
+  const NL = String.fromCharCode(10);
+  let tempDir: string;
+
+  before(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bound-read-'));
+  });
+
+  after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('the file that was validated reads whole', () => {
+    const note = path.join(tempDir, 'steady.md');
+    const body = ['# Steady', '', 'learner text', ''].join(NL);
+    fs.writeFileSync(note, body);
+    assert.strictEqual(readBoundNote(note, fs.lstatSync(note)), body);
+  });
+
+  test('a symlink planted after validation is refused by name', (t) => {
+    const note = path.join(tempDir, 'swap.md');
+    const outside = path.join(tempDir, 'outside-secret.md');
+    fs.writeFileSync(note, '# the note that was validated\n');
+    fs.writeFileSync(outside, '# OUTSIDE-CONTENT-DO-NOT-IMPORT\n');
+    const validated = fs.lstatSync(note);
+
+    try {
+      fs.unlinkSync(note);
+      fs.symlinkSync(outside, note);
+    } catch {
+      t.skip('file symlink creation is not permitted on this platform');
+      return;
+    }
+
+    assert.throws(
+      () => readBoundNote(note, validated),
+      /swap\.md changed between validation and read/,
+      'the swap must be reported as a refusal, not read through'
+    );
   });
 });
