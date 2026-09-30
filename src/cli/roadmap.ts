@@ -474,7 +474,20 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             if (value !== undefined) paleeData[key] = value;
           }
 
-          const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
+          // Authorship rather than list comparison. A roadmap entry that declares
+          // prerequisites is making the learner's claim, whatever was stored
+          // before, so a leftover `toc` label would make them advisory and the
+          // gate would never bite. Comparing the written list against what the note
+          // held gets both directions wrong: an identical declaration kept a stale
+          // label, and a title-only import — whose preserved list comes back
+          // unioned with the legacy `dependencies` key — looked like a change and
+          // silently turned advisory edges back into gates, re-locking the note.
+          // An entry that omits `depends_on` preserves the note's own edges and the
+          // label recording who authored them.
+          const removals = topic.depends_on !== undefined
+            ? ['dependencies', 'depends_on_source']
+            : ['dependencies'];
+          const updatedContent = updateFrontmatter(content, paleeData, removals);
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
 
           if (isNew) {

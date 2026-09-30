@@ -34,6 +34,10 @@ import {
   type TieredChainPlan,
 } from '../engine/toc-chain';
 import { detectCyclesBounded } from '../engine/dependency';
+import {
+  extractDeclaredPrerequisites,
+  resolveDeclaredPrerequisites,
+} from '../engine/prereq-text';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
 import { resolveNoteTitle } from '../storage/note-title';
@@ -186,11 +190,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // `--auto-chain`. An optional-value flag swallows the following positional,
     // so `adopt --auto-chain MODULES` would have read `MODULES` as a tier and
     // exited 2 having adopted nothing — a regression of a form this command has
-    // always accepted. A bare `--auto-chain` is `full`; anything outside the
+    // always accepted. A bare `--auto-chain` chains the numbered tree only;
+    // enumeration order needs `--chain-tier toc|full`. Anything outside the
     // three tiers is a usage error, never a silent default back to chaining.
     let autoChainTier: AutoChainTier | null = null;
     if (options.autoChain) {
-      autoChainTier = options.chainTier === undefined ? 'full' : parseAutoChainTier(options.chainTier);
+      autoChainTier = options.chainTier === undefined ? 'strict' : parseAutoChainTier(options.chainTier);
       if (autoChainTier === null) {
         console.error('Error: --chain-tier expects one of: strict, toc, full');
         process.exitCode = ExitCode.Usage;
@@ -450,8 +455,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     let chainPlan: TieredChainPlan | null = null;
     /** Note → tier that authored its planned edge (C5 `depends_on_source`) */
     const chainSourceOf: Map<string, DependsOnSource> = new Map();
-    /** C4 honest refusal: the scope carries no numbering and no TOC enumeration */
+    /** C4 honest refusal: the scope carries no numbering and no chainable enumeration */
     let chainRefused = false;
+    /** Set when the selected tier declines to read an enumeration that does exist */
+    let tocLinksDeclined = false;
+    /** Notes whose own text declares their prerequisites, replacing the inferred edge */
+    const declaredDeps = new Map<string, { id: string; path: string }[]>();
+    /** Declared names that matched no single note — counted, never fatal */
+    let declaredSkippedCount = 0;
     const chainDependsOn = new Map<string, string[]>();
     // Dry-run preview must show exactly what the commit will write, so the plan
     // is recorded here at graph-build time rather than re-derived from
@@ -492,6 +503,81 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
+      // WS6 — a note's own words outrank any inference about it. The name index
+      // holds only the notes this batch may point at: the ones being adopted,
+      // whose ids were just minted, and the already-adopted notes inside the
+      // scanned scope. Deliberately *not* every topic in the vault — a note the
+      // learner excluded with `--exclude`, `--include` or `--tag` must not become
+      // a new `depends_on` entry through someone else's prose, which is the same
+      // guarantee the chain itself already honours.
+      type PrereqTarget = { id: string; path: string };
+      const prereqByPath = new Map<string, PrereqTarget[]>();
+      const prereqByBase = new Map<string, PrereqTarget[]>();
+      const addIndexed = (index: Map<string, PrereqTarget[]>, key: string, target: PrereqTarget): void => {
+        if (key.length === 0) return;
+        const list = index.get(key);
+        if (list) {
+          if (!list.some((t) => t.id === target.id)) list.push(target);
+        } else {
+          index.set(key, [target]);
+        }
+      };
+      const addPrereqTarget = (rawPath: string, id: string): void => {
+        const relPath = rawPath.replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+        if (relPath.length === 0) return;
+        const target: PrereqTarget = { id, path: rawPath.replace(/\\/g, '/') };
+        addIndexed(prereqByPath, relPath, target);
+        addIndexed(prereqByBase, relPath.slice(relPath.lastIndexOf('/') + 1), target);
+      };
+      for (const [relPath, id] of idByPath) addPrereqTarget(relPath, id);
+
+      /**
+       * Folds a markdown link destination against the directory of the note
+       * holding it, the way a renderer would. `[home](x1/README.md)` inside
+       * `m/03-c.md` names `m/x1/README.md`; keeping only its basename would
+       * throw away the directory that made the target unique and turn a precise
+       * link into an ambiguous name.
+       */
+      const foldLinkDestination = (destination: string, noteDir: string): string | null => {
+        let raw = destination.trim().replace(/\\/g, '/').toLowerCase();
+        if (raw.length === 0) return null;
+        if (raw.endsWith('/')) raw += 'readme';
+        const withoutSuffix = raw.replace(/\.md$/, '');
+        const joined = withoutSuffix.startsWith('/')
+          ? withoutSuffix.slice(1)
+          : path.posix.join(noteDir, withoutSuffix);
+        const folded = path.posix.normalize(joined);
+        if (folded === '' || folded === '.' || folded.startsWith('..')) return null;
+        return folded;
+      };
+
+      for (const note of toAdopt) {
+        const refs = extractDeclaredPrerequisites(note.content);
+        if (refs.length === 0) continue;
+        const selfPath = note.relativePath.replace(/\\/g, '/');
+        const noteDir = selfPath.includes('/') ? selfPath.slice(0, selfPath.lastIndexOf('/')) : '';
+        const { resolved, skipped } = resolveDeclaredPrerequisites(refs, (ref) => {
+          const key = ref.name.trim().replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+          if (key.length === 0) return [];
+          let candidates: PrereqTarget[] | undefined;
+          if (ref.form === 'mdlink') {
+            const folded = foldLinkDestination(ref.name, noteDir);
+            candidates = folded === null ? undefined : prereqByPath.get(folded);
+          } else if (ref.form === 'wikilink') {
+            // A qualified wikilink is a vault path and gets no basename fallback;
+            // a bare one is a note name and gets no path match. Guessing between
+            // the two is how an unrelated `README` inherits someone's prerequisite.
+            candidates = key.includes('/') ? prereqByPath.get(key) : prereqByBase.get(key);
+          } else {
+            candidates = prereqByBase.get(key);
+          }
+          return (candidates ?? []).filter((t) => t.path !== selfPath);
+        });
+        declaredSkippedCount += skipped.length;
+        if (resolved.length === 0) continue;
+        declaredDeps.set(selfPath, resolved.map((r) => r.target));
+      }
+
       // The planner re-derives B7 from the ids the scan already parsed rather
       // than trusting the scan's pre-filter: the two then cannot disagree about
       // what is allowed to gate, and any other caller of this API inherits the
@@ -509,25 +595,39 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // exists before claiming that none does.
       const tocEnumeration = deriveTocEnumeration(vaultPath, planPaths);
       const tiered = composeTieredChain({
-        tier: autoChainTier ?? 'full',
+        tier: autoChainTier ?? 'strict',
         numbered: hygienePlan,
-        tocPaths: autoChainTier === 'strict' ? [] : tocEnumeration.documentOrder,
+        // Passed whole under every tier: the strict tier consumes none of it but
+        // still has to report whether the toc tier could have, which is what the
+        // refusal advice is keyed to.
+        tocPaths: tocEnumeration.documentOrder,
       });
       chainPlan = tiered;
       chainSourceOf.clear();
       for (const [p, s] of tiered.sourceOf) chainSourceOf.set(p, s);
-      // C4 honest refusal + the C-defect-1 message fix: the no-signal claim
-      // may only be made when the scoped enumeration resolves no TOC link at
-      // all AND the final plan writes no edge. A singleton enumeration keeps
-      // its justified numbered edge (compose no longer nulls heads over
-      // justified preds), so this branch cannot fire on a README that does
-      // have links.
-      const tocLinksInScope = tocEnumeration.documentOrder.length > 0;
+      // C4 honest refusal + the C-defect-1 message fix: the claim is about what
+      // this tier could chain, not about whether a README exists. Enumerating a
+      // note the plan then refuses to chain is a refusal too — printing
+      // `enabled … 0 edge(s) written` for it told the learner chaining had
+      // worked. A singleton enumeration keeps its justified numbered edge
+      // (compose no longer nulls heads over justified preds), so the written
+      // counts still cannot fire this branch on a README that does have links.
       chainRefused =
         !tiered.hasNumberedLayout &&
-        !tocLinksInScope &&
         tiered.tocEdgeCount === 0 &&
-        tiered.numberedEdgeCount === 0;
+        tiered.numberedEdgeCount === 0 &&
+        declaredDeps.size === 0;
+      // Distinct from "nothing to chain": under `strict` the enumeration may hold
+      // links the selected tier simply does not read, and naming the tier is the
+      // useful advice. Keyed on the enumeration's *presence* it lies in the other
+      // case — a README linking only to notes no tier will order (a `solution/`
+      // subtree, a translation copy) would send the learner to
+      // `--chain-tier toc`, which refuses there for the same reason, costing them
+      // the roadmap pointer that does apply. `tocCandidateCount` is what a toc/full
+      // tier could have ordered, so the advice is only offered when it leads
+      // somewhere — and "somewhere" needs more than one note, since a lone
+      // candidate is the chain head and `toc` would write no edge either.
+      tocLinksDeclined = autoChainTier === 'strict' && tiered.tocCandidateCount > 1;
       // B6 — the warning carries numbers and concrete paths: it is the stop
       // sign telling the learner this vault needs `--exclude`. The count and the
       // examples both come from the set the warning describes, which the coarse
@@ -537,10 +637,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // for a run that had just fallen back to alphabetical order — and the flag
       // itself fires on any plan containing a module README.
       const alphabetical = chainPlan.alphabeticalNotes;
+      const ties = chainPlan.alphabeticalTieNotes;
       const affected: string[] = [];
       if (alphabetical.length > 0) {
         affected.push(
           `${alphabetical.length} of ${chainPlan.orderedPaths.length} planned notes have no number or phase in their name and chain in alphabetical order`
+        );
+      }
+      if (ties.length > 0) {
+        affected.push(
+          `${ties.length} of ${chainPlan.orderedPaths.length} planned notes have the same number or phase as the note before them, so the order between them is alphabetical`
         );
       }
       if (chainPlan.directoryOrderAlphabetical) {
@@ -550,7 +656,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
       if (affected.length > 0) {
         console.log(`⚠ Warning: ${affected.join('; ')}.`);
-        for (const example of alphabetical.slice(0, 3)) {
+        for (const example of [...alphabetical, ...ties].slice(0, 3)) {
           console.log(`    e.g. ${example}`);
         }
       }
@@ -569,19 +675,34 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           chainBridgedPaths.push(relPath);
           continue;
         }
+        const declared = declaredDeps.get(relPath);
         const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
         const predecessorId = predecessorPath ? idByPath.get(predecessorPath) : undefined;
         const dependsOn: string[] = [];
-        if (predecessorId) {
+        if (declared) {
+          // The declared list replaces the inferred edge rather than joining it.
+          // One `depends_on_source` label covers a note's whole list, so keeping
+          // an inferred `toc` edge beside a declared one would quietly promote an
+          // enumeration guess into a gate — the exact defect PAL-205 exists to
+          // contain. A note that states its prerequisites has no need of a guess.
+          dependsOn.push(...declared.map((t) => t.id));
+          chainSourceOf.set(relPath, 'declared');
+          for (const target of declared) {
+            chainWritePlan.push({ path: relPath, dependsOnPath: target.path });
+          }
+        } else if (predecessorId) {
           dependsOn.push(predecessorId);
-        } else if (predecessorPath) {
-          console.log(
-            `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
-              `${relPath} keeps an empty depends_on.`
-          );
+          chainWritePlan.push({ path: relPath, dependsOnPath: predecessorPath });
+        } else {
+          if (predecessorPath) {
+            console.log(
+              `⚠ Warning: chain predecessor ${predecessorPath} has no resolvable topic id; ` +
+                `${relPath} keeps an empty depends_on.`
+            );
+          }
+          chainWritePlan.push({ path: relPath, dependsOnPath: null });
         }
         chainDependsOn.set(relPath, dependsOn);
-        chainWritePlan.push({ path: relPath, dependsOnPath: predecessorId ? predecessorPath : null });
         plannedGraph.set(id, { palee_id: id, depends_on: dependsOn, topic_mastery: 0 });
       }
 
@@ -624,7 +745,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // cannot close a cycle, and any loop reported below predates this run.
         // (Contrast `roadmap --auto-chain`, where a synthesized edge CAN close a
         // cycle against authored deps; that path labels its own edges.)
-        if (cycles.length > 0) {
+        const declaredIds = new Set(
+          [...declaredDeps.keys()].map((p) => idByPath.get(p)).filter(Boolean)
+        );
+        const involvesDeclared = cycles.some((c) => c.some((id) => declaredIds.has(id)));
+        if (cycles.length > 0 && involvesDeclared) {
+          console.error("  A cycle includes edges declared in the notes' own prerequisite text.");
+        } else if (cycles.length > 0) {
           console.error('  These edges are pre-existing vault dependencies, not chain-synthesized ones.');
         }
         if (truncated) {
@@ -658,10 +785,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     console.log(`Difficulty:       ${difficulty}`);
     if (options.autoChain) {
       if (chainRefused) {
-        // C4 honest refusal: no order signal anywhere in scope — exit 0 with
-        // zero edges instead of inventing alphabetical prerequisites.
+        // C4 honest refusal: nothing in scope was chainable under this tier —
+        // exit 0 with zero edges instead of inventing alphabetical
+        // prerequisites. Phrased about what the plan could chain rather than
+        // about whether a README exists, because a listing document whose every
+        // link resolves to a note this tier will not order is the same refusal.
         console.log(
-          'Auto-chain:       0 edges (no numbered layout, no README TOC links) — consider palee roadmap'
+          tocLinksDeclined
+            ? 'Auto-chain:       0 edges (no numbered layout; --chain-tier strict does not read a README enumeration) — try --chain-tier toc'
+            : 'Auto-chain:       0 edges (no numbered layout, no chainable order signal) — consider palee roadmap'
         );
       } else {
         // Count the edges this run actually writes, by the tier that authored
@@ -671,12 +803,28 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // receives no edge at all, and an already-adopted note bridged over is
         // never rewritten.
         const writtenEdges = chainWritePlan.filter((e) => e.dependsOnPath !== null);
+        const declaredWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'declared').length;
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
+        const tieWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'tie').length;
         console.log(
-          `Auto-chain:       enabled (${autoChainTier ?? 'full'} tier — ` +
-            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten} numbered, ` +
-            `${tocWritten} toc)`
+          `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
+            `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - declaredWritten - tieWritten} numbered, ` +
+            `${tocWritten} toc${tieWritten > 0 ? `, ${tieWritten} tie (advisory)` : ''})`
         );
+        if (declaredWritten > 0 || declaredSkippedCount > 0) {
+          // Its own line rather than a third bucket in the tier count above,
+          // because a declared edge *replaces* the inferred one: the tier numbers
+          // say what the plan could chain, this says what the notes themselves
+          // said. The skip count rides along — a name that matched nothing, or
+          // matched two notes, cost its own edge and nothing else, and silence
+          // there would read as a complete list.
+          console.log(
+            `Declared:         ${declaredWritten} edge(s) from the notes' own prerequisite text` +
+              (declaredSkippedCount > 0
+                ? ` (${declaredSkippedCount} name(s) resolved to no single note)`
+                : '')
+          );
+        }
       }
       // B6 — per-tier hygiene report, printed identically on the dry-run and
       // the confirmation screen so what is reviewed is what is written. It is
