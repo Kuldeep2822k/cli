@@ -38,6 +38,14 @@ export interface StoredTie {
   predecessorId: string;
 }
 
+/** What one vault scan turned up, before anything was written. */
+interface StoredTieScan {
+  /** Notes whose stored label can be demoted to `tie` with confidence */
+  ties: StoredTie[];
+  /** Notes labelled `numbered` whose single predecessor no longer resolves */
+  unresolved: string[];
+}
+
 /** What a relabel pass did, so the caller can pick an exit code. */
 interface RelabelOutcome {
   /** Notes rewritten */
@@ -46,6 +54,8 @@ interface RelabelOutcome {
   stale: number;
   /** Writes that failed for a reason other than a conflict */
   failed: number;
+  /** Notes left gated because their stored predecessor no longer resolves */
+  unresolved: number;
   /** True when a write conflicted, or a note drifted while the pass held it */
   hadConflict: boolean;
 }
@@ -77,19 +87,24 @@ interface RelabelOutcome {
  * - only a note with exactly one stored predecessor is considered — a longer
  *   list may have been edited by hand, and `adopt` never wrote one;
  * - a note with no label is left alone: absent means the learner wrote it;
- * - a predecessor that no longer loads is skipped, which is the dangling-edge
- *   report's business, not this one.
+ * - a predecessor that no longer loads cannot be ranked at all, so the note is
+ *   reported in {@link StoredTieScan.unresolved} rather than guessed at, and left
+ *   to the dangling-edge report that owns that case.
  */
-function findStoredTies(topics: LoadedTopic[]): StoredTie[] {
+function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
   const byId = new Map<string, LoadedTopic>();
   for (const t of topics) byId.set(t.id, t);
   const found: StoredTie[] = [];
+  const unresolved: string[] = [];
   for (const t of topics) {
     if (t.depends_on_source !== 'numbered') continue;
     const deps = t.depends_on ?? [];
     if (deps.length !== 1) continue;
     const pred = byId.get(deps[0] as string);
-    if (pred === undefined) continue;
+    if (pred === undefined) {
+      unresolved.push(t.filePath);
+      continue;
+    }
     if (path.dirname(pred.filePath) !== path.dirname(t.filePath)) continue;
     const predBase = path.basename(pred.filePath);
     const ownBase = path.basename(t.filePath);
@@ -103,7 +118,7 @@ function findStoredTies(topics: LoadedTopic[]): StoredTie[] {
       predecessorId: pred.id,
     });
   }
-  return found;
+  return { ties: found, unresolved };
 }
 
 /**
@@ -145,7 +160,8 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * Reports the stored ties in the vault and, when asked, rewrites their labels.
  *
  * @param vaultPath - The validated vault root
- * @param scanned - The topics the command already loaded, for the report only
+ * @param scanned - The vault as the command loaded it: the single source of both
+ *   this report and the writes it decides
  * @param apply - True when `--relabel-ties` was given
  * @param dryRun - True when `--dry-run` was given: report, and write nothing even
  *   alongside `--relabel-ties`, so a caller that always passes the flag can be
@@ -153,23 +169,18 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * @returns What the pass did; zero writes and no conflict on a report-only run
  *
  * @remarks
- * One list, printed and then written from. A run that is going to write reads the
- * vault for that purpose rather than accepting the caller's scan, so the set is
- * whatever the pairs look like at the moment of the write — a predecessor renamed
- * into a numbering-decided slot drops out and keeps its gate, and an edge
- * re-pointed at another earlier same-rank sibling is in it — and no note can be
- * reported one way and treated another. A report-only run has no decision to go
- * stale, so it reuses the scan already in hand.
+ * One list, printed and then written from, so no note can be reported one way and
+ * treated another. It is derived from the scan the caller already holds: a second
+ * whole-vault read here would sit one statement away from the first and close no
+ * window worth its cost. The gap that matters is between deriving a tie and
+ * promoting its write, and each write closes that gap for itself, below.
  *
- * Each write is then confirmed against the state its own decision read: the gated
+ * Each write is confirmed against the state its own decision read: the gated
  * note's fingerprint, and the predecessor's identity. A mismatch means the vault
- * moved while the pass was writing it — the note is left exactly as it is and the
- * caller is told to re-run, rather than the pass guessing which of the two states
- * it is entitled to rewrite.
- *
- * The second read is deliberately confined to the writing path. Scanning on a
- * report-only run too was tried, and it shifted a pre-existing `migrate --fix`
- * test that counts reads of a note to inject a concurrent edit at a chosen one.
+ * moved while the pass was running — the note is left exactly as it is, counted,
+ * and the caller is told to re-run. A drifted candidate is refused rather than
+ * re-judged mid-flight, because the re-run then makes its decision against one
+ * consistent read instead of two half-reads.
  */
 async function reportStoredTies(
   vaultPath: string,
@@ -177,18 +188,29 @@ async function reportStoredTies(
   apply: boolean,
   dryRun: boolean
 ): Promise<RelabelOutcome> {
-  const none: RelabelOutcome = { relabelled: 0, stale: 0, failed: 0, hadConflict: false };
-  const ties = findStoredTies(scanned);
-  if (ties.length === 0) return none;
-  console.log(`Prerequisite labels:  ${ties.length} note(s) gate behind a same-directory sibling`);
-  console.log('                    their stored label says `numbered`, but the numbering did not'
-    + ' decide those');
-  console.log('                    orders — the filenames did, which is what `tie` means.');
-  for (const tie of ties.slice(0, 5)) {
-    console.log(`  • ${path.relative(vaultPath, tie.filePath)} → ${tie.predecessorPath}`);
+  const none: RelabelOutcome = { relabelled: 0, stale: 0, failed: 0, unresolved: 0, hadConflict: false };
+  const { ties, unresolved } = findStoredTies(scanned);
+  if (ties.length === 0 && unresolved.length === 0) return none;
+  if (ties.length > 0) {
+    console.log(`Prerequisite labels:  ${ties.length} note(s) gate behind a same-directory sibling`);
+    console.log('                    their stored label says `numbered`, but the numbering did not'
+      + ' decide those');
+    console.log('                    orders — the filenames did, which is what `tie` means.');
+    for (const tie of ties.slice(0, 5)) {
+      console.log(`  • ${path.relative(vaultPath, tie.filePath)} → ${tie.predecessorPath}`);
+    }
+    if (ties.length > 5) console.log(`  ... and ${ties.length - 5} more`);
   }
-  if (ties.length > 5) console.log(`  ... and ${ties.length - 5} more`);
+  if (unresolved.length > 0) {
+    // Counted rather than guessed at: with the predecessor gone there is no pair
+    // to rank, and the chain never wrote such an edge. The dangling-edge report
+    // is the one that names the missing id, so this pass defers to it in print.
+    console.log(`Prerequisite labels:  ${unresolved.length} note(s) labelled \`numbered\` depend on an id`);
+    console.log('                    this vault no longer contains, so no order can be derived for them.');
+    console.log('                    `palee validate` reports those edges.');
+  }
   console.log();
+  if (ties.length === 0) return { ...none, unresolved: unresolved.length };
 
   if (!apply || dryRun) {
     if (apply) {
@@ -265,8 +287,10 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     // code here: a learner whose vault has an unrecognized schema still needs to
     // be told they are locked out of a note, and handling the failure in this
     // block keeps the schema pass's `exitCode === Conflict` check from reading
-    // this write's conflict as its own. The pass scans for itself, so `loaded`
-    // serves the schema report below and nothing here carries a stale decision.
+    // this write's conflict as its own. The pass decides from this same scan and
+    // re-confirms every note and predecessor before promoting a write, so a vault
+    // that moved under the run is refused and counted rather than rewritten from a
+    // stale decision; `loaded` also serves the schema report below.
     const tieOutcome = await reportStoredTies(
       vaultPath,
       loaded,

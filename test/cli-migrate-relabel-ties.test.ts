@@ -340,4 +340,45 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered',
       'the failed note stays exactly as it was');
   });
+  test('a same-rank name in another directory is not this pass to relabel', () => {
+    // Two notes whose filenames tie are only a tie inside one directory: the order
+    // between `m/` and `n/` is decided by the directories or not at all, so a
+    // cross-directory edge labelled `numbered` is not a claim the chain made.
+    // Deleting the dirname test in findStoredTies relabels this note and demotes an
+    // edge nobody can account for, which is the harm the guard exists to prevent.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-ma', 'Note in the first directory', [], 'numbered'),
+      'n/02-b.md': storedNote('T-nb', 'Note in the second directory', ['T-ma'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+      `a cross-directory pair is not a stored tie:
+${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'n/02-b.md')?.depends_on_source, 'numbered',
+      'the label is left exactly as the vault stored it');
+  });
+
+  test('a note whose predecessor no longer resolves is counted, not guessed at', () => {
+    // With the id gone there is no pair left to rank, so this pass cannot tell a
+    // stored tie from a numbering-decided edge. It says the note is there, hands it
+    // to the report that names the missing id, and leaves the label alone.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First of the pair', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Second of the pair', ['T-a'], 'numbered'),
+      'm/03-c.md': storedNote('T-c', 'Depends on a deleted note', ['T-gone'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /1 note\(s\) labelled `numbered` depend on an id/,
+      `the unresolvable edge must be counted:
+${result.stdout}`);
+    assert.match(result.stdout, /palee validate` reports those edges/,
+      `and name the report that owns it:
+${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/03-c.md')?.depends_on_source, 'numbered',
+      'an edge to a missing note is not this pass to demote');
+    // The genuine tie in the same vault is still judged on its own merits.
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+  });
 });
