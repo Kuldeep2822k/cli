@@ -110,13 +110,32 @@ function isPlausibleName(text: string): boolean {
 }
 
 /**
+ * A subject standing between a comma-flanked aside and the verb being tested.
+ *
+ * A negation reaches only as far as the verb of its own clause, and the way to
+ * tell an interruption from a new clause is whether the verb arrives with a
+ * subject of its own. "does not, and it bears repeating, require" has nothing
+ * in front of `require`, so the earlier `not` still governs it; "does not need
+ * a calculator, but for the lab, it requires" hands `requires` to `it`, which
+ * discharges the `not` on `need` instead.
+ *
+ * Pronouns and demonstratives only. The cost is a noun subject in that position
+ * ("…, but for the lab, this lesson requires") reading as an interruption and
+ * dropping a real prerequisite — a lost edge, which falls back to whatever the
+ * numbered tree justified.
+ */
+const CLAUSE_SUBJECT = /\b(?:it|its|he|she|we|you|they|this|these|that|those)\b/i;
+
+/**
  * A parenthetical aside: content set off by paired parentheses, paired dashes,
  * or a single comma-flanked insertion. Removed before clause analysis so a
  * negation reads across the interruption — "does not — strictly speaking —
  * require", "does not, however, require", "does not, and it bears repeating,
  * require" all reduce to "does not require". Comma pairs are consumed
- * left-to-right; a lone boundary comma ("…, but this lesson requires") has no
- * partner and survives to split clauses below.
+ * left-to-right and only where no subject follows them; a pair that ends in
+ * front of a new subject is a clause, not an aside, and is left to split the
+ * clause below. A lone boundary comma ("…, but this lesson requires") has no
+ * partner and survives for the same reason.
  */
 const PAREN_ASIDE = /\([^()\n]*\)/g;
 const DASH_ASIDE = /[—–][^—–\n]*[—–]/g;
@@ -137,9 +156,13 @@ const CLAUSE_BOUNDARY =
 
 /**
  * A verbal negation on the immediate clause's verb: `not`, `n't`, `never`,
- * `cannot`, `neither`, `nor`, or a governing `without` ("without requiring X").
+ * `cannot`, `neither`, `nor`, `without`, or `no longer`.
+ *
+ * `no longer` belongs here rather than with the negative subjects because it
+ * negates the verb, not the subject: "this lesson no longer requires Setup"
+ * retires a prerequisite the note once had, which is the same denial of a gate.
  */
-const VERBAL_NEGATION = /\b(?:not|never|cannot|neither|nor|without)\b|n['’]t\b/i;
+const VERBAL_NEGATION = /\b(?:no\s+longer|not|never|cannot|neither|nor|without)\b|n['’]t\b/i;
 
 /**
  * A negative subject opening the immediate clause: `No lesson`, `No student in
@@ -157,7 +180,8 @@ const NEGATIVE_SUBJECT = /^(?:none|nobody|nothing|neither|no\s+one|no)\b/i;
  * 1. Parenthetical asides — paired parentheses, paired dashes, and comma-flanked
  *    insertions — are removed, so the words that a negation is stretched across
  *    ("does not, under any circumstances, ever require") close back up ("does
- *    not ever require").
+ *    not ever require"). A comma pair that leaves a subject in front of the
+ *    verb is not an aside and is left alone — see {@link CLAUSE_SUBJECT}.
  * 2. What remains is split on clause boundaries ({@link CLAUSE_BOUNDARY}) and
  *    the last segment — the clause `require` actually sits in — is tested.
  *
@@ -183,11 +207,15 @@ function negatedBefore(text: string, index: number): boolean {
   const prefix = text.slice(sentStart === -1 ? 0 : sentStart + 1, index);
 
   // Remove asides so a negation reads across them, then keep only the clause
-  // that immediately governs `require`.
+  // that immediately governs `require`. A comma pair in front of a new subject
+  // is held back: it separates clauses, and the removal would let an earlier
+  // negation swallow a requirement belonging to the later one.
   const clause = prefix
     .replace(PAREN_ASIDE, ' ')
     .replace(DASH_ASIDE, ' ')
-    .replace(COMMA_ASIDE, ' ');
+    .replace(COMMA_ASIDE, (aside, offset) =>
+      CLAUSE_SUBJECT.test(prefix.slice(offset + aside.length)) ? aside : ' '
+    );
   const segments = clause.split(CLAUSE_BOUNDARY);
   const immediateClause = (segments[segments.length - 1] ?? '').trim();
 

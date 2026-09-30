@@ -180,6 +180,10 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(extractDeclaredPrerequisites('No lesson from Chapter 2 requires Setup.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('No student in this class requires Setup.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson does not yet require Set Theory.\n'), []);
+    // `no longer` retires a prerequisite the note once had. Reading it as a
+    // requirement would gate a learner behind the one note the author removed.
+    assert.deepStrictEqual(extractDeclaredPrerequisites('This lesson no longer requires Setup.\n'), []);
+    assert.deepStrictEqual(extractDeclaredPrerequisites('This course no longer requires Prior Reading.\n'), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites("This lesson doesn't yet require Set Theory.\n"), []);
     assert.deepStrictEqual(extractDeclaredPrerequisites('None of the lessons require Setup.\n'), []);
     // A parenthetical aside must not shield the negation, even when an adverb
@@ -209,6 +213,10 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       ['No doubt, this lesson requires Setup.\n', 'Setup'],
       // The negation governs a different, conjoined verb ("does not need … and requires").
       ['This lesson does not need a calculator and requires Setup.\n', 'Setup'],
+      // The same with the second clause set off by a comma-flanked phrase: the
+      // aside ends in front of a new subject, so the earlier `not` cannot reach
+      // across it and erase a prerequisite the author did state.
+      ['This lesson does not need a calculator, but for the lab, it requires Setup.\n', 'Setup'],
       // A negative subject on a separate clause, split off by `unless`.
       ['No lesson is complete unless it requires Setup.\n', 'Setup'],
       ['Requires care. Set up first, as it requires Setup.\n', 'Setup'],
