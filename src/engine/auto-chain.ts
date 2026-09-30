@@ -545,8 +545,13 @@ function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
  * The two ranks that matter are the ones that look decided: `02-a.md` and
  * `02-b.md` both read as "the numbering chose this order", when in fact nothing
  * but the alphabet did.
+ *
+ * Exported because `palee migrate --relabel-ties` re-asks exactly this question
+ * about edges written before the `tie` label existed. Restating the test inside
+ * the migration is how the two would drift and a numbering decision that really
+ * was made get demoted to advisory.
  */
-function tiedByName(aBasename: string, bBasename: string): boolean {
+export function tiedByName(aBasename: string, bBasename: string): boolean {
   const ra = tier0LessonRank(aBasename);
   const rb = tier0LessonRank(bBasename);
   if (ra.rank !== rb.rank || (ra.rank !== 1 && ra.rank !== 2)) {
