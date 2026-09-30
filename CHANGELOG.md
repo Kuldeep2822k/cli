@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Roadmap import no longer mints zero-valued pillar scores**: absent assessment pillars resolved to `0.0` and were written onto notes, causing false mastery-drift warnings under `validate --strict`. ([#196](https://github.com/Kuldeep2822k/cli/pull/196))
 - **Hot-memory rebuild keeps sessions with unparseable timestamps**: unparseable `started_at` values previously wiped the derived hot memory to "No learning history recorded yet." while the session files stayed intact. ([#211](https://github.com/Kuldeep2822k/cli/pull/211))
 - **Stale draft timestamps clamped to 24h**: draft recovery and session-end draft selection now clamp `started_at` older than 24 hours, matching the draft-write freshness check. ([#208](https://github.com/Kuldeep2822k/cli/pull/208))
+- **Roadmap import no longer reads through a symlinked note path**: existence is tested with `lstat`, the target must resolve inside the vault, and the read is bound to the descriptor of the validated file — so a link planted after the check cannot bring outside content into a note. ([#217](https://github.com/Kuldeep2822k/cli/issues/217), [#218](https://github.com/Kuldeep2822k/cli/pull/218))
 
 ### Changed
 

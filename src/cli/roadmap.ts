@@ -100,6 +100,44 @@ function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
 }
 
 /**
+ * Reads a vault note through a descriptor bound to the file `lstat` validated.
+ *
+ * @param targetPath - The note path the caller checked
+ * @param expected - The `lstat` result that established it as a regular file inside the vault
+ * @returns The note's text
+ * @throws Error when the path cannot be opened, or no longer holds the file that was validated
+ *
+ * @remarks
+ * Every vault check above a read is check-then-use, so a symlink planted after
+ * them is still followed and its outside content imported as the note's own
+ * text. Opening first and comparing the descriptor's identity against the
+ * earlier `lstat` closes that for the read: the bytes come from the object that
+ * was validated, and a swap underneath shows up as a different inode before
+ * anything is read.
+ *
+ * Identity comparison is the form that works everywhere this CLI ships. A
+ * no-follow open does not: `fs.constants.O_NOFOLLOW` is undefined on win32, so
+ * the open follows the link anyway. Nor does resolving a descriptor —
+ * `fs.realpathSync` reads a number as a path relative to the working directory
+ * on win32 rather than reporting the open file.
+ *
+ * A planted *hard* link stays invisible to this and to every path-based check:
+ * it is not a reference to another file but a second name for the same one.
+ */
+export function readBoundNote(targetPath: string, expected: fs.Stats): string {
+  const fd = fs.openSync(targetPath, 'r');
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
+      throw new Error(`${targetPath} changed between validation and read`);
+    }
+    return fs.readFileSync(fd, 'utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
  * CLI command handler for validating and importing learning roadmaps into the vault.
  *
  * @param options - Roadmap options including `--from` file path and `--yes` confirmation.
@@ -326,8 +364,60 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           let isNew = false;
           let existingData: Record<string, unknown> = {};
 
-          if (fs.existsSync(resolvedTargetPath)) {
-            content = fs.readFileSync(resolvedTargetPath, 'utf8');
+          // A symlinked target is never a note, whether or not it resolves.
+          // Reading through one pulls the outside file's body into the import as
+          // if it were the existing note, and the atomic write below then
+          // replaces the link itself, so content from outside the vault lands
+          // inside it and the link is destroyed. The existence test has to be
+          // `lstat`: `existsSync` follows the link and reports false for a
+          // dangling symlink, which would let the writer replace the link
+          // unseen. A topic path can arrive as a symlink because
+          // `palee roadmap --from` is routinely pointed at cloned repos.
+          //
+          // The read that follows is bound to this stat by descriptor, so a link
+          // planted between the check and the read is detected before outside
+          // content is imported. The write is still check-then-write, but it
+          // cannot leak content either: `atomicWrite` renames a fresh file over
+          // the entry, so a planted link is replaced rather than written
+          // through. Closing that window portably is tracked in #217 — a
+          // no-follow open is not the fix, because `fs.constants.O_NOFOLLOW` is
+          // undefined on win32 and the open follows the link anyway.
+          let targetStat: fs.Stats | null;
+          try {
+            targetStat = fs.lstatSync(resolvedTargetPath);
+          } catch (statErr) {
+            if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw statErr;
+            }
+            targetStat = null;
+          }
+          if (targetStat !== null) {
+            if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
+              console.error(`Skipped ${topic.id}: ${topic.path} is not a regular file`);
+              failed++;
+              continue;
+            }
+            const relRealTarget = path.relative(resolvedVault, fs.realpathSync(resolvedTargetPath));
+            if (
+              path.isAbsolute(relRealTarget) ||
+              relRealTarget === '..' ||
+              relRealTarget.startsWith('..' + path.sep) ||
+              relRealTarget.split(path.sep).includes('..')
+            ) {
+              console.error(`Skipped ${topic.id}: ${topic.path} resolves outside the vault`);
+              failed++;
+              continue;
+            }
+          }
+
+          if (targetStat !== null) {
+            try {
+              content = readBoundNote(resolvedTargetPath, targetStat);
+            } catch (e: unknown) {
+              console.error(`Skipped ${topic.id}: ${(e as Error).message}`);
+              failed++;
+              continue;
+            }
             fingerprint = computeFingerprint(content);
             const parsed = parseFrontmatter(content);
             if (parsed.frontmatter) {
