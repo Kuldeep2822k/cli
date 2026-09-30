@@ -255,8 +255,15 @@ depends_on:
       assert.strictEqual(data.reviews_due, 1);
       assert.strictEqual(data.by_difficulty.intermediate.total, 0, 'archived topic must not inflate difficulty buckets');
       assert.strictEqual(data.next_review.id, 'T-topic-1');
-      // Percentages are relative to the active population.
+      // Percentages are relative to the active population: one mastered and one
+      // learning out of two, with the archived note in neither numerator nor
+      // denominator. `new_pct` is the assertion with unique force here — this
+      // fixture's archived note sits at mastery 0, so a leak of it into the New
+      // numerator moves nothing else. The other two guard the same figures from
+      // the denominator side.
       assert.strictEqual(data.mastered_pct, 50);
+      assert.strictEqual(data.learning_pct, 50);
+      assert.strictEqual(data.new_pct, 0);
     });
 
     test('text output does not count archived in New line', async () => {
