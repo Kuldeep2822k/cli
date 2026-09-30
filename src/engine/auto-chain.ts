@@ -516,10 +516,13 @@ function leadsToNumberedSegment(dir: string): boolean {
  * Homework, quizzes and solutions follow the lesson they assess, so they close
  * the directory instead of opening it.
  *
- * This comparator is intentionally local to the hygiene planner: the public
+ * This comparator is local to the hygiene planner apart from one consumer:
+ * `palee migrate --relabel-ties` needs it to confirm that the stored predecessor
+ * is the note the planner would have placed *first*, because rank equality
+ * alone does not say which end of the pair the edge should point at. The public
  * `compareLessonOrder` contract that Work Order A shipped against is unchanged.
  */
-function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
+export function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
   const ra = tier0LessonRank(aBasename);
   const rb = tier0LessonRank(bBasename);
   if (ra.rank !== rb.rank) {
