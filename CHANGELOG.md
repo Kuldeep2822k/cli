@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`palee assess` records a four-pillar assessment and recomputes mastery**: `topic_mastery` is the only thing that opens a prerequisite gate, and no command in v0.5.2 raised it — every topic behind an unmastered prerequisite stayed out of `palee plan` permanently, whatever the learner did. `palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]` writes the pillars it is given, leaves the others untouched (and says so), recomputes `topic_mastery` with the existing `(c + p + d + 2·f) / 5` weighting, and reports what the change unlocks. SM-2 scheduling is not touched, and the `0.70` threshold is unchanged. Scores outside `0–1` are rejected rather than clamped, so a typed `--conceptual 85` cannot silently become a full mark. ([#227](https://github.com/Kuldeep2822k/cli/issues/227))
 - **`palee validate --fix` now repairs invalid SM-2 fields**: `--fix` previously reported "not implemented"; it now repairs invalid SM-2 review fields and reports each repair in the output. ([#210](https://github.com/Kuldeep2822k/cli/pull/210))
 
 ### Fixed
