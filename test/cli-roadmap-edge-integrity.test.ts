@@ -83,7 +83,10 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     const output = result.stdout + result.stderr;
 
     assert.strictEqual(result.status, 1, `partial import must exit 1: ${output}`);
-    assert.match(output, /Failed T-2/, 'the failed write must still be reported');
+    // The directory in the note's path is refused by the `lstat` guard before the
+    // write is attempted, so the report line is a skip rather than a failed write.
+    // Either way T-2 does not land, which is what the rest of this test needs.
+    assert.match(output, /Skipped T-2: n\/2\.md is not a regular file/, 'the refused note must be reported');
     assert.match(
       output,
       /dependency edge\(s\) point at topics that do not exist/,
@@ -241,7 +244,7 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
     const output = result.stdout + result.stderr;
     assert.strictEqual(result.status, 1, output);
-    assert.match(output, /Failed T-ghost/, 'precondition: a write really did fail');
+    assert.match(output, /Skipped T-ghost: ghost\.md is not a regular file/, 'precondition: T-ghost did not land');
     assert.doesNotMatch(
       output,
       /T-first → T-ghost/,
