@@ -483,8 +483,9 @@ export interface ValidationResult {
  *
  * @remarks
  * `numbered` edges come from the note's own numeric prefix, `toc` edges from a
- * listing document's enumeration order, and `declared` edges from the note's own
- * text — a `## Prerequisites` section or a "requires X" sentence. `tie` edges
+ * listing document's enumeration order, and `declared` edges from the links in
+ * the note's own `## Prerequisites` section — a wikilink or a markdown link, the
+ * one form whose referent is not a guess. `tie` edges
  * join two notes carrying the *same* number or phase, where the tree declined to
  * order them and the filename collation did.
  *

@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 /**
- * A note's own `## Prerequisites` section, or a "requires X" sentence, is a
+ * A note's own `## Prerequisites` section, when it links its predecessors, is a
  * statement by the author rather than an inference about where the file sits —
  * so the edge it produces is written, labelled `declared`, and gates. These run
  * the real CLI end to end: the unit tests on the extractor stay green when the
@@ -114,8 +114,9 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
   });
 
   test('a declared edge gates the note out of the ready list', () => {
-    // The whole point of treating prose as authorship: the gate holds all the way
-    // through `palee plan`, not just in the frontmatter the command wrote.
+    // The whole point of treating a stated prerequisite as authorship: the gate
+    // holds all the way through `palee plan`, not just in the frontmatter the
+    // command wrote.
     const { vaultDir, configDir } = freshVault({
       'm/01-gate.md': '# Gate\n\n',
       'm/02-behind.md': ['# Behind', '', '## Prerequisites', '', '- [[m/01-gate]]'].join('\n'),
