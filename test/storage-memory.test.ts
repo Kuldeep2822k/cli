@@ -366,6 +366,88 @@ Draft status session with newer timestamp.
       'active_topic must come from the newest confirmed session');
   });
 
+  // BUG-005: an unparseable `started_at` produced NaN, which never satisfied
+  // the `time >= newestTime` test, so every session was disqualified and hot
+  // memory was rewritten as empty history. Sessions must survive the rebuild.
+  function writeRawSession(vaultPath: string, fileName: string, sessionId: string, topicId: string, startedAt: string, body: string): void {
+    const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionsDir, fileName), `---
+palee_schema: 1
+session_id: ${sessionId}
+topic_id: ${topicId}
+started_at: ${startedAt}
+ended_at: ${startedAt}
+status: completed
+---
+${body}
+`, 'utf8');
+  }
+
+  test('rebuildHotAndIndex keeps hot memory when all session timestamps are unparseable', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug005-all-nan-'));
+    try {
+      writeRawSession(vaultPath, 'S-corruptone.md', 'S-corruptone', 'T-corrupt-a', 'not-a-date', 'Linux networking: bridge vs overlay.');
+      writeRawSession(vaultPath, 'S-corrupttwo.md', 'S-corrupttwo', 'T-corrupt-b', '2026-13-45T99:99:99Z', 'Kubernetes CNI chapter 4 notes.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotContent = fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8');
+      const { frontmatter, body } = parseFrontmatter(hotContent);
+      assert.ok(frontmatter!.last_session, 'hot memory must select a session even when all timestamps are unparseable');
+      assert.ok(!body.includes('No learning history recorded yet.'),
+        'hot memory must not be erased while confirmed sessions exist on disk');
+      assert.ok(['T-corrupt-a', 'T-corrupt-b'].includes(String(frontmatter!.active_topic)),
+        'active_topic must come from a real session, not be null (tie-break order is not contractual)');
+
+      const indexContent = fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8');
+      assert.ok(indexContent.includes('Total Sessions: 2'),
+        'index and hot memory must agree that sessions exist');
+
+      const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+      assert.deepStrictEqual(fs.readdirSync(sessionsDir).sort(), ['S-corruptone.md', 'S-corrupttwo.md'],
+        'rebuild must never mutate canonical session files');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
+  test('rebuildHotAndIndex ranks unparseable timestamps below valid ones', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug005-mixed-'));
+    try {
+      writeRawSession(vaultPath, 'S-invalid.md', 'S-invalid', 'T-invalid', 'not-a-date', 'Corrupt timestamp session body.');
+      writeRawSession(vaultPath, 'S-valid.md', 'S-valid', 'T-valid', '2026-01-02T03:04:05.000Z', 'Valid timestamp session body.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotContent = fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8');
+      const { frontmatter } = parseFrontmatter(hotContent);
+      assert.strictEqual(frontmatter!.last_session, 'S-valid',
+        'a session with an unparseable timestamp must not displace a validly-timed one');
+      assert.strictEqual(frontmatter!.active_topic, 'T-valid');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
+  test('rebuildHotAndIndex ranks a pre-1970 session above an unparseable timestamp', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug005-pre1970-'));
+    try {
+      writeRawSession(vaultPath, 'S-invalid.md', 'S-invalid', 'T-invalid', 'not-a-date', 'Corrupt timestamp session body.');
+      writeRawSession(vaultPath, 'S-preepoch.md', 'S-preepoch', 'T-pre1970', '1969-05-01T00:00:00.000Z', 'Pre-epoch session body.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotContent = fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8');
+      const { frontmatter } = parseFrontmatter(hotContent);
+      assert.strictEqual(frontmatter!.last_session, 'S-preepoch',
+        'a parseable pre-1970 timestamp must outrank an unparseable one, not be filtered out');
+      assert.strictEqual(frontmatter!.active_topic, 'T-pre1970');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('writeDraftCheckpoint writes DRAFT-S-*.md file', async () => {
     const draftId = generateDraftId();
     const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
@@ -555,6 +637,42 @@ Draft status session with newer timestamp.
     assert.ok(frontmatter);
     assert.strictEqual(typeof frontmatter!.duration_minutes, 'number');
     assert.strictEqual(Number.isNaN(frontmatter!.duration_minutes), false);
+  });
+
+  test('recoverDraft save clamps draft older than 24h to a 24h maximum duration (BUG-004)', async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const draftId = generateDraftId();
+    const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
+      topic_id: 'T-stale-draft',
+      started_at: tenDaysAgo,
+    }, 'Stale draft body.');
+
+    await recoverDraft(testVaultPath, draftPath, 'save');
+
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    const files = fs.readdirSync(sessionsDir);
+    const recoveredNote = files.find(f => {
+      if (!f.startsWith('S-') || f.startsWith('DRAFT-S-')) return false;
+      const content = fs.readFileSync(path.join(sessionsDir, f), 'utf8');
+      return content.includes('T-stale-draft');
+    });
+    assert.ok(recoveredNote);
+
+    const content = fs.readFileSync(path.join(sessionsDir, recoveredNote), 'utf8');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter);
+    assert.strictEqual(typeof frontmatter!.duration_minutes, 'number');
+    assert.ok(
+      (frontmatter!.duration_minutes as number) <= 1440,
+      `duration_minutes should be clamped to <=1440, got ${frontmatter!.duration_minutes}`
+    );
+    assert.ok((frontmatter!.duration_minutes as number) >= 1439);
+
+    const startMs = new Date(frontmatter!.started_at as string).getTime();
+    const minAllowed = Date.now() - 24 * 60 * 60 * 1000 - 60000;
+    assert.ok(startMs >= minAllowed, 'started_at must not be earlier than 24h before now');
+
+    fs.unlinkSync(path.join(sessionsDir, recoveredNote));
   });
 
   test('regenerateIndex only indexes confirmed sessions and excludes draft notes', async () => {

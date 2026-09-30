@@ -111,6 +111,46 @@ describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
       assert.strictEqual(data.counts.quarantined, 0);
     });
 
+    test('plan --json reports the same keys for an empty vault as for a populated one', async () => {
+      // The empty-vault response is a separate literal from the populated one,
+      // and `blocked` / `counts.blocked` were added to only the latter — so a
+      // client that reads the documented shape gets `undefined` exactly when the
+      // vault is empty. Comparing the two key sets makes any future one-sided
+      // addition fail here rather than in a consumer.
+      await planCommand({ json: true });
+      const empty = getLastParsedJson();
+
+      fs.writeFileSync(
+        path.join(tmpDir, 'one.md'),
+        `---
+palee_schema: 1
+palee_id: T-shape-one
+title: Shape One
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+---
+# Shape One
+`,
+        'utf8'
+      );
+      await planCommand({ json: true });
+      const populated = getLastParsedJson();
+
+      assert.deepStrictEqual(
+        Object.keys(empty).sort(),
+        Object.keys(populated).sort(),
+        'top-level keys must not diverge between the two response branches'
+      );
+      assert.deepStrictEqual(
+        Object.keys(empty.counts).sort(),
+        Object.keys(populated.counts).sort(),
+        'counts keys must not diverge between the two response branches'
+      );
+      assert.deepStrictEqual(empty.blocked, []);
+      assert.strictEqual(empty.counts.blocked, 0);
+    });
+
     test('progress --json on empty vault produces valid JSON structure', async () => {
       await progressCommand({ json: true });
       const data = getLastParsedJson();
@@ -527,6 +567,91 @@ depends_on: []
       assert.ok(readySection.includes('T-free'), 'ready list must keep the independent topic');
       assert.ok(!readySection.includes('T-cycle-a'), 'ready list must exclude the cyclic pair');
       assert.strictEqual(process.exitCode, 0, 'plan continues on valid acyclic components');
+    });
+
+    test('plan names what blocks a topic, distinguishing an unmet prereq from a dead one', async () => {
+      // A topic with unmet prerequisites is simply absent from Ready to Learn,
+      // which reads the same as "nothing to study"; a prerequisite id that no
+      // longer resolves never becomes satisfiable at all, and `validate` only
+      // warns. Both must be reported, and the dead one must say so.
+      fs.writeFileSync(
+        path.join(tmpDir, 'gated-behind-live.md'),
+        `---
+palee_schema: 1
+palee_id: T-gated-live
+title: Gated Behind Live
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-gatekeeper
+---
+# Gated
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'gated-behind-dead.md'),
+        `---
+palee_schema: 1
+palee_id: T-gated-dead
+title: Gated Behind Dead
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-never-existed
+---
+# Gated Dead
+`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'gatekeeper.md'),
+        `---
+palee_schema: 1
+palee_id: T-gatekeeper
+title: Gatekeeper
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+---
+# Gatekeeper
+`,
+        'utf8'
+      );
+
+      await planCommand({});
+      const human = loggedOutputs.join('\n');
+      const section = (human.split('Blocked by prerequisites: ')[1] ?? '').split('Progress Summary')[0];
+
+      assert.ok(section.includes('T-gated-live'), 'a topic behind an unmet prereq must be named');
+      assert.ok(section.includes('needs 0.70'), 'the report must state the threshold it is waiting on');
+      assert.ok(section.includes('T-gatekeeper'), 'the blocking prerequisite must be named');
+      assert.ok(section.includes('T-gated-dead'), 'a topic behind a dead prereq must be named');
+      assert.ok(
+        section.includes('T-never-existed is not in the vault'),
+        'an unresolvable prerequisite must be called out as missing, not as unmastered'
+      );
+      assert.ok(section.includes('palee validate'), 'the dead-prereq line must point at the fix');
+
+      loggedOutputs.length = 0;
+      await planCommand({ json: true });
+      const data = getLastParsedJson();
+      // The whole list, not a search for one entry: finding `T-gated-dead` passes
+      // whether or not `T-gated-live` was reported, and whether or not the
+      // available gatekeeper was wrongly included.
+      const blocked = (data.blocked as { id: string; waiting_on: string[] }[])
+        .map((b) => [b.id, b.waiting_on.join(' | ')] as const)
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      assert.deepStrictEqual(blocked, [
+        ['T-gated-dead', 'T-never-existed is not in the vault (run palee validate)'],
+        ['T-gated-live', 'Gatekeeper (T-gatekeeper) at mastery 0.0000, needs 0.70'],
+      ]);
+      assert.strictEqual(data.counts.blocked, 2, 'counts must agree with the list length');
+      assert.deepStrictEqual(
+        (data.ready_to_learn as { id: string }[]).map((t) => t.id),
+        ['T-gatekeeper'],
+        'the available prerequisite is ready, not blocked'
+      );
     });
   });
 

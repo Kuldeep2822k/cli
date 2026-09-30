@@ -724,6 +724,23 @@ export interface RoadmapOptions {
   autoChain?: boolean;
 }
 
+/**
+ * Command-line options for `palee assess`.
+ *
+ * @remarks Each pillar is optional on its own, but at least one must be given:
+ * an assessment carrying no scores would write a timestamp and change nothing.
+ */
+export interface AssessOptions {
+  /** Conceptual understanding score (0.0 - 1.0) */
+  conceptual?: string;
+  /** Practical application score (0.0 - 1.0) */
+  practical?: string;
+  /** Debugging & troubleshooting score (0.0 - 1.0) */
+  debug?: string;
+  /** Feynman articulation score (0.0 - 1.0) */
+  feynman?: string;
+}
+
 // ─── Roadmap YAML ───────────────────────────────────────────────────
 
 /**

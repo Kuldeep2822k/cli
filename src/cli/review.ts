@@ -159,6 +159,11 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
+    // Corrupted on-disk SM-2 state is user-recoverable: point at the
+    // repair path instead of leaving exit 5 as a dead end (BUG-003).
+    if (/^Invalid (ease_factor|interval_days|repetition):/.test(err.message)) {
+      console.error('Hint: this note\'s SM-2 review state is invalid. Run "palee validate --fix" to repair it.');
+    }
     process.exitCode = exitCodeFor(e);
   }
 }
