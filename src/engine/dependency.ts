@@ -784,8 +784,9 @@ function areDependenciesSatisfied(
  *
  * @remarks
  * Filters topics where:
- * 1. `topic_mastery < threshold` (not yet mastered)
- * 2. Every prerequisite dependency has `topic_mastery >= threshold`
+ * 1. `status` is not `'archived'` (archived topics are not learnable)
+ * 2. `topic_mastery < threshold` (not yet mastered)
+ * 3. Every prerequisite dependency has `topic_mastery >= threshold`
  *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @param threshold - Mastery threshold score (default: {@link MASTERY_THRESHOLD} = 0.70)
@@ -804,6 +805,10 @@ function getReadyTopics(
   const ready: TopicNode[] = [];
 
   for (const [, topic] of topics) {
+    // Archived topics are out of the learning lifecycle entirely (BUG-002);
+    // `progress` already excludes them, readiness must agree.
+    if (topic.status === 'archived') continue;
+
     const mastery = topic.topic_mastery || 0;
 
     // Skip if already mastered
