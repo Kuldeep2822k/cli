@@ -12,6 +12,7 @@ import * as mastery from './mastery';
 import * as autoChain from './auto-chain';
 import * as tier0Hygiene from './tier0-hygiene';
 import * as tocChain from './toc-chain';
+import * as prereqText from './prereq-text';
 import * as topicId from './topic-id';
 
 /** Computes next SM-2 interval, ease factor, and repetition counters after a review */
@@ -110,6 +111,13 @@ export const composeTieredChain = tocChain.composeTieredChain;
 /** Parses the `--auto-chain[=strict|toc|full]` value; `null` = reject */
 export const parseAutoChainTier = tocChain.parseAutoChainTier;
 export type { AutoChainTier, DependsOnSource, TocLink, TocSkipReason, TocTargetCandidate, TocChainPlan, TieredChainPlan, TieredComposition } from './toc-chain';
+
+// Declared-prerequisite exports (PAL-205 WS6)
+/** Reads a note's own text for the prerequisites it declares about itself */
+export const extractDeclaredPrerequisites = prereqText.extractDeclaredPrerequisites;
+/** Resolves declared prerequisite names to targets through a caller-owned lookup */
+export const resolveDeclaredPrerequisites = prereqText.resolveDeclaredPrerequisites;
+export type { DeclaredPrereqRef, DeclaredPrereqSkip, DeclaredPrereqResolution } from './prereq-text';
 
 // Topic ID exports
 /** Generates a unique topic identifier prefixed with `T-` (#29) */

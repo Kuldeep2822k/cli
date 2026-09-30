@@ -457,4 +457,51 @@ due_at: '2026-09-12'
     assert.ok(!fs.existsSync(path.join(vaultDir, 'r/c.md')), 'no roadmap note may be written');
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/e.md'), ['T-C'], 'the pre-existing note is untouched');
   });
+
+  test('a roadmap-synthesized chain edge gates, because the learner wrote the list', () => {
+    // INV-47 lets `roadmap --auto-chain` synthesize `depends_on` from the `order`
+    // field the learner typed. That order is a plan someone authored, so the edge
+    // gates and carries no advisory label — the one property PAL-205's advisory
+    // machinery must never reach, or a roadmap would stop meaning anything. If a
+    // later change labels synthesized edges to reuse the chain code, this test is
+    // what notices: the second topic would reappear in the ready list with the
+    // first still at zero mastery.
+    const { vaultDir, configDir } = freshVault({
+      'g/one.md': '# One\n',
+      'g/two.md': '# Two\n',
+    });
+    const yamlPath = path.join(tempDir, 'gated.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-g-one',
+        '    title: One',
+        '    path: g/one.md',
+        '    order: 1',
+        '  - id: T-g-two',
+        '    title: Two',
+        '    path: g/two.md',
+        '    order: 2',
+        '',
+      ].join('\n')
+    );
+    const imported = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
+    assert.strictEqual(imported.status, 0, imported.stdout + imported.stderr);
+    assert.match(imported.stdout, /Auto-chain: 1 chain edge\(s\) synthesized across 2 roadmap topics\./);
+
+    // Unlabeled is the fail-closed source: it means "authored", and it gates.
+    const two = frontmatterOf(vaultDir, 'g/two.md');
+    assert.strictEqual(two.depends_on_source, undefined, 'a synthesized roadmap edge takes no advisory label');
+    assert.deepStrictEqual(two.depends_on, ['T-g-one']);
+
+    const planned = runCLI(['plan', '--json'], configDir);
+    assert.strictEqual(planned.status, 0, planned.stderr);
+    const ready = (JSON.parse(planned.stdout) as { ready_to_learn: { id: string }[] }).ready_to_learn;
+    assert.deepStrictEqual(
+      ready.map((t) => t.id),
+      ['T-g-one'],
+      'the second topic stays behind the first until the first is mastered'
+    );
+  });
 });

@@ -420,4 +420,23 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
       ['real']
     );
   });
+
+  test('a quoted "true" does not declare the document — only a YAML boolean does', () => {
+    // The gate is `mdFrontmatter?.palee_roadmap === true`, and the frontmatter
+    // parser hands back a string for a quoted value. Nothing tested which forms
+    // the gate accepts, so relaxing the strict comparison to a truthiness test —
+    // which would let `palee_roadmap: "no"` mark a document as a roadmap and
+    // import it — left the whole suite green.
+    const doc = (decl: string): string =>
+      `---\npalee_roadmap: ${decl}\n---\n# Study Roadmap\n\n## Track\n\n- [[alpha]]\n`;
+
+    assert.strictEqual(parseRoadmapContent(doc('true'), 'roadmap.md').format, 'wikilink');
+    assert.strictEqual(parseRoadmapContent(doc('True'), 'roadmap.md').format, 'wikilink');
+
+    for (const notABoolean of ['"true"', '"yes"', '1', '"no"']) {
+      const r = parseRoadmapContent(doc(notABoolean), 'roadmap.md');
+      assert.strictEqual(r.format, undefined, `${notABoolean} is a string or number, not a declaration`);
+      assert.strictEqual(r.roadmap, null, `${notABoolean} must not import`);
+    }
+  });
 });

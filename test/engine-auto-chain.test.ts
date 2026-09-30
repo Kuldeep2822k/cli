@@ -228,6 +228,125 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
       assert.deepStrictEqual(hygiene.alphabeticalNotes, []);
     });
 
+    // A pair like `02-a` / `02-b` states the same number twice, so
+    // `compareLessonOrderTier0` falls through to the filenames while still
+    // looking fully numbered to the learner. `alphabeticalNotes` cannot see it
+    // (both names carry a number) and neither can
+    // `directoryOrderAlphabetical` (there is one directory), so before this
+    // field the CLI reported nothing about an edge it went on to gate with.
+    it('names a same-number tie whose order came from the filenames', () => {
+      const tie = planAutoChainWithHygiene(['m/02-a.md', 'm/02-b.md']);
+      assert.deepStrictEqual(tie.alphabeticalTieNotes, ['m/02-b.md']);
+      assert.strictEqual(tie.predecessorOf.get('m/02-b.md'), 'm/02-a.md', 'the tie still decides the edge');
+
+      const phaseTie = planAutoChainWithHygiene(['m/lab-a.md', 'm/lab-b.md']);
+      assert.deepStrictEqual(phaseTie.alphabeticalTieNotes, ['m/lab-b.md']);
+
+      const three = planAutoChainWithHygiene(['m/02-a.md', 'm/02-b.md', 'm/02-c.md']);
+      assert.deepStrictEqual(three.alphabeticalTieNotes, ['m/02-b.md', 'm/02-c.md']);
+    });
+
+    it('reports no tie where numbering, phases or ranks already decide', () => {
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['m/01-a.md', 'm/02-b.md']).alphabeticalTieNotes,
+        [],
+        'different numbers are an author-stated order'
+      );
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['m/README.md', 'm/01-a.md']).alphabeticalTieNotes,
+        [],
+        'different ranks are ordered by rule, not by name'
+      );
+      assert.deepStrictEqual(
+        planAutoChainWithHygiene(['a/01-x.md', 'b/01-y.md']).alphabeticalTieNotes,
+        [],
+        'a cross-directory pair is not a within-directory tie'
+      );
+    });
+
+    it('leaves genuinely unnumbered names to alphabeticalNotes, without double reporting', () => {
+      const unnumbered = planAutoChainWithHygiene(['m/alpha.md', 'm/beta.md']);
+      assert.deepStrictEqual(unnumbered.alphabeticalTieNotes, [], 'rank 3 is already reported');
+      assert.deepStrictEqual(unnumbered.alphabeticalNotes, ['m/alpha.md', 'm/beta.md']);
+    });
+
+    // R4: demoting homework to last inside its own directory also made it the
+    // note the next directory followed, because the bridge used the previous
+    // group's final backbone. Solving a quiz is not a prerequisite for the next
+    // module's first lesson.
+    it('bridges to the next module from its last lesson, not from its homework', () => {
+      const plan = planAutoChainWithHygiene([
+        '01-foundations/README.md',
+        '01-foundations/01-a.md',
+        '01-foundations/assignment.md',
+        '02-search/01-b.md',
+      ]);
+      assert.strictEqual(
+        plan.predecessorOf.get('02-search/01-b.md'),
+        '01-foundations/01-a.md',
+        'the cross-directory bridge must skip the assignment'
+      );
+      assert.strictEqual(
+        plan.predecessorOf.get('01-foundations/assignment.md'),
+        '01-foundations/01-a.md',
+        'homework still follows the lesson it assesses'
+      );
+    });
+
+    it('opens a new chain when a module\'s only backbone is homework', () => {
+      const plan = planAutoChainWithHygiene([
+        '01-only/assignment.md',
+        '02-next/01-a.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('01-only/assignment.md'), null);
+      assert.strictEqual(
+        plan.predecessorOf.get('02-next/01-a.md'),
+        null,
+        'a group with no lesson of its own exports nothing to the next one'
+      );
+    });
+
+    it('still bridges across a directory that holds only leaves', () => {
+      // The carry-forward is what `lastBackbone` did before homework was
+      // demoted: a `your-work/` subtree collapses to leaves and must not break
+      // the chain between the modules around it.
+      const plan = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '02-b/your-work/notes.md',
+        '03-c/01-y.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('02-b/your-work/notes.md'), '01-a/01-x.md');
+      assert.strictEqual(plan.predecessorOf.get('03-c/01-y.md'), '01-a/01-x.md');
+    });
+
+    it('a homework-only module in the middle ends the chain instead of skipping ahead', () => {
+      // The leaf-only case above carries the bridge forward; a homework-only
+      // module must not, because it is a module the learner has to pass through
+      // and inheriting a lesson from two modules back hands out an edge that
+      // skips it. Measured shape: `01-a/01-x → 01-a/assignment → 02-b/quiz →
+      // 03-c/01-y`, where the quiz legitimately follows the lesson.
+      const plan = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '01-a/assignment.md',
+        '02-b/quiz.md',
+        '03-c/01-y.md',
+      ]);
+      assert.strictEqual(plan.predecessorOf.get('01-a/assignment.md'), '01-a/01-x.md');
+      assert.strictEqual(plan.predecessorOf.get('02-b/quiz.md'), '01-a/01-x.md');
+      assert.strictEqual(
+        plan.predecessorOf.get('03-c/01-y.md'),
+        null,
+        'the module after a homework-only one opens its own chain'
+      );
+      for (const p of plan.orderedPaths) {
+        const pred = plan.predecessorOf.get(p);
+        assert.ok(
+          !pred || !/assignment|quiz|solution/.test(pred),
+          `nothing may gate on homework, but ${p} gates on ${pred}`
+        );
+      }
+    });
+
     it('still flags two genuinely unnumbered sibling directories', () => {
       assert.strictEqual(
         directoriesOrderedAlphabetically(['alpha/01-x.md', 'beta/01-y.md']),

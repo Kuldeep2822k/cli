@@ -37,12 +37,13 @@ import {
   stripFencedCodeBlocks,
   type HygieneChainPlan,
 } from './auto-chain';
+import type { DependsOnSource } from '../types';
 
 /** Accepted values of `--chain-tier` (default `full`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
 
-/** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). */
-export type DependsOnSource = 'numbered' | 'toc';
+/** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). Declared in `src/types.ts`, re-exported here for engine consumers. */
+export type { DependsOnSource };
 
 /** A markdown link destination that is intentionally not a chain target. */
 export type TocSkipReason =
@@ -96,6 +97,11 @@ export function extractTocLinks(text: string): TocLink[] {
       i = open + 1;
       continue;
     }
+    // `findLabelEnd` walks to end-of-text when a label never closes, and the
+    // loop re-entered it for every remaining `[` — quadratic on a README of
+    // stray brackets. If no `]` exists at or after `open`, none exists for any
+    // later `[` either, so nothing past here can form a label.
+    if (scanned.indexOf(']', open) < 0) break;
     const close = findLabelEnd(scanned, open);
     if (close < 0) {
       i = open + 1;
@@ -106,6 +112,10 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 1;
       continue;
     }
+    // Same bail for the destination: `readDestination` scans forward until the
+    // `(` balances, so one unclosed `(` made every later link pay for a full
+    // text scan.
+    if (scanned.indexOf(')', close + 2) < 0) break;
     const dest = readDestination(scanned, close + 2);
     if (!dest) {
       i = close + 2;
@@ -429,14 +439,21 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
 
   const docIndex = new Map<string, number>();
   normalized.forEach((p, i) => docIndex.set(p, i));
-  const dirFirstSeen = new Map<string, number>();
-  normalized.forEach((p, i) => {
-    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
-    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
-  });
 
   const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
   const baseOf = (p: string): string => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
+
+  // The grouping key and the sort's lookup key are the same `parentOf` by
+  // construction, which is the whole guarantee here: two separate inline
+  // computations could have drifted and made the comparison sort against
+  // `undefined`. An assert over these same paths could not fail, so there is
+  // none — unlike `assertBackwardEdges`, which checks a property of data that
+  // arrives from elsewhere and genuinely can violate it.
+  const dirFirstSeen = new Map<string, number>();
+  normalized.forEach((p, i) => {
+    const dir = parentOf(p);
+    if (!dirFirstSeen.has(dir)) dirFirstSeen.set(dir, i);
+  });
 
   const orderedPaths = [...normalized].sort((a, b) => {
     const da = dirFirstSeen.get(parentOf(a))!;
@@ -510,6 +527,15 @@ export interface TieredChainPlan extends HygieneChainPlan {
   numberedEdgeCount: number;
   /** Edges authored by author enumeration (TOC tier) */
   tocEdgeCount: number;
+  /**
+   * Distinct notes the enumeration offered that a toc/full tier could order,
+   * whether or not the selected tier consumed any. A README may reach one note
+   * through several spellings, and the advice is about notes, so duplicates
+   * collapse exactly as {@link planTocChain} collapses them. The CLI's
+   * `--chain-tier toc` advice is honest only above one: the first candidate is
+   * a chain head and writes no edge.
+   */
+  tocCandidateCount: number;
   /** True when any scoped path carries a numeric prefix (the C4 refusal gate) */
   hasNumberedLayout: boolean;
   /** True when the TOC tier contributed at least one edge */
@@ -585,14 +611,37 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const sourceOf = new Map<string, DependsOnSource>();
   const predecessorOf = new Map(numbered.predecessorOf);
   const numberedSet = new Set<string>();
+  const tieNotes = new Set(numbered.alphabeticalTieNotes);
   for (const p of numbered.orderedPaths) {
     if (isInNumberedTree(p)) numberedSet.add(p);
-    if (numbered.predecessorOf.get(p)) sourceOf.set(p, 'numbered');
+    // A pair carrying the same number or phase is ordered by filename collation,
+    // which the numbered tree did not decide and the author never stated. Labelled
+    // `tie` so the gate rule can decline it, while the edge still ranks the note
+    // and still takes part in cycle detection.
+    if (numbered.predecessorOf.get(p)) sourceOf.set(p, tieNotes.has(p) ? 'tie' : 'numbered');
   }
   const numberedEdgeCount = sourceOf.size;
   const orderedPaths = [...numbered.orderedPaths];
 
   const hasNumberedLayout = numberedSet.size > 0;
+
+  // Computed for every tier, including `strict`, which consumes none of it. The
+  // CLI tells a learner running `strict` to try `--chain-tier toc`; that advice is
+  // only worth giving when the enumeration holds something the toc tier could
+  // actually order, and this is the one place that knows which paths those are.
+  // Counted as notes, not links: a README that reaches the same lesson twice
+  // offers the toc tier one note, and `planTocChain` deduplicates to that, so
+  // counting links advised a tier that would then write nothing.
+  const tocCandidates: string[] = [];
+  const seenCandidate = new Set<string>();
+  for (const raw of tocPaths) {
+    const p = raw.replace(/\\/g, '/');
+    if (seenCandidate.has(p)) continue;
+    seenCandidate.add(p);
+    if (numberedSet.has(p)) continue;
+    if (!tocChainable(p)) continue;
+    tocCandidates.push(p);
+  }
 
   if (tier === 'strict') {
     return {
@@ -602,18 +651,13 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
       sourceOf,
       numberedEdgeCount,
       tocEdgeCount: 0,
+      tocCandidateCount: tocCandidates.length,
       hasNumberedLayout,
       hasTocLayout: false,
     };
   }
 
-  const candidates: string[] = [];
-  for (const raw of tocPaths) {
-    const p = raw.replace(/\\/g, '/');
-    if (numberedSet.has(p)) continue;
-    if (!tocChainable(p)) continue;
-    candidates.push(p);
-  }
+  const candidates = tocCandidates;
 
   const tocPlan = planTocChain(candidates);
   const tocSet = new Set(tocPlan.orderedPaths);
@@ -657,10 +701,13 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   assertAcyclicPlan(predecessorOf);
 
   // Recompute from the final labels: a TOC edge that replaced an alphabetical
-  // fallback edge removes that note from the numbered count.
+  // fallback edge removes that note from the numbered count. `tie` counts here
+  // too — the count answers "did any planner write an edge", which is the C4
+  // refusal's question, and a same-rank tie is still an edge the numbered
+  // planner produced. Only the *gate* treats `tie` as advisory.
   let numberedEdges = 0;
   for (const source of sourceOf.values()) {
-    if (source === 'numbered') numberedEdges++;
+    if (source === 'numbered' || source === 'tie') numberedEdges++;
   }
 
   // The hygiene plan derived its two alphabetical claims from the numbered
@@ -679,9 +726,11 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
     predecessorOf,
     sourceOf,
     alphabeticalNotes: numbered.alphabeticalNotes.filter((p) => !tocSet.has(p)),
+    alphabeticalTieNotes: numbered.alphabeticalTieNotes.filter((p) => !tocSet.has(p)),
     directoryOrderAlphabetical: directoriesOrderedAlphabetically(unenumerated),
     numberedEdgeCount: numberedEdges,
     tocEdgeCount: tocEdges,
+    tocCandidateCount: tocCandidates.length,
     hasNumberedLayout,
     hasTocLayout: tocEdges > 0,
   };

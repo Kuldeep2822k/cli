@@ -73,6 +73,27 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.ok(targets.includes('b.md'));
     });
 
+    // The label and destination scanners walk forward until they find a closer,
+    // so a README full of stray brackets used to re-scan the whole remainder for
+    // every candidate: 200 KB of `[` stalled `adopt --auto-chain` for close to
+    // two minutes at 100 % CPU. `deriveTocEnumeration` reads every README in the
+    // vault unattended, so one pathological file was enough. The bound is loose
+    // on purpose — the defect it detects costs seconds, not milliseconds.
+    it('stays linear on a pathological run of stray brackets', () => {
+      for (const [label, junk] of [
+        ['unopened labels', '['.repeat(100000)],
+        ['unclosed destinations', '[x]('.repeat(50000)],
+      ] as const) {
+        const started = performance.now();
+        const targets = extractTocLinks(`[L](d/l.md)\n${junk}`)
+          .map((l) => l.destination)
+          .filter(Boolean);
+        const elapsed = performance.now() - started;
+        assert.ok(targets.includes('d/l.md'), `${label}: the real link must still be found`);
+        assert.ok(elapsed < 2000, `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms`);
+      }
+    });
+
     // A README documenting link syntax is not enumerating the curriculum. The
     // extractor used to scan raw text, so an example naming a note that really
     // exists put that note into the enumeration and gave it a written
@@ -274,6 +295,35 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(out.predecessorOf.get('01-a/01-x.md'), before);
     });
 
+    it('numbering dominance holds against an enumeration that leads with an unnumbered note', () => {
+      // The case above is identity-weak on its own: both of its paths live in
+      // the numbered tree, so the C2 filter drops them before planning and the
+      // assertion compares the numbered plan with itself. This shape gives the
+      // enumeration a chance to win — it puts an unnumbered note directly in
+      // front of a numbered one, which is the re-parenting dominance forbids.
+      const numbered = planAutoChainWithHygiene([
+        '01-a/01-x.md',
+        '01-a/02-y.md',
+        'zz-reference/intro.md',
+      ]);
+      assert.strictEqual(numbered.predecessorOf.get('01-a/02-y.md'), '01-a/01-x.md');
+
+      const out = composeTieredChain({
+        tier: 'full',
+        numbered,
+        tocPaths: ['zz-reference/intro.md', '01-a/02-y.md'],
+      });
+
+      assert.strictEqual(out.predecessorOf.get('01-a/02-y.md'), '01-a/01-x.md');
+      assert.strictEqual(out.sourceOf.get('01-a/02-y.md'), 'numbered');
+      assert.notStrictEqual(
+        out.predecessorOf.get('01-a/02-y.md'),
+        'zz-reference/intro.md',
+        'a README that lists a reference note first must not make it a lesson prerequisite'
+      );
+      assert.strictEqual(out.tocEdgeCount, 0, 'the unnumbered note alone cannot form an edge');
+    });
+
     it('TOC edges replace the alphabetical fallback for the unnumbered remainder', () => {
       const numbered = planAutoChainWithHygiene(numberedInput);
       const out = composeTieredChain({
@@ -290,6 +340,22 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(out.predecessorOf.get('unnum/intro.md'), 'unnum/notes.md');
       assert.strictEqual(out.tocEdgeCount, 1);
       assert.ok(out.hasTocLayout);
+    });
+
+    it('a same-rank tie is labelled apart from the numbering that decided everything else', () => {
+      // `02-a` and `02-b` carry the same number, so the tree said nothing about
+      // their order and the filenames did. The label is what lets the gate rule
+      // tell those two claims apart, and the edge still counts as written — the
+      // honest-refusal signal asks whether any order exists, not whether it gates.
+      const numbered = planAutoChainWithHygiene([
+        'm/02-a.md',
+        'm/02-b.md',
+        'm/03-c.md',
+      ]);
+      const out = composeTieredChain({ tier: 'strict', numbered, tocPaths: [] });
+      assert.strictEqual(out.sourceOf.get('m/02-b.md'), 'tie');
+      assert.strictEqual(out.sourceOf.get('m/03-c.md'), 'numbered');
+      assert.strictEqual(out.numberedEdgeCount, 2, 'a tie is still an edge the planner wrote');
     });
 
     // The hygiene plan derives its two alphabetical claims before composition
@@ -502,6 +568,80 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(parseAutoChainTier(undefined), null);
       assert.strictEqual(parseAutoChainTier(false), null);
       assert.strictEqual(parseAutoChainTier(42), null);
+    });
+  });
+
+  // Every other call site in this file asserts `assertAcyclicPlan` does not
+  // throw. That proves it is not over-eager and proves nothing about whether it
+  // can catch the one thing it exists to catch: neutralising its throw left the
+  // whole suite green.
+  describe('assertAcyclicPlan detects the cycles it claims to detect', () => {
+    it('throws on a two-node predecessor loop and names the node', () => {
+      const cyclic = new Map<string, string | null>([
+        ['m/01-a.md', 'm/02-b.md'],
+        ['m/02-b.md', 'm/01-a.md'],
+      ]);
+      assert.throws(
+        () => assertAcyclicPlan(cyclic),
+        /toc-chain invariant violated: predecessor cycle through/
+      );
+    });
+
+    it('throws on a loop the walk only reaches after a chain head', () => {
+      // Starting from `head` terminates cleanly; the loop is downstream. A check
+      // that only walked from null-predecessor roots would miss this entirely.
+      const cyclic = new Map<string, string | null>([
+        ['m/00-intro.md', null],
+        ['m/01-a.md', 'm/02-b.md'],
+        ['m/02-b.md', 'm/03-c.md'],
+        ['m/03-c.md', 'm/01-a.md'],
+      ]);
+      assert.throws(() => assertAcyclicPlan(cyclic), /predecessor cycle through/);
+    });
+
+    it('throws on a self-loop', () => {
+      const self = new Map<string, string | null>([['m/01-a.md', 'm/01-a.md']]);
+      assert.throws(() => assertAcyclicPlan(self), /predecessor cycle through m\/01-a\.md/);
+    });
+
+    it('accepts two notes sharing one predecessor, which is fan-in and not a cycle', () => {
+      // The `done` memo is what keeps this linear. Without it the shared
+      // predecessor is re-walked from every dependent, and a legitimate plan is
+      // reported as a violation.
+      const fanIn = new Map<string, string | null>([
+        ['m/README.md', null],
+        ['m/01-a.md', 'm/README.md'],
+        ['m/02-b.md', 'm/README.md'],
+        ['m/03-c.md', 'm/README.md'],
+      ]);
+      assert.doesNotThrow(() => assertAcyclicPlan(fanIn));
+    });
+
+    it('stays linear as the spine grows, judged against itself rather than a clock', () => {
+      // 200 passes over a 1000-node spine and 10 passes over a 20000-node spine
+      // visit the same 2e5 nodes, so equal work must cost about the same. Without
+      // the `done` memo the walk restarts at every node, per-pass cost goes with
+      // the square of the length, and the large case costs about 20x — a shape
+      // comparison a busy test host cannot fake, unlike a fixed deadline that
+      // fails for reasons unrelated to the algorithm.
+      const build = (n: number): Map<string, string | null> => {
+        const spine = new Map<string, string | null>();
+        for (let i = 0; i < n; i++) spine.set(`n/${i}.md`, i === 0 ? null : `n/${i - 1}.md`);
+        return spine;
+      };
+      const cost = (spine: Map<string, string | null>, reps: number): number => {
+        const started = Date.now();
+        for (let i = 0; i < reps; i++) assertAcyclicPlan(spine);
+        return Math.max(1, Date.now() - started);
+      };
+
+      const small = cost(build(1000), 200);
+      const large = cost(build(20000), 10);
+
+      assert.ok(
+        large < small * 5,
+        `equal work over different spine lengths cost ${small}ms and ${large}ms`
+      );
     });
   });
 });
