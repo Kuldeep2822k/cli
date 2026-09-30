@@ -951,6 +951,35 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(toc.stdout, /no chainable order signal\) — consider palee roadmap/);
   });
 
+  test('a note the README links twice is still one candidate', () => {
+    // The tier advice is keyed to how many notes `toc` could order, not to how
+    // many links a README happens to hold. Two spellings of one destination —
+    // an index that lists a lesson in its overview and again in its exercises —
+    // used to reach that test as two candidates, so a bare `--auto-chain` sent
+    // the learner to `--chain-tier toc`, which deduplicates, finds one chain
+    // head and writes nothing: a second refusal in place of the roadmap pointer.
+    const { configDir } = freshVault({
+      'README.md': '# Course\n\n- [Only](guide/only.md)\n- [Back to Only](./guide/only.md)\n',
+      'guide/only.md': '# Only\n',
+    });
+    const strict = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(strict.status, 0, strict.stdout + strict.stderr);
+    assert.doesNotMatch(
+      strict.stdout,
+      /does not read a README enumeration/,
+      'duplicating a link must not earn the tier advice'
+    );
+    assert.match(strict.stdout, /no chainable order signal\) — consider palee roadmap/);
+
+    const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    assert.strictEqual(asked.status, 0, asked.stdout + asked.stderr);
+    assert.match(
+      asked.stdout,
+      /Auto-chain:\s+0 edges/,
+      'the tier the advice names writes nothing on this vault, which is the dead end'
+    );
+  });
+
   test('unknown --auto-chain tier is a usage error (exit 2)', () => {
     const { configDir } = freshVault(chainFiles);
     const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'banana', '--dry-run'], configDir);

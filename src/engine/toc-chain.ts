@@ -528,9 +528,12 @@ export interface TieredChainPlan extends HygieneChainPlan {
   /** Edges authored by author enumeration (TOC tier) */
   tocEdgeCount: number;
   /**
-   * Paths the enumeration offered that a toc/full tier could order, whether or not
-   * the selected tier consumed any. The CLI's `--chain-tier toc` advice is only
-   * honest when this is above zero.
+   * Distinct notes the enumeration offered that a toc/full tier could order,
+   * whether or not the selected tier consumed any. A README may reach one note
+   * through several spellings, and the advice is about notes, so duplicates
+   * collapse exactly as {@link planTocChain} collapses them. The CLI's
+   * `--chain-tier toc` advice is honest only above one: the first candidate is
+   * a chain head and writes no edge.
    */
   tocCandidateCount: number;
   /** True when any scoped path carries a numeric prefix (the C4 refusal gate) */
@@ -626,9 +629,15 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   // CLI tells a learner running `strict` to try `--chain-tier toc`; that advice is
   // only worth giving when the enumeration holds something the toc tier could
   // actually order, and this is the one place that knows which paths those are.
+  // Counted as notes, not links: a README that reaches the same lesson twice
+  // offers the toc tier one note, and `planTocChain` deduplicates to that, so
+  // counting links advised a tier that would then write nothing.
   const tocCandidates: string[] = [];
+  const seenCandidate = new Set<string>();
   for (const raw of tocPaths) {
     const p = raw.replace(/\\/g, '/');
+    if (seenCandidate.has(p)) continue;
+    seenCandidate.add(p);
     if (numberedSet.has(p)) continue;
     if (!tocChainable(p)) continue;
     tocCandidates.push(p);
