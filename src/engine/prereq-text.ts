@@ -193,6 +193,15 @@ const NEGATIVE_SUBJECT = /^(?:none|nobody|nothing|neither|no\s+one|no)\b/i;
  * this lesson requires Matrices" and "This lesson does not need a calculator and
  * requires Setup" both keep the requirement, because the boundary (`but`, `and`)
  * ends the segment the negation lived in before `require` begins.
+ *
+ * Known hole, and it errs the unsafe way. When an aside is held back by a
+ * subject belonging to a *later* insertion — "does not, under any
+ * circumstances, when it is hard, require" — the boundary cuts `not` off from
+ * the verb and the note reads as declaring a prerequisite the author denied.
+ * Walking past that insertion was tried and breaks the case above: to a segment
+ * test, "does not need a calculator" and "does not, when it is hard" are the
+ * same shape, and only a verb-scope analysis knows that the first negation has
+ * already been spent on a verb. Left open rather than traded away.
  */
 function negatedBefore(text: string, index: number): boolean {
   const boundaries = [
