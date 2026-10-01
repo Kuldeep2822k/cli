@@ -503,4 +503,33 @@ ${result.stdout}`);
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-g.md')?.depends_on_source, 'numbered',
       '--dry-run still writes nothing');
   });
+
+  test('a mastered prerequisite stays mastered and out of the ready list through a relabel', () => {
+    // #237's readiness claim is about notes that already crossed the threshold, and
+    // every other test here runs at `topic_mastery: 0` — where the gate is what
+    // decides, so the mastered path in `getReadyTopics` is never taken. With `02-a`
+    // at 0.9 the prerequisite is skipped before `depends_on` is consulted at all, so
+    // this is the case that shows a label rewrite cannot disturb a note the learner
+    // has finished.
+    const mastered = ['---', 'palee_id: T-a', 'palee_schema: 1', 'title: Foundations',
+      'difficulty: beginner', 'topic_mastery: 0.9', '---', '', '# Foundations', ''].join('\n');
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': mastered,
+      'm/02-b.md': storedNote('T-b', 'Second of the pair', ['T-a'], 'numbered'),
+    });
+    const before = readyIds(configDir);
+    assert.ok(before.includes('T-b'), 'a mastered prerequisite already satisfies the gate');
+    assert.ok(!before.includes('T-a'), 'and is itself past the ready list');
+
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie',
+      'the tie is still demoted, which is the whole point of the pass');
+    assert.strictEqual(Number(frontmatterOf(vaultDir, 'm/02-a.md')?.topic_mastery), 0.9,
+      'the mastered note is not written at all');
+
+    const after = readyIds(configDir);
+    assert.ok(!after.includes('T-a'), 'a mastered note never re-enters the ready list');
+    assert.deepStrictEqual(after, before, "and the relabel changes nobody else's readiness");
+  });
 });
