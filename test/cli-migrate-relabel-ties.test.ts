@@ -53,9 +53,16 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
    *
    * @param files - Vault-relative paths to note contents
    * @returns The vault and config directories for the CLI to run against
+   *
+   * @remarks
+   * The vault is returned canonicalized (`realpathSync`): the loader walks
+   * from a resolved root, so on a machine whose temp dir passes through a
+   * symlink (macOS `/var` → `/private/var`) the walked note paths would
+   * otherwise never `===` a path joined onto the unresolved temp dir — and
+   * the `fs`-patching tests below compare exactly that.
    */
   function freshVault(files: Record<string, string>): { vaultDir: string; configDir: string } {
-    const vaultDir = fs.mkdtempSync(path.join(tempDir, 'vault-'));
+    const vaultDir = fs.realpathSync(fs.mkdtempSync(path.join(tempDir, 'vault-')));
     for (const [rel, content] of Object.entries(files)) {
       const abs = path.join(vaultDir, rel);
       fs.mkdirSync(path.dirname(abs), { recursive: true });

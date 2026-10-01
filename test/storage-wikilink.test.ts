@@ -12,6 +12,7 @@ import {
   type WikilinkRoadmapSection,
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
+import { relativeVaultPath } from '../src/storage/vault-walker';
 
 /** Parses a wikilink string, asserting it is well-formed, and returns it. */
 function link(text: string) {
@@ -306,9 +307,13 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       fs.writeFileSync(namesake, '# Unrelated note\n');
       try {
         const index = buildVaultNoteIndex(vaultPath);
+        // `relativeVaultPath`, not `path.relative`: the index holds walked
+        // (canonical) paths, so on a symlinked temp root (macOS `/var` vs
+        // `/private/var`) the lexical form escapes the vault. POSIX literal:
+        // `relativeVaultPath` always returns `/`-separated paths.
         assert.deepStrictEqual(
-          (index.get('diagram.png') ?? []).map((p) => path.relative(vaultPath, p)),
-          [path.join('other', 'diagram.png.md')]
+          (index.get('diagram.png') ?? []).map((p) => relativeVaultPath(vaultPath, p)),
+          ['other/diagram.png.md']
         );
         assert.throws(
           () => resolveWikilinkTarget(vaultPath, link('[[assets/diagram.png]]'), index),
