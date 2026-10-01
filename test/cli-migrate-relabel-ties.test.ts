@@ -289,6 +289,7 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     // sees ` T-a ` and concludes the predecessor became some other note — the
     // note that needed no fixing at all is then passed over, and the vault keeps
     // a gate the pass was invoked to relax.
+    /** A note as a hand-edited vault stores it: ids and entries wrapped in spaces. */
     const padded = (id: string, title: string, deps: string[]): string => [
       '---', `palee_id: " ${id} "`, 'palee_schema: 1', `title: ${title}`,
       `depends_on: ["${deps.join('", "')}"]`, 'depends_on_source: numbered',
@@ -339,6 +340,54 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     }
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered',
       'the failed note stays exactly as it was');
+  });
+
+  test('a note that moves between the scan and its write is refused and reported', async () => {
+    // The pass decides from one scan and writes from it, so the bytes on disk at the
+    // moment of promotion are a second opinion. This is the seam no CLI run can reach:
+    // the loader reads the note once (`src/storage/loader.ts:229`), the write loop
+    // re-reads it (`reportStoredTies`), and `atomicWrite` reads it a third time for its
+    // own OCC check — so the second read is the gap between the decision and the write.
+    // Tamper that read and the note must not be relabelled from bytes nothing judged.
+    //
+    // Removing the fingerprint re-check makes this fail two ways: the loop proceeds,
+    // `atomicWrite`'s OCC check still matches (the disk is pristine), and the tampered
+    // label lands on the note while the command exits 0.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    let tampered = false;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        const out = Reflect.apply(originalRead, fs, [target, options]) as string | Buffer;
+        if (target === notePath && typeof out === 'string') {
+          noteReads++;
+          if (noteReads === 2 && out.includes('depends_on_source: numbered')) {
+            tampered = true;
+            return out.replace('depends_on_source: numbered', 'depends_on_source: tie');
+          }
+        }
+        return out;
+      }) as typeof fs.readFileSync;
+
+      await migrateCommand({ relabelTies: true });
+      assert.strictEqual(tampered, true, 'the write loop must have re-read the note');
+      assert.strictEqual(process.exitCode, 4, 'drift under the pass is a conflict, not a success');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered',
+      'the note keeps the label the vault stored, not one derived from bytes nothing read');
   });
   test('a same-rank name in another directory is not this pass to relabel', () => {
     // Two notes whose filenames tie are only a tie inside one directory: the order

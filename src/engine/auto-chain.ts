@@ -427,6 +427,7 @@ export interface HygieneChainPlan extends ChainPlan {
   };
 }
 
+/** Zeroed per-rule skip counts, so a rule that fired nothing reports that instead of vanishing. */
 function emptyRuleCounts(): Tier0RuleCounts {
   return {
     'repo-meta': 0,
@@ -577,6 +578,14 @@ interface Tier0LessonRank {
   phase: number;
 }
 
+/**
+ * Ranks one note inside its directory: README-class first, then numeric lesson
+ * prefixes, then `deep-dive` / `lab` / `exam` in that order, then any remaining name,
+ * with homework last so a lesson never depends on its own assignment.
+ *
+ * @param basename - The note's filename, extension included
+ * @returns The rank, plus the lesson number or phase index where the name states one
+ */
 function tier0LessonRank(basename: string): Tier0LessonRank {
   const stem = stemOf(basename);
   if (README_CLASS_STEMS.includes(stem)) {
@@ -668,6 +677,7 @@ export function planAutoChainWithHygiene(
   const runs: { dir: string; files: string[] }[] = [];
   let runDir: string | null = null;
   let run: string[] = [];
+  /** Closes the run in progress: orders it by name rank and records it under its directory. */
   const flushRun = (): void => {
     if (run.length === 0) {
       return;
