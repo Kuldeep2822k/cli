@@ -322,6 +322,25 @@ export function normalizeAssessedAt(raw: unknown): string | null {
 export interface MigrateOptions {
   /** Automatically migrate and fix schema-less notes to schema v1 */
   fix?: boolean;
+  /**
+   * Rewrite `depends_on_source: numbered` to `tie` on notes whose only stored
+   * prerequisite is a same-rank sibling in the same directory.
+   *
+   * @remarks Edges written before the `tie` label existed recorded an
+   * alphabetical tiebreak as a numbering decision, and a `numbered` edge gates.
+   * This changes the label only — never `depends_on` — so the note stops being
+   * held off the ready list by a filename collation.
+   */
+  relabelTies?: boolean;
+  /**
+   * Report what the pass would touch and write nothing, even alongside
+   * `--relabel-ties`.
+   *
+   * @remarks `palee migrate` with no flag already only reports; this exists so a
+   * caller that always passes `--relabel-ties` can be made safe without editing
+   * the command.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -479,6 +498,59 @@ export interface ValidationResult {
 // ─── Dependency Graph ───────────────────────────────────────────────
 
 /**
+ * Which tier authored a note's `depends_on` (persisted as `depends_on_source`).
+ *
+ * @remarks
+ * `numbered` edges come from the note's own numeric prefix, `toc` edges from a
+ * listing document's enumeration order, and `declared` edges from the links in
+ * the note's own `## Prerequisites` section — a wikilink or a markdown link, the
+ * one form whose referent is not a guess. `tie` edges
+ * join two notes carrying the *same* number or phase, where the tree declined to
+ * order them and the filename collation did.
+ *
+ * Enumeration position is not a prerequisite claim, so `toc` and `tie` are
+ * advisory: their edges still take part in cycle detection and ranking, they
+ * just never gate. `numbered` and `declared` both gate, because each records an
+ * order someone wrote down on purpose.
+ */
+export type DependsOnSource = 'numbered' | 'toc' | 'declared' | 'tie';
+
+/** Sources that order or rank but never gate a note. */
+const ADVISORY_DEPENDS_ON_SOURCES: readonly DependsOnSource[] = ['toc', 'tie'];
+
+/**
+ * Whether a provenance label marks its edges as advisory rather than gating.
+ *
+ * @param source - The parsed label, or `undefined` for a note with none
+ * @returns `true` only for an explicit advisory source
+ *
+ * @remarks
+ * Fail-closed by construction: `undefined` and every unlisted source gate, so a
+ * typo or a label an older build invented can only ever keep a gate in place,
+ * never relax one.
+ */
+export function isAdvisoryDependsOnSource(source: DependsOnSource | undefined): boolean {
+  return source !== undefined && ADVISORY_DEPENDS_ON_SOURCES.includes(source);
+}
+
+/**
+ * Normalizes a raw `depends_on_source` frontmatter value.
+ *
+ * @param raw - Frontmatter value of unknown shape
+ * @returns The recognized source, or `undefined` when the value is absent or unrecognized
+ *
+ * @remarks
+ * Fail-closed on purpose: an unrecognized label yields `undefined`, which means
+ * "learner-authored, do gate" — the pre-existing behaviour. A typo must not
+ * silently demote hand-written prerequisites to advisory.
+ */
+export function normalizeDependsOnSource(raw: unknown): DependsOnSource | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim().toLowerCase();
+  return s === 'numbered' || s === 'toc' || s === 'declared' || s === 'tie' ? s : undefined;
+}
+
+/**
  * In-memory topic node representation for dependency graph analysis and scheduling.
  */
 export interface TopicNode {
@@ -504,6 +576,15 @@ export interface TopicNode {
   depends_on?: string[];
   /** Legacy alias forbidden on TopicNode (#140: rejected at construction time) */
   dependencies?: never;
+  /**
+   * Which tier authored `depends_on` (frontmatter `depends_on_source`).
+   *
+   * @remarks Absent means the learner authored it (or a numbered-tier chain
+   * wrote it) and the edges gate. `'toc'` means the edges came from a listing
+   * document's order, so `areDependenciesSatisfied` treats them as advisory.
+   * Anything other than a known literal parses to absent.
+   */
+  depends_on_source?: DependsOnSource;
   /** Computed overall mastery score (0.0 - 1.0) */
   topic_mastery: number;
 
@@ -561,6 +642,21 @@ export interface AdoptOptions {
   verbose?: boolean;
   /** Skip interactive confirmation prompts */
   yes?: boolean;
+  /**
+   * Auto-wire `depends_on` from the numbered tree, extended by the TOC tier
+   * (#73, PAL-205-C). A plain boolean: it takes no value, because an
+   * optional-value flag would swallow the following positional path. The tier
+   * is requested separately through {@link AdoptOptions#chainTier}. Batch mode
+   * only; conflicts with `dependsOn`.
+   */
+  autoChain?: boolean;
+  /**
+   * Which order signal `--auto-chain` may consume: `strict` (numbered tree
+   * only), `toc` (author enumeration only), or `full` (both). Optional; absent,
+   * `--auto-chain` runs the `full` tier. Validated by the CLI — anything else
+   * is a usage error — and meaningless without `--auto-chain`.
+   */
+  chainTier?: string;
 }
 
 /**
@@ -639,6 +735,12 @@ export interface RoadmapOptions {
   from?: string;
   /** Automatically approve adoption without confirmation */
   yes?: boolean;
+  /**
+   * Chain roadmap topics by their `order` field (#73): each topic depends on
+   * the previous one. Topics without `order` keep file order, appended after
+   * ordered ones. An explicit non-empty `depends_on` wins over the chain.
+   */
+  autoChain?: boolean;
 }
 
 /**
@@ -674,6 +776,8 @@ export interface RoadmapTopic {
   difficulty?: Difficulty;
   /** List of prerequisite topic IDs */
   depends_on?: string[];
+  /** True when this topic's `depends_on` is final and must not be re-chained (#73) */
+  chained?: boolean;
   /** Optional sequence ordering */
   order?: number;
 }

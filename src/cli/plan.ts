@@ -59,6 +59,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         path: t.path,
         topic_mastery: t.topic_mastery,
         depends_on: t.depends_on,
+        depends_on_source: t.depends_on_source,
         due_at: dueAt,
         repetition: t.repetition ?? 0,
         difficulty: t.difficulty ?? 'intermediate',

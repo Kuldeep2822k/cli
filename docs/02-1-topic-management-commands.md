@@ -66,8 +66,10 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. | `--include "0[1-4]-*,lab-*,deep-dive*"` |
 | `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. | `--exclude "*template*,*rubric*,*draft*"` |
 | `--tag <tags>` | `string` | `undefined` | Comma-separated Obsidian frontmatter tags to filter. Supports hierarchical matching. | `--tag "type/concept,status/ready"` |
+| `--auto-chain` | `boolean` | `false` | Batch-only: derive each note's `depends_on` from the numbered tree and, for the default `full` tier, the repo's README/SUMMARY enumeration (see §4). Takes no value, so the adoption path may follow it. Conflicts with `--depends-on` and single-file mode. | `palee adopt "MODULES" --auto-chain -y` |
+| `--chain-tier <tier>` | `string` | unset (⇒ `full`) | Which order signal `--auto-chain` may consume: `strict`, `toc`, or `full`. An unknown value exits `2`, and using it without `--auto-chain` exits `2`. | `palee adopt "MODULES" --auto-chain --chain-tier strict -y` |
 | `--dry-run` | `boolean` | `false` | Simulate adoption, print summary preview, and exit with code 0 without modifying any files. | `palee adopt --all --dry-run` |
-| `--verbose` | `boolean` | `false` | Output detailed file-by-file status list with indicator prefixes (`+`, `=`, `-`, `~`). | `palee adopt "MODULES" --verbose` |
+| `--verbose` | `boolean` | `false` | Output detailed file-by-file status list with indicator prefixes (`+`, `=`, `-`, `~`, `!` for Tier-0 hygiene skips). | `palee adopt "MODULES" --verbose` |
 | `-y, --yes` | `boolean` | `false` | Automatically confirm adoption prompt without interactive terminal confirmation. | `palee adopt --all -y` |
 
 ---
@@ -80,7 +82,7 @@ The adoption engine [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/
 Resolves the canonical path of target files and directories using `fs.realpathSync`. If a path or symlink targets a location outside the configured `vaultPath`, execution is halted immediately with exit code `2`.
 
 #### 2. Three-Tier Title Resolution Algorithm
-When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitle()` [src/cli/adopt.ts#36-91](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L36-L91):
+When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitle()` [src/storage/note-title.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/note-title.ts):
 1. **Tier 1: Frontmatter `title`**: Uses existing YAML `title` property if non-empty.
 2. **Tier 2: First Level-1 Heading (`# Title`)**: Scans Markdown body for the first H1 heading, ignoring HTML comments (`<!-- ... -->`) and fenced code blocks (```` ``` ```` and `~~~`).
 3. **Tier 3: Filename Basename**: Falls back to the filename without the `.md` extension.
@@ -89,7 +91,27 @@ When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitl
 - **Glob Matching**: The pattern engine [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts) supports prefix wildcards, infix wildcards (`0[1-4]-*`), and recursive subtree traversal (`**/*.md`).
 - **3-Tier Tag Hierarchy**: Matches nested Obsidian tags. Filtering by `--tag "devops"` matches `#devops`, `#devops/k8s`, and `#devops/k8s/networking`. Both `#tag` and `tag` syntax are normalized automatically.
 
-#### 4. Two-Phase Atomic Batch Writer & Rollback Journal
+#### 4. Dependency Auto-Chaining (`--auto-chain`)
+
+Batch-only flag that wires `depends_on` automatically from the vault's directory structure [src/engine/auto-chain.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/auto-chain.ts):
+
+1. **Tier-0 hygiene filters**: before anything is ordered, each note is classified `backbone`, `leaf`, or `excluded` by the fs-free predicates in [src/engine/tier0-hygiene.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/tier0-hygiene.ts) (INV-46). Repo-meta names (`LICENSE`, `CONTRIBUTING`, `CHANGELOG`, `CODE_OF_CONDUCT`, `SECURITY`, …), translation copies of them (a `translations/` path segment, or a locale suffix on a *generic* doc name such as `README.ko-KR.md`, `README-zh-Hans.md`, `README.cn.md`), and template notes are excluded: they are neither adopted nor chained, so `LICENSE.md` can never become a prerequisite of lesson 1. Templates match as a whole name token and a numbered name is exempt, so `note-template.md` and everything under `templates/` are excluded while `03-cpp/02-templates.md` and a `04-jinja-templates/` directory stay lessons. Everything under a phase directory (`solution/`, `solutions/`, `your-work/`, `start/`, `sketch/`, `answers/`) collapses to leaves, as does a locale suffix on a name that is not generic — `assignment.es.md` may be a genuine Spanish assignment, so the suffix demotes it rather than dropping it — and within a directory only content docs — README-class, numeric-prefixed, or `deep-dive|lab|exam|assignment|quiz|solution`-prefixed — join the backbone, so ad-hoc siblings like `for-teachers.md` hang off the chain rather than gating it. A `leaf` may keep a predecessor but nothing chains after it in the numbered tier; the backbone bridges over it (see item 4 for the TOC tier's different rule). The failure direction is always demote-to-leaf, never chain-as-a-lesson, which is why `01-os.md` and `01-x/02-guide-js.md` stay lessons and a bare `guide-js.md` is a leaf rather than an excluded translation: the `js` token is never read as Japanese, and a stem that parses as a number is exempt from the locale arm entirely (`02-es.md` is lesson 2, Elasticsearch). A `palee_id` that is truthy but not a usable string (e.g. `palee_id: 12345`) is skipped with a counted reason instead of becoming an unsatisfiable predecessor that blocks the rest of the chain; its frontmatter is never rewritten.
+2. **Ordering**: Notes are grouped by immediate parent directory. Inside the hygiene planner a directory leads with its README-class doc, then sorts by numeric filename prefix, then `deep-dive` → `lab` → `exam`, then remaining docs, with homework (`assignment`/`quiz`/`solution`) deliberately LAST so it never gates the lessons that follow (PAL-205-C1, landed jointly with the PAL-205-B rework); an alphabetical transition between unnumbered sibling directories no longer gates at all — each such directory opens its own chain — while numbered cross-module bridges are kept. The public `compareLessonOrder` shipped with Work Order A is intentionally unchanged. Directory groups sort by numeric prefix; unnumbered names sort alphabetically after numbered ones at the same segment level. The alphabetical warning reports two separate conditions and prints neither when both are absent: the notes whose position came from their name (`planAutoChainWithHygiene.alphabeticalNotes` — no numeric prefix, no phase keyword, not README-class, not homework), counted with up to three example paths; and, as its own clause, directories that carry no numeric prefix at a segment level where two directories differ (`directoryOrderAlphabetical`). A README-class or homework note is never counted, so a fully numbered curriculum that carries module READMEs produces no warning, and a lone shared container like `MODULES/` still does not trigger one on its own. Three further rules keep the warning honest about decisions that were not alphabetical: the vault-root group never contributes to the directory clause, because the hygiene plan hoists it to the front on purpose (PAL-205-G2), and after the TOC tier runs both claims are recomputed over the paths the enumeration did not cover — notes your own README sequenced are never reported as ordered by name, and are never offered as `--exclude` candidates. The directory clause also consults only the first segment at which a pair differs, mirroring how `compareDirs` settles their order there and stops: `01-a/deep-dive` beside `02-b/lab` is decided by `01`/`02`, so the unnumbered deeper names are not a fallback, while `01-a/deep-dive` beside `01-a/lab` genuinely is one and still reports. A numeric prefix must be followed by a separator (`-`, `_`, `.`, space) or end the name, and is at most three digits: `01-intro.md` and `7.md` are lessons 1 and 7, while `3d-printing.md`, `01foundations.md` and `2024-recap.md` are not lesson numbers and chain as unnumbered notes.
+3. **Chaining**: Each note depends on its predecessor in the ordered list; the first note of a module depends on the last note of the previous module only when the cross-directory transition is justified by structure — a numbered module bridge, a nesting relation, or the owner-ruled vault-root bridge (the root README gates into the first numbered module at any depth, so `MODULES/01-foundations/…` qualifies exactly as `01-foundations/…` does, PAL-205-G2; a root note reaching a directory that states no lesson number at any level still refuses) (item 2). Alphabetical order between unnumbered sibling directories never bridges: each such directory opens its own chain. Excluded or already-adopted notes are bridged over, never rewritten.
+4. **TOC tier (PAL-205-C, `--chain-tier toc|full`)**: Notes the numbered tree does not cover are chained from the repo's own enumeration — `README.md`/`SUMMARY.md` documents at the vault root and inside visible, non-phase directories [src/storage/toc.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/toc.ts). Markdown links become the chain in the author's document order, which the same-directory resort reshapes only where a stated order outranks position (README-class, numeric prefixes, `deep-dive` → `lab` → `exam`, homework last; equal ranks keep document order). Folder links → `<dir>/README.md`, trailing slashes deduped, anchors stripped, `%20` decoded with no raw fallback, `<angle bracket paths>` parsed, balanced parentheses retained inside a bare destination so `notes/intro(v2).md` resolves rather than truncating, `isWithinVault` rejects `..` escapes, ambiguous/missing/out-of-scope targets skipped fail-closed and counted, backslashes literal, and links inside a fenced code example excluded — a README documenting link syntax is not enumerating the curriculum. This is the deliberate exception to the leaf rule in item 1: an ordinary leaf may be a TOC predecessor, because the enumeration states that order rather than inferring it, while notes hygiene excludes and phase-subtree and translation demotions are never TOC candidates. Numbering dominance: where both endpoints live in the numbered tree, numbering wins even if a README enumerates otherwise. Every written edge points strictly backward in its tier's own order, and the merged plan is asserted acyclic in code before any write — including the case where a TOC head would keep a numbered edge that loops back through a note the enumeration never mentioned. Edges record their author in the additive optional `depends_on_source: numbered|toc` frontmatter field (old builds ignore it; gating is unchanged this release).
+5. **Tiers and honest refusal**: `--auto-chain` is a batch-only boolean and `--chain-tier` selects how far it reaches: `strict` chains only the numbered tree (TOC is never consumed), the default is `full`, and a value outside the three — or `--chain-tier` without `--auto-chain` — exits `2`. The tier is not an optional value on the flag itself, because an optional-value flag takes the following token and would read the adoption path in `palee adopt --auto-chain MODULES` as a tier; a directory named `toc`, `strict` or `full` would likewise be indistinguishable from a tier. `toc` and `full` currently produce identical plans — both chain the unnumbered remainder from the repo's own enumeration — and only `strict` differs. When the scope has no numbered layout, its scoped README/SUMMARY enumeration resolves no TOC link at all, and the plan writes zero edges, the CLI prints `0 edges (no numbered layout, no README TOC links) — consider palee roadmap` and exits `0` rather than fabricating prerequisites; a README that does enumerate its notes keeps their justified numbered edges (PAL-205-C rework), so the refusal never fires on a real enumeration. `strict` declining a TOC that does exist is a configuration choice and does not print the roadmap pointer.
+6. **Pre-write validation**: Topic IDs are minted before planning, and the planned edges — merged with already-adopted vault topics — are checked with the existing cycle detector. On a cycle the command exits `3` and writes nothing (INV-46), reporting each cycle by vault-relative path (`coursepages/a/README.md (T-…) → coursepages/b/README.md (T-…)`) with `palee validate` named as the way to locate the offending edges. Because a chain edge always points backward in the plan's total order onto an id that nothing pre-existing can name, a cycle reported here is never one the chain created.
+7. **Conflicts**: `--auto-chain` conflicts with `--depends-on` and with single-file mode (both exit `2`). `--dry-run` prints exactly the edges the commit will write — notes already adopted in scope are listed separately as bridged predecessors, never as edges — and writes nothing. Both the dry-run and the confirmation screen print the Tier-0 hygiene block: backbone count, leaf count, skipped-by-rule counts (meta / translations / template), phase-subtree collapses, the invalid-`palee_id` count when non-zero, and the excluded total; when filtering leaves nothing at all to adopt, the block closes with a pointer to direct adoption (a scope whose survivors are all demoted leaves still produces a plan, and does not get that pointer). Auto-chain reporting spans two lines. Before the gate, the `Auto-chain:` line names the selected tier and the edges the run will write, split by authoring tier — `Auto-chain:       enabled (full tier — 4 edge(s) written: 3 numbered, 1 toc)` — so a chain head, which receives no edge, and a bridged already-adopted note, which is never rewritten, are neither counted; a refusal prints `Auto-chain:       0 edges (…)` here instead (item 5). After a successful commit, a separate `Auto-chained:` line reports what landed — `Auto-chained: 4 dependency edges wired across 6 notes.` — where the edge count is the same number the plan promised and the note count is every file written, heads included. `--dry-run` prints the first line only, never the second. TOC resolution records each link that reaches path resolution with its reason (`escaped-vault` / `missing` / `ambiguous` / `outside-scope`) in `TocEnumeration.skipped` [src/storage/toc.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/toc.ts); a link rejected earlier, while its destination is being parsed (`external`, `self-anchor`, `malformed`, `empty`), never becomes a path candidate and is not recorded. These counts are currently plan-data only and are printed on no CLI screen, so "skipped fail-closed and counted" (item 4) is verifiable in the API but not yet visible to the learner; surfacing them in `--verbose` is an open follow-up.
+
+**Known issues (documented, non-blocking):**
+- *Cosmetic warning seam (PAL-205-B6)*: the "…have no number or phase in their name and chain in alphabetical order" warning is computed from the plan and still prints immediately above a true-refusal `0 edges` line — a scope holding a single unnumbered note does exactly this, since the note is alphabetically ordered yet yields no edge. Display-order only; the edge plan and exit code are unaffected.
+
+```bash
+# Preview the exact depends_on edges before committing
+palee adopt "MODULES" --auto-chain --dry-run
+```
+
+#### 5. Two-Phase Atomic Batch Writer & Rollback Journal
 In batch mode, adoption executes in two strict phases:
 - **Phase 1 (Preflight)**: Re-reads every note to capture fresh SHA-256 content fingerprints and computes updated frontmatter structures in memory.
 - **Phase 2 (Execution & Rollback)**: Writes notes sequentially via atomic write operations (`.tmp` + rename). If any write fails (e.g. disk error or OCC conflict), the system executes a reverse rollback journal, restoring previously modified files to their original state before exiting.
@@ -132,7 +154,7 @@ The `palee roadmap` command enables automated, bulk creation and updates of lear
 
 ### Supported File Formats
 
-`palee roadmap` automatically identifies and parses three curriculum formats [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts):
+`palee roadmap` automatically identifies and parses four curriculum formats [src/storage/roadmap-parser.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts):
 
 #### 1. Pure YAML (`.yaml` / `.yml`)
 ```yaml
@@ -142,13 +164,17 @@ topics:
     title: TCP/IP and OSI Model
     path: Cloud/01-networking.md
     difficulty: beginner
+    order: 1
   - id: T-vpc-peering
     title: VPC Architecture and Peering
     path: Cloud/02-vpc-peering.md
     difficulty: intermediate
+    order: 2
     depends_on:
       - T-networking-basics
 ```
+
+The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on` (the first gets `[]`), and a topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone. An edge that would close a cycle against an authored dependency is dropped instead, warned about as `chain edge X -> Y skipped: would close a cycle`, and the topic starts a new chain there, so the rest of the roadmap still imports. The `Auto-chain: N chain edge(s) synthesized across M roadmap topics.` summary is printed only after graph validation passes, counting only edges actually synthesized (PAL-205-A6; INV-47).
 
 #### 2. Markdown with Frontmatter YAML (`.md`)
 ```markdown
@@ -188,6 +214,34 @@ topics:
 ```
 ````
 
+#### 4. Wikilink Roadmap (`.md`)
+
+A Markdown document marked `palee_roadmap: true` whose headings and bullet/numbered lists contain Obsidian wikilinks — one note per link, in list order. Each `##` heading starts a new chain section; deeper levels (`###` and below) do not — their bullets keep extending the enclosing `##` chain. Each link resolves to a vault note and depends on the previous link in its section [src/storage/wikilink.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/wikilink.ts):
+
+````markdown
+---
+palee_roadmap: true
+---
+
+# DevOps Roadmap
+
+## Foundations
+
+- [[DevOps/Docker]]
+- [[Kubernetes Basics|K8s Intro]]
+- [[networking#osi-model]]
+
+## Advanced
+
+1. [[k8s-pods]]
+````
+
+The `palee_roadmap: true` marker is required (INV-48) and must be the YAML boolean, not the string `'true'`. Any other `.md` passed to `--from` — including an ordinary note with a heading and `[[links]]` — is rejected with exit `2` and zero writes, so pointing the command at a regular note can never rewrite `depends_on` across the notes it links to. Deeper heading levels are excluded for the same reason: every `##` section head is written with `depends_on: []`, which clears the prerequisites a note already has.
+
+Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, then unique case-insensitive basenames (exact-case wins ties); ambiguous links error listing every candidate, unresolvable links error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected. Already-adopted notes keep their `palee_id` and SM-2 state; unadopted notes get minted IDs. The wikilink chain replaces hand-written `depends_on` on adopted notes.
+
+`--auto-chain` does not apply to this format (INV-47): each `##` section arrives already chained from its list order, so re-chaining the resolved topics would fuse independent tracks into a single chain.
+
 ---
 
 ### Options Reference for `palee roadmap`
@@ -197,6 +251,7 @@ The following table lists all options for `palee roadmap` [src/types.ts#476-484]
 | Flag | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
 | `--from <file>` | `string` | **Yes** | Path to the roadmap definition file (`.yaml`, `.yml`, or `.md`). | `palee roadmap --from "curricula/devops.yaml"` |
+| `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
 | `-y, --yes` | `boolean` | No | Automatically confirm creation/update of notes without interactive prompt. | `palee roadmap --from "curricula/devops.yaml" -y` |
 
 ---
@@ -295,7 +350,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | N/A | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
+| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
 
@@ -305,9 +360,9 @@ Topic management commands follow the standardized PALEE exit code contract:
 
 | Parameter | Value | Definition | Code Reference |
 | :--- | :---: | :--- | :--- |
-| **Topic ID Prefix** | `T-` | ISO-8601 timestamp + 8-character hex entropy: `T-YYYYMMDDTHHMMSS-<hex>` | [src/cli/adopt.ts#23-28](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L23-L28) |
-| **Default Ease Factor** | `2.5` | Initial SuperMemo SM-2 difficulty multiplier. | [src/cli/adopt.ts#447](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L447) |
-| **Initial Interval** | `1` day | Spaced repetition review interval after initial adoption. | [src/cli/adopt.ts#448](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L448) |
+| **Topic ID Prefix** | `T-` | UTC date and time + 8-character hex entropy (32 bits): `T-YYYYMMDD-HHMMSS-<hex>`, e.g. `T-20260830-120000-a1b2c3d4`. The pre-#29 form `T-YYYYMMDDTHHMMSS-<hex>` stays valid for ids already minted in it. | [src/engine/topic-id.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/topic-id.ts) |
+| **Default Ease Factor** | `2.5` | Initial SuperMemo SM-2 difficulty multiplier. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
+| **Initial Interval** | `1` day | Spaced repetition review interval after initial adoption. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
 | **Default Difficulty** | `intermediate` | Baseline topic complexity level. | [src/cli/adopt.ts#144](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L144) |
 | **Mastery Threshold** | `0.70` | Required mastery score to unlock dependent child topics. | [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) |
-| **Schema Version** | `1` | Current PALEE metadata schema version. | [src/cli/adopt.ts#437](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L437) |
+| **Schema Version** | `1` | Current PALEE metadata schema version. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |

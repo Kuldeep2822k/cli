@@ -17,6 +17,23 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 /**
+ * Whether a path names a note the CLI treats as visible — the exclusion rules `walkVault` applies
+ * when it indexes the vault (dot-files, dot-directories such as `.obsidian`/`.trash`/`.git`/`.palee`,
+ * and every `EXCLUDED_DIRS` entry is invisible there too), plus Markdown-only.
+ *
+ * @param relativePath - Vault-relative POSIX path (`MODULES/01-a.md`, `.trash/x.md`)
+ * @returns `true` only when every `/`-separated segment is visible and the file ends in `.md`
+ */
+function isResolvableNotePath(relativePath: string): boolean {
+  if (!relativePath.toLowerCase().endsWith('.md')) {
+    return false;
+  }
+  return relativePath
+    .split('/')
+    .every((segment) => segment.length > 0 && !segment.startsWith('.') && !EXCLUDED_DIRS.has(segment));
+}
+
+/**
  * Traverses an Obsidian vault directory and returns absolute paths to all discovered Markdown (`.md`) notes.
  *
  * @remarks
@@ -285,4 +302,4 @@ function relativeVaultPath(vaultPath: string, filePath: string): string {
   return lexical;
 }
 
-export { walkVault, ensureVaultDirectory, relativeVaultPath };
+export { walkVault, ensureVaultDirectory, relativeVaultPath, isResolvableNotePath };

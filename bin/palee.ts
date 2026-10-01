@@ -53,6 +53,8 @@ program
   .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter')
   .option('--dry-run', 'Simulate adoption and print summary without modifying files')
   .option('--verbose', 'Print detailed file-by-file inspection list')
+  .option('--auto-chain', 'Auto-wire depends_on from a note\'s own prerequisites, else the numbered tree (batch mode only)')
+  .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; toc/full add listing order, which never gates')
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(adoptCommand);
 
@@ -112,14 +114,17 @@ program
   .command('roadmap')
   .description('Manage learning roadmaps')
   .option('--from <file>', 'Import roadmap from YAML file')
+  .option('--auto-chain', 'Chain imported topics by their order field')
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(roadmapCommand);
 
 // palee migrate
 program
   .command('migrate')
-  .description('Migrate PALEE schema to current version')
+  .description('Migrate PALEE schema and prerequisite labels to the current version')
   .option('--fix', 'Automatically update notes missing palee_schema to schema v1')
+  .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes adopted before that label existed, so they stop gating; depends_on is never changed')
+  .option('--dry-run', 'With --relabel-ties, print the notes that would be relabelled and write nothing (does not affect --fix)')
   .action(migrateCommand);
 
 // palee session
