@@ -199,7 +199,7 @@ Unlike `palee next` (which checks SRS review timestamps), `palee plan` leverages
 
 A topic is categorized as **"Ready to Learn"** if and only if:
 1. **Unmastered**: The topic's current `topic_mastery` is strictly below the mastery threshold (`< 0.70`).
-2. **Prerequisites Satisfied**: Every topic listed in its `depends_on` frontmatter array exists in the vault and has achieved `mastery >= 0.70`.
+2. **Prerequisites Satisfied**: Every topic listed in its `depends_on` frontmatter array exists in the vault and has achieved `mastery >= 0.70` - unless the list is advisory, which `depends_on_source: toc` or `tie` marks: an edge that came from a README enumeration or from an equal-rank filename tie orders the plan and takes part in cycle detection, but never holds the topic out of this category.
 
 ### 3-Tier Plan Structure
 
