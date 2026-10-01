@@ -1223,4 +1223,25 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'the two enumerated notes must not be offered as alphabetical examples'
     );
   });
+
+  test('a note that declares its prerequisite is not told it has no order signal', () => {
+    // The honest refusal is a conjunction of four claims, and this is the fixture
+    // where the last one decides: no numbered layout, no TOC edge, no numbered
+    // edge — so the run *is* a refusal unless the notes themselves stated an
+    // order. Drop `declaredDeps.size === 0` from `chainRefused` and this prints
+    // the roadmap pointer and writes nothing, which is the failure #225 asked to
+    // be able to catch.
+    const { vaultDir, configDir } = freshVault({
+      'm/alpha.md': '# Alpha\n\nFoundations.\n',
+      'm/beta.md': ['# Beta', '', '## Prerequisites', '', '- [[alpha]]', ''].join('\n'),
+    });
+    const result = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /0 edges \(no numbered layout, no chainable order signal\)/,
+      `a stated prerequisite is an order signal:\n${result.stdout}`);
+    assert.match(result.stdout, /Declared:\s+1 edge\(s\) from the notes' own prerequisite text/,
+      `and the run must say where the edge came from:\n${result.stdout}`);
+    assert.strictEqual(dependsOn(vaultDir, 'm/beta.md').length, 1, 'the declared edge is on disk');
+    assert.strictEqual(dependsOnSource(vaultDir, 'm/beta.md'), 'declared');
+  });
 });
