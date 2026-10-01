@@ -558,8 +558,13 @@ describe('TOC tier engine (PAL-205-C3)', () => {
   });
 
   describe('parseAutoChainTier', () => {
-    it('accepts a bare flag as full and each tier case-insensitively', () => {
-      assert.strictEqual(parseAutoChainTier(true), 'full');
+    it('rejects a bare flag, because a valueless tier is not the widest one', () => {
+      // #223 made `--auto-chain` a plain boolean whose default tier is `strict`, and
+      // `test/cli-adopt-autochain.test.ts` already asserts a bare run is not the full
+      // tier. Reading `true` as `full` here was the residue of the optional-value form
+      // that change withdrew: two exported rules, opposite answers, picked by whether the
+      // caller passed `undefined` or `true`.
+      assert.strictEqual(parseAutoChainTier(true), null);
       assert.strictEqual(parseAutoChainTier('TOC'), 'toc');
       assert.strictEqual(parseAutoChainTier(' strict '), 'strict');
     });
