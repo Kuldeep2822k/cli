@@ -125,13 +125,25 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       { skip: process.platform === 'win32' },
       () => {
         // Only constructible on case-sensitive filesystems: `dup/README.md`
-        // and `dup/readme.md` cannot coexist on NTFS.
-        write(vault, 'README.md', '- [y](dup/README.md)');
+        // and `dup/readme.md` cannot coexist on NTFS. Both halves of the rule are
+        // asserted here, because the two spellings decide differently: `lookupNote`
+        // answers an exact path before it folds at all, so the link spelled like a
+        // real file resolves, and only a spelling that matches neither file can be
+        // ambiguous. Demanding ambiguity for the exact form would ask the fold to
+        // outrank the file on disk.
+        write(vault, 'README.md', [
+          '- [y](dup/README.md)',
+          '- [z](dup/readme.MD)',
+        ].join('\n'));
         write(vault, 'dup/README.md');
         write(vault, 'dup/readme.md');
         const enum_ = deriveTocEnumeration(vault);
-        assert.deepStrictEqual(enum_.documentOrder, []);
-        assert.strictEqual(enum_.skipped[0].reason, 'ambiguous');
+        assert.deepStrictEqual(enum_.documentOrder, ['dup/README.md'],
+          'the exact spelling is the file the author named');
+        assert.strictEqual(enum_.skipped.length, 1, 'only the unspellable link is dropped');
+        assert.strictEqual(enum_.skipped[0].raw, 'dup/readme.MD');
+        assert.strictEqual(enum_.skipped[0].reason, 'ambiguous',
+          'a spelling that folds onto two real files decides nothing');
       }
     );
 
