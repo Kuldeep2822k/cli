@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
 ### Added
 
 - **`palee adopt --auto-chain`**: derives each note's `depends_on` from numbered directory/file prefixes, bridges modules and already-adopted notes, and validates the planned graph for cycles before any write (exit `3`, zero writes on failure); conflicts with `--depends-on` and single-file mode (exit `2`). ([#73](https://github.com/Kuldeep2822k/cli/issues/73))
