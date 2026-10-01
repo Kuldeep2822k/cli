@@ -804,6 +804,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const declaredWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'declared').length;
         const tocWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'toc').length;
         const tieWritten = writtenEdges.filter((e) => chainSourceOf.get(e.path) === 'tie').length;
+        // The fourth bucket PAL-205 asked for. A planned note with no predecessor is
+        // the one the tier ordered but could not gate, and without its own count the
+        // line below read as "N edge(s) written" implying N notes chained — the exact
+        // over-claim this block was rewritten to stop.
+        const unchainedNotes = chainWritePlan.filter((e) => e.dependsOnPath === null).length;
         console.log(
           `Auto-chain:       enabled (${autoChainTier ?? 'strict'} tier — ` +
             `${writtenEdges.length} edge(s) written: ${writtenEdges.length - tocWritten - declaredWritten - tieWritten} numbered, ` +
@@ -821,6 +826,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
               (declaredSkippedCount > 0
                 ? ` (${declaredSkippedCount} name(s) resolved to no single note)`
                 : '')
+          );
+        }
+        if (unchainedNotes > 0) {
+          console.log(
+            `Unchained:        ${unchainedNotes} note(s) the chain gave no predecessor, so their ` +
+              '`depends_on` stays empty and nothing gates them'
           );
         }
       }

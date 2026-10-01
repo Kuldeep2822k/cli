@@ -675,6 +675,33 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dependsOnSource(vaultDir, 'README.md'), undefined);
   });
 
+  test('the report counts the notes the chain gave no predecessor', () => {
+    // Four notes adopted, two edges written: `README.md` and `guide/intro.md` both
+    // open a chain, so nothing gates them. "2 edge(s) written" on its own let a
+    // reader infer "2 notes chained" — the inference this block was rewritten to
+    // stop — and on the commit screen the heads are named nowhere at all, because
+    // the write plan prints only under `--dry-run`. Removing the `unchainedNotes`
+    // count fails this test and nothing else.
+    const { configDir } = freshVault(tocFiles);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /Auto-chain:\s+enabled \(full tier — 2 edge\(s\)/, 'the edge count is the pair to this');
+    assert.match(dry.stdout, /Unchained:\s+2 note\(s\) the chain gave no predecessor/,
+      `both heads must be counted, not just listed:\n${dry.stdout}`);
+
+    // Two unnumbered directories open two chains, so two notes are ungated.
+    const pair = freshVault({
+      'alpha/01-a.md': '# A\n',
+      'alpha/02-b.md': '# B\n',
+      'beta/01-c.md': '# C\n',
+      'beta/02-d.md': '# D\n',
+    });
+    const both = runCLI(['adopt', '--all', '--auto-chain', '-y'], pair.configDir);
+    assert.strictEqual(both.status, 0, both.stderr);
+    assert.match(both.stdout, /Unchained:\s+2 note\(s\)/,
+      `one head per chain, on the commit screen too:\n${both.stdout}`);
+  });
+
   test('an enumeration-chained vault still offers every note to palee plan', () => {
     // The blast radius of a false edge: `intro → core → wrapup` is the README's
     // order, not a prerequisite claim, and nothing in v0.5.x raises
