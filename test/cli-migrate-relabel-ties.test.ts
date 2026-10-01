@@ -25,6 +25,13 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  /**
+   * Runs the real CLI in a child process against an isolated config dir.
+   *
+   * @param args - Arguments after `bin/palee.ts`
+   * @param configDir - Value of `PALEE_CONFIG_DIR` for the run
+   * @returns The exit status with captured stdout and stderr
+   */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
       const stdout = execSync(`npx tsx bin/palee.ts ${args.join(' ')}`, {
@@ -40,6 +47,13 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     }
   }
 
+  /**
+   * Writes hand-made pre-#234 frontmatter into a temp vault and points a temp
+   * config at it, so the tests exercise stored state `adopt` would never write.
+   *
+   * @param files - Vault-relative paths to note contents
+   * @returns The vault and config directories for the CLI to run against
+   */
   function freshVault(files: Record<string, string>): { vaultDir: string; configDir: string } {
     const vaultDir = fs.mkdtempSync(path.join(tempDir, 'vault-'));
     for (const [rel, content] of Object.entries(files)) {
@@ -71,10 +85,23 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     ].join('\n');
   }
 
+  /**
+   * Reads one note's frontmatter back through the same parser the vault uses.
+   *
+   * @param vaultDir - The temp vault root
+   * @param rel - Vault-relative note path
+   * @returns The parsed frontmatter, or null when the note has none
+   */
   function frontmatterOf(vaultDir: string, rel: string): Record<string, unknown> | null {
     return parseFrontmatter(fs.readFileSync(path.join(vaultDir, rel), 'utf8')).frontmatter;
   }
 
+  /**
+   * Returns the ids `palee plan` currently considers ready to learn.
+   *
+   * @param configDir - The temp config pointing at the vault under test
+   * @returns Ids on the ready list, so gating is asserted as state, not assumed
+   */
   function readyIds(configDir: string): string[] {
     const result = runCLI(['plan', '--json'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
