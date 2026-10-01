@@ -739,14 +739,15 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
 /**
  * Parses the `--chain-tier` value.
  *
- * @param raw - The string Commander captured, or `true` for a bare
- * `--auto-chain` (which means `full`)
+ * @param raw - The string Commander captured. A bare `true` is *not* a tier:
+ * `--auto-chain` is a plain boolean since #223 and its default tier is `strict`
+ * (`src/cli/adopt.ts`), so reading `true` as `full` here would silently widen the
+ * reach of a flag that never asked for it - the one thing INV-46 forbids.
  * @returns The tier, or `null` for anything outside `strict|toc|full` (the CLI
  * turns `null` into a usage error — never a silent default)
  */
 export function parseAutoChainTier(raw: unknown): AutoChainTier | null {
   if (raw === undefined || raw === false) return null;
-  if (raw === true) return 'full';
   if (typeof raw !== 'string') return null;
   const value = raw.trim().toLowerCase();
   return value === 'strict' || value === 'toc' || value === 'full' ? value : null;
