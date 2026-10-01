@@ -14,6 +14,30 @@ function write(root: string, rel: string, contents?: string): void {
   fs.writeFileSync(abs, contents ?? `# ${path.basename(rel, '.md')}\n`);
 }
 
+/**
+ * Whether the temp filesystem folds filename case. `dup/README.md` and
+ * `dup/readme.md` cannot coexist there, so the case-fold ambiguity fixture
+ * is unconstructible and its test is skipped.
+ *
+ * @returns True on case-insensitive volumes (Windows NTFS, default macOS APFS)
+ *
+ * @remarks
+ * Probed at runtime rather than by platform: most macOS volumes are
+ * case-insensitive while some are not, and the reverse holds on Linux.
+ * The vault lives under `os.tmpdir`, so probing there tests the same volume.
+ */
+function tempFsIgnoresCase(): boolean {
+  const upper = path.join(os.tmpdir(), `palee-case-probe-${process.pid}-AA`);
+  const lower = upper.toLowerCase();
+  fs.writeFileSync(upper, 'x');
+  try {
+    return fs.existsSync(lower);
+  } finally {
+    fs.rmSync(upper, { force: true });
+    fs.rmSync(lower, { force: true });
+  }
+}
+
 describe('TOC discovery (PAL-205-C3, storage half)', () => {
   let vault: string;
   let outside: string;
@@ -120,12 +144,16 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.deepStrictEqual(enum_.skipped, []);
     });
 
+    // Computed once: the fixture needs two same-directory names that differ
+    // only by case, which a case-folding volume cannot hold.
+    const caseBlindFs = tempFsIgnoresCase();
     it(
       'a case-fold matching several real files is ambiguous and skipped',
-      { skip: process.platform === 'win32' },
+      { skip: caseBlindFs },
       () => {
         // Only constructible on case-sensitive filesystems: `dup/README.md`
-        // and `dup/readme.md` cannot coexist on NTFS. Both halves of the rule are
+        // and `dup/readme.md` cannot coexist where the volume folds case.
+        // Both halves of the rule are
         // asserted here, because the two spellings decide differently: `lookupNote`
         // answers an exact path before it folds at all, so the link spelled like a
         // real file resolves, and only a spelling that matches neither file can be

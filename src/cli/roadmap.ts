@@ -24,6 +24,65 @@ import { isWithinVault } from '../storage/wikilink';
 import { detectCyclesBounded } from '../engine/dependency';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
+/**
+ * Canonical absolute form of a roadmap-declared topic path for boundary checks.
+ *
+ * @param resolvedVault - Canonical vault root (`fs.realpathSync`ed)
+ * @param declared - The `path` as written in the roadmap (vault-relative or absolute)
+ * @returns Absolute canonical path, so it compares equal to `resolvedVault`
+ *
+ * @remarks
+ * `isWithinVault` requires both endpoints canonical, but an absolute declared
+ * path was only lexically resolved. On a machine whose temp dir passes through
+ * a symlink (macOS `/var` → `/private/var`) the lexical form never sits under
+ * the resolved vault, so every absolute declaration read as an escape. An
+ * existing file resolves directly; a note this import is about to create
+ * resolves through its nearest existing ancestor. That stays fail-closed: a
+ * symlinked ancestor pointing out of the vault still fails the check rather
+ * than slipping through.
+ */
+function canonicalDeclaredPath(resolvedVault: string, declared: string): string {
+  const absolute = path.isAbsolute(declared)
+    ? path.resolve(declared)
+    : path.resolve(resolvedVault, declared);
+  // A symlinked final component is never followed here: a symlinked target
+  // is never a note, and the importer's `lstat` guard owns that case ("not a
+  // regular file", skipping one topic). Following it would re-report it as
+  // an escape and fail validation for the whole batch instead. Only the
+  // parent chain is canonicalized, which is also what a symlinked temp root
+  // needs. Missing leaves resolve through the nearest existing ancestor, so
+  // a note this import is about to create still compares against the vault.
+  let leaf = absolute;
+  const suffix: string[] = [];
+  while (true) {
+    let stat: fs.Stats | null;
+    try {
+      stat = fs.lstatSync(leaf);
+    } catch {
+      stat = null;
+    }
+    if (stat !== null) {
+      if (stat.isSymbolicLink() && suffix.length === 0) {
+        try {
+          return path.join(fs.realpathSync(path.dirname(leaf)), path.basename(leaf));
+        } catch {
+          return absolute;
+        }
+      }
+      try {
+        const canonicalBase = fs.realpathSync(leaf);
+        return suffix.length > 0 ? path.join(canonicalBase, ...suffix) : canonicalBase;
+      } catch {
+        return absolute;
+      }
+    }
+    const parent = path.dirname(leaf);
+    if (parent === leaf) return absolute;
+    suffix.unshift(path.basename(leaf));
+    leaf = parent;
+  }
+}
+
 /** Outcome of {@link applyRoadmapAutoChain}, used for deferred logging and cycle labels. */
 interface RoadmapChainResult {
   /** Every edge this pass synthesized, keyed `childId\u0000predecessorId` */
@@ -346,9 +405,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       // Path boundary validation: ensure topic path does not escape vault
       if (relativePath) {
-        const absoluteTopicPath = path.isAbsolute(relativePath)
-          ? path.resolve(relativePath)
-          : path.resolve(resolvedVault, relativePath);
+        const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
         if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
         }
@@ -475,7 +532,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       const writtenEdges: { from: string; to: string }[] = [];
 
       for (const topic of roadmap.topics) {
-        const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
+        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
 
         if (!isWithinVault(resolvedVault, absolutePath)) {
           console.error(`Roadmap path escapes vault: ${topic.path}`);
@@ -486,7 +543,10 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         let resolvedTargetPath: string;
 
         try {
-          const canonicalDir = ensureVaultDirectory(vaultPath, topic.path);
+          // The canonical path, not the declared spelling: under a symlinked
+          // parent the lexical form fails `ensureVaultDirectory`'s own
+          // boundary check even though validation just accepted it.
+          const canonicalDir = ensureVaultDirectory(vaultPath, absolutePath);
           resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
         } catch (e) {
           console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
