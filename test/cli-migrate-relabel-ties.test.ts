@@ -430,4 +430,43 @@ ${result.stdout}`);
     // The genuine tie in the same vault is still judged on its own merits.
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
   });
+
+  test('a dry run lists every candidate while the audit keeps its preview limit', () => {
+    // The dry run is the preview of exactly what `--relabel-ties` would touch,
+    // so truncating it hides notes the user is about to approve. The audit-only
+    // report keeps its five-path limit; only the dry run lists everything.
+    // Removing the `previewAll` branch truncates the dry run back to five and
+    // fails the bullet count below.
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const files: Record<string, string> = {
+      'm/02-a.md': storedNote('T-a', 'First of the chain', [], 'numbered'),
+    };
+    let prev = 'T-a';
+    for (const letter of ids.slice(1)) {
+      const id = `T-${letter}`;
+      files[`m/02-${letter}.md`] = storedNote(id, `Note ${letter}`, [prev], 'numbered');
+      prev = id;
+    }
+    const { vaultDir, configDir } = freshVault(files);
+
+    const audit = runCLI(['migrate'], configDir);
+    assert.strictEqual(audit.status, 0, audit.stdout + audit.stderr);
+    assert.match(audit.stdout, /Prerequisite labels:\s+6 note/);
+    assert.match(audit.stdout, /\.\.\. and 1 more/, 'the audit preview stays truncated');
+    assert.strictEqual(audit.stdout.match(/→/g)?.length ?? 0, 5,
+      'the audit lists five paths, not six');
+
+    const dry = runCLI(['migrate', '--relabel-ties', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Dry run: would relabel 6 note/);
+    assert.doesNotMatch(dry.stdout, /\.\.\. and/, 'a dry run must not truncate its preview');
+    for (const letter of ids.slice(1)) {
+      assert.match(dry.stdout, new RegExp(`02-${letter}\\.md`),
+        `the dry run must name 02-${letter}.md`);
+    }
+    assert.strictEqual(dry.stdout.match(/→/g)?.length ?? 0, 6,
+      'the dry run lists every candidate');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-g.md')?.depends_on_source, 'numbered',
+      '--dry-run still writes nothing');
+  });
 });

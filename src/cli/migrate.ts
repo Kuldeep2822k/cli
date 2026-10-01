@@ -196,10 +196,13 @@ async function reportStoredTies(
     console.log('                    their stored label says `numbered`, but the numbering did not'
       + ' decide those');
     console.log('                    orders — the filenames did, which is what `tie` means.');
-    for (const tie of ties.slice(0, 5)) {
+    // A dry run is the preview of exactly what `--relabel-ties` would touch,
+    // so it lists every candidate. The audit-only report keeps its limit.
+    const previewAll = apply && dryRun;
+    for (const tie of (previewAll ? ties : ties.slice(0, 5))) {
       console.log(`  • ${path.relative(vaultPath, tie.filePath)} → ${tie.predecessorPath}`);
     }
-    if (ties.length > 5) console.log(`  ... and ${ties.length - 5} more`);
+    if (!previewAll && ties.length > 5) console.log(`  ... and ${ties.length - 5} more`);
   }
   if (unresolved.length > 0) {
     // Counted rather than guessed at: with the predecessor gone there is no pair
