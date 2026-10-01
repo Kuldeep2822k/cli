@@ -121,8 +121,10 @@ program
 // palee migrate
 program
   .command('migrate')
-  .description('Migrate PALEE schema to current version')
+  .description('Migrate PALEE schema and prerequisite labels to the current version')
   .option('--fix', 'Automatically update notes missing palee_schema to schema v1')
+  .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes adopted before that label existed, so they stop gating; depends_on is never changed')
+  .option('--dry-run', 'With --relabel-ties, print the notes that would be relabelled and write nothing (does not affect --fix)')
   .action(migrateCommand);
 
 // palee session

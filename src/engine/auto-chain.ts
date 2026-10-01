@@ -427,6 +427,7 @@ export interface HygieneChainPlan extends ChainPlan {
   };
 }
 
+/** Zeroed per-rule skip counts, so a rule that fired nothing reports that instead of vanishing. */
 function emptyRuleCounts(): Tier0RuleCounts {
   return {
     'repo-meta': 0,
@@ -516,10 +517,13 @@ function leadsToNumberedSegment(dir: string): boolean {
  * Homework, quizzes and solutions follow the lesson they assess, so they close
  * the directory instead of opening it.
  *
- * This comparator is intentionally local to the hygiene planner: the public
+ * This comparator is local to the hygiene planner apart from one consumer:
+ * `palee migrate --relabel-ties` needs it to confirm that the stored predecessor
+ * is the note the planner would have placed *first*, because rank equality
+ * alone does not say which end of the pair the edge should point at. The public
  * `compareLessonOrder` contract that Work Order A shipped against is unchanged.
  */
-function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
+export function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
   const ra = tier0LessonRank(aBasename);
   const rb = tier0LessonRank(bBasename);
   if (ra.rank !== rb.rank) {
@@ -545,8 +549,13 @@ function compareLessonOrderTier0(aBasename: string, bBasename: string): number {
  * The two ranks that matter are the ones that look decided: `02-a.md` and
  * `02-b.md` both read as "the numbering chose this order", when in fact nothing
  * but the alphabet did.
+ *
+ * Exported because `palee migrate --relabel-ties` re-asks exactly this question
+ * about edges written before the `tie` label existed. Restating the test inside
+ * the migration is how the two would drift and a numbering decision that really
+ * was made get demoted to advisory.
  */
-function tiedByName(aBasename: string, bBasename: string): boolean {
+export function tiedByName(aBasename: string, bBasename: string): boolean {
   const ra = tier0LessonRank(aBasename);
   const rb = tier0LessonRank(bBasename);
   if (ra.rank !== rb.rank || (ra.rank !== 1 && ra.rank !== 2)) {
@@ -569,6 +578,14 @@ interface Tier0LessonRank {
   phase: number;
 }
 
+/**
+ * Ranks one note inside its directory: README-class first, then numeric lesson
+ * prefixes, then `deep-dive` / `lab` / `exam` in that order, then any remaining name,
+ * with homework last so a lesson never depends on its own assignment.
+ *
+ * @param basename - The note's filename, extension included
+ * @returns The rank, plus the lesson number or phase index where the name states one
+ */
 function tier0LessonRank(basename: string): Tier0LessonRank {
   const stem = stemOf(basename);
   if (README_CLASS_STEMS.includes(stem)) {
@@ -660,6 +677,7 @@ export function planAutoChainWithHygiene(
   const runs: { dir: string; files: string[] }[] = [];
   let runDir: string | null = null;
   let run: string[] = [];
+  /** Closes the run in progress: orders it by name rank and records it under its directory. */
   const flushRun = (): void => {
     if (run.length === 0) {
       return;

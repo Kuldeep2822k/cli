@@ -322,6 +322,25 @@ export function normalizeAssessedAt(raw: unknown): string | null {
 export interface MigrateOptions {
   /** Automatically migrate and fix schema-less notes to schema v1 */
   fix?: boolean;
+  /**
+   * Rewrite `depends_on_source: numbered` to `tie` on notes whose only stored
+   * prerequisite is a same-rank sibling in the same directory.
+   *
+   * @remarks Edges written before the `tie` label existed recorded an
+   * alphabetical tiebreak as a numbering decision, and a `numbered` edge gates.
+   * This changes the label only — never `depends_on` — so the note stops being
+   * held off the ready list by a filename collation.
+   */
+  relabelTies?: boolean;
+  /**
+   * Report what the pass would touch and write nothing, even alongside
+   * `--relabel-ties`.
+   *
+   * @remarks `palee migrate` with no flag already only reports; this exists so a
+   * caller that always passes `--relabel-ties` can be made safe without editing
+   * the command.
+   */
+  dryRun?: boolean;
 }
 
 /**
