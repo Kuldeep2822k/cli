@@ -465,6 +465,71 @@ ${result.stdout}`);
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
   });
 
+  test('an edge that skips a sibling still on disk is not this pass to demote', () => {
+    // The chain links neighbours: three same-rank notes get `02-b → 02-a` and
+    // `02-c → 02-b`, never `02-c → 02-a`. So an edge that steps over `02-b` while
+    // `02-b` sits in the directory was not written by the chain, and demoting it
+    // unlocks a note the learner meant to hold behind two prerequisites. Deleting
+    // the `survivingSiblingBetween` call in findStoredTies relabels `02-c` here and
+    // puts it on the ready list, which is the harm the guard exists to prevent.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First sibling', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Second sibling', ['T-a'], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Third sibling, skipping one', ['T-a'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie',
+      `the neighbour edge still qualifies:
+${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, 'numbered',
+      'the skipping edge is left exactly as stored');
+    const ready = readyIds(configDir);
+    assert.ok(ready.includes('T-b'), 'and the demoted note is offered');
+    assert.ok(!ready.includes('T-c'), 'while the skipping note stays gated');
+  });
+
+  test('the nearest surviving sibling is demoted when the middle note is gone', () => {
+    // The same `02-c → 02-a` edge with `02-b` absent is exactly what the chain
+    // wrote before the learner deleted the middle note, so the rule is about what
+    // sits between them now, not about adjacency in the original numbering. An
+    // immediate-predecessor test instead of this one would strand the note gated
+    // forever — the false negative this pass was built to remove.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First sibling', [], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Third sibling, alone after a deletion', ['T-a'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Relabelled 1 of 1 notes/,
+      `a non-adjacent edge with nothing between is the chain's own:
+${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, 'tie');
+    assert.ok(readyIds(configDir).includes('T-c'), 'and the note is unlocked');
+  });
+
+  test('a skipping edge does not strand the neighbours chained behind it', () => {
+    // One refusal per note, on that note's own merits: `02-b` and `02-d` name their
+    // nearest survivor and qualify, `02-c` steps over `02-b` and does not. A guard
+    // that bailed out of the whole directory, or keyed the check on the note rather
+    // than the edge, would leave `02-d` gated behind an edge the chain did write.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First sibling', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Second sibling', ['T-a'], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Third sibling, skipping one', ['T-a'], 'numbered'),
+      'm/02-d.md': storedNote('T-d', 'Fourth sibling', ['T-c'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Relabelled 2 of 2 notes/,
+      `both neighbour edges are written in one pass:
+${result.stdout}`);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, 'numbered');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-d.md')?.depends_on_source, 'tie',
+      'a skipped candidate does not stop the pass where it stands');
+  });
+
   test('a dry run lists every candidate while the audit keeps its preview limit', () => {
     // The dry run is the preview of exactly what `--relabel-ties` would touch,
     // so truncating it hides notes the user is about to approve. The audit-only

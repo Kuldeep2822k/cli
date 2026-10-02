@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`palee migrate --relabel-ties` demotes only edges the chain could have written** ([#251](https://github.com/Kuldeep2822k/cli/issues/251)): a stored `numbered` edge that steps over a same-rank sibling still in the directory keeps gating, while the nearest *surviving* sibling still demotes — so deleting the middle note never strands the vault behind a false gate.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added
