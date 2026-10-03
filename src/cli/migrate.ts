@@ -166,7 +166,7 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * @param dryRun - True when `--dry-run` was given: report, and write nothing even
  *   alongside `--relabel-ties`, so a caller that always passes the flag can be
  *   made safe without editing the command.
- * @returns What the pass did; zero writes and no conflict on a report-only run
+ * @returns What the pass did, including the count of unresolvable edges; zero writes and no conflict on a report-only run
  *
  * @remarks
  * One list, printed and then written from, so no note can be reported one way and
@@ -180,7 +180,8 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * moved while the pass was running — the note is left exactly as it is, counted,
  * and the caller is told to re-run. A drifted candidate is refused rather than
  * re-judged mid-flight, because the re-run then makes its decision against one
- * consistent read instead of two half-reads.
+ * consistent read instead of two half-reads. Lock/OCC conflicts and deletions
+ * count as skipped (stale) with a re-run instruction, never as write errors.
  */
 async function reportStoredTies(
   vaultPath: string,
@@ -225,10 +226,10 @@ async function reportStoredTies(
       console.log('     never touched, and a relabelled note is no longer held off `palee plan`.');
       console.log();
     }
-    return none;
+    return { ...none, unresolved: unresolved.length };
   }
 
-  const outcome: RelabelOutcome = { ...none };
+  const outcome: RelabelOutcome = { ...none, unresolved: unresolved.length };
   for (const tie of ties) {
     try {
       const content = fs.readFileSync(tie.filePath, 'utf8');
@@ -248,9 +249,22 @@ async function reportStoredTies(
       await atomicWrite(vaultPath, tie.filePath, updated, tie.noteFingerprint);
       outcome.relabelled++;
     } catch (err: unknown) {
-      console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
-      if (exitCodeFor(err) === ExitCode.Conflict) outcome.hadConflict = true;
-      else outcome.failed++;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (exitCodeFor(err) === ExitCode.Conflict || code === 'ENOENT') {
+        // A conflict and a deletion are the same instruction: the vault moved
+        // under the pass, so the note is left as-is, counted as skipped, and
+        // the caller is told to re-run. Counting conflicts as stale (not just
+        // hadConflict) keeps `relabelled + stale + failed` reconciling with
+        // the scanned total, and a deleted note is gone — not gated — so it
+        // must never read as a write error.
+        console.error(`  Skipped ${tie.filePath}: ${path.relative(vaultPath, tie.predecessorFilePath)}`
+          + ' or the note itself changed while the pass was running. Re-run to retry.');
+        outcome.stale++;
+        outcome.hadConflict = true;
+      } else {
+        console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
+        outcome.failed++;
+      }
     }
   }
   console.log(`✓ Relabelled ${outcome.relabelled} of ${ties.length} notes to \`depends_on_source: tie\`.`

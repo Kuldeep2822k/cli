@@ -78,6 +78,27 @@ export interface ResolvedWikilink {
 }
 
 /**
+ * Folds a note name for case-insensitive lookup, normalizing Unicode first.
+ *
+ * @param value - Basename or path to fold for index lookup
+ * @returns NFC-normalized lowercased key
+ *
+ * @remarks
+ * macOS APFS stores `é` as NFD (`e` + combining acute) while a typed
+ * wikilink arrives as NFC (`é`); `toLowerCase` alone leaves those unequal,
+ * so the vault index would miss the note and the link would fail closed.
+ * Normalizing to NFC first makes both spellings fold identically.
+ *
+ * @example
+ * ```typescript
+ * foldNoteKey('Café'.normalize('NFD')); // 'café'
+ * ```
+ */
+export function foldNoteKey(value: string): string {
+  return value.normalize('NFC').toLowerCase();
+}
+
+/**
  * Builds a case-insensitive basename index of every Markdown note in the vault.
  *
  * @param vaultPath - Absolute path to the vault root
@@ -86,7 +107,7 @@ export interface ResolvedWikilink {
 export function buildVaultNoteIndex(vaultPath: string): Map<string, string[]> {
   const index = new Map<string, string[]>();
   for (const absolutePath of walkVault(vaultPath)) {
-    const key = path.basename(absolutePath, '.md').toLowerCase();
+    const key = foldNoteKey(path.basename(absolutePath, '.md'));
     const list = index.get(key);
     if (list) {
       list.push(absolutePath);
@@ -153,12 +174,12 @@ function targetBaseName(target: string): string {
  * allows) fold to one key, and there nothing is guessed.
  */
 function withWalkedCasing(canonical: string, index: Map<string, string[]>): string {
-  const listed = index.get(path.basename(canonical, '.md').toLowerCase());
+  const listed = index.get(foldNoteKey(path.basename(canonical, '.md')));
   if (!listed) {
     return canonical;
   }
-  const folded = canonical.toLowerCase();
-  const matches = listed.filter((p) => p.toLowerCase() === folded);
+  const folded = foldNoteKey(canonical);
+  const matches = listed.filter((p) => foldNoteKey(p) === folded);
   return matches.length === 1 ? matches[0] : canonical;
 }
 
@@ -311,7 +332,7 @@ export function resolveWikilinkTarget(
   }
 
   // 2. Basename match (case-insensitive); an exact-case hit wins ties
-  const key = targetBaseName(target).toLowerCase();
+  const key = foldNoteKey(targetBaseName(target));
   const hits = index.get(key) ?? [];
   if (hits.length === 1) {
     return { absolutePath: hits[0], relativePath: relativeVaultPath(vaultPath, hits[0]) };
@@ -341,6 +362,7 @@ export function resolveWikilinkTarget(
  * @returns Roadmap topics with minted-or-reused IDs and chained dependencies
  * @throws {@link AmbiguousWikilinkError} / {@link UnresolvedWikilinkError}
  * @throws `Error` when the same note appears twice (it would depend on itself)
+ * @throws `Error` with the vault-relative path when an unadopted note cannot be read
  *
  * @remarks
  * Each section becomes one chain: topic N's `depends_on` is `[topic N−1's
@@ -384,7 +406,15 @@ export function resolveWikilinkRoadmap(
         title = existing.title;
       } else {
         id = generateTopicId();
-        const content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        let content: string;
+        try {
+          content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        } catch (err: unknown) {
+          // A permission or transient read failure here used to escape as a
+          // bare stack trace. Name the vault-relative path so the roadmap
+          // importer can report it without leaking an absolute path.
+          throw new Error(`Could not read ${resolved.relativePath}: ${(err as Error).message}`, { cause: err });
+        }
         title = resolveNoteTitle(content, resolved.absolutePath);
       }
 

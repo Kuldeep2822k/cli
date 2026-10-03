@@ -98,6 +98,8 @@ program
   .option('--practical <score>', 'Practical application score (0-1)')
   .option('--debug <score>', 'Debugging & troubleshooting score (0-1)')
   .option('--feynman <score>', 'Feynman articulation score (0-1)')
+  .option('--force', 'Confirm a mastery lowering that would re-hide dependents')
+  .option('--dry-run', 'Preview the assessment without modifying files')
   .action(assessCommand);
 
 // palee validate

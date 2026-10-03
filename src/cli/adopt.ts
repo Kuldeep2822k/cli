@@ -87,6 +87,51 @@ interface RollbackRecord {
 }
 
 /**
+ * Effective difficulty for a first adoption.
+ *
+ * @param explicit - The `--difficulty` option as passed, if any
+ * @param stored - The note's existing `difficulty` frontmatter value, if any
+ * @returns The explicit value when given, else the stored value when usable, else `intermediate`
+ *
+ * @remarks
+ * A hand-authored `beginner` used to become `intermediate` because the
+ * default applied before the note was read. The explicit flag still wins;
+ * without one the note's own value is kept.
+ */
+function resolveAdoptDifficulty(explicit: unknown, stored: unknown): Difficulty {
+  if (explicit !== undefined) return normalizeDifficulty(explicit);
+  if (typeof stored === 'string' && stored.trim().length > 0) {
+    return normalizeDifficulty(stored);
+  }
+  if (typeof stored === 'number' && Number.isFinite(stored)) {
+    return normalizeDifficulty(stored);
+  }
+  return 'intermediate';
+}
+
+/**
+ * Pillar entries a first adoption may write without minting assessment data.
+ *
+ * @param frontmatter - The note's existing frontmatter, if any
+ * @returns Only the pillars the note already carries, normalized
+ *
+ * @remarks
+ * Writing all four pillars through `normalizeScore` minted `0` scores on
+ * notes that had none, which is the precondition `valid-topic-mastery`
+ * skips on. Absent stays absent here; present values are kept verbatim
+ * through normalization.
+ */
+function adoptPillarUpdates(frontmatter: Record<string, unknown> | null | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const pillar of ['conceptual', 'practical', 'debug', 'feynman'] as const) {
+    const raw = frontmatter?.[pillar];
+    if (raw === undefined || raw === null || raw === '') continue;
+    out[pillar] = normalizeScore(raw);
+  }
+  return out;
+}
+
+/**
  * Rolls back a partially-completed batch adoption by restoring each journaled
  * note to its original content, in reverse journal order.
  *
@@ -130,6 +175,8 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
  * - Applies `--include`, `--exclude`, and `--tag` filters.
  * - Displays adoption preview and asks for confirmation (unless `--yes` is specified).
  * - Executes two-phase adoption with optimistic concurrency control and rollback journal.
+ * A note with malformed frontmatter fails the batch with its path named and
+ * exit code 3, before any writes — an integrity error, never an unexpected one.
  *
  * @example
  * ```typescript
@@ -258,30 +305,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         precedence: 'existing-first',
       });
 
-      const conceptual = normalizeScore(frontmatter?.conceptual);
-      const practical = normalizeScore(frontmatter?.practical);
-      const debug = normalizeScore(frontmatter?.debug);
-      const feynman = normalizeScore(frontmatter?.feynman);
+      const effectiveDifficulty = resolveAdoptDifficulty(options.difficulty, frontmatter?.difficulty);
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
-        difficulty,
+        difficulty: effectiveDifficulty,
         depends_on: dependsOn,
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
-        conceptual,
-        practical,
-        debug,
-        feynman,
-        ease_factor: 2.5,
-        interval_days: 1,
-        repetition: 0,
-        lapses: 0,
-        last_quality: null,
-        last_reviewed_at: null,
-        due_at: null,
+        ...adoptPillarUpdates(frontmatter),
+        ease_factor: frontmatter?.ease_factor ?? 2.5,
+        interval_days: frontmatter?.interval_days ?? 1,
+        repetition: frontmatter?.repetition ?? 0,
+        lapses: frontmatter?.lapses ?? 0,
+        last_quality: frontmatter?.last_quality ?? null,
+        last_reviewed_at: frontmatter?.last_reviewed_at ?? null,
+        due_at: frontmatter?.due_at ?? null,
       };
 
       const updatedContent = updateFrontmatter(content, paleeData);
@@ -292,7 +333,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.log(`✓ Adopted as topic ${topicId}`);
       console.log(`  Title: ${title}`);
       console.log(`  Path: ${targetPath}`);
-      console.log(`  Difficulty: ${difficulty}`);
+      console.log(`  Difficulty: ${effectiveDifficulty}`);
       if (dependsOn.length > 0) {
         console.log(`  Dependencies: ${dependsOn.join(', ')}`);
       }
@@ -983,9 +1024,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Re-read fresh content to minimize TOCTOU window
       const freshContent = fs.readFileSync(note.absolutePath, 'utf8');
       const freshFingerprint = computeFingerprint(freshContent);
-      const { frontmatter } = parseFrontmatter(freshContent);
-
-      const topicId = note.topicId ?? generateTopicId();
+      const { frontmatter } = parseFrontmatter(freshContent);      const topicId = note.topicId ?? generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
 
       const topicMastery = resolveTopicMastery({
@@ -997,31 +1036,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         precedence: 'existing-first',
       });
 
-      const conceptual = normalizeScore(frontmatter?.conceptual);
-      const practical = normalizeScore(frontmatter?.practical);
-      const debug = normalizeScore(frontmatter?.debug);
-      const feynman = normalizeScore(frontmatter?.feynman);
-
       const plannedDeps = options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [];
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
-        difficulty,
+        difficulty: resolveAdoptDifficulty(options.difficulty, frontmatter?.difficulty),
         depends_on: plannedDeps,
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
-        conceptual,
-        practical,
-        debug,
-        feynman,
-        ease_factor: 2.5,
-        interval_days: 1,
-        repetition: 0,
-        lapses: 0,
-        last_quality: null,
-        last_reviewed_at: null,
-        due_at: null,
+        ...adoptPillarUpdates(frontmatter),
+        ease_factor: frontmatter?.ease_factor ?? 2.5,
+        interval_days: frontmatter?.interval_days ?? 1,
+        repetition: frontmatter?.repetition ?? 0,
+        lapses: frontmatter?.lapses ?? 0,
+        last_quality: frontmatter?.last_quality ?? null,
+        last_reviewed_at: frontmatter?.last_reviewed_at ?? null,
+        due_at: frontmatter?.due_at ?? null,
       };
 
       // C5 (PAL-205-C): additive provenance label. Only notes whose chain
@@ -1035,7 +1066,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
-      const updatedContent = updateFrontmatter(freshContent, paleeData);
+      let updatedContent: string;
+      try {
+        updatedContent = updateFrontmatter(freshContent, paleeData);
+      } catch (prepErr: unknown) {
+        const prepMessage = (prepErr as Error).message;
+        // An integrity error names its note and exits 3: the batch writes
+        // nothing, so there is nothing to roll back.
+        if (prepMessage.startsWith('Malformed frontmatter')) {
+          console.error(`Error: Malformed frontmatter in ${note.relativePath}: ${prepMessage}`);
+          process.exitCode = ExitCode.Validation;
+          return;
+        }
+        throw prepErr;
+      }
       preparedBatch.push({
         absolutePath: note.absolutePath,
         relativePath: note.relativePath,

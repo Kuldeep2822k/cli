@@ -12,6 +12,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
@@ -71,6 +72,97 @@ export function isConflictError(e: unknown): boolean {
     return err.message.startsWith('OCC conflict:') || err.message.startsWith('Lock conflict:');
   }
   return false;
+}
+
+/**
+ * Whether a process id is still running on this machine.
+ *
+ * @param pid - Process id parsed from a temp filename
+ * @returns True when the pid names a live process, false when it is gone
+ *
+ * @remarks
+ * `process.kill(pid, 0)` throws `ESRCH` for a dead pid and `EPERM` for a
+ * live pid the caller may not signal. Anything else (including a successful
+ * send) treats the pid as alive so a temp file is never reaped from under
+ * an active writer on pid reuse.
+ */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: unknown) {
+    const err = e as NodeError;
+    if (err.code === 'ESRCH') return false;
+    return true;
+  }
+}
+
+/**
+ * Removes stale atomic-write temp files left behind by crashed writers.
+ *
+ * @param directory - Vault root (or any directory) to sweep for strays
+ * @param maxAgeMs - Files older than this are removed even when their pid
+ * looks alive (pid reuse guard); defaults to 30 seconds
+ * @returns Count of temp files removed
+ *
+ * @remarks
+ * A `SIGKILL` between temp creation and rename leaves
+ * `<target>.tmp.<pid>.<hex>` beside the note. The next successful write
+ * never touches it, so without a reap the strays accumulate. A temp is
+ * removed when its pid is dead, or when it is older than `maxAgeMs`
+ * regardless of pid state. Live young temps are kept so an in-flight
+ * write is never unlinked. Dot-directories and `node_modules` are not
+ * descended into. Never throws: unreadable entries are skipped.
+ *
+ * @example
+ * ```typescript
+ * const removed = reapStaleTempFiles('/vault');
+ * ```
+ */
+export function reapStaleTempFiles(directory: string, maxAgeMs = 30000): number {
+  let removed = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const now = Date.now();
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.isSymbolicLink()) continue;
+      try {
+        const stat = fs.lstatSync(fullPath);
+        if (stat.isSymbolicLink()) continue;
+      } catch {
+        continue;
+      }
+      removed += reapStaleTempFiles(fullPath, maxAgeMs);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const match = entry.name.match(/\.tmp\.(\d+)\.(?:\d+\.)?[0-9a-fA-F]+$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    let ageMs: number;
+    try {
+      ageMs = now - fs.statSync(fullPath).mtimeMs;
+    } catch {
+      continue;
+    }
+    const old = ageMs > maxAgeMs;
+    if (!old && isPidAlive(pid)) continue;
+    try {
+      fs.unlinkSync(fullPath);
+      removed++;
+    } catch {
+      // best effort; a concurrent writer may have renamed it
+    }
+  }
+  return removed;
 }
 
 /**

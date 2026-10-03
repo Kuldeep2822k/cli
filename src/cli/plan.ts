@@ -30,6 +30,8 @@ interface PlanTopic extends TopicNode {
  * @returns Promise resolving when plan output finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid vault path or invalid options,
  * and process.exitCode = 5 on unexpected exceptions.
+ * A blocked note appears under Blocked only, never also under Reviews Due;
+ * mastery buckets always reconcile (new is the remainder after mastered/learning).
  *
  * @example
  * ```typescript
@@ -121,9 +123,15 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
 
-    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
-    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
-    const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
+    // Mastery buckets always reconcile with the total: mastered and learning
+    // are counted directly, and new is the remainder — so a missing or
+    // non-numeric mastery reads as new rather than vanishing from the summary.
+    const masteredCount = Array.from(topics.values()).filter(t => (t.topic_mastery ?? 0) >= MASTERY_THRESHOLD).length;
+    const learningCount = Array.from(topics.values()).filter(t => {
+      const mastery = t.topic_mastery ?? 0;
+      return mastery > 0 && mastery < MASTERY_THRESHOLD;
+    }).length;
+    const newCount = topics.size - masteredCount - learningCount;
 
     // A topic whose prerequisites are unmet is simply absent from the ready
     // list, which is indistinguishable from "nothing left to study" — and when
@@ -154,9 +162,14 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     }
 
     if (jsonMode) {
+      // A blocked note is not an actionable review: it appears under Blocked
+      // with its prerequisite, never twice. Quarantined reviews stay, per the
+      // SM-2 comment above — only prerequisite-blocked notes are hidden here.
+      const blockedIds = new Set(blocked.map((b) => b.id));
+      const visibleDue = sortedDue.filter((t) => !blockedIds.has(t.palee_id));
       console.log(JSON.stringify({
         total_topics: topics.size,
-        reviews_due: sortedDue.map(t => ({
+        reviews_due: visibleDue.map(t => ({
           id: t.palee_id,
           title: t.title,
           path: t.path,
@@ -175,7 +188,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         quarantined_cycles_truncated: cyclesTruncated,
         blocked,
         counts: {
-          due: dueTopics.length,
+          due: visibleDue.length,
           ready: readyTopics.length,
           blocked: blocked.length,
           quarantined: topics.size - acyclicTopics.size,
@@ -186,6 +199,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       }));
       return;
     }
+
+    // Human path uses the same de-duplication as JSON: blocked notes live
+    // under Blocked only, so Reviews Due never names a note twice.
+    const blockedIds = new Set(blocked.map((b) => b.id));
+    const visibleDue = sortedDue.filter((t) => !blockedIds.has(t.palee_id));
 
     console.log('=== Today\'s Learning Plan ===\n');
 
@@ -199,19 +217,19 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       console.log();
     }
 
-    // Section 1: Due for review
-    console.log(`Reviews Due: ${dueTopics.length}`);
-    if (dueTopics.length > 0) {
-      for (let i = 0; i < Math.min(5, sortedDue.length); i++) {
-        const topic = sortedDue[i];
+    // Section 1: Due for review (blocked notes excluded above)
+    console.log(`Reviews Due: ${visibleDue.length}`);
+    if (visibleDue.length > 0) {
+      for (let i = 0; i < Math.min(5, visibleDue.length); i++) {
+        const topic = visibleDue[i];
         const dueStr = topic.due_at
           ? topic.due_at.toISOString().split('T')[0]
           : 'Never reviewed';
         console.log(`  • ${topic.title} (${topic.palee_id}) - Due: ${dueStr}`);
       }
 
-      if (sortedDue.length > 5) {
-        console.log(`  ... and ${sortedDue.length - 5} more`);
+      if (visibleDue.length > 5) {
+        console.log(`  ... and ${visibleDue.length - 5} more`);
       }
     }
     console.log();

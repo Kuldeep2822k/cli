@@ -130,10 +130,11 @@ describe('roadmap import reports edges to notes that do not exist', () => {
   });
 
   test('an id this import superseded counts as a dangling edge target', () => {
-    // The note at `repl-1.md` already carries T-old. This import writes T-new
-    // over the same path, so T-old exists nowhere — but the pre-import scan
-    // still held it, and treating it as known hid the edge pointing at it,
-    // which is exactly the case this report exists to catch.
+    // The note at `repl-1.md` already carries T-old. Declaring T-new over the
+    // same path is now refused outright (#269 re-ID gate): silently re-IDing
+    // the note orphaned T-old while dependents still named it, which is how
+    // the missing-topic errors this report exists to catch were born. The
+    // import exits 3 with zero writes instead of landing a dangling edge.
     fs.writeFileSync(
       path.join(vaultDir, 'repl-1.md'),
       ['---', 'palee_schema: 1', 'palee_id: T-old', 'title: Old One', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
@@ -156,8 +157,13 @@ describe('roadmap import reports edges to notes that do not exist', () => {
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
     const output = result.stdout + result.stderr;
-    assert.strictEqual(result.status, 0, output);
-    assert.match(output, /T-dep → T-old/, 'the superseded id must be named');
+    assert.strictEqual(result.status, 3, output);
+    assert.match(output, /would overwrite adopted note at repl-1\.md carrying T-old/, 'the re-ID must be refused by name');
+    assert.ok(!fs.existsSync(path.join(vaultDir, 'repl-2.md')), 'zero writes on a refused import');
+    assert.ok(
+      fs.readFileSync(path.join(vaultDir, 'repl-1.md'), 'utf8').includes('T-old'),
+      'the adopted note keeps its id'
+    );
 
     // Scoped to the note actually overwritten: an edge onto a topic this same
     // batch wrote must stay unreported.
@@ -183,11 +189,9 @@ describe('roadmap import reports edges to notes that do not exist', () => {
   });
 
   test('an overwrite declared by absolute path still retires the id it replaced', () => {
-    // Matching a written note against the loader's vault-relative paths is what
-    // makes the superseded-id rule work. Declaring the same note by an absolute
-    // in-vault path — which the write path accepts — bypassed that match entirely,
-    // so `T-old` was still counted as present and the edge naming it went
-    // unreported.
+    // Declaring the same note by an absolute in-vault path hits the same
+    // #269 re-ID gate as the vault-relative spelling: the import is refused
+    // with exit 3 and zero writes rather than silently retiring T-old-abs.
     fs.writeFileSync(
       path.join(vaultDir, 'abs-1.md'),
       ['---', 'palee_schema: 1', 'palee_id: T-old-abs', 'title: Old Abs', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
@@ -210,8 +214,9 @@ describe('roadmap import reports edges to notes that do not exist', () => {
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
     const output = result.stdout + result.stderr;
-    assert.strictEqual(result.status, 0, output);
-    assert.match(output, /T-dep-abs → T-old-abs/, 'an absolute declared path must retire the id it overwrote');
+    assert.strictEqual(result.status, 3, output);
+    assert.match(output, /would overwrite adopted note at .* carrying T-old-abs/, 'an absolute declared path must hit the same gate');
+    assert.ok(!fs.existsSync(path.join(vaultDir, 'abs-2.md')), 'zero writes on a refused import');
   });
 
   test('an edge from a note the same batch later overwrote is not reported', () => {

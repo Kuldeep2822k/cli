@@ -10,10 +10,12 @@
 import fs from 'fs';
 import path from 'path';
 import { WalkOptions } from '../types';
+import { reapStaleTempFiles } from './atomic-write';
 
 /** Specific top-level directory names permanently excluded from scanning */
 const EXCLUDED_DIRS = new Set([
   'node_modules',
+  '_meta',
 ]);
 
 /**
@@ -75,6 +77,16 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
     fs.accessSync(resolvedVaultPath, fs.constants.R_OK);
   } catch {
     throw new Error(`Vault path is not readable (permission denied): ${resolvedVaultPath}`);
+  }
+
+  // Startup reap: a SIGKILL between temp creation and rename leaves
+  // `<target>.tmp.<pid>.<hex>` strays that no later write cleans up.
+  // Every load walks the vault, so sweeping here keeps the cleanup on the
+  // read path without adding a call site to each command. Best effort.
+  try {
+    reapStaleTempFiles(resolvedVaultPath);
+  } catch {
+    // ignore cleanup errors
   }
 
   /**
@@ -149,7 +161,7 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
 
       if (isDir) {
         walk(fullPath);
-      } else if (isFil && entry.name.endsWith('.md')) {
+      } else if (isFil && entry.name.toLowerCase().endsWith('.md')) {
         // For symlinked files, validate their real target is within the vault
         if (entry.isSymbolicLink() && followSymlinks) {
           try {
@@ -200,7 +212,13 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
 function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
   const resolvedVault = fs.realpathSync(path.resolve(vaultPath));
   const absoluteTarget = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(resolvedVault, targetPath);
-  const targetDir = path.extname(absoluteTarget) ? path.dirname(absoluteTarget) : absoluteTarget;
+  // `path.extname('.md')` is '' so a degenerate `.md` target read as a
+  // directory: `mkdir .md/` then write `.md/.md`. A trailing `.md` names a
+  // note even when extname is empty, so treat it as a file here. The
+  // roadmap validator still rejects the degenerate name outright.
+  const base = path.basename(absoluteTarget);
+  const looksLikeFile = path.extname(absoluteTarget) !== '' || base.toLowerCase().endsWith('.md');
+  const targetDir = looksLikeFile ? path.dirname(absoluteTarget) : absoluteTarget;
 
   // Boundary check: ensure targetDir does not escape vault across relative or cross-drive paths
   const relative = path.relative(resolvedVault, targetDir);

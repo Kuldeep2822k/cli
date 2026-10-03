@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches:
       - main
@@ -50,7 +52,7 @@ jobs:
       matrix: >-
         ${{ fromJSON(
         github.event_name == 'pull_request'
-        && '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"windows-latest","node-version":"24.x"}]}'
+        && '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"ubuntu-latest","node-version":"26.x"},{"os":"windows-latest","node-version":"22.x"},{"os":"windows-latest","node-version":"24.x"},{"os":"macos-latest","node-version":"22.x"},{"os":"macos-latest","node-version":"24.x"}]}'
         || '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"ubuntu-latest","node-version":"26.x"},{"os":"windows-latest","node-version":"22.x"},{"os":"windows-latest","node-version":"24.x"},{"os":"macos-latest","node-version":"22.x"},{"os":"macos-latest","node-version":"24.x"}]}'
         ) }}
     steps:

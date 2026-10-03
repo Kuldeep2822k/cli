@@ -162,6 +162,39 @@ function parseNumber(val: unknown, fallback: number = 0): number {
 
 
 /**
+ * Normalizes a raw `palee_id` frontmatter value to its canonical string form.
+ *
+ * @param raw - Raw parsed `palee_id` value from YAML frontmatter
+ * @returns Trimmed string ID, or `null` when the value cannot name a topic
+ *
+ * @remarks
+ * YAML parses an unquoted `palee_id: 12345` as a number; stringifying finite
+ * numbers keeps the note visible to {@link loadTopics} so the wikilink
+ * roadmap reuses rather than re-mints its ID (which would orphan existing
+ * `depends_on` edges). Only strings and finite numbers coerce — booleans,
+ * objects and blank strings stay invalid and the note is skipped, matching
+ * `isValidPaleeId` in the hygiene layer.
+ *
+ * @example
+ * ```typescript
+ * normalizePaleeId(' T-a '); // 'T-a'
+ * normalizePaleeId(12345);   // '12345'
+ * normalizePaleeId(true);    // null
+ * ```
+ */
+export function normalizePaleeId(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const text = String(raw).trim();
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+/**
  * Scans the vault and parses all Markdown files containing a valid `palee_id`.
  *
  * @remarks
@@ -233,11 +266,10 @@ export function loadTopics(
     }
     const { frontmatter } = parseFrontmatter(content);
 
-    if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {
+    const paleeId = normalizePaleeId(frontmatter?.palee_id);
+    if (!frontmatter || paleeId === null) {
       continue;
     }
-
-    const paleeId = frontmatter.palee_id.trim();
     const relPath = relativeVaultPath(vaultPath, filePath);
     const title = typeof frontmatter.title === 'string' && frontmatter.title.trim()
       ? frontmatter.title.trim()

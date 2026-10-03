@@ -19,6 +19,12 @@
  * duplicates) so malformed legacy values are diagnosed rather than
  * silently ingested.
  *
+ * Unknown `depends_on_source` labels (#269) are errors: the loader
+ * fail-closes an unrecognized label to gating, so a typo silently
+ * re-imposes a permanent gate while `validate --json` still reports
+ * `valid: true`. Only the four authored sources pass; anything present
+ * and unrecognized is reported so the gate is visible.
+ *
  * Policy (issue #33 + VERDICT Rule 8):
  * - Missing `depends_on`: treated as the empty list (adopt-default
  *   policy — adopt always writes the key, but pre-adoption notes are
@@ -155,6 +161,47 @@ function validateDependencyField(
 }
 
 /**
+ * Reports an unknown `depends_on_source` label on a topic note.
+ *
+ * @remarks
+ * Fail-closed labels gate, so a typo must be visible: the loader maps any
+ * unrecognized value to gating, which silently re-imposes a gate the author
+ * never intended. Only a missing key is valid-by-absence (learner-authored);
+ * every present-but-unrecognized value — typos, empty strings, non-strings —
+ * is an error so `validate --json` reports `valid: false`.
+ *
+ * @param topic - The loaded topic whose raw label is being checked
+ * @param issues - Mutable array that receives any validation finding
+ */
+function validateDependsOnSourceLabel(
+  topic: LoadedTopic,
+  issues: ValidationIssue[]
+): void {
+  const raw = (topic.frontmatter as Record<string, unknown>).depends_on_source;
+  if (raw === undefined) return;
+  if (typeof raw === 'string') {
+    const normalized = raw.trim().toLowerCase();
+    if (
+      normalized === 'numbered' ||
+      normalized === 'toc' ||
+      normalized === 'declared' ||
+      normalized === 'tie'
+    ) {
+      return;
+    }
+  }
+  issues.push({
+    ruleId: 'valid-dependency-list',
+    severity: 'error',
+    message: `Topic ${topic.palee_id}: unknown depends_on_source ${JSON.stringify(displayValue(raw))} (allowed: numbered, toc, declared, tie)`,
+    file: topic.path,
+    topicId: topic.palee_id,
+    field: 'depends_on_source',
+    details: { actual: displayValue(raw), allowed: ['numbered', 'toc', 'declared', 'tie'] },
+  });
+}
+
+/**
  * Reports `depends_on` (and legacy `dependencies`) fields that are not a clean array
  * of distinct non-empty string IDs, and emits an advisory warning when `dependencies`
  * is present.
@@ -162,7 +209,7 @@ function validateDependencyField(
 export const validDependencyListRule: ValidationRule = {
   id: 'valid-dependency-list',
   description:
-    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning',
+    'depends_on must be an array of non-empty string IDs without self-references or duplicates; depends_on_source must be a known label when present; a legacy dependencies alias emits a migration advisory warning',
   severity: 'error',
   // `manual`, not `safe`: only the duplicate-entry findings are safely
   // dedupable; shape errors and self-references need a human decision
@@ -176,6 +223,9 @@ export const validDependencyListRule: ValidationRule = {
     for (const topic of context.topics) {
       // Validate canonical `depends_on`
       validateDependencyField(topic, 'depends_on', topic.frontmatter.depends_on, issues);
+
+      // Unknown provenance labels gate fail-closed, so they must be visible.
+      validateDependsOnSourceLabel(topic, issues);
 
       // Validate legacy `dependencies` alias (#171.2, #181)
       const rawLegacy = topic.frontmatter.dependencies;

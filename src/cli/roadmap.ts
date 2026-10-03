@@ -83,6 +83,64 @@ function canonicalDeclaredPath(resolvedVault: string, declared: string): string 
   }
 }
 
+/**
+ * Whether a roadmap-declared topic path names a usable note file.
+ *
+ * @param declared - The `path` as written in the roadmap
+ * @returns True when the path names a note file rather than a degenerate entry
+ *
+ * @remarks
+ * `path.extname('.md')` is `''`, so a topic path of `.md` slipped past the
+ * extension-based directory check in `ensureVaultDirectory`, created a `.md/`
+ * directory, and wrote `vault/.md/.md` with exit 0. The basename check here
+ * rejects that degenerate name (and its case variants) before anything is
+ * written. Kept narrow on purpose: visibility rules stay owned by the walker.
+ *
+ * @example
+ * ```typescript
+ * isValidRoadmapTopicPath('.md'); // false
+ * isValidRoadmapTopicPath('notes/a.md'); // true
+ * ```
+ */
+export function isValidRoadmapTopicPath(declared: string): boolean {  const normalized = declared.replace(/\\/g, '/');
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  if (base.length === 0) return false;
+  if (base.toLowerCase() === '.md') return false;
+  return true;
+}
+
+/**
+ * Reads the adopted topic id already stored at a roadmap target path, if any.
+ *
+ * @param absoluteTarget - Canonical absolute path of the note the import would write
+ * @returns The stored `palee_id` when the target is an existing note carrying one, else null
+ *
+ * @remarks
+ * Used to gate silent re-IDs: a roadmap entry that declares `T-review-bash`
+ * over a note adopted as `T-...` used to overwrite the id, orphaning the old
+ * id while dependents still named it. A mismatch is now a validation error
+ * with zero writes. Symlinks, directories, and unreadable files yield null so
+ * the write path's own `lstat` guard still owns those cases.
+ */
+function readTargetPaleeId(absoluteTarget: string): string | null {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(absoluteTarget);
+  } catch {
+    return null;
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) return null;
+  let content: string;
+  try {
+    content = readBoundNote(absoluteTarget, stat);
+  } catch {
+    return null;
+  }
+  const { frontmatter } = parseFrontmatter(content);
+  const id = frontmatter?.palee_id;
+  return typeof id === 'string' && id.trim().length > 0 ? id.trim() : null;
+}
+
 /** Outcome of {@link applyRoadmapAutoChain}, used for deferred logging and cycle labels. */
 interface RoadmapChainResult {
   /** Every edge this pass synthesized, keyed `childId\u0000predecessorId` */
@@ -405,9 +463,23 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       // Path boundary validation: ensure topic path does not escape vault
       if (relativePath) {
-        const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
-        if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
-          errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        if (!isValidRoadmapTopicPath(relativePath)) {
+          errors.push(`Topic "${id || '(unnamed)'}" has an invalid path "${relativePath}": path must name a note file`);
+        } else {
+          const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
+          if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
+            errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+          } else if (id) {
+            // Gate silent re-IDs: declaring a fresh id over a note adopted
+            // under another id orphans the old id while dependents still
+            // name it, turning into missing-topic errors after the write.
+            const storedId = readTargetPaleeId(absoluteTopicPath);
+            if (storedId !== null && storedId !== id) {
+              errors.push(
+                `Topic "${id}" would overwrite adopted note at ${relativePath} carrying ${storedId}: refusing to re-ID without an explicit migration`
+              );
+            }
+          }
         }
       }
 

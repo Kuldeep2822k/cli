@@ -804,7 +804,7 @@ export interface ParsedWikilink {
   alias?: string;
 }
 
-const SINGLE_WIKILINK = /^\[\[([^[#\]|]+?)(?:#[^[\]|]*)?(?:\|([^[\]]*))?\]\]$/;
+const SINGLE_WIKILINK = /^\[\[([^[#\]|][^[\]|]*?)(?:#[^[\]|]+)?(?:\|([^[\]]*))?\]\]$/;
 
 /**
  * Parses a single Obsidian wikilink string.
@@ -842,7 +842,7 @@ export function parseWikilink(text: string): ParsedWikilink | null {
   return result;
 }
 
-const WIKILINK_GLOBAL = /\[\[([^[#\]|]+?)(?:#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
+const WIKILINK_GLOBAL = /\[\[([^[#\]|][^[\]|]*?)(?:#[^[\]|]+)?(?:\|([^[\]]*))?\]\]/g;
 
 /**
  * True when the character at `index` is escaped, judged by backslash parity.
@@ -911,8 +911,8 @@ interface OpenFence {
   length: number;
 }
 
-/** ≤3 spaces of indentation, then a run of 3+ backticks or 3+ tildes, then the info string. */
-const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** Fences after list or quote prefixes, else ≤3 spaces; then 3+ backticks/tildes plus info string. */
+const FENCE_LINE = /^(?:(?: {0,3}> ?)|(?: {0,3}(?:[-*+]\s+|\d{1,9}[.)]\s+)))* {0,3}(`{3,}|~{3,})(.*)$/;
 
 /** Blank-preserving mask so a fenced region keeps its line and column shape. */
 function maskLine(line: string): string {

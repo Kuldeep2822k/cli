@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode } from './exit-codes';
 
@@ -91,6 +92,8 @@ function loadConfig(): PaleeConfig {
  *
  * @remarks
  * Writes configuration to a unique temporary file, fsyncs data, and atomically renames.
+ * The temp name carries pid + timestamp + cryptographic entropy so two
+ * processes saving at the same millisecond never share a temp file.
  *
  * @example
  * ```typescript
@@ -105,7 +108,7 @@ function saveConfig(config: PaleeConfig): void {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const tempPath = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+  const tempPath = `${configPath}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
   const payload = JSON.stringify(config, null, 2);
 
   let fd: number | null = null;

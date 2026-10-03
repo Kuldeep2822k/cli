@@ -19,6 +19,21 @@ const PILLARS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
 type Pillar = (typeof PILLARS)[number];
 
 /**
+ * Extra safety flags accepted by {@link assessCommand}.
+ *
+ * @remarks
+ * Extends {@link AssessOptions} without touching the shared type: `force`
+ * confirms a mastery lowering that would re-hide dependents, and `dryRun`
+ * previews the mastery transition and plan impact without writing.
+ */
+export interface AssessCommandOptions extends AssessOptions {
+  /** Confirm a lowering that would hide dependents from `palee plan` */
+  force?: boolean;
+  /** Preview the assessment without modifying the note */
+  dryRun?: boolean;
+}
+
+/**
  * Parses and range-checks one `--pillar` argument.
  *
  * @param flag - The flag name, for the error message
@@ -107,12 +122,19 @@ function readyTopicIds(topics: TopicNode[], assessmentId: string, mastery: numbe
  * CLI command handler for recording a four-pillar assessment of a topic.
  *
  * @param topicQuery - The palee_id or title substring matching the target topic.
- * @param options - Pillar scores given on the command line, as raw strings.
+ * @param options - Pillar scores given on the command line, as raw strings,
+ * plus optional `force`/`dryRun` safety flags.
  * @returns Promise resolving when the assessment is written and mastery recomputed.
  * @remarks Sets process.exitCode = 2 on a missing vault, an unusable score, a
- * missing or ambiguous topic, or a call naming no pillar at all;
+ * missing or ambiguous topic, a call naming no pillar at all, or a mastery
+ * lowering that would re-hide dependents without `force`;
  * process.exitCode = 4 on OCC lock conflicts, and process.exitCode = 5 on
  * unexpected exceptions.
+ *
+ * @remarks The write stamps `assessment_source: 'manual'` provenance alongside
+ * `topic_mastery`/`assessed_at` so a later audit can tell a hand-recorded
+ * assessment from an adopted default. A lowering that would hide dependents
+ * from `palee plan` needs `force`, or `dryRun` to preview without writing.
  *
  * @remarks Mastery is recomputed with `computeTopicMastery` directly rather than
  * through `resolveTopicMastery({ precedence: 'pillars-first' })`, because that
@@ -127,7 +149,7 @@ function readyTopicIds(topics: TopicNode[], assessmentId: string, mastery: numbe
  * await assessCommand('topic-calculus', { conceptual: '0.8', feynman: '0.9' });
  * ```
  */
-async function assessCommand(topicQuery: string, options: AssessOptions = {}): Promise<void> {
+async function assessCommand(topicQuery: string, options: AssessCommandOptions = {}): Promise<void> {
   try {
     const given = PILLARS.filter((p) => options[p] !== undefined);
     if (given.length === 0) {
@@ -241,18 +263,6 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const previousMastery = normalizeScore(frontmatter.topic_mastery);
     const topicMastery = computeTopicMastery(scores.conceptual, scores.practical, scores.debug, scores.feynman);
 
-    const updates: Record<string, unknown> = {
-      topic_mastery: topicMastery,
-      assessed_at: new Date().toISOString(),
-    };
-    for (const [pillar, value] of parsed) {
-      updates[pillar] = value;
-    }
-
-    const updatedContent = updateFrontmatter(freshContent, updates);
-
-    await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
-
     const readyBefore = readyTopicIds(loaded, topic.palee_id, previousMastery);
     const readyAfter = readyTopicIds(loaded, topic.palee_id, topicMastery);
 
@@ -264,6 +274,44 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const after = others(readyAfter);
     const unlocked = after.filter((id) => !readyBefore.has(id));
     const newlyBlocked = before.filter((id) => !readyAfter.has(id));
+
+    const loweringHidesDependents = topicMastery < previousMastery && newlyBlocked.length > 0;
+    if (options.dryRun) {
+      console.log(`Assessment preview for ${topic.title} (${topic.palee_id})`);
+      for (const pillar of PILLARS) {
+        const mark = parsed.has(pillar) ? '' : ' (unchanged)';
+        console.log(`  ${pillar.padEnd(11)} ${scores[pillar]}${mark}`);
+      }
+      console.log(`  mastery     ${previousMastery} → ${topicMastery}`);
+      if (unlocked.length > 0) {
+        console.log(`  ${unlocked.length} topic(s) would be newly offered by palee plan: ${unlocked.slice(0, 3).join(', ')}`);
+      }
+      if (newlyBlocked.length > 0) {
+        console.log(`  ${newlyBlocked.length} topic(s) would no longer be offered by palee plan: ${newlyBlocked.slice(0, 3).join(', ')}`);
+      }
+      console.log('Dry-run: no files were modified.');
+      return;
+    }
+    if (loweringHidesDependents && !options.force) {
+      console.error(
+        `Error: lowering mastery ${previousMastery} → ${topicMastery} would hide ${newlyBlocked.length} topic(s) from palee plan (${newlyBlocked.slice(0, 3).join(', ')}). Re-run with --force to confirm or --dry-run to preview.`
+      );
+      process.exitCode = 2;
+      return;
+    }
+
+    const updates: Record<string, unknown> = {
+      topic_mastery: topicMastery,
+      assessed_at: new Date().toISOString(),
+      assessment_source: 'manual',
+    };
+    for (const [pillar, value] of parsed) {
+      updates[pillar] = value;
+    }
+
+    const updatedContent = updateFrontmatter(freshContent, updates);
+
+    await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
 
     const threshold = MASTERY_THRESHOLD.toFixed(2);
     console.log(`✓ Assessment recorded for ${topic.title} (${topic.palee_id})`);

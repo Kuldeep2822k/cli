@@ -171,6 +171,8 @@ describe('CLI assess — making topic_mastery reachable', () => {
     // pillar is 0" as "no assessment data" and keeps the existing value. That is
     // right for `review`, which is not trying to record a score, and wrong here:
     // an assessment is exactly the act of stating the pillars.
+    // A demotion that re-hides a dependent needs `force` (#269); the
+    // recompute assertion below is unchanged, only the confirmation rides along.
     await runInTempVault(
       {
         'strong.md': note('Strong Topic', [], 0.9, '0.9'),
@@ -183,6 +185,7 @@ describe('CLI assess — making topic_mastery reachable', () => {
             practical: '0',
             debug: '0',
             feynman: '0',
+            force: true,
           })
         );
         assert.match(output, /mastery\s+0\.9 → 0/);

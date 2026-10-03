@@ -636,6 +636,11 @@ function findCyclicSccNodes(topics: Map<string, TopicNode>): Set<string> {
  * blocked: only reverse reachability from an on-cycle node matters. A topic
  * whose sibling prerequisite is acyclic stays usable.
  *
+ * Advisory edges (`toc`, `tie`) never gate, so they never block: a cycle made
+ * purely of advisory edges leaves the ready list untouched, and a dependent
+ * reached only through an advisory edge stays usable. Only gating edges seed
+ * and propagate the blocked set.
+ *
  * Computed in O(V + E): a single reverse-graph traversal (dependents →
  * prerequisites inverted) seeded from all on-cycle nodes, instead of a
  * per-node forward closure.
@@ -652,19 +657,39 @@ function collectBlockedFromCycles(
   const blocked = new Set<string>();
   const onCycle = new Set<string>();
   for (const cycle of cycles) {
+    // An advisory edge breaks the loop: the note holding it never gates, so
+    // the order around the ring is still defined. Only a ring where every
+    // holder gates can deadlock.
+    let gating = true;
+    for (let i = 0; i + 1 < cycle.length; i++) {
+      const holder = topics.get(cycle[i]);
+      if (holder && isAdvisoryDependsOnSource(holder.depends_on_source)) {
+        gating = false;
+        break;
+      }
+    }
+    if (!gating) continue;
     for (const id of cycle) onCycle.add(id);
   }
   // SCC membership is the authoritative on-cycle set — every enumerated
   // cycle only visits cyclic nodes, but the reverse does not hold when the
   // enumeration is truncated, so seed from membership when available.
+  // Advisory holders never seed: their edges do not gate, so they cannot be
+  // the reason a learning order is undefined.
   if (cyclicNodes !== undefined) {
-    for (const id of cyclicNodes) onCycle.add(id);
+    for (const id of cyclicNodes) {
+      const holder = topics.get(id);
+      if (holder && isAdvisoryDependsOnSource(holder.depends_on_source)) continue;
+      onCycle.add(id);
+    }
   }
   if (onCycle.size === 0) return blocked;
 
-  // Reverse edges: prerequisite -> dependents.
+  // Reverse edges: prerequisite -> dependents. Advisory edges never gate, so
+  // a dependent reached only through one stays usable and is not walked.
   const dependents = new Map<string, string[]>();
   for (const [id, topic] of topics) {
+    if (isAdvisoryDependsOnSource(topic.depends_on_source)) continue;
     for (const depId of getTopicDependencies(topic)) {
       if (!topics.has(depId) || depId === id) continue;
       const list = dependents.get(depId);
@@ -701,6 +726,11 @@ function collectBlockedFromCycles(
  * preserves the original insertion order of surviving topics; `cycles` carries
  * the exact canonicalized cycle paths for reporting.
  *
+ * Only gating edges can deadlock: advisory (`toc`, `tie`) edges never gate,
+ * so a ring made purely of them still has a defined order and stays usable.
+ * Cycle membership and the reported sample are computed over the gating-only
+ * view, while the returned subgraph keeps the original topics untouched.
+ *
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns `{ acyclic, cycles, truncated }` — the cycle-free subgraph, a
  * bounded sample of canonicalized cycle paths (default cap 1000), and a flag
@@ -720,9 +750,20 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
   cycles: string[][];
   truncated: boolean;
 } {
+  // Gating-only view for cycle purposes: advisory holders keep their identity
+  // but contribute no edges, so a ring that needs one to close is not a cycle
+  // here. The original map is preserved for the returned subgraph.
+  const gatingTopics = new Map<string, TopicNode>();
+  for (const [id, topic] of topics) {
+    if (isAdvisoryDependsOnSource(topic.depends_on_source)) {
+      gatingTopics.set(id, { ...topic, depends_on: [] });
+    } else {
+      gatingTopics.set(id, topic);
+    }
+  }
   // Membership first: SCC analysis decides WHAT to quarantine in O(V+E),
   // independent of how many cycles the (bounded) enumeration lists.
-  const cyclicNodes = findCyclicSccNodes(topics);
+  const cyclicNodes = findCyclicSccNodes(gatingTopics);
   if (cyclicNodes.size === 0) {
     return { acyclic: new Map(topics), cycles: [], truncated: false };
   }
@@ -730,7 +771,7 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
   // Display sample: bounded enumeration so pathological-but-valid vaults
   // (dense SCCs with exponentially many elementary cycles) cannot stall
   // `plan`; `truncated` tells callers the list is a sample, not a census.
-  const { cycles, truncated } = detectCyclesBounded(topics);
+  const { cycles, truncated } = detectCyclesBounded(gatingTopics);
 
   const blocked = collectBlockedFromCycles(topics, cycles, cyclicNodes);
   const acyclic = new Map<string, TopicNode>();

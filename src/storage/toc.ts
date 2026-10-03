@@ -26,7 +26,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, isResolvableNotePath } from './vault-walker';
+import { walkVault, isResolvableNotePath, relativeVaultPath } from './vault-walker';
 import { isWithinVault } from './wikilink';
 import { classifyNoteForChain, isPhaseSubtree, stemOf } from '../engine/tier0-hygiene';
 import { extractTocLinks, foldTocDestination } from '../engine/toc-chain';
@@ -55,16 +55,43 @@ export interface TocEnumeration {
   skipped: TocSkippedLink[];
 }
 
+/**
+ * Folds a vault-relative path for case-insensitive lookup, normalizing Unicode first.
+ *
+ * @param value - Vault-relative POSIX path to fold
+ * @returns NFC-normalized lowercased key
+ *
+ * @remarks
+ * Mirrors {@link foldNoteKey} in the wikilink layer: an NFD filename on disk
+ * (`e` + combining acute) and an NFC link destination (`é`) must fold
+ * identically, or the enumeration misses the note and drops its chain edge.
+ */
+export function foldTocKey(value: string): string {
+  return value.normalize('NFC').toLowerCase();
+}
+
 /** Exact → case-folded note lookup; `ambiguous` when the fold matches several real paths. */
 function lookupNote(index: NoteIndex, rel: string): { path: string | null; ambiguous: boolean } {
   if (index.exact.has(rel)) return { path: rel, ambiguous: false };
-  const hits = index.folded.get(rel.toLowerCase()) ?? [];
+  const hits = index.folded.get(foldTocKey(rel)) ?? [];
   if (hits.length === 1) return { path: hits[0], ambiguous: false };
   if (hits.length > 1) return { path: null, ambiguous: true };
   return { path: null, ambiguous: false };
 }
+/**
+ * Vault-relative POSIX path for an absolute note path.
+ *
+ * @param vaultPath - Absolute vault root (may contain symlinked segments)
+ * @param absolute - Absolute path of a discovered note
+ * @returns POSIX-style vault-relative path
+ *
+ * @remarks
+ * Routed through {@link relativeVaultPath} so a vault root reached through
+ * a junction or symlink (macOS `/var` → `/private/var`, Windows junctions)
+ * still yields an in-vault relative path instead of `../...` escaping text.
+ */
 function toRelative(vaultPath: string, absolute: string): string {
-  return path.relative(vaultPath, absolute).split(path.sep).join('/');
+  return relativeVaultPath(vaultPath, absolute);
 }
 
 /**
@@ -145,7 +172,7 @@ function buildNoteIndex(vaultPath: string): NoteIndex {
   for (const absolute of walkVault(vaultPath)) {
     const rel = toRelative(vaultPath, absolute);
     exact.set(rel, true);
-    const key = rel.toLowerCase();
+    const key = foldTocKey(rel);
     const list = folded.get(key);
     if (list) list.push(rel);
     else folded.set(key, [rel]);

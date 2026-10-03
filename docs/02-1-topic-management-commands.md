@@ -342,6 +342,14 @@ Schema v1: 42 notes
 [OK] All notes are schema v1 - no migration needed
 ```
 
+### Options Reference for `palee migrate`
+
+| Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `--fix` | `boolean` | `false` | Upgrade notes missing `palee_schema` to schema v1 via OCC-safe atomic writes. | `palee migrate --fix` |
+| `--relabel-ties` | `boolean` | `false` | Rewrite `depends_on_source: numbered` to `tie` on notes whose only stored prerequisite is a same-rank sibling in the same directory. Edges are never changed, only the label — so those notes stop gating and return to the ready list. Reports per-note conflicts (exit `4`) and write failures (exit `5`). | `palee migrate --relabel-ties` |
+| `--dry-run` | `boolean` | `false` | With `--relabel-ties`, print the notes that would be relabelled and write nothing. | `palee migrate --relabel-ties --dry-run` |
+
 ---
 
 ## 4. Topic Management Exit Codes

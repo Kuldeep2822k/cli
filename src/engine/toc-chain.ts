@@ -39,7 +39,7 @@ import {
 } from './auto-chain';
 import type { DependsOnSource } from '../types';
 
-/** Accepted values of `--chain-tier` (default `full`). */
+/** Accepted values of `--chain-tier` (default `strict`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
 
 /** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). Declared in `src/types.ts`, re-exported here for engine consumers. */
@@ -456,8 +456,18 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
   });
 
   const orderedPaths = [...normalized].sort((a, b) => {
-    const da = dirFirstSeen.get(parentOf(a))!;
-    const db = dirFirstSeen.get(parentOf(b))!;
+    const pa = parentOf(a);
+    const pb = parentOf(b);
+    // The vault root is the entry point: a root README enumerates the
+    // curriculum, so its group leads even when first-appearance would place
+    // it after a module. Without this, an enumerating root README inherits
+    // a prerequisite from the last lesson it lists instead of heading the chain.
+    if (pa !== pb) {
+      if (pa === '') return -1;
+      if (pb === '') return 1;
+    }
+    const da = dirFirstSeen.get(pa)!;
+    const db = dirFirstSeen.get(pb)!;
     if (da !== db) return da - db;
     const ra = tocLessonRank(baseOf(a));
     const rb = tocLessonRank(baseOf(b));

@@ -4,6 +4,7 @@
 <summary><b>Relevant Source Files</b></summary>
 
 - [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
+- [src/cli/assess.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/assess.ts)
 - [src/cli/next.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/next.ts)
 - [src/cli/plan.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/plan.ts)
 - [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
@@ -230,10 +231,48 @@ Progress Summary:
 
 ---
 
-## 4. Exit Codes for Review & Scheduling Commands
+## 4. Four-Pillar Assessment (`palee assess`)
+
+The `palee assess` command records a four-pillar assessment for a topic note and recomputes its `topic_mastery` with the existing weighting (`(conceptual + practical + debug + 2 * feynman) / 5`). It is the only writer that raises mastery, so without it no prerequisite gate can ever be passed.
+
+### Command Syntax
+
+```bash
+palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N] [--force] [--dry-run]
+```
+
+### Arguments & Options
+
+| Argument / Flag | Type | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `<topic>` | `string` | Topic ID or unique title substring (an exact ID wins over substring matches). | `"Recursion"` |
+| `--conceptual <score>` | `number 0-1` | Conceptual understanding score. | `--conceptual 0.8` |
+| `--practical <score>` | `number 0-1` | Practical application score. | `--practical 0.7` |
+| `--debug <score>` | `number 0-1` | Debugging and troubleshooting score. | `--debug 0.9` |
+| `--feynman <score>` | `number 0-1` | Feynman articulation score (double weighted). | `--feynman 0.85` |
+| `--force` | `boolean` | Confirm a lowering that would hide dependents from `palee plan`. Without it the write is refused with exit `2`. | `palee assess "Calculus" --conceptual 0 --force` |
+| `--dry-run` | `boolean` | Preview the mastery transition and plan impact without modifying the note. | `palee assess "Calculus" --conceptual 0 --dry-run` |
+
+At least one pillar flag is required (exit `2` otherwise). Scores outside `0-1` are rejected, not clamped. Pillars not named on the command line keep their stored values. Every write stamps `assessment_source: 'manual'` provenance alongside `topic_mastery` and `assessed_at`, so a later audit can tell a hand-recorded assessment from an adopted default. Lowering a mastery so its dependents leave the ready list needs `--force`; `--dry-run` shows the transition and the affected topics with exit `0` and no writes.
+
+```bash
+$ palee assess "Recursion" --conceptual 0.8 --feynman 0.9
+✓ Assessment recorded for Recursion and Backtracking (T-recursion)
+  conceptual  0.8
+  practical   0.4 (unchanged)
+  debug       0.4 (unchanged)
+  feynman     0.9
+  mastery     0 → 0.68
+  Below the 0.70 threshold, so it still gates what depends on it.
+```
+
+---
+
+## 5. Exit Codes for Review & Scheduling Commands
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `palee assess` | Assessment recorded (or dry-run preview rendered). | N/A | No pillar given, bad score, topic missing/ambiguous, vault issue, or a lowering that hides dependents without `--force`. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
 | `palee review` | Successfully recorded SM-2 review and calculated next interval and due date. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
 | `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
