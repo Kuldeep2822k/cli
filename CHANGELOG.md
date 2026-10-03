@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Adoption keeps a `depends_on` the note already states** ([#258](https://github.com/Kuldeep2822k/cli/issues/258)): adopting a note for the first time — as a single path, under `--all`, or under `--all --auto-chain` — wrote its own value over a hand-authored prerequisite list, so the learner's gate vanished and, in the chain case, was replaced by an alphabetical edge stamped `numbered`. A preserved list is now labelled `declared`, `--depends-on` still overrides it, and the run reports the preserved edge instead of calling the vault order-less.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added
