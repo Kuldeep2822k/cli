@@ -1244,4 +1244,71 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dependsOn(vaultDir, 'm/beta.md').length, 1, 'the declared edge is on disk');
     assert.strictEqual(dependsOnSource(vaultDir, 'm/beta.md'), 'declared');
   });
+
+  // #258 — the planner only ever consulted the `## Prerequisites` prose for what a
+  // note said about itself, never the `depends_on` stored in its frontmatter, so
+  // on a numbered layout it overwrote the learner's real gate with the inferred
+  // alphabetical predecessor and stamped that `numbered` — a hard gate nobody
+  // chose, in place of the one that was there.
+  test('a note whose frontmatter declares depends_on keeps it through --auto-chain', () => {
+    const { vaultDir, configDir } = freshVault({
+      // Already adopted, mastery 0, and the note the learner pointed at. It is
+      // also the bridged predecessor of 02-mid, so it stays a predecessor here.
+      'MODULES/01-foundations/01-gate.md': adoptedNote('Gate', 'T-GATE-1'),
+      'MODULES/01-foundations/02-mid.md': '# Mid\n',
+      'MODULES/01-foundations/03-locked.md': [
+        '---',
+        'title: Locked',
+        'depends_on: [T-GATE-1]',
+        '---',
+        '',
+        '# Locked',
+        '',
+      ].join('\n'),
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    // The inferred predecessor for 03-locked would have been 02-mid.
+    assert.deepStrictEqual(
+      plannedEdges(dry.stdout),
+      [
+        { path: 'MODULES/01-foundations/02-mid.md', dependsOn: 'MODULES/01-foundations/01-gate.md' },
+        { path: 'MODULES/01-foundations/03-locked.md', dependsOn: 'MODULES/01-foundations/01-gate.md' },
+      ],
+      `the declared edge, not the inferred one, must be what is planned:\n${dry.stdout}`
+    );
+
+    const commit = runCLI(['adopt', 'MODULES', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-foundations/03-locked.md'), ['T-GATE-1']);
+    assert.strictEqual(dependsOnSource(vaultDir, 'MODULES/01-foundations/03-locked.md'), 'declared');
+    // The tier authored one edge, not two: the preserved one is the note's own,
+    // and it is billed to `Declared:` instead of to this run's numbering.
+    assert.match(commit.stdout, /edge\(s\) written: 1 numbered, 0 toc/,
+      `the report must not bill the chain for the declared edge:\n${commit.stdout}`);
+    assert.match(commit.stdout, /Declared:\s+1 edge\(s\)/,
+      `and it must say where the other one came from:\n${commit.stdout}`);
+
+    // The consequence the learner cares about: the note is still gated, and by
+    // the prerequisite it named — not by whichever note sorts before it.
+    const ids = idToPath(vaultDir);
+    const lockedId = [...ids.entries()].find(([, p]) => p === 'MODULES/01-foundations/03-locked.md')?.[0];
+    assert.ok(lockedId, '03-locked.md was adopted');
+    const planned = runCLI(['plan', '--json'], configDir);
+    assert.strictEqual(planned.status, 0, planned.stdout + planned.stderr);
+    const blocked = (JSON.parse(planned.stdout) as { blocked: { id: string; waiting_on: string[] }[] })
+      .blocked;
+    const entry = blocked.find((b) => b.id === lockedId);
+    assert.ok(entry, `03-locked.md must stay blocked behind T-GATE-1: ${JSON.stringify(blocked)}`);
+    assert.ok(
+      entry.waiting_on.some((w) => w.includes('T-GATE-1')),
+      `the blocker must be the declared id: ${entry.waiting_on.join(' | ')}`
+    );
+    const midId = [...ids.entries()].find(([, p]) => p === 'MODULES/01-foundations/02-mid.md')?.[0];
+    assert.ok(
+      !entry.waiting_on.some((w) => w.includes(String(midId))),
+      'the inferred predecessor must not have been written at all'
+    );
+  });
 });
