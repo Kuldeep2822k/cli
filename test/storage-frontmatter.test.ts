@@ -2,6 +2,20 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 
+/**
+ * Counts the line terminators in a rewritten note so tests can assert on bytes
+ * rather than on parsed frontmatter, which is blind to them.
+ *
+ * @param text - Note content
+ * @returns Number of CRLF breaks and of lone LF breaks (an LF not preceded by a CR)
+ */
+function terminatorCensus(text: string): { crlf: number; loneLf: number } {
+  return {
+    crlf: (text.match(/\r\n/g) ?? []).length,
+    loneLf: (text.match(/(?<!\r)\n/g) ?? []).length,
+  };
+}
+
 describe('Frontmatter Parser', () => {
   test('parses valid frontmatter and body', () => {
     const content = `---
@@ -192,6 +206,61 @@ ${bodyWithYaml}`;
     const parsedUpdated = parseFrontmatter(updated);
     assert.strictEqual(parsedUpdated.frontmatter?.title, 'CRLF Title');
     assert.strictEqual(parsedUpdated.body, '# CRLF Body');
+  });
+
+  test('keeps a CRLF frontmatter block CRLF when one key changes', () => {
+    // Obsidian on Windows and `core.autocrlf=true` write whole notes as CRLF.
+    // The rebuilt head came back with hard-coded LF while the untouched body
+    // stayed CRLF, so changing one key read as a whole-file diff (#259).
+    const content = '---\r\npalee_id: T-crlf\r\ntitle: CRLF Note\r\n---\r\n# CRLF Note\r\n\r\nBody line.\r\n';
+
+    const updated = updateFrontmatter(content, { title: 'Renamed' });
+    const census = terminatorCensus(updated);
+
+    assert.strictEqual(census.loneLf, 0, `mixed terminators: ${census.loneLf} lone LF break(s)`);
+    assert.ok(census.crlf > 0, 'a note written with CRLF must come back with CRLF');
+    assert.ok(updated.includes('palee_id: T-crlf\r\ntitle: Renamed\r\n'));
+    assert.ok(updated.includes('---\r\n# CRLF Note\r\n'));
+    assert.strictEqual(parseFrontmatter(updated).body, '# CRLF Note\r\n\r\nBody line.\r\n');
+  });
+
+  test('restores a leading BOM (U+FEFF) through both rewrite branches', () => {
+    // parseFrontmatter drops the BOM so its `^---` anchor can match; nothing
+    // put it back, so every note the CLI rewrote lost its first three bytes.
+    const withFrontmatter = updateFrontmatter(
+      '\uFEFF---\r\npalee_id: T-bom\r\n---\r\n# body\r\n',
+      { title: 'BOM kept' }
+    );
+    assert.strictEqual(withFrontmatter.charCodeAt(0), 0xfeff);
+    assert.strictEqual(parseFrontmatter(withFrontmatter).frontmatter!.title, 'BOM kept');
+
+    const withoutFrontmatter = updateFrontmatter('\uFEFF# Body only\r\n', { palee_id: 'T-bom2' });
+    assert.strictEqual(withoutFrontmatter.charCodeAt(0), 0xfeff);
+    // The old code prepended the head *before* the BOM, moving it into the file.
+    assert.strictEqual(withoutFrontmatter.lastIndexOf('\uFEFF'), 0, 'the BOM must stay at byte 0');
+  });
+
+  test('leaves an LF note LF-only', () => {
+    // The convention is read off the note, never off the platform, so a
+    // Linux-authored note must not be converted to CRLF by the fix above.
+    const content = '---\npalee_id: T-lf\ntitle: LF Note\n---\n# LF Note\n\nBody line.\n';
+
+    const updated = updateFrontmatter(content, { title: 'Renamed' });
+
+    assert.strictEqual(updated.includes('\r\n'), false);
+    assert.ok(terminatorCensus(updated).loneLf > 0, 'the head must still be written with LF');
+    assert.strictEqual(updated, '---\npalee_id: T-lf\ntitle: Renamed\n---\n# LF Note\n\nBody line.\n');
+  });
+
+  test('matches a CRLF body when inserting a head into a note with no frontmatter', () => {
+    // No existing block to sample, so the file decides — and the head is glued
+    // directly onto that body, so the two halves have to agree from byte 0.
+    const content = '# Heading\r\n\r\nBody line.\r\n';
+
+    const updated = updateFrontmatter(content, { palee_id: 'T-new' });
+
+    assert.strictEqual(updated, '---\r\npalee_id: T-new\r\n---\r\n# Heading\r\n\r\nBody line.\r\n');
+    assert.strictEqual(terminatorCensus(updated).loneLf, 0);
   });
 });
 

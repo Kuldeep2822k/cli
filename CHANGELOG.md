@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A frontmatter rewrite keeps the note's bytes** ([#259](https://github.com/Kuldeep2822k/cli/issues/259)): `updateFrontmatter` re-emitted the block with hard-coded `\n` and never restored a leading UTF-8 BOM, so a CRLF vault came back with mixed terminators in every note it touched and lost its BOMs. The terminator and BOM of the original are now carried through, so changing one key changes one line.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added
