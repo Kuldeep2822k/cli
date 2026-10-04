@@ -400,6 +400,22 @@ describe('CLI assess — making topic_mastery reachable', () => {
     });
   });
 
+  test('an explicit --feynman 0 is described as a zero, not as a missing flag', async () => {
+    // `scores` defaults every pillar to 0, so an absent flag and `--feynman 0`
+    // reach the hint through the same branch. The line must therefore state the
+    // pillar's value, which is true both ways, rather than claim no score was
+    // given when the learner typed one.
+    await runInTempVault({ 'zero.md': note('Zero Feynman') }, async () => {
+      const output = await captureOutput(() =>
+        assessCommand('Zero Feynman', { conceptual: '1', practical: '1', debug: '1', feynman: '0' })
+      );
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /feynman pillar is 0/, 'must name the value, not the absence of a flag');
+      assert.match(output, /--feynman/);
+      assert.doesNotMatch(output, /With no --feynman score/);
+    });
+  });
+
   test('an exact palee_id wins over a neighbour that contains it', async () => {
     // `T-math` is a substring of `T-math-2`, so a substring scan matched both and
     // the command refused to write either — the learner had named the topic
