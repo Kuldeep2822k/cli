@@ -284,6 +284,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         due_at: null,
       };
 
+      if (options.dryRun) {
+        console.log(`Dry run: would adopt ${targetPath} as a new topic`);
+        console.log(`  Title: ${title}`);
+        console.log(`  Difficulty: ${difficulty}`);
+        if (dependsOn.length > 0) {
+          console.log(`  Dependencies: ${dependsOn.join(', ')}`);
+        }
+        console.log('\nDry-run complete. No files were modified.');
+        return;
+      }
+
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
 

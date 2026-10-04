@@ -102,6 +102,36 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(parseFrontmatter(fs.readFileSync(note, 'utf8')).frontmatter?.palee_id, undefined);
   });
 
+  test('palee adopt <note> --dry-run leaves the note byte-for-byte alone', () => {
+    // The batch branch guarded on `options.dryRun`; the single-file branch did not,
+    // so the command a cautious user runs *before* trusting it minted an id,
+    // rewrote the frontmatter it promised only to preview, and dropped a
+    // hand-authored `depends_on` in the process. Deleting the `options.dryRun`
+    // return in that branch fails both assertions below — the byte comparison and
+    // the absent `palee_id` — while the commit half keeps the guard honest, so a
+    // guard moved too early (never adopting anything) fails the last assertion.
+    const rel = path.join('MODULES', '03-single', 'solo.md');
+    const note = path.join(vaultDir, rel);
+    fs.mkdirSync(path.dirname(note), { recursive: true });
+    const original = '---\ntitle: Solo\ndepends_on: [T-real]\n---\n# Solo\n';
+    fs.writeFileSync(note, original);
+
+    const dry = runCLI(['adopt', rel, '--dry-run']);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /Dry-run complete\. No files were modified\./);
+    assert.strictEqual(
+      fs.readFileSync(note, 'utf8'),
+      original,
+      `a dry run must not rewrite the note:\n${fs.readFileSync(note, 'utf8')}`
+    );
+    assert.strictEqual(parseFrontmatter(fs.readFileSync(note, 'utf8')).frontmatter?.palee_id, undefined);
+
+    const commit = runCLI(['adopt', rel]);
+    assert.strictEqual(commit.status, 0, commit.stderr);
+    assert.ok(parseFrontmatter(fs.readFileSync(note, 'utf8')).frontmatter?.palee_id,
+      'the same command without --dry-run still adopts');
+  });
+
   test('palee adopt exits with code 2 in non-interactive environment without --yes', () => {
     const result = runCLI(['adopt', '--all']);
     assert.strictEqual(result.status, 2);
