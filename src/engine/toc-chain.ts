@@ -614,7 +614,7 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const tieNotes = new Set(numbered.alphabeticalTieNotes);
   for (const p of numbered.orderedPaths) {
     if (isInNumberedTree(p)) numberedSet.add(p);
-    // A pair carrying the same number or phase is ordered by filename collation,
+    // A pair that `tiedByName` reports is ordered by filename collation alone,
     // which the numbered tree did not decide and the author never stated. Labelled
     // `tie` so the gate rule can decline it, while the edge still ranks the note
     // and still takes part in cycle detection.
