@@ -225,6 +225,28 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.strictEqual(enum_.skipped.length, 0, 'an engine skip lives on the link, not the storage skip list');
     });
 
+    // Issue #262, review round — the point is the *class* of escapable characters:
+    // CommonMark 2.4 lets a backslash escape any ASCII punctuation, and both
+    // destination forms apply that rule. `[a](notes/v1\.2.md)` names the real
+    // `notes/v1.2.md`; a set that omits the dot looked the file up as
+    // `notes/v1\.2.md`, found nothing, and the author's ordering edge silently
+    // never formed — the same lost-edge class this ticket exists to kill, pointed
+    // the other way. `<` and `>` are unpinned here only because Windows forbids
+    // them in a filename; the engine sweep covers them.
+    it('#262: an escaped punctuation character names the real note in both destination forms', () => {
+      write(vault, 'README.md', [
+        '- [dot](notes/v1\\.2.md)',
+        '- [plus](notes/v1\\+2.md)',
+        '- [angled](<notes/v2\\.3.md>)',
+      ].join('\n'));
+      write(vault, 'notes/v1.2.md');
+      write(vault, 'notes/v1+2.md');
+      write(vault, 'notes/v2.3.md');
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.documentOrder, ['notes/v1.2.md', 'notes/v1+2.md', 'notes/v2.3.md']);
+      assert.strictEqual(enum_.skipped.length, 0, 'an honoured escape must leave nothing unresolved');
+    });
+
     it('skips missing targets and translation targets, never aborting the run', () => {
       write(vault, 'README.md', [
         '- [gone](nope.md)',

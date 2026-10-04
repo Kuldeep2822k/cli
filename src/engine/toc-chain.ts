@@ -151,19 +151,37 @@ interface RawDestination {
   raw: string;
   /** Index to resume scanning after the closing `)` */
   next: number;
-  /** Set when the destination text exists but cannot name a note; `raw` is the part read before it */
+  /** Set when the destination text exists but cannot name a note; `raw` then holds that text exactly as written, not the readable prefix */
   skip?: TocSkipReason;
 }
 
 /**
- * Characters that may follow a backslash inside a bare destination.
+ * CommonMark's `ASCII punctuation character` class (spec 0.31.2, §2.4): the
+ * code-point ranges U+0021–2F, U+003A–40, U+005B–60 and U+007B–7E — 32
+ * characters — and §2.4's rule that *any* of them may be backslash-escaped.
  *
  * @remarks
- * Everything else keeps its backslash as a literal path character. Collapsing
- * `\0` to `0` turned `01-a\02-b.md` into `01-a02-b.md`, which is a real sibling
- * note, so the chain attributed an edge to a file the author never named.
+ * Stated as the spec's own ranges instead of a hand-maintained list, because a
+ * list that drifts is the very defect this replaces: holding only
+ * `\\ ( ) < > \` [ ] # % _ * -`, an escaped dot kept its backslash, so
+ * `[a](notes/v1\.2.md)` looked up a file literally named `v1\.2.md` and the
+ * author's edge silently vanished.
+ *
+ * Digits and letters fall outside these ranges by construction, which is the
+ * behaviour issue #262 needs: `\0` is *not* an escape, and collapsing it merged
+ * `01-a\02-b.md` onto the real sibling `01-a02-b.md`. Non-ASCII (including
+ * lone surrogates, which is what `text` iterates) is above U+007E and so is
+ * never escapable — exactly as in the spec.
  */
-const DEST_ESCAPES = new Set(['\\', '(', ')', '<', '>', '`', '[', ']', '#', '%', '_', '*', '-']);
+function isAsciiPunctuation(ch: string): boolean {
+  const cp = ch.charCodeAt(0);
+  return (
+    (cp >= 0x21 && cp <= 0x2f) ||
+    (cp >= 0x3a && cp <= 0x40) ||
+    (cp >= 0x5b && cp <= 0x60) ||
+    (cp >= 0x7b && cp <= 0x7e)
+  );
+}
 
 /** Is the text after a bare destination's first whitespace a CommonMark title? */
 function looksLikeTitle(rest: string): boolean {
@@ -179,6 +197,10 @@ function looksLikeTitle(rest: string): boolean {
  * matching `)`.
  *
  * @remarks
+ * Both forms resolve a backslash plus ASCII punctuation into that literal
+ * character ({@link isAsciiPunctuation}); only their delimiters differ, and the
+ * branches below are deliberately not merged.
+ *
  * A bare destination may contain **balanced** parentheses — CommonMark allows
  * `[lesson](notes/intro(v2).md)` — so the scan tracks depth and only ends the
  * destination on the `)` that closes the one that opened it. Stopping at the
@@ -192,7 +214,16 @@ function readDestination(text: string, start: number): RawDestination | null {
     let out = '';
     for (let i = start + 1; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\\' && i + 1 < text.length && (text[i + 1] === '>' || text[i + 1] === '\\')) {
+      if (ch === '\\' && i + 1 < text.length && isAsciiPunctuation(text[i + 1])) {
+        // The escape grammar here is the *same* {@link isAsciiPunctuation} rule
+        // the bare branch below uses — CommonMark resolves `\` + punctuation in
+        // both forms (§2.4; verified against commonmark.js and markdown-it:
+        // `<foo\.bar>` and `<foo\<bar>` are `foo.bar` and `foo<bar`). The two
+        // forms differ only in their **delimiters**, and that is the part that
+        // must not be unified: this one ends at the first unescaped `>` and
+        // takes raw spaces and parentheses as data, while the bare form ends at
+        // the `)` that balances the link and refuses outright on a raw space.
+        // So `\>` below is data and deliberately does not close the destination.
         out += text[i + 1];
         i++;
         continue;
@@ -219,14 +250,16 @@ function readDestination(text: string, start: number): RawDestination | null {
     const ch = text[i];
     if (ch === '\\' && i + 1 < text.length) {
       const next = text[i + 1];
-      if (DEST_ESCAPES.has(next)) {
+      if (isAsciiPunctuation(next)) {
         // An escape sequence: the backslash is syntax, the character is data.
+        // Same class as the angle-bracket branch — see {@link isAsciiPunctuation}.
         emit(next);
         i++;
         continue;
       }
-      // Not escapable, so the backslash is part of the path. Deleting it merged
-      // `01-a\02-b.md` onto a real sibling `01-a02-b.md` (issue #262).
+      // Not escapable (a digit or a letter), so the backslash is part of the
+      // path. Deleting it merged `01-a\02-b.md` onto a real sibling
+      // `01-a02-b.md` (issue #262).
       emit(ch);
       continue;
     }
@@ -246,7 +279,9 @@ function readDestination(text: string, start: number): RawDestination | null {
         // not a link, and reading it as `notes/my` silently linked a different,
         // real note. Obsidian accepts the spelling, so it must be declined, not
         // truncated — `<angle brackets>` and `%20` are the ways to mean a space.
-        return { raw: out, next: i + 1, skip: 'unescaped-space' };
+        // `raw` is the whole text as written (`text.slice`), never `out`: a skip
+        // is reported to the author, and `notes/my` is a path they did not type.
+        return { raw: text.slice(start, i), next: i + 1, skip: 'unescaped-space' };
       }
       return { raw: out, next: i + 1 };
     }
