@@ -11,8 +11,8 @@ import { parseFrontmatter } from '../src/storage';
  * Characterization tests for hot.md read behavior across session flows,
  * pinned ahead of the #130 read-accessor extraction. Each describe block
  * asserts the *current* policy of exactly one flow; do not normalize their
- * differing age/skew rules (draft: 24h/no-future; end: no age limit +
- * 60s future skew; start: rebuild on corrupt/schema-invalid only).
+ * differing age/skew rules (draft: 24h/no-future; end: 24h floor since
+ * BUG-008, plus 60s future skew; start: rebuild on corrupt/schema-invalid only).
  */
 describe('Session hot.md read characterization', () => {
   let tempDir: string;
@@ -359,11 +359,17 @@ describe('Session hot.md read characterization', () => {
     });
   });
 
-  // ── End: Tier-2 hot.md recovery — no age limit, 60s future skew ──────
+  // ── End: Tier-2 hot.md recovery — 24h floor since BUG-008, 60s future skew ──────
 
   describe('end policy (tier 2)', () => {
-    test('recovers same-topic started_at older than 24h (no age limit)', async () => {
-      const old = new Date(Date.now() - 48 * 3600000).toISOString(); // 48h ago
+    test('clamps a same-topic started_at older than 24h to the 24h floor', async () => {
+      // BUG-008 reversed what this test used to pin. Tier-2 recovery accepted a
+      // hot-memory start of any age, so an abandoned session's timestamp inflated
+      // duration_minutes past a day — a 10-day-old hot.md produced a 14400-minute
+      // session. The floor is now the same 24h the draft and Tier-1 paths apply,
+      // so a 48h start survives as 24h of recorded work, not 48.
+      const nowMs = Date.now();
+      const old = new Date(nowMs - 48 * 3600000).toISOString(); // 48h ago
       writeHot([
         'palee_schema: 1',
         'active_topic: T-end-48h',
@@ -376,8 +382,13 @@ describe('Session hot.md read characterization', () => {
       const { frontmatter } = parseFrontmatter(
         fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
       );
-      assert.strictEqual(frontmatter?.started_at, old, 'end must recover any-age same-topic started_at');
-      assert.strictEqual(frontmatter?.duration_minutes, 2880, '48h in minutes');
+      assert.notStrictEqual(frontmatter?.started_at, old, 'a start older than 24h must be clamped, not recovered');
+      assert.strictEqual(frontmatter?.duration_minutes, 1440, 'the floor caps the session at 24h');
+      const startMs = new Date(frontmatter!.started_at as string).getTime();
+      assert.ok(
+        Math.abs(startMs - (nowMs - 24 * 60 * 60 * 1000)) < 60000,
+        `started_at must sit on the 24h floor, got ${frontmatter?.started_at}`
+      );
     });
 
     test('clamps same-topic started_at within 60s future skew', async () => {
