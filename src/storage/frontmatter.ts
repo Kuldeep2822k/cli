@@ -82,12 +82,49 @@ function parseFrontmatter(content: string): FrontmatterResult {
 }
 
 /**
+ * Detects the line terminator a note was written with.
+ *
+ * @remarks
+ * The convention is read off the note's own bytes, never off `os.EOL`: a vault
+ * legitimately mixes CRLF notes (Obsidian on Windows, `core.autocrlf=true`) with
+ * LF notes. `updateFrontmatter` re-serialises only the head while the body keeps
+ * the endings it has, so emitting the other convention splits the file in two and
+ * turns a one-key change into a whole-file diff.
+ *
+ * @param region - Text to inspect: the original frontmatter block, or the whole file when it has none
+ * @returns `'\r\n'` if the region contains a CRLF break, otherwise `'\n'`
+ */
+function detectLineTerminator(region: string): '\r\n' | '\n' {
+  return region.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/**
+ * Wraps re-serialised YAML in `---` fences using the note's own line terminator.
+ *
+ * @remarks
+ * `Document.toString()` always emits LF, so the YAML body has to be retimed too —
+ * fences in one convention around a body in another is the same split file.
+ *
+ * @param yamlText - YAML block as produced by `Document.toString()`, terminated by LF
+ * @param eol - Line terminator detected from the note by {@link detectLineTerminator}
+ * @returns Opening fence, YAML body, and closing fence, each ended with `eol`
+ */
+function renderFencedBlock(yamlText: string, eol: '\r\n' | '\n'): string {
+  // `/\r?\n/` rather than `/\n/` keeps an already-CRLF sequence from gaining a
+  // second CR, and touches nothing else: CR is only consumed as a line break.
+  return `---${eol}${yamlText.replace(/\r?\n/g, eol)}---${eol}`;
+}
+
+/**
  * Updates or creates frontmatter key-value pairs while non-destructively preserving comments and formatting.
  *
  * @remarks
  * If frontmatter already exists, parses the raw YAML block into a CST `Document`, modifies only the specified keys,
  * and stringifies the updated YAML without reformatting or erasing unmanaged keys or comments.
  * If frontmatter does not exist, prefixes a new `---` YAML header block.
+ *
+ * The line terminator and any leading BOM of the note are reproduced, so rewriting one
+ * key changes only the lines that key occupies.
  *
  * @param content - Existing file content
  * @param updates - Map of frontmatter key-value pairs to set or update
@@ -108,7 +145,13 @@ function updateFrontmatter(
   updates: Record<string, unknown>,
   removals: string[] = []
 ): string {
-  const parsed = parseFrontmatter(content);
+  // parseFrontmatter drops a leading BOM to anchor its fence regex, but the BOM
+  // belongs to the file rather than to the frontmatter — read it back here so
+  // every return site can hand it to the writer untouched.
+  const bom = content.charCodeAt(0) === 0xfeff ? '\uFEFF' : '';
+  const text = bom !== '' ? content.slice(1) : content;
+
+  const parsed = parseFrontmatter(text);
   if (parsed.error) {
     throw new Error(`Malformed frontmatter: ${parsed.error}`);
   }
@@ -116,7 +159,10 @@ function updateFrontmatter(
   if (parsed.raw === null) {
     const doc = new Document(updates);
     const yamlContent = doc.toString();
-    return `---\n${yamlContent}---\n${content}`;
+    // No existing block to sample, so the file as a whole decides: the body
+    // being prefixed below is that same text and keeps its endings.
+    const eol = detectLineTerminator(text);
+    return `${bom}${renderFencedBlock(yamlContent, eol)}${text}`;
   }
 
   // Parse as YAML document to preserve CST (handling empty raw block if present)
@@ -130,7 +176,11 @@ function updateFrontmatter(
   }
 
   const newYaml = doc.toString();
-  return `---\n${newYaml}---\n${parsed.body}`;
+  // A non-null `raw` means the fence regex matched, so `parsed.body` is a literal
+  // suffix of `text` and its complement is the original block — fences included.
+  // Those fences carry the convention even when a single-key `raw` has no break.
+  const eol = detectLineTerminator(text.slice(0, text.length - parsed.body.length));
+  return `${bom}${renderFencedBlock(newYaml, eol)}${parsed.body}`;
 }
 
 /**
