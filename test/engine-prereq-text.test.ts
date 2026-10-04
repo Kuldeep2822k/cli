@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
+  declaredPrereqCue,
   extractDeclaredPrerequisites,
   resolveDeclaredPrerequisites,
   type DeclaredPrereqRef,
@@ -129,6 +130,23 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       extractDeclaredPrerequisites(['## Prerequisites', '', 'Requires Setup.', '- Setup'].join('\n')),
       []
     );
+
+    // #261: the same three sentences with a heading above them *and* the note
+    // name written as a link. That is the shape that actually occurs in a lesson,
+    // and it was never pinned — this test held the negations in prose, where the
+    // section branch never fires, so the branch that gated survived the suite.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites(
+        [
+          '## Prerequisites',
+          '',
+          '- This lesson does not require [[Setup]].',
+          '- This lesson no longer requires [[Quiz]].',
+          '- No lesson requires [[Nothing]].',
+        ].join('\n')
+      ),
+      []
+    );
   });
 
   test('a requires heading that only holds prose declares nothing', () => {
@@ -157,6 +175,116 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
       ref.form === 'wikilink' ? ['/vault/setup.md'] : []
     );
     assert.deepStrictEqual(resolved, [{ name: 'Setup', target: '/vault/setup.md' }]);
+  });
+});
+
+describe('prerequisite-section cues (#261)', () => {
+  // Every item below sits under a real `## Prerequisites` heading, because that
+  // is the branch that authors an edge. The section scan took any link it found
+  // and labelled the result `declared`, which gates, so an ordinary sentence
+  // under the heading locked a learner out: `palee plan --json` returned only
+  // Setup for a note that said `does not require [[m/01-setup]]` and
+  // `no longer requires [[m/02-alpha]]` — the two notes the author disclaimed
+  // were the two that got gated behind.
+  const section = (...items: string[]): string => ['## Prerequisites', '', ...items.map((i) => `- ${i}`)].join('\n');
+
+  const names = (items: string[]): string[] =>
+    extractDeclaredPrerequisites(section(...items)).map((r) => r.name);
+
+  test('a negated item declares nothing', () => {
+    // Gating behind a note the author ruled out is the worst invention
+    // available, and #232 already said so about the prose branch. The same
+    // vocabulary governs here: `not`, `n't`, `no longer`, `never`, `cannot`,
+    // `neither`, `nor`, `without`, and a negative subject opening the item.
+    assert.deepStrictEqual(names(['does not require [[m/01-setup]]']), []);
+    assert.deepStrictEqual(names(['no longer requires [[m/01-setup]]']), []);
+    assert.deepStrictEqual(names(["doesn't require [[m/01-setup]]"]), []);
+    assert.deepStrictEqual(names(['never required [[m/01-setup]]']), []);
+    assert.deepStrictEqual(names(['cannot be assumed alongside [[m/01-setup]]']), []);
+    assert.deepStrictEqual(names(['No prior knowledge of [[m/01-setup]] is needed']), []);
+    assert.deepStrictEqual(names(['[[m/01-setup]] is not a prerequisite']), []);
+  });
+
+  test('a disjunctive item declares nothing, in either direction', () => {
+    // `or` offers the learner a choice; `areDependenciesSatisfied` only knows
+    // AND. Gating on both links is wrong, and gating on either would need new
+    // semantics, so the item contributes no edge at all.
+    assert.deepStrictEqual(names(['requires [[m/01-setup]] or [[m/02-alpha]]']), []);
+    assert.deepStrictEqual(names(['either [[m/01-setup]] or [[m/02-alpha]]']), []);
+    assert.deepStrictEqual(names(['[[m/01-setup]] and/or [[m/02-alpha]]']), []);
+  });
+
+  test('a reversed item declares nothing', () => {
+    // Not a denial but the other direction: the note is saying that *it* is a
+    // prerequisite for the link. Reading it as `this note depends on X` is a
+    // invented gate, and authoring the reverse edge is out of scope, so the
+    // item is refused outright.
+    assert.deepStrictEqual(names(['This note is a prerequisite for [[m/02-alpha]]']), []);
+    assert.deepStrictEqual(names(['[[m/02-alpha]] is required by this note']), []);
+    assert.deepStrictEqual(names(['[[m/02-alpha]] requires this note']), []);
+    assert.deepStrictEqual(names(['[[m/02-alpha]] depends on this lesson']), []);
+  });
+
+  test('an HTML comment and an inline code span declare nothing', () => {
+    // Fenced code was already blanked, and for the reason that covers both of
+    // these: a link written to be read is not a link written to be followed.
+    assert.deepStrictEqual(extractDeclaredPrerequisites('## Prerequisites\n\n<!-- [[m/01-setup]] -->\n'), []);
+    assert.deepStrictEqual(names(['write `[[m/01-setup]]` to depend on Setup']), []);
+    assert.deepStrictEqual(names(['see `[setup](m/01-setup.md)`']), []);
+  });
+
+  test('an unambiguous item still authors its gating edge', () => {
+    // The filter must stay a filter. These are the shapes a real curriculum
+    // writes, and each one still produces the edge it produced before #261.
+    assert.deepStrictEqual(names(['[[m/01-setup]]']), ['m/01-setup']);
+    // Conjunction is not disjunction: both are genuinely required, and a
+    // blanket "contains `or`/`and` anywhere" rule would have broken this.
+    assert.deepStrictEqual(names(['[[m/01-setup]] and [[m/02-alpha]] are required']), [
+      'm/01-setup',
+      'm/02-alpha',
+    ]);
+    assert.deepStrictEqual(names(['[[m/01-setup]] is required']), ['m/01-setup']);
+    assert.deepStrictEqual(names(['[previous lesson quiz](../1-Clustering/README.md)']), [
+      '../1-Clustering/README.md',
+    ]);
+  });
+
+  test('a cue counts only in the prose, never inside a link', () => {
+    // The reference itself is the author's chosen name, and note names say
+    // things: `01-or-basics` and an alias reading `either of the two` are not
+    // the author hedging. The cue window is the item's prose around its links.
+    assert.deepStrictEqual(names(['[[m/01-or-basics]]']), ['m/01-or-basics']);
+    assert.deepStrictEqual(names(['[[m/02-alpha|either of the two]]']), ['m/02-alpha']);
+    assert.deepStrictEqual(names(['[[m/02-alpha]] (see the error log)']), ['m/02-alpha']);
+  });
+
+  test('a cue condemns its own item and no more', () => {
+    // Item-level, not line-level and not section-level: each bullet is its own
+    // declaration, so one hedged item cannot disarm the section around it.
+    assert.deepStrictEqual(
+      names(['[[m/01-setup]]', 'does not require [[m/02-alpha]]', '[[m/03-beta]]']),
+      ['m/01-setup', 'm/03-beta']
+    );
+    // Two links sharing one disjunctive line lose both — the item as a whole
+    // offered a choice, and splitting it would guess which half the author
+    // meant. Losing an edge leaves the numbered tree's in place.
+    assert.deepStrictEqual(names(['[[m/01-setup]] or [[m/02-alpha]]']), []);
+  });
+
+  test('the cue that fired is reported honestly', () => {
+    // A reversal is not a denial: the note is saying something true, about the
+    // other end. A report that called every refusal "negation" would teach the
+    // next reader the wrong rule.
+    assert.strictEqual(declaredPrereqCue('does not require [[m/01-setup]]'), 'negation');
+    assert.strictEqual(declaredPrereqCue('No prior knowledge of [[m/01-setup]] is needed'), 'negation');
+    assert.strictEqual(declaredPrereqCue('requires [[m/01-setup]] or [[m/02-alpha]]'), 'disjunction');
+    assert.strictEqual(declaredPrereqCue('This note is a prerequisite for [[m/02-alpha]]'), 'reversal');
+    assert.strictEqual(declaredPrereqCue('[[m/02-alpha]] depends on this lesson'), 'reversal');
+    assert.strictEqual(declaredPrereqCue('[[m/01-setup]]'), null);
+    assert.strictEqual(declaredPrereqCue('[[m/01-setup]] and [[m/02-alpha]] are required'), null);
+    assert.strictEqual(declaredPrereqCue('[[m/01-or-basics]]'), null);
+    // Negation is checked before the others: a denied choice is still a denial.
+    assert.strictEqual(declaredPrereqCue('does not require [[m/01-setup]] or [[m/02-alpha]]'), 'negation');
   });
 });
 
