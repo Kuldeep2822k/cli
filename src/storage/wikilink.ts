@@ -25,6 +25,7 @@ import { generateTopicId } from '../engine/topic-id';
 import type { ParsedWikilink } from '../engine/auto-chain';
 import type { WikilinkRoadmapSection } from './roadmap-parser';
 import { loadTopics } from './loader';
+import { parseFrontmatter } from './frontmatter';
 import { resolveNoteTitle } from './note-title';
 import type { RoadmapFile, RoadmapTopic } from '../types';
 
@@ -383,8 +384,40 @@ export function resolveWikilinkRoadmap(
         id = existing.id;
         title = existing.title;
       } else {
-        id = generateTopicId();
-        const content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        let content: string;
+        try {
+          content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        } catch (err: unknown) {
+          const e = err as Error;
+          throw new Error(`Cannot read roadmap target ${resolved.relativePath}: ${e.message}`, {
+            cause: err,
+          });
+        }
+        const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+        // An adopted note is missing from `existingByPath` whenever `loadTopics`
+        // could not use its `palee_id` — a numeric id (B7), or a path the walker
+        // spells differently. The identity is still on disk, so the read path
+        // here has to honour it: minting a fresh id over the note rewrote its
+        // name and orphaned every edge that used the old one. A block that will
+        // not parse is refused rather than guessed at, keeping INV-48 fail-closed.
+        if (frontmatterError !== undefined) {
+          throw new Error(
+            `Roadmap target ${resolved.relativePath} has malformed frontmatter (${frontmatterError}); ` +
+              'its topic ID cannot be read. Repair the note before linking to it.'
+          );
+        }
+        const declaredId = frontmatter?.palee_id;
+        if (declaredId === undefined || declaredId === null || String(declaredId).trim() === '') {
+          id = generateTopicId();
+        } else if (typeof declaredId === 'string') {
+          id = declaredId.trim();
+        } else {
+          throw new Error(
+            `Roadmap target ${resolved.relativePath} declares a palee_id that is not a usable topic ID ` +
+              `(${JSON.stringify(declaredId)}); correct the note before linking to it. ` +
+              'A new ID would orphan every edge that names the current one.'
+          );
+        }
         title = resolveNoteTitle(content, resolved.absolutePath);
       }
 

@@ -474,6 +474,78 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       fs.rmSync(adopted);
     });
 
+    // `loadTopics` requires a string `palee_id` on purpose (B7), so a note whose
+    // id YAML read as a number — or whose frontmatter will not parse at all — is
+    // absent from the adopted lookup while still declaring an identity on disk.
+    // Minting there handed back a fresh `T-…` for the learner's own note: the
+    // adoption silently renamed the topic and orphaned every edge that named it.
+    // Resolution stays fail-closed instead (INV-48).
+    it('refuses to mint an id over a note whose palee_id is not a string', () => {
+      const numeric = path.join(vaultPath, 'numeric-id.md');
+      fs.writeFileSync(
+        numeric,
+        '---\npalee_id: 20240115\npalee_schema: 1\ntitle: Numeric\ndepends_on: []\n---\n# Numeric\n'
+      );
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[numeric-id]]')] },
+            ]),
+          /numeric-id\.md declares a palee_id that is not a usable topic ID \(20240115\)/
+        );
+      } finally {
+        fs.rmSync(numeric, { force: true });
+      }
+    });
+
+    it('refuses to mint an id over a note whose frontmatter will not parse', () => {
+      const broken = path.join(vaultPath, 'broken-id.md');
+      fs.writeFileSync(
+        broken,
+        '---\npalee_id: T-broken\ndepends_on: [unclosed\ntitle: Broken\n---\n# Broken\n'
+      );
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[broken-id]]')] },
+            ]),
+          /broken-id\.md has malformed frontmatter/
+        );
+      } finally {
+        fs.rmSync(broken, { force: true });
+      }
+    });
+
+    it('names the roadmap target whose bytes cannot be opened', (t) => {
+      // This was the one unguarded `readFileSync` in the function: an EACCES
+      // escaped as the OS error alone, so the command died without naming which
+      // roadmap target it could not read.
+      const note = path.join(vaultPath, 'unreadable.md');
+      fs.writeFileSync(note, '# Unreadable\n');
+      try {
+        fs.chmodSync(note, 0o000);
+        try {
+          fs.readFileSync(note, 'utf8');
+          t.skip('this platform and user can read a 0o000 file, so no EACCES is reachable');
+          return;
+        } catch {
+          // The read is genuinely blocked; the wrapper's message is what follows.
+        }
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[unreadable]]')] },
+            ]),
+          /Cannot read roadmap target unreadable\.md/
+        );
+      } finally {
+        fs.chmodSync(note, 0o644);
+        fs.rmSync(note, { force: true });
+      }
+    });
+
     // `fs.realpathSync` performs no case conversion on a case-insensitive
     // volume, so `[[adopted]]` written in another casing resolved to the *same
     // file* under a different string. Every caller keys notes by that string,

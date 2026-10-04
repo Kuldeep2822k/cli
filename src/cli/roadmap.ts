@@ -371,6 +371,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     // effective dependencies using the same rule for both validation and writeback.
     const existingTopics = loadTopics(vaultPath);
     const existingTopicsById = new Map(existingTopics.map((topic) => [topic.id, topic]));
+    // The note that lives at each declared path, keyed through the same
+    // canonicalizer the declarations use so `./x.md`, an absolute in-vault path
+    // and the loader's vault-relative spelling of one note meet at one key.
+    const existingTopicsByPath = new Map(
+      existingTopics.map((topic) => [canonicalDeclaredPath(resolvedVault, topic.path), topic] as const)
+    );
 
     // Effective deps per roadmap topic, computed once and shared by validation + doImport.
     // User-intent rules: explicit empty array clears, omitted preserves existing, populated replaces.
@@ -408,6 +414,22 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
         if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        } else if (id) {
+          // A note the vault already adopted answers to the id on its own
+          // frontmatter. Importing a different id over that path retired it:
+          // every edge naming the old id resolved to no topic, which hard-blocks
+          // the dependent notes out of `palee plan`, while `validate` counts a
+          // missing dependency only as a warning and exits 0. The learner found
+          // out afterwards, from a stderr list. INV-32 puts the decision before
+          // any write instead, and names both ids so the roadmap can be corrected.
+          const incumbent = existingTopicsByPath.get(absoluteTopicPath);
+          if (incumbent && incumbent.id !== id) {
+            errors.push(
+              `Topic "${id}" targets ${relativePath}, which is already adopted as "${incumbent.id}". ` +
+                `Importing would retire "${incumbent.id}" and orphan every edge that names it. ` +
+                `Give this entry the id the note already carries, or point it at a new path.`
+            );
+          }
         }
       }
 
