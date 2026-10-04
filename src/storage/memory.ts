@@ -511,7 +511,9 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
 async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   const sessionsDir = getSessionsDir(vaultPath);
   let newestSession: { file: string; frontmatter: Record<string, unknown>; body: string } | null = null;
-  let newestTime = 0;
+  // Lowest possible rank, so a parseable timestamp of any era (including
+  // pre-1970) outranks an unparseable one instead of being filtered out.
+  let newestTime = -Infinity;
 
   if (fs.existsSync(sessionsDir)) {
     const files = fs.readdirSync(sessionsDir);
@@ -534,7 +536,14 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
             !String(frontmatter.session_id).startsWith('DRAFT-') &&
             frontmatter.status !== 'draft'
           ) {
-            const time = new Date((frontmatter.started_at as string) || 0).getTime();
+            // Apply the same NaN protection `regenerateIndex` uses: an
+            // unparseable `started_at` (hand-edited or corrupted frontmatter)
+            // yields NaN, and `NaN >= newestTime` is always false, which would
+            // disqualify every canonical session and erase hot memory. Rank it
+            // lowest instead of dropping it, so any parseable timestamp — even
+            // a pre-1970 one — still wins, and derived views stay non-empty.
+            const parsedTime = new Date((frontmatter.started_at as string) || 0).getTime();
+            const time = Number.isNaN(parsedTime) ? Number.NEGATIVE_INFINITY : parsedTime;
             if (time >= newestTime) {
               newestTime = time;
               newestSession = { file: filePath, frontmatter, body };
@@ -667,9 +676,12 @@ async function recoverDraft(
     const nowTime = new Date(nowIso).getTime();
     let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
 
-    // Clock skew tolerance: if within 60s in future, clamp to now
+    // Clock skew tolerance: if within 60s in future, clamp to now;
+    // stale drafts (older than 24h) clamp to now - 24h per the documented recovery rule
     if (parsedStart > nowTime) {
       parsedStart = nowTime;
+    } else if (nowTime - parsedStart > 24 * 60 * 60 * 1000) {
+      parsedStart = nowTime - 24 * 60 * 60 * 1000;
     }
 
     const startedAt = new Date(parsedStart).toISOString();

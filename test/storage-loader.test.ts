@@ -7,6 +7,7 @@ import { normalizeDependencies } from '../src/storage/dependencies';
 import { loadTopics, getTopicCache } from '../src/storage/loader';
 import { FileCache } from '../src/storage/cache';
 import type { LoadedTopic } from '../src/storage/loader';
+import type { TopicNode } from '../src/types';
 
 /**
  * FileCache subclass that records get()/set() calls without altering behavior.
@@ -268,6 +269,77 @@ dependencies:
     assert.strictEqual(topics.length, 1);
     const t = topics[0];
     assert.deepStrictEqual(t.depends_on, ['T-valid-dep']);
+  });
+
+  test('loadTopics carries depends_on_source so the toc tier can be recognized as advisory', () => {
+    const write = (name: string, label: string): void => {
+      fs.writeFileSync(
+        path.join(tmpVault, name),
+        `---
+palee_schema: 1
+palee_id: T-${name}
+title: Labeled Topic
+depends_on:
+  - T-prereq
+depends_on_source: ${label}
+---
+# Labeled
+`,
+        'utf8'
+      );
+    };
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+    fs.mkdirSync(tmpVault, { recursive: true });
+
+    write('toc.md', 'toc');
+    write('numbered.md', 'numbered');
+    write('declared.md', 'declared');
+    write('tie.md', 'tie');
+    write('junk.md', '"toc-ish"');
+    write('missing.md', 'null');
+
+    const byName = new Map(loadTopics(tmpVault).map((t) => [t.palee_id, t]));
+    assert.strictEqual(byName.get('T-toc.md')!.depends_on_source, 'toc');
+    assert.strictEqual(byName.get('T-numbered.md')!.depends_on_source, 'numbered');
+    assert.strictEqual(byName.get('T-declared.md')!.depends_on_source, 'declared');
+    assert.strictEqual(byName.get('T-tie.md')!.depends_on_source, 'tie');
+    assert.strictEqual(byName.get('T-junk.md')!.depends_on_source, undefined, 'an unknown label must not be trusted');
+    assert.strictEqual(byName.get('T-missing.md')!.depends_on_source, undefined);
+  });
+
+  test('a mistyped label keeps the note gating, because an unknown source is not advisory', () => {
+    // Fail-closed direction: the whole point of the label is that it relaxes a
+    // gate. A typo (`ToC`, `toc ` aside from the accepted spellings) must fall
+    // back to the pre-existing behaviour rather than silently unlocking.
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+    fs.mkdirSync(tmpVault, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpVault, 'typo.md'),
+      `---
+palee_schema: 1
+palee_id: T-typo
+title: Typo
+depends_on:
+  - T-prereq
+depends_on_source: adds_on_source
+topic_mastery: 0
+---
+# Typo
+`,
+      'utf8'
+    );
+    const [topic] = loadTopics(tmpVault);
+    const { areDependenciesSatisfied } = require('../src/engine/dependency');
+    const prereq = { palee_id: 'T-prereq', depends_on: [], topic_mastery: 0 };
+    const graph = new Map<string, TopicNode>([
+      [topic.palee_id, topic],
+      [prereq.palee_id, prereq],
+    ]);
+    assert.strictEqual(
+      areDependenciesSatisfied(topic, graph),
+      false,
+      'an unrecognized label must not demote a real prerequisite to advisory'
+    );
   });
 });
 

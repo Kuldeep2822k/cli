@@ -10,6 +10,8 @@
  * they can never disagree (#29).
  */
 
+import crypto from 'crypto';
+
 /** Supported note-format version for `palee_schema` (Phase 1 supports only 1). */
 export const SUPPORTED_SCHEMA_VERSION = 1;
 
@@ -52,3 +54,28 @@ function isValidTopicId(value: unknown): value is string {
 }
 
 export { isValidTopicId };
+
+/**
+ * Generates a unique topic identifier prefixed with `T-`.
+ *
+ * @returns Unique topic ID string formatted as `T-YYYYMMDD-HHMMSS-XXXXXXXX`
+ *
+ * @remarks
+ * Uses UTC date and time segments followed by 4 bytes (8 hex characters) of
+ * cryptographic randomness. Format complies with the centralized ID policy
+ * above (#29): `T-` plus lowercase kebab-case segments. (Pre-#29 format
+ * `T-20260830T120000-hex` stays valid via the legacy pattern.)
+ *
+ * @example
+ * ```typescript
+ * const topicId = generateTopicId(); // "T-20260830-120000-a1b2c3d4"
+ * ```
+ */
+export function generateTopicId(): string {
+  const now = new Date();
+  // YYYYMMDD-HHMMSS — lowercase/numeric only, matching the ID policy
+  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const time = now.toISOString().slice(11, 19).replace(/:/g, '');
+  const random = crypto.randomBytes(4).toString('hex'); // 8 hex characters (32 bits of entropy)
+  return `T-${date}-${time}-${random}`;
+}

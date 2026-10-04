@@ -1,6 +1,6 @@
 {
   "name": "@kuldeep2822k/palee",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "A smart, AI-powered study tracker that optimizes learning with spaced repetition and dependency-aware recommendations.",
   "homepage": "https://kuldeep2822k.github.io/cli/",
   "repository": {
@@ -31,7 +31,7 @@
     "test:fast": "node --import tsx --test \"test/cli-*.test.ts\" \"test/engine-*.test.ts\" \"test/fault-injection.test.ts\" \"test/property-fuzz.test.ts\" \"test/session-*.test.ts\" \"test/smoke.test.ts\" \"test/storage-*.test.ts\" \"test/stress-concurrency.test.ts\" \"test/timezone-matrix.test.ts\" \"test/types-*.test.ts\"",
     "test:e2e": "node --import tsx --test \"test/e2e/*.test.ts\"",
     "test:fuzz": "node --import tsx --test \"test/property-fuzz.test.ts\" \"test/stress-concurrency.test.ts\" \"test/challenger1-*.test.ts\"",
-    "test:coverage": "c8 npm test"
+    "test:coverage": "node --max-old-space-size=4096 ./node_modules/c8/bin/c8.js npm test"
   },
   "keywords": [
     "spaced-repetition",

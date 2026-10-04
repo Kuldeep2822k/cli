@@ -14,13 +14,167 @@ import {
   computeFingerprint,
   parseFrontmatter,
   parseRoadmapContent,
+  resolveWikilinkRoadmap,
   atomicWrite,
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
 } from '../storage';
+import { isWithinVault } from '../storage/wikilink';
 import { detectCyclesBounded } from '../engine/dependency';
-import { RoadmapOptions, TopicNode, ResolvedTopicUpdates } from '../types';
+import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
+
+/**
+ * Canonical absolute form of a roadmap-declared topic path for boundary checks.
+ *
+ * @param resolvedVault - Canonical vault root (`fs.realpathSync`ed)
+ * @param declared - The `path` as written in the roadmap (vault-relative or absolute)
+ * @returns Absolute canonical path, so it compares equal to `resolvedVault`
+ *
+ * @remarks
+ * `isWithinVault` requires both endpoints canonical, but an absolute declared
+ * path was only lexically resolved. On a machine whose temp dir passes through
+ * a symlink (macOS `/var` → `/private/var`) the lexical form never sits under
+ * the resolved vault, so every absolute declaration read as an escape. An
+ * existing file resolves directly; a note this import is about to create
+ * resolves through its nearest existing ancestor. That stays fail-closed: a
+ * symlinked ancestor pointing out of the vault still fails the check rather
+ * than slipping through.
+ */
+function canonicalDeclaredPath(resolvedVault: string, declared: string): string {
+  const absolute = path.isAbsolute(declared)
+    ? path.resolve(declared)
+    : path.resolve(resolvedVault, declared);
+  // A symlinked final component is never followed here: a symlinked target
+  // is never a note, and the importer's `lstat` guard owns that case ("not a
+  // regular file", skipping one topic). Following it would re-report it as
+  // an escape and fail validation for the whole batch instead. Only the
+  // parent chain is canonicalized, which is also what a symlinked temp root
+  // needs. Missing leaves resolve through the nearest existing ancestor, so
+  // a note this import is about to create still compares against the vault.
+  let leaf = absolute;
+  const suffix: string[] = [];
+  while (true) {
+    let stat: fs.Stats | null;
+    try {
+      stat = fs.lstatSync(leaf);
+    } catch {
+      stat = null;
+    }
+    if (stat !== null) {
+      if (stat.isSymbolicLink() && suffix.length === 0) {
+        try {
+          return path.join(fs.realpathSync(path.dirname(leaf)), path.basename(leaf));
+        } catch {
+          return absolute;
+        }
+      }
+      try {
+        const canonicalBase = fs.realpathSync(leaf);
+        return suffix.length > 0 ? path.join(canonicalBase, ...suffix) : canonicalBase;
+      } catch {
+        return absolute;
+      }
+    }
+    const parent = path.dirname(leaf);
+    if (parent === leaf) return absolute;
+    suffix.unshift(path.basename(leaf));
+    leaf = parent;
+  }
+}
+
+/** Outcome of {@link applyRoadmapAutoChain}, used for deferred logging and cycle labels. */
+interface RoadmapChainResult {
+  /** Every edge this pass synthesized, keyed `childId\u0000predecessorId` */
+  synthesizedEdges: Set<string>;
+  /** Edges dropped because they would have closed a cycle */
+  skippedEdges: { from: string; to: string }[];
+}
+
+/**
+ * Chains roadmap topics by their `order` field (#73, INV-47).
+ *
+ * @param topics - Roadmap topics, mutated in place
+ * @returns Which edges were synthesized, and which were dropped as cycle-closing
+ *
+ * @remarks
+ * Topics with an `order` sort first (ascending); topics without one keep
+ * their file order and are appended after the ordered ones. A topic with no
+ * (or an empty) `depends_on` is chained to the previous topic's ID — the
+ * chain head gets an explicit `[]`. An explicit non-empty `depends_on`
+ * always wins over the synthesized chain, and a topic whose dependencies are
+ * already final (`chained`) is left alone.
+ *
+ * A synthesized edge is dropped, with a warning, when the predecessor already
+ * reaches the topic through explicit or earlier synthesized deps: adding it
+ * would close a cycle. The chain then simply restarts at that topic, whose own
+ * `depends_on` is left exactly as authored, so an authored dependency and an
+ * ordering coincidence cannot abort the import.
+ * This reachability view covers the roadmap's own topics; a cycle that closes
+ * only once existing vault topics are merged is still caught, fail-closed, by
+ * the caller's graph validation.
+ */
+function applyRoadmapAutoChain(topics: RoadmapTopic[]): RoadmapChainResult {
+  const byId = new Map(topics.map((topic) => [topic.id, topic]));
+  const synthesizedEdges = new Set<string>();
+  const skippedEdges: { from: string; to: string }[] = [];
+
+  const indexed = topics.map((topic, index) => ({ topic, index }));
+  indexed.sort((a, b) => {
+    const orderA = a.topic.order ?? Number.POSITIVE_INFINITY;
+    const orderB = b.topic.order ?? Number.POSITIVE_INFINITY;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return a.index - b.index;
+  });
+
+  /** True when `start` already reaches `target` through dependencies assigned so far. */
+  const reaches = (start: string, target: string): boolean => {
+    const stack = [start];
+    const seen = new Set<string>();
+    while (stack.length > 0) {
+      const id = stack.pop() as string;
+      if (id === target) {
+        return true;
+      }
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      for (const dep of byId.get(id)?.depends_on ?? []) {
+        stack.push(dep);
+      }
+    }
+    return false;
+  };
+
+  indexed.forEach(({ topic }, rank) => {
+    if (topic.chained || (topic.depends_on && topic.depends_on.length > 0)) {
+      return;
+    }
+    if (rank === 0) {
+      topic.depends_on = [];
+      return;
+    }
+    const predecessorId = indexed[rank - 1].topic.id;
+    if (reaches(predecessorId, topic.id)) {
+      // Left unassigned rather than set to `[]`: skipping an edge must not
+      // also erase dependencies the note already had on disk, which an
+      // explicit empty list would do (see `resolveTopicUpdates`).
+      skippedEdges.push({ from: topic.id, to: predecessorId });
+      console.log(
+        `⚠ Warning: chain edge ${topic.id} -> ${predecessorId} skipped: would close a cycle. ` +
+          `${topic.id} starts a new chain.`
+      );
+      return;
+    }
+    topic.depends_on = [predecessorId];
+    synthesizedEdges.add(`${topic.id}\u0000${predecessorId}`);
+  });
+
+  return { synthesizedEdges, skippedEdges };
+}
 
 /**
  * Effective-input bundle for one roadmap topic, used by `resolveTopicUpdates`.
@@ -100,6 +254,44 @@ function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
 }
 
 /**
+ * Reads a vault note through a descriptor bound to the file `lstat` validated.
+ *
+ * @param targetPath - The note path the caller checked
+ * @param expected - The `lstat` result that established it as a regular file inside the vault
+ * @returns The note's text
+ * @throws Error when the path cannot be opened, or no longer holds the file that was validated
+ *
+ * @remarks
+ * Every vault check above a read is check-then-use, so a symlink planted after
+ * them is still followed and its outside content imported as the note's own
+ * text. Opening first and comparing the descriptor's identity against the
+ * earlier `lstat` closes that for the read: the bytes come from the object that
+ * was validated, and a swap underneath shows up as a different inode before
+ * anything is read.
+ *
+ * Identity comparison is the form that works everywhere this CLI ships. A
+ * no-follow open does not: `fs.constants.O_NOFOLLOW` is undefined on win32, so
+ * the open follows the link anyway. Nor does resolving a descriptor —
+ * `fs.realpathSync` reads a number as a path relative to the working directory
+ * on win32 rather than reporting the open file.
+ *
+ * A planted *hard* link stays invisible to this and to every path-based check:
+ * it is not a reference to another file but a second name for the same one.
+ */
+export function readBoundNote(targetPath: string, expected: fs.Stats): string {
+  const fd = fs.openSync(targetPath, 'r');
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
+      throw new Error(`${targetPath} changed between validation and read`);
+    }
+    return fs.readFileSync(fd, 'utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
  * CLI command handler for validating and importing learning roadmaps into the vault.
  *
  * @param options - Roadmap options including `--from` file path and `--yes` confirmation.
@@ -117,7 +309,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     if (!options.from) {
       console.error('Error: Phase 1 only supports --from <file>');
       console.error('Usage: palee roadmap --from <roadmap.yaml|roadmap.md>');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -129,20 +321,44 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!fs.existsSync(roadmapPath)) {
       console.error(`Error: Roadmap file not found: ${roadmapPath}`);
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
     const rawContent = fs.readFileSync(roadmapPath, 'utf8');
     const parseResult = parseRoadmapContent(rawContent, roadmapPath);
 
-    if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
-      console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
-      process.exitCode = 2;
-      return;
+    let roadmap: RoadmapFile;
+    if (parseResult.format === 'wikilink') {
+      // Wikilink format (#73, INV-48): resolve [[...]] chains against the vault.
+      // Ambiguous/unresolved targets fail closed here (exit 3) with zero writes.
+      try {
+        roadmap = resolveWikilinkRoadmap(vaultPath, parseResult.sections ?? []);
+      } catch (err: unknown) {
+        console.error(`Error: ${(err as Error).message}`);
+        process.exitCode = ExitCode.Validation;
+        return;
+      }
+      console.log(`Resolved ${roadmap.topics.length} wikilink topics from ${roadmapPath}`);
+    } else {
+      if (!parseResult.roadmap || !parseResult.roadmap.topics || !Array.isArray(parseResult.roadmap.topics)) {
+        console.error(`Error: ${parseResult.error || 'Roadmap must have a "topics" array'}`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+      roadmap = parseResult.roadmap;
     }
 
-    const roadmap = parseResult.roadmap;
+    // --auto-chain is scoped to YAML / frontmatter / code-block roadmaps
+    // (INV-47). The wikilink format arrives already chained per `## Track`
+    // section, so re-chaining it would fuse independent tracks.
+    // The success-tone count is logged only after graph validation passes
+    // (#73 review item 3): a chain the validator then rejected must not have
+    // announced itself as fact.
+    let chainResult: RoadmapChainResult | null = null;
+    if (options.autoChain && parseResult.format !== 'wikilink') {
+      chainResult = applyRoadmapAutoChain(roadmap.topics);
+    }
 
     const errors: string[] = [];
     const seenIds = new Set<string>();
@@ -189,17 +405,8 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       // Path boundary validation: ensure topic path does not escape vault
       if (relativePath) {
-        const absoluteTopicPath = path.isAbsolute(relativePath)
-          ? path.resolve(relativePath)
-          : path.resolve(resolvedVault, relativePath);
-        const rel = path.relative(resolvedVault, absoluteTopicPath);
-        if (
-          path.isAbsolute(rel) ||
-          rel === '..' ||
-          rel.startsWith('..' + path.sep) ||
-          rel.startsWith('../') ||
-          rel.split(path.sep).includes('..')
-        ) {
+        const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
+        if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
         }
       }
@@ -233,7 +440,21 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     const { cycles, truncated } = detectCyclesBounded(topicsMap);
     for (const cycle of cycles) {
-      errors.push(`Dependency cycle detected: ${cycle.join(' → ')}`);
+      let message = `Dependency cycle detected: ${cycle.join(' → ')}`;
+      // Name the hops the flag invented: a learner who authored one dependency
+      // should not have to deduce which edge --auto-chain added to the loop.
+      if (chainResult && chainResult.synthesizedEdges.size > 0) {
+        const ours: string[] = [];
+        for (let i = 0; i + 1 < cycle.length; i++) {
+          if (chainResult.synthesizedEdges.has(cycle[i] + '\u0000' + cycle[i + 1])) {
+            ours.push(cycle[i] + ' → ' + cycle[i + 1]);
+          }
+        }
+        if (ours.length > 0) {
+          message += ' (synthesized by --auto-chain: ' + ours.join(', ') + '; the rest are authored)';
+        }
+      }
+      errors.push(message);
     }
     if (truncated) {
       errors.push('Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist');
@@ -244,8 +465,25 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       for (const err of errors) {
         console.error(`  • ${err}`);
       }
-      process.exitCode = 3;
+      process.exitCode = ExitCode.Validation;
       return;
+    }
+
+    // Deferred to this point so a chain the validator then rejects never
+    // announces itself as fact (#73 review item 3).
+    if (chainResult) {
+      // The count is edges actually synthesized, not topics in the file: a
+      // cycle-closing edge is dropped into `skippedEdges` instead, and a topic
+      // that starts a chain received nothing at all, so reporting the topic
+      // count as "chained" overclaimed the work this pass did (INV-47).
+      console.log(
+        `Auto-chain: ${chainResult.synthesizedEdges.size} chain edge(s) synthesized across ${roadmap.topics.length} roadmap topics.`
+      );
+      if (chainResult.skippedEdges.length > 0) {
+        console.log(
+          `Auto-chain: ${chainResult.skippedEdges.length} chain edge(s) skipped to keep the graph acyclic.`
+        );
+      }
     }
 
     console.log('Roadmap validated successfully.');
@@ -277,27 +515,38 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       let updated = 0;
       let failed = 0;
       let conflicts = 0;
+      // Chain synthesis and validation both run against the *declared* topic
+      // list, so a topic whose note write fails still leaves its successors
+      // holding a `depends_on` that points at nothing — and the dependent note
+      // then disappears from `palee plan` with only a `validate` warning to say
+      // why. Track what actually landed so the batch can report its own edges.
+      /**
+       * Final writer of each note this import touched, keyed by the path resolved
+       * against the vault. Keyed on where the bytes actually landed rather than on
+       * the declared path: an absolute in-vault path, and a `n/./1.md` spelling,
+       * both write the one note the loader knows by a single relative path — and
+       * only the last id to win a path is a topic that still exists, with edges
+       * that survive on disk.
+       */
+      const finalIdByPath = new Map<string, string>();
+      const writtenEdges: { from: string; to: string }[] = [];
 
       for (const topic of roadmap.topics) {
-        const absolutePath = path.isAbsolute(topic.path) ? path.resolve(topic.path) : path.resolve(resolvedVault, topic.path);
+        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
 
-        const relative = path.relative(resolvedVault, absolutePath);
-        if (
-          path.isAbsolute(relative) ||
-          relative === '..' ||
-          relative.startsWith('..' + path.sep) ||
-          relative.startsWith('../') ||
-          relative.split(path.sep).includes('..')
-        ) {
+        if (!isWithinVault(resolvedVault, absolutePath)) {
           console.error(`Roadmap path escapes vault: ${topic.path}`);
           failed++;
           continue;
         }
-        
+
         let resolvedTargetPath: string;
 
         try {
-          const canonicalDir = ensureVaultDirectory(vaultPath, topic.path);
+          // The canonical path, not the declared spelling: under a symlinked
+          // parent the lexical form fails `ensureVaultDirectory`'s own
+          // boundary check even though validation just accepted it.
+          const canonicalDir = ensureVaultDirectory(vaultPath, absolutePath);
           resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
         } catch (e) {
           console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
@@ -311,8 +560,60 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           let isNew = false;
           let existingData: Record<string, unknown> = {};
 
-          if (fs.existsSync(resolvedTargetPath)) {
-            content = fs.readFileSync(resolvedTargetPath, 'utf8');
+          // A symlinked target is never a note, whether or not it resolves.
+          // Reading through one pulls the outside file's body into the import as
+          // if it were the existing note, and the atomic write below then
+          // replaces the link itself, so content from outside the vault lands
+          // inside it and the link is destroyed. The existence test has to be
+          // `lstat`: `existsSync` follows the link and reports false for a
+          // dangling symlink, which would let the writer replace the link
+          // unseen. A topic path can arrive as a symlink because
+          // `palee roadmap --from` is routinely pointed at cloned repos.
+          //
+          // The read that follows is bound to this stat by descriptor, so a link
+          // planted between the check and the read is detected before outside
+          // content is imported. The write is still check-then-write, but it
+          // cannot leak content either: `atomicWrite` renames a fresh file over
+          // the entry, so a planted link is replaced rather than written
+          // through. Closing that window portably is tracked in #217 — a
+          // no-follow open is not the fix, because `fs.constants.O_NOFOLLOW` is
+          // undefined on win32 and the open follows the link anyway.
+          let targetStat: fs.Stats | null;
+          try {
+            targetStat = fs.lstatSync(resolvedTargetPath);
+          } catch (statErr) {
+            if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw statErr;
+            }
+            targetStat = null;
+          }
+          if (targetStat !== null) {
+            if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
+              console.error(`Skipped ${topic.id}: ${topic.path} is not a regular file`);
+              failed++;
+              continue;
+            }
+            const relRealTarget = path.relative(resolvedVault, fs.realpathSync(resolvedTargetPath));
+            if (
+              path.isAbsolute(relRealTarget) ||
+              relRealTarget === '..' ||
+              relRealTarget.startsWith('..' + path.sep) ||
+              relRealTarget.split(path.sep).includes('..')
+            ) {
+              console.error(`Skipped ${topic.id}: ${topic.path} resolves outside the vault`);
+              failed++;
+              continue;
+            }
+          }
+
+          if (targetStat !== null) {
+            try {
+              content = readBoundNote(resolvedTargetPath, targetStat);
+            } catch (e: unknown) {
+              console.error(`Skipped ${topic.id}: ${(e as Error).message}`);
+              failed++;
+              continue;
+            }
             fingerprint = computeFingerprint(content);
             const parsed = parseFrontmatter(content);
             if (parsed.frontmatter) {
@@ -338,13 +639,34 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             if (value !== undefined) paleeData[key] = value;
           }
 
-          const updatedContent = updateFrontmatter(content, paleeData, ['dependencies']);
+          // Authorship rather than list comparison. A roadmap entry that declares
+          // prerequisites is making the learner's claim, whatever was stored
+          // before, so a leftover `toc` label would make them advisory and the
+          // gate would never bite. Comparing the written list against what the note
+          // held gets both directions wrong: an identical declaration kept a stale
+          // label, and a title-only import — whose preserved list comes back
+          // unioned with the legacy `dependencies` key — looked like a change and
+          // silently turned advisory edges back into gates, re-locking the note.
+          // An entry that omits `depends_on` preserves the note's own edges and the
+          // label recording who authored them.
+          const removals = topic.depends_on !== undefined
+            ? ['dependencies', 'depends_on_source']
+            : ['dependencies'];
+          const updatedContent = updateFrontmatter(content, paleeData, removals);
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
 
           if (isNew) {
             created++;
           } else {
             updated++;
+          }
+          finalIdByPath.set(
+            path.relative(resolvedVault, resolvedTargetPath).replace(/\\/g, '/'),
+            topic.id
+          );
+          const writtenDeps = Array.isArray(paleeData.depends_on) ? (paleeData.depends_on as unknown[]) : [];
+          for (const dep of writtenDeps) {
+            if (typeof dep === 'string') writtenEdges.push({ from: topic.id, to: dep });
           }
         } catch (err: unknown) {
           const targetPath = topic.path;
@@ -358,6 +680,38 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           failed++;
           continue;
         }
+      }
+
+      // A topic stops existing when this import writes a different id over the note
+      // it lived on, so it cannot count as a known target just because the vault
+      // scan saw it before the batch. An edge naming the superseded id is dangling,
+      // and this check exists to say so.
+      const survivingExistingIds = [...existingTopicsById.entries()]
+        .filter(([id, t]) => {
+          const finalId = finalIdByPath.get((t.path ?? '').replace(/\\/g, '/'));
+          return finalId === undefined || finalId === id;
+        })
+        .map(([id]) => id);
+      // An id that lost its note later in the same batch has no edges left on
+      // disk either — the file was rewritten under another id — so reporting its
+      // edges would name a dependency that no longer exists anywhere, and counting
+      // it as known would hide the edges pointing at it.
+      const finalWriters = new Set(finalIdByPath.values());
+      const knownIds = new Set<string>([...finalWriters, ...survivingExistingIds]);
+      const danglingEdges = writtenEdges.filter(
+        (edge) => finalWriters.has(edge.from) && !knownIds.has(edge.to)
+      );
+      if (danglingEdges.length > 0) {
+        console.error(
+          `⚠ ${danglingEdges.length} dependency edge(s) point at topics that do not exist:`
+        );
+        for (const edge of danglingEdges.slice(0, 10)) {
+          console.error(`    ${edge.from} → ${edge.to}`);
+        }
+        if (danglingEdges.length > 10) {
+          console.error(`    ... and ${danglingEdges.length - 10} more`);
+        }
+        console.error('    Those notes stay out of `palee plan` until the edge is removed or its target exists. Run palee validate.');
       }
 
       console.log();
@@ -378,7 +732,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!options.yes && !process.stdin.isTTY) {
       console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 

@@ -180,7 +180,7 @@ describe('validate command: framework wiring (#25)', () => {
     assert.strictEqual(process.exitCode, 3);
   });
 
-  test('--fix stays a non-mutating stub', async () => {
+  test('--fix is non-mutating when nothing matches its SM-2 repair scope', async () => {
     writeTopic('a.md', 'T-dup');
     writeTopic('b.md', 'T-dup');
 
@@ -189,7 +189,9 @@ describe('validate command: framework wiring (#25)', () => {
     const after = fs.readFileSync(path.join(tmpVault, 'a.md'), 'utf8');
 
     assert.strictEqual(before, after);
-    assert.match(loggedOutputs.join('\n'), /--fix is not implemented/);
+    // BUG-003: --fix is a real (scoped) repair now; findings outside its
+    // SM-2 repair scope are reported untouched with an explicit no-op note.
+    assert.match(loggedOutputs.join('\n'), /Nothing to repair/);
     assert.strictEqual(process.exitCode, 3);
   });
 

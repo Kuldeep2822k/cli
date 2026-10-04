@@ -12,7 +12,7 @@ import { walkVault, relativeVaultPath } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
 import { normalizeDependencies } from './dependencies';
-import { TopicNode, normalizeDifficulty, normalizeAssessedAt } from '../types';
+import { TopicNode, normalizeDifficulty, normalizeAssessedAt, normalizeDependsOnSource } from '../types';
 
 /** Module-level topic file cache */
 const topicCache = new FileCache<LoadedTopic>();
@@ -244,6 +244,7 @@ export function loadTopics(
       : path.basename(filePath, '.md');
 
     const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
+    const dependsOnSource = normalizeDependsOnSource(frontmatter.depends_on_source);
 
     const difficulty = normalizeDifficulty(frontmatter.difficulty);
     const topicMastery = parseScore(frontmatter.topic_mastery, 0.0);
@@ -258,6 +259,7 @@ export function loadTopics(
       frontmatter,
       difficulty,
       depends_on: dependsOn,
+      depends_on_source: dependsOnSource,
       topic_mastery: topicMastery,
       status: typeof frontmatter.status === 'string' ? frontmatter.status.trim().toLowerCase() : 'not_started',
       conceptual: parseScore(frontmatter.conceptual, 0.0),
