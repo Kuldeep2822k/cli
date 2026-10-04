@@ -704,7 +704,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
       if (ties.length > 0) {
         affected.push(
-          `${ties.length} of ${chainPlan.orderedPaths.length} planned notes have the same number or phase as the note before them, so the order between them is alphabetical`
+          `${ties.length} of ${chainPlan.orderedPaths.length} planned notes are placed after the note before them by their filename alone, so nothing in the numbering ordered them`
         );
       }
       if (chainPlan.directoryOrderAlphabetical) {

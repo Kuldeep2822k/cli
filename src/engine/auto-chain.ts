@@ -543,12 +543,14 @@ export function compareLessonOrderTier0(aBasename: string, bBasename: string): n
  * {@link compareLessonOrderTier0} falls through to comparing them by filename.
  *
  * @remarks
- * Only ranks 1 and 2 are reported. A rank-3 pair (`foo.md`, `bar.md`) is already
- * named by {@link HygieneChainPlan.alphabeticalNotes}, and rank 4 is placed last
- * by a structural rule the planner states rather than a number the learner wrote.
- * The two ranks that matter are the ones that look decided: `02-a.md` and
- * `02-b.md` both read as "the numbering chose this order", when in fact nothing
- * but the alphabet did.
+ * Every rank is reported, because the fall-through happens for every rank: two
+ * rank-4 notes (`assignment.md`, `quiz.md`) are placed by their filenames exactly
+ * as `02-a.md` and `02-b.md` are. Narrowing to ranks 1 and 2 left the pairs that
+ * look the least decided — a module's own coursework, or a `README` beside a
+ * `SUMMARY` — carrying a `numbered` label and therefore gating, while the tie
+ * warning that exists to surface them stayed silent. A rank-3 pair appears here
+ * *and* in {@link HygieneChainPlan.alphabeticalNotes}: that report describes the
+ * directory, this one names the edge.
  *
  * Exported because `palee migrate --relabel-ties` re-asks exactly this question
  * about edges written before the `tie` label existed. Restating the test inside
@@ -558,7 +560,7 @@ export function compareLessonOrderTier0(aBasename: string, bBasename: string): n
 export function tiedByName(aBasename: string, bBasename: string): boolean {
   const ra = tier0LessonRank(aBasename);
   const rb = tier0LessonRank(bBasename);
-  if (ra.rank !== rb.rank || (ra.rank !== 1 && ra.rank !== 2)) {
+  if (ra.rank !== rb.rank) {
     return false;
   }
   if (ra.rank === 1 && ra.n !== rb.n) {

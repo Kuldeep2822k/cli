@@ -867,7 +867,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.match(
       dry.stdout,
-      /1 of 2 planned notes have the same number or phase as the note before them, so the order between them is alphabetical/
+      /1 of 2 planned notes are placed after the note before them by their filename alone, so nothing in the numbering ordered them/
     );
     assert.match(dry.stdout, /e\.g\. m\/02-b\.md/);
     assert.ok(
@@ -892,6 +892,60 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       .ready_to_learn.map((t) => t.path);
     assert.ok(ready.includes('m/02-a.md'), `both notes must be offered: ${ready.join(', ')}`);
     assert.ok(ready.includes('m/02-b.md'), `both notes must be offered: ${ready.join(', ')}`);
+  });
+
+  test('coursework placed by filename is a tie too, and the lesson after it still gates', () => {
+    // `assignment` before `quiz` is decided by nothing but their names: both are
+    // rank-4 homework, so the numbering stated no order between them. The old
+    // predicate reported ties for ranks 1 and 2 only, which left this pair gated
+    // and the warning silent — a module's own quiz locked behind its own sheet.
+    // The structural edge (`assignment` after the lesson that assigns it) is a
+    // rule the planner does state, so it must keep gating: tightening the tie to
+    // every rank must not loosen that one.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-x.md': '# Lesson\n',
+      'm/assignment.md': '# Assignment\n',
+      'm/quiz.md': '# Quiz\n',
+    });
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(
+      dry.stdout,
+      /1 of 3 planned notes are placed after the note before them by their filename alone/,
+      'the homework pair must be named where 02-a/02-b already was'
+    );
+
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.match(
+      commit.stdout,
+      /2 edge\(s\) written: 1 numbered, 0 toc, 1 tie \(advisory\)/,
+      `only the homework pair joins the advisory count:\n${commit.stdout}`
+    );
+    assert.strictEqual(dependsOnSource(vaultDir, 'm/assignment.md'), 'numbered',
+      'the lesson → assignment edge is stated by a rule, not collated');
+    assert.strictEqual(dependsOnSource(vaultDir, 'm/quiz.md'), 'tie');
+
+    const planned = runCLI(['plan', '--json'], configDir);
+    assert.strictEqual(planned.status, 0, planned.stderr);
+    const ready = (JSON.parse(planned.stdout) as { ready_to_learn: { path: string }[] })
+      .ready_to_learn.map((t) => t.path);
+    assert.ok(ready.includes('m/quiz.md'), `a note nobody ordered must be offered: ${ready.join(', ')}`);
+    assert.ok(!ready.includes('m/assignment.md'), `the stated edge must still hold: ${ready.join(', ')}`);
+  });
+
+  test('two index files in one directory are placed by name, not by the numbering', () => {
+    // The same fall-through at rank 0: `README` before `SUMMARY` is alphabetical.
+    // Deleting the widened rank set from `tiedByName` labels this edge `numbered`
+    // again and the assertion below fails with `numbered`.
+    const { vaultDir, configDir } = freshVault({
+      'g/README.md': '# Index\n',
+      'g/summary.md': '# Summary\n',
+    });
+    const commit = runCLI(['adopt', '--all', '--auto-chain', '-y'], configDir);
+    assert.strictEqual(commit.status, 0, commit.stdout + commit.stderr);
+    assert.strictEqual(dependsOnSource(vaultDir, 'g/summary.md'), 'tie',
+      `an index beside an index is a name tie:\n${commit.stdout}`);
   });
 
   test('notes the enumeration placed are not reported as a name tie', () => {
