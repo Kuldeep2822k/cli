@@ -231,6 +231,73 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     );
   });
 
+  test('an entry over a note with a numeric palee_id is refused too', () => {
+    // `loadTopics` is blind to a non-string id by design (B7), so the incumbent
+    // lookup found nothing at this path and the import wrote `T-new-numeric` over
+    // a note that had declared an identity — the same silent rename the string
+    // case refuses, reached through the loader's necessary blind spot.
+    fs.writeFileSync(
+      path.join(vaultDir, 'num-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: 20240115', 'title: Numeric', 'topic_mastery: 0', '---', '', '# Numeric', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-numeric.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-new-numeric', '    title: New Numeric', '    path: num-1.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 3, `a numeric id is still a declared identity: ${output}`);
+    assert.match(output, /declares palee_id 20240115/);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'num-1.md'), 'utf8'),
+      /palee_id: 20240115/,
+      'and the note keeps what it declared'
+    );
+  });
+
+  test('a note whose frontmatter will not parse fails alone and keeps its bytes', () => {
+    // Preflight is for roadmap defects. A corrupted note is vault state the import
+    // already isolates: `updateFrontmatter` refuses to write it, so no identity is
+    // replaced — the batch loses the one topic, names it, and imports the rest.
+    // Making this a validation error would trade a named single failure for the
+    // whole batch refusing to run.
+    fs.writeFileSync(
+      path.join(vaultDir, 'unreadable-1.md'),
+      ['---', 'palee_id: T-broken', 'depends_on: [unclosed', '---', '', '# Broken', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-unreadable.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-over-broken',
+        '    title: Over Broken',
+        '    path: unreadable-1.md',
+        '  - id: T-healthy',
+        '    title: Healthy',
+        '    path: healthy-1.md',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 1, `one corrupted note must not invalidate the batch: ${output}`);
+    assert.match(output, /T-over-broken/, 'the refused topic is named');
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'unreadable-1.md'), 'utf8'),
+      /palee_id: T-broken/,
+      'the bytes nothing could read are left alone'
+    );
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'healthy-1.md'), 'utf8'),
+      /palee_id: T-healthy/,
+      'and the healthy topic still lands'
+    );
+  });
+
   test('an edge from a note the same batch later overwrote is not reported', () => {
     // Two spellings of one path — `dup.md` and `./dup.md` — resolve to the same
     // note, which the declared-path duplicate check cannot see. The first writer
