@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    # A tag was never tested cross-platform: `release.yml` runs on `v*.*.*` and
+    # its test job is ubuntu-only, so the artifact published to npm had not been
+    # run on macOS or Windows at any point before it shipped.
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches:
       - main
@@ -47,12 +52,29 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix: >-
-        ${{ fromJSON(
-        github.event_name == 'pull_request'
-        && '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"windows-latest","node-version":"24.x"}]}'
-        || '{"include":[{"os":"ubuntu-latest","node-version":"22.x"},{"os":"ubuntu-latest","node-version":"24.x"},{"os":"ubuntu-latest","node-version":"26.x"},{"os":"windows-latest","node-version":"22.x"},{"os":"windows-latest","node-version":"24.x"},{"os":"macos-latest","node-version":"22.x"},{"os":"macos-latest","node-version":"24.x"}]}'
-        ) }}
+      # One matrix for every event. It used to be a ternary on
+      # `github.event_name`: pull requests ran ubuntu 22/24 plus windows 24,
+      # while only a push to main added node 26, windows 22 and both macOS
+      # legs. So the legs that broke were the ones no PR ever ran — every one
+      # of the eight merges in `v0.5.2..v0.6.0` that left `main` red or
+      # unverified failed on macOS (heap limit, case-fold and symlink
+      # suites), and a tag push ran only `release.yml`, which is ubuntu-only.
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+          - os: ubuntu-latest
+            node-version: 24.x
+          - os: ubuntu-latest
+            node-version: 26.x
+          - os: windows-latest
+            node-version: 22.x
+          - os: windows-latest
+            node-version: 24.x
+          - os: macos-latest
+            node-version: 22.x
+          - os: macos-latest
+            node-version: 24.x
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,8 +106,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
-      matrix: >-
-        ${{ fromJSON(github.event_name == 'pull_request' && '{ "os": ["ubuntu-latest", "windows-latest"] }' || '{ "os": ["ubuntu-latest", "windows-latest", "macos-latest"] }') }}
+      # Same rule as the test matrix: the installed package is checked on every
+      # platform it ships to, on the pull request rather than after the merge.
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
