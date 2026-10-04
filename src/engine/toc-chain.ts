@@ -50,7 +50,9 @@ export type TocSkipReason =
   | 'external'
   | 'self-anchor'
   | 'malformed'
-  | 'empty';
+  | 'empty'
+  /** A bare destination carrying an unescaped space: unparseable, never truncated (issue #262) */
+  | 'unescaped-space';
 
 /** One parsed link from a TOC document. */
 export interface TocLink {
@@ -121,7 +123,7 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 2;
       continue;
     }
-    links.push(normalizeTocLink(dest.raw));
+    links.push(dest.skip ? { raw: dest.raw, destination: null, skip: dest.skip } : normalizeTocLink(dest.raw));
     i = dest.next;
   }
   return links;
@@ -149,6 +151,27 @@ interface RawDestination {
   raw: string;
   /** Index to resume scanning after the closing `)` */
   next: number;
+  /** Set when the destination text exists but cannot name a note; `raw` is the part read before it */
+  skip?: TocSkipReason;
+}
+
+/**
+ * Characters that may follow a backslash inside a bare destination.
+ *
+ * @remarks
+ * Everything else keeps its backslash as a literal path character. Collapsing
+ * `\0` to `0` turned `01-a\02-b.md` into `01-a02-b.md`, which is a real sibling
+ * note, so the chain attributed an edge to a file the author never named.
+ */
+const DEST_ESCAPES = new Set(['\\', '(', ')', '<', '>', '`', '[', ']', '#', '%', '_', '*', '-']);
+
+/** Is the text after a bare destination's first whitespace a CommonMark title? */
+function looksLikeTitle(rest: string): boolean {
+  const t = rest.trim();
+  if (t.length < 2) return false;
+  const first = t[0];
+  const last = t[t.length - 1];
+  return (first === '"' && last === '"') || (first === "'" && last === "'") || (first === '(' && last === ')');
 }
 
 /**
@@ -184,37 +207,56 @@ function readDestination(text: string, start: number): RawDestination | null {
     return null;
   }
   let out = '';
+  /** Text after the first unescaped whitespace; a CommonMark title, or a malformed destination. */
+  let afterSpace = '';
   let depth = 0;
-  /** Once whitespace is seen the destination is closed; the rest is a `"title"`. */
-  let inTitle = false;
+  let sawSpace = false;
+  const emit = (ch: string): void => {
+    if (sawSpace) afterSpace += ch;
+    else out += ch;
+  };
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
     if (ch === '\\' && i + 1 < text.length) {
-      // CommonMark allows `\)` and friends; keep the escaped char literal.
-      if (!inTitle) out += text[i + 1];
-      i++;
+      const next = text[i + 1];
+      if (DEST_ESCAPES.has(next)) {
+        // An escape sequence: the backslash is syntax, the character is data.
+        emit(next);
+        i++;
+        continue;
+      }
+      // Not escapable, so the backslash is part of the path. Deleting it merged
+      // `01-a\02-b.md` onto a real sibling `01-a02-b.md` (issue #262).
+      emit(ch);
       continue;
     }
     if (ch === '(') {
       depth++;
-      if (!inTitle) out += ch;
+      emit(ch);
       continue;
     }
     if (ch === ')') {
       if (depth > 0) {
         depth--;
-        if (!inTitle) out += ch;
+        emit(ch);
         continue;
+      }
+      if (sawSpace && !looksLikeTitle(afterSpace)) {
+        // A bare destination may not contain a space: `[a](notes/my note.md)` is
+        // not a link, and reading it as `notes/my` silently linked a different,
+        // real note. Obsidian accepts the spelling, so it must be declined, not
+        // truncated — `<angle brackets>` and `%20` are the ways to mean a space.
+        return { raw: out, next: i + 1, skip: 'unescaped-space' };
       }
       return { raw: out, next: i + 1 };
     }
-    if (!inTitle && /\s/.test(ch)) {
+    if (!sawSpace && /\s/.test(ch)) {
       // Optional `"title"` follows whitespace; keep scanning for the paren that
       // actually closes the link, since a title may carry balanced parens.
-      inTitle = true;
+      sawSpace = true;
       continue;
     }
-    if (!inTitle) out += ch;
+    emit(ch);
   }
   return null;
 }
@@ -230,7 +272,12 @@ function normalizeTocLink(raw: string): TocLink {
   }
   let decoded: string;
   try {
-    decoded = decodeURIComponent(trimmed);
+    // The fragment separator is a LITERAL `#`. Splitting before the decode is
+    // what keeps `%23` a `#` inside the path: decoding first turned
+    // `notes/c%23.md` into `notes/c#.md`, then the split cut it to `notes/c` —
+    // which resolved onto a different, real note (issue #262).
+    const hash = trimmed.indexOf('#');
+    decoded = decodeURIComponent(hash >= 0 ? trimmed.slice(0, hash) : trimmed);
   } catch {
     // Malformed `%` escape: fail closed on this link only. Note the decode
     // runs BEFORE any filesystem matching and there is no raw-form fallback,
@@ -240,12 +287,11 @@ function normalizeTocLink(raw: string): TocLink {
   if (URI_SCHEME.test(decoded)) {
     return { raw, destination: null, skip: 'external' };
   }
-  const hash = decoded.indexOf('#');
-  const destination = hash >= 0 ? decoded.slice(0, hash) : decoded;
-  if (destination.trim().length === 0) {
+  const destination = decoded.trim();
+  if (destination.length === 0) {
     return { raw, destination: null, skip: 'empty' };
   }
-  return { raw, destination: destination.trim() };
+  return { raw, destination };
 }
 
 /** Result of folding one destination against the TOC file's directory. */

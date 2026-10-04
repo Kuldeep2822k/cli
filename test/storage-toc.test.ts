@@ -175,12 +175,54 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       }
     );
 
-    it('backslashes are literal characters, never separators', () => {
-      write(vault, 'README.md', '- [w](01-a\\README.md)');
-      write(vault, '01-a/README.md');
+    it('backslashes are literal characters, never separators — and never collapse onto a sibling note', () => {
+      // The old fixture (`01-a\README.md`, whose deleted-backslash form
+      // `01-aREADME.md` named no note) asserted only the `missing` reason, so it
+      // passed whether the backslash was honoured or silently dropped — it pinned
+      // nothing. Here `01-a02-b.md` is a REAL sibling: dropping the backslash
+      // resolves onto it, authoring an edge for a note the author never named.
+      write(vault, 'README.md', '- [x](01-a\\02-b.md)');
+      write(vault, '01-a02-b.md'); // the collapse target the fix must refuse
+      write(vault, '01-a/02-b.md'); // a separator interpretation must not reach this either
       const enum_ = deriveTocEnumeration(vault);
-      assert.deepStrictEqual(enum_.documentOrder, []);
+      assert.deepStrictEqual(enum_.documentOrder, [], 'a literal backslash names no real note');
       assert.strictEqual(enum_.skipped[0].reason, 'missing');
+    });
+
+    // Issue #262 — a destination whose name carries an encoded `#` and a real
+    // decoy sharing the truncated prefix. Percent-decoding BEFORE the anchor
+    // split turned `notes/c%23.md` into `notes/c#.md`, then cut it at `#` down to
+    // `notes/c`, which resolved onto the unrelated `notes/c.md`.
+    it('#262: a %23 destination reaches the note the author named, not the truncated one', () => {
+      write(vault, 'README.md', [
+        '- [sharp](notes/c%23.md)',
+        '- [anchored](notes/c%23.md#section)',
+      ].join('\n'));
+      write(vault, 'notes/c#.md'); // the genuine note whose name carries a `#`
+      write(vault, 'notes/c.md'); // the decoy the decode-then-split resolved onto
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.documentOrder, ['notes/c#.md', 'notes/c#.md']);
+      assert.ok(!enum_.documentOrder.includes('notes/c.md'), 'the truncated wrong note must collect no edge');
+    });
+
+    // Issue #262 — a bare destination carrying an unescaped space was truncated at
+    // the space (`notes/my`), which resolved onto the real `notes/my.md`. It must
+    // instead be refused, while the documented <angle bracket> form still reaches
+    // the spaced note.
+    it('#262: a bare destination with a raw space is refused; the angle-bracket form still resolves', () => {
+      write(vault, 'README.md', [
+        '- [bare](notes/my note.md)',
+        '- [angle](<notes/my note.md>)',
+      ].join('\n'));
+      write(vault, 'notes/my.md'); // the decoy the space-truncation resolved onto
+      write(vault, 'notes/my note.md'); // the real spaced note (angle form reaches it)
+      const enum_ = deriveTocEnumeration(vault);
+      // Only the angle-bracket link enumerates; the bare link is skipped at the
+      // parser (like `malformed`, an engine skip that names no file), so the
+      // spaced note is reached exactly once and `notes/my.md` gains no edge.
+      assert.deepStrictEqual(enum_.documentOrder, ['notes/my note.md']);
+      assert.ok(!enum_.documentOrder.includes('notes/my.md'), 'the truncated wrong note must collect no edge');
+      assert.strictEqual(enum_.skipped.length, 0, 'an engine skip lives on the link, not the storage skip list');
     });
 
     it('skips missing targets and translation targets, never aborting the run', () => {

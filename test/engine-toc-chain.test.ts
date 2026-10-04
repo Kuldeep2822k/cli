@@ -146,6 +146,42 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         ['x.md', 'y.md']
       );
     });
+
+    // Issue #262 — three destination forms that, split or cleaned in the wrong
+    // order, resolved onto a DIFFERENT real note. Pinned at the engine level here
+    // and again against real decoy notes in `test/storage-toc.test.ts`.
+    it('splits the anchor before percent-decoding so %23 stays a literal # in the path', () => {
+      // The fragment separator is a LITERAL `#` in the destination; `%23` is an
+      // encoded `#` inside the path. Decoding first turned `notes/c%23.md` into
+      // `notes/c#.md`, then split it at `#` -> `notes/c` -> a different note.
+      assert.strictEqual(extractTocLinks('[sharp](notes/c%23.md)')[0].destination, 'notes/c#.md');
+      assert.strictEqual(extractTocLinks('[both](notes/c%23.md#section)')[0].destination, 'notes/c#.md');
+      // One decode pass only: `%2523` is a literal `%23` in the filename, not a `#`.
+      assert.strictEqual(extractTocLinks('[dbl](x%2523.md)')[0].destination, 'x%23.md');
+    });
+
+    it('records a bare destination with an unescaped space as unparseable, never truncated', () => {
+      // Obsidian accepts this spelling, so `notes/my` silently linked a real
+      // `notes/my.md`. CommonMark requires <angle brackets> or a %XX/backslash
+      // escape for a space in a bare destination; failing to parse it is a skip.
+      const links = extractTocLinks('[my](notes/my note.md)');
+      assert.strictEqual(links[0].destination, null);
+      assert.strictEqual(links[0].skip, 'unescaped-space');
+      // The documented supported forms must keep resolving onto the spaced note:
+      assert.strictEqual(extractTocLinks('[a](<notes/my note.md>)')[0].destination, 'notes/my note.md');
+      assert.strictEqual(extractTocLinks('[a](notes/my%20note.md)')[0].destination, 'notes/my note.md');
+      // A real `path + "title"` is still a title, not an unescaped space.
+      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
+    });
+
+    it('keeps a backslash literal unless it escapes a destination character, so it cannot collapse onto a sibling', () => {
+      // `\0` is not escapable, so deleting it produced `01-a02-b.md` — a real
+      // sibling note. Only `\(`, `\)`, `\<`, `\>`, `\\` consume the backslash.
+      assert.strictEqual(extractTocLinks('[x](01-a\\02-b.md)')[0].destination, '01-a\\02-b.md');
+      // Genuine destination escapes still work (unchanged behaviour):
+      assert.strictEqual(extractTocLinks('[a](intro\\(v2\\).md)')[0].destination, 'intro(v2).md');
+      assert.strictEqual(extractTocLinks('[a](a\\\\b.md)')[0].destination, 'a\\b.md');
+    });
   });
 
   describe('foldTocDestination', () => {
