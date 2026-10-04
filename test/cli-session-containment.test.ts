@@ -140,4 +140,43 @@ describe('palee session end containment', () => {
     assert.deepStrictEqual(fs.readdirSync(outsideDir), [], 'nothing may be filed outside the vault');
     assert.ok(fs.existsSync(path.join(vault, '.palee', 'index.md')), 'the derived views must still rebuild');
   });
+
+  test('a junctioned .palee itself creates no directory outside the vault', () => {
+    // The residual the write guard left open: `getSessionsDir` gates on
+    // `existsSync`, which follows links, so it walked *through* a junctioned
+    // `.palee` and `mkdirSync(…, { recursive: true })` created `<outside>\sessions`
+    // before `atomicWrite` ever saw a path it had to refuse. Exit 3 with a
+    // directory made outside the vault is still a planted link winning.
+    const root = fs.mkdtempSync(path.join(baseDir, 'junction-palee-'));
+    const configDir = path.join(root, 'config');
+    const vault = path.join(root, 'vault');
+    const outsidePalee = path.join(root, 'outside-palee');
+    fs.mkdirSync(configDir);
+    fs.mkdirSync(vault, { recursive: true });
+    fs.mkdirSync(outsidePalee);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ vaultPath: vault }, null, 2),
+      'utf8'
+    );
+    const paleeDir = path.join(vault, '.palee');
+    fs.symlinkSync(outsidePalee, paleeDir, LINK_TYPE);
+    createdLinks.push(paleeDir);
+
+    const result = runCLI(configDir, ['session', 'end', '--topic', 'T-264']);
+
+    assert.strictEqual(result.status, 3, `stdout: ${result.stdout} stderr: ${result.stderr}`);
+    assert.match(result.stderr, /Security error: refusing to write outside the vault/);
+    assert.ok(
+      result.stderr.includes(paleeDir),
+      `the refusal must name the .palee tree it refused: ${result.stderr}`
+    );
+    assert.doesNotMatch(result.stdout, /Session recorded/, 'the success line must not be printed');
+    assert.deepStrictEqual(
+      fs.readdirSync(outsidePalee),
+      [],
+      'the refusal must create nothing outside the vault, not even .palee/sessions'
+    );
+    assert.deepStrictEqual(fs.readdirSync(vault), ['.palee'], 'the vault gains no directory either');
+  });
 });

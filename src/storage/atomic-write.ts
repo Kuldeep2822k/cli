@@ -79,7 +79,10 @@ export function isConflictError(e: unknown): boolean {
  * Atomically writes content to a target file within a vault with OCC verification and lock synchronization.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
- * @param targetPath - Absolute path of destination file
+ * @param targetPath - Path of the destination file. Absolute, as every in-repo
+ * caller passes it; a relative path is resolved against `vaultPath` — the same
+ * resolution the containment guard applies — and the resolved path is what gets
+ * written, so the guard can never certify a file other than the one written
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
  * @returns Promise that resolves once data is fsync-flushed and renamed
@@ -89,7 +92,7 @@ export function isConflictError(e: unknown): boolean {
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
- * 1. Asserts the resolved destination is still inside the vault (#264).
+ * 1. Asserts the resolved destination is still inside the vault (#264) and adopts that resolved path.
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
  * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
@@ -104,6 +107,14 @@ export function isConflictError(e: unknown): boolean {
  * `validate` never noticed. It belongs here, in the one primitive every vault
  * write goes through, so the roadmap / adopt / migrate / review / session paths
  * inherit it instead of each re-implementing it badly.
+ *
+ * It is the write path's last line, not its only one: the `.palee` tree is asserted
+ * where it is created (`getPaleeDir`/`getSessionsDir` in `src/storage/memory.ts`,
+ * `getLockDir` in `src/storage/lock.ts`), because a refusal raised only at the note
+ * would still have let `mkdirSync` make a directory outside the vault on the way
+ * there. Every site runs the same `assertContainedInVault` → `isWithinVault`
+ * predicate, so notes, directories and locks share one refusal surface —
+ * `ECONTAINMENT` and exit 3 — instead of three that can disagree.
  *
  * @example
  * ```typescript
@@ -125,9 +136,18 @@ async function atomicWrite(
   // is constructed: `getLockDir` creates `.palee/locks` the moment it runs, so a
   // refusal raised after acquisition would still have left lock metadata behind
   // for a destination it had just rejected.
-  assertContainedInVault(vaultPath, targetPath);
+  //
+  // The canonical path it returns is then used for *every* filesystem operation
+  // below (#264 residual). The guard resolves a relative destination against the
+  // vault root; `targetPath` passed verbatim to `fs` reaches the filesystem
+  // relative to the process cwd, so certifying one spelling and writing another
+  // could put bytes somewhere the guard never looked. Resolving once keeps the
+  // certified path and the written path identical by construction — which is also
+  // what makes the guard's own answer meaningful — and it leaves every absolute
+  // caller (all of them today) writing the same file it always wrote.
+  const resolvedTarget = assertContainedInVault(vaultPath, targetPath);
 
-  const lock = new Lock(vaultPath, targetPath);
+  const lock = new Lock(vaultPath, resolvedTarget);
 
   let lockAcquired = false;
   try {
@@ -136,19 +156,19 @@ async function atomicWrite(
 
     // OCC: Check fingerprint against disk state
     if (expectedFingerprint !== null) {
-      if (!fs.existsSync(targetPath)) {
-        const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist (was deleted or missing)`) as NodeError;
+      if (!fs.existsSync(resolvedTarget)) {
+        const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist (was deleted or missing)`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;
       }
 
       let currentContent: string;
       try {
-        currentContent = fs.readFileSync(targetPath, 'utf8');
+        currentContent = fs.readFileSync(resolvedTarget, 'utf8');
       } catch (e: unknown) {
         const readErr = e as NodeError;
         if (readErr.code === 'ENOENT') {
-          const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist`) as NodeError;
+          const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist`) as NodeError;
           conflictErr.code = 'ECONFLICT';
           throw conflictErr;
         }
@@ -157,13 +177,13 @@ async function atomicWrite(
 
       const currentFingerprint = computeFingerprint(currentContent);
       if (currentFingerprint !== expectedFingerprint) {
-        const conflictErr = new Error(`OCC conflict: ${targetPath} was modified by another process`) as NodeError;
+        const conflictErr = new Error(`OCC conflict: ${resolvedTarget} was modified by another process`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;
       }
     }
 
-    const tempPath = `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+    const tempPath = `${resolvedTarget}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {
@@ -178,7 +198,7 @@ async function atomicWrite(
           }
         }
 
-        fs.renameSync(tempPath, targetPath);
+        fs.renameSync(tempPath, resolvedTarget);
         break;
       } catch (e: unknown) {
         const err = e as NodeError;

@@ -115,18 +115,43 @@ function canonicalExistingPrefix(absolute: string): string {
  *
  * @param vaultPath - Vault root as the caller has it (absolute or relative, and
  * itself possibly reached through a link)
- * @param destinationPath - Path of the file or directory about to be written
- * @returns The canonical destination path, for callers that want to report it
+ * @param destinationPath - Path of the file or directory about to be written. A
+ * relative path is resolved against the vault root, so a caller that goes on to
+ * hand its own argument to `fs` must pass an absolute one — or use the returned
+ * path, which is what `atomicWrite` does (#264)
+ * @returns The canonical destination path, for callers that want to write or
+ * report exactly the path that was certified
  * @throws {NodeError} With code `ECONTAINMENT` when the resolved destination
  * lies outside the canonical vault root
  *
  * @remarks
+ * Guards directories as well as notes, and before they exist: besides the
+ * `atomicWrite` destination it runs on the `.palee` tree at the sites that create
+ * it — `getPaleeDir` and `getSessionsDir` (`src/storage/memory.ts`), `getLockDir`
+ * (`src/storage/lock.ts`). Those sites gate on `fs.existsSync`, which follows
+ * links, so a junctioned `.palee` let `mkdirSync(…, { recursive: true })` make a
+ * real directory outside the vault *before* any write was refused. Asserting the
+ * tree is the half of #264 that the write guard could not cover, and it is the
+ * same refusal: a planted link that would put a directory outside the vault is the
+ * identical vault-integrity defect as one that would put a note there, so it gets
+ * the same code, the same message and the same exit 3 rather than a second error
+ * kind for callers to forget.
+ *
  * Both endpoints are canonicalised *before* the comparison, which is what closes
  * the two ways a lexical check can be wrong in opposite directions: a
  * `/vault/../vault/note.md` spelling that genuinely resolves inside (a prefix
  * check on the raw string would refuse it), and a `/vault/../../outside/note.md`
  * spelling whose string still starts with the vault root (a prefix check would
  * accept it).
+ *
+ * One state stays visible rather than refused, and is worth naming: a link whose
+ * target does not exist yet cannot be resolved — `fs.realpathSync` fails with
+ * `ENOENT`, the walk-up reads the linked component as merely missing, and the path
+ * canonicalises to itself inside the vault. Nothing is created outside in that
+ * state either: `mkdirSync` through a dangling link fails (`ENOENT` on a Windows
+ * junction) rather than materialising the target, so the tree sites surface a
+ * filesystem error, not a vault escape. This guard refuses a link that *resolves*
+ * out of the vault.
  *
  * The vault root is resolved first and separately, so a root that is *itself* a
  * symlink — a user pointing `vaultPath` at a link, or a macOS temp dir behind
