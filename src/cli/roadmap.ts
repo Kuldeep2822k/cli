@@ -201,6 +201,38 @@ type RoadmapTopicAlias = import('../types').RoadmapTopic;
 type LoadedTopicAlias = { id: string; depends_on?: string[] };
 
 /**
+ * The `palee_id` a note declares on disk, read without the loader's filters.
+ *
+ * @param absolutePath - Canonical path of the note a roadmap entry targets
+ * @returns `absent` when nothing declares an identity, `unreadable` when the
+ * frontmatter block will not parse, or the value exactly as stored
+ *
+ * @remarks
+ * `loadTopics` requires a non-empty string `palee_id` by design (B7), so a note
+ * whose id YAML read as a number leaves no incumbent in that scan — and an import
+ * keyed on the scan would overwrite a declared identity anyway, the same silent
+ * rename the wikilink path refuses. The note has to be asked directly.
+ */
+function declaredIdOfNote(absolutePath: string):
+  { kind: 'absent' } | { kind: 'unreadable'; reason: string } | { kind: 'declared'; raw: unknown } {
+  let content: string;
+  try {
+    content = fs.readFileSync(absolutePath, 'utf8');
+  } catch {
+    return { kind: 'absent' }; // no note yet: this entry adopts rather than overwrites
+  }
+  const { frontmatter, error } = parseFrontmatter(content);
+  if (error !== undefined) {
+    return { kind: 'unreadable', reason: error };
+  }
+  const raw = frontmatter?.palee_id;
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
+    return { kind: 'absent' };
+  }
+  return { kind: 'declared', raw };
+}
+
+/**
  * Single derivation of the effective frontmatter values a roadmap import
  * writes for one topic (#139).
  *
@@ -442,6 +474,23 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
                 `Importing would retire "${incumbent.id}" and orphan every edge that names it. ` +
                 `Give this entry the id the note already carries, or point it at a new path.`
             );
+          } else if (!incumbent) {
+            // No incumbent is not the same as no identity: the loader is blind to a
+            // `palee_id` that is not a usable string, so a note declaring
+            // `palee_id: 20240115` looked unadopted here and the import wrote over
+            // it anyway. Ask the note. A block that will not parse is deliberately
+            // not refused: its write throws in `updateFrontmatter`, the topic is
+            // isolated and named, the bytes are untouched, and pre-invalidating the
+            // whole batch would cost the vault the import resilience it documents.
+            const declared = declaredIdOfNote(absoluteTopicPath);
+            if (declared.kind === 'declared' && String(declared.raw).trim() !== id) {
+              errors.push(
+                `Topic "${id}" targets ${relativePath}, which declares palee_id ` +
+                  `${JSON.stringify(declared.raw)} — a declared identity this entry does not carry. ` +
+                  `Give the entry the id the note declares, or correct the note to "${id}"; ` +
+                  'importing over a declared identity replaces it silently.'
+              );
+            }
           }
         }
       }

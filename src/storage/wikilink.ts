@@ -408,7 +408,15 @@ export function resolveWikilinkRoadmap(
           );
         }
         const declaredId = frontmatter?.palee_id;
-        if (declaredId === undefined || declaredId === null || String(declaredId).trim() === '') {
+        // A blank *string* declares nothing, so minting is correct. An empty list
+        // or map is a declared value that happens to be unusable: `String([])` is
+        // the empty string, and folding it into the mint branch would hand the
+        // same silent rename the rest of this block exists to refuse.
+        if (
+          declaredId === undefined
+          || declaredId === null
+          || (typeof declaredId === 'string' && declaredId.trim() === '')
+        ) {
           id = generateTopicId();
         } else if (typeof declaredId === 'string') {
           id = declaredId.trim();

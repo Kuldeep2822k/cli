@@ -597,6 +597,25 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       }
     });
 
+    it('refuses to mint an id over a note whose palee_id is an empty list', () => {
+      // `String([])` is the empty string, so a value-check written as
+      // `String(declared).trim() === ''` read this as "no id declared" and minted
+      // one — the same silent rename the branch above exists to refuse.
+      const listy = path.join(vaultPath, 'list-id.md');
+      fs.writeFileSync(listy, '---\npalee_id: []\npalee_schema: 1\ntitle: List\n---\n# List\n');
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[list-id]]')] },
+            ]),
+          /list-id\.md declares a palee_id that is not a usable topic ID \(\[\]\)/
+        );
+      } finally {
+        fs.rmSync(listy, { force: true });
+      }
+    });
+
     // `fs.realpathSync` performs no case conversion on a case-insensitive
     // volume, so `[[adopted]]` written in another casing resolved to the *same
     // file* under a different string. Every caller keys notes by that string,

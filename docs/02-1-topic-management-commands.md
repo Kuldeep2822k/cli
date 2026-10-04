@@ -61,7 +61,7 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | :--- | :--- | :--- | :--- | :--- |
 | `[path]` | `string` | `undefined` | Path to a single `.md` file or directory relative to the vault root. | `palee adopt "DSA/Trees.md"` |
 | `--all` | `boolean` | `false` | Scan and adopt all untracked Markdown files across the entire vault. | `palee adopt --all` |
-| `--difficulty <level>` | `string` | the note's own `difficulty`, else `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1-2` $\to$ beginner, `3` $\to$ intermediate, `4-5` $\to$ advanced). Absent, a hand-authored `difficulty` on the note is preserved. | `--difficulty advanced` |
+| `--difficulty <level>` | `string` | the note's own `difficulty`, else `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1` $\to$ beginner, `2-3` $\to$ intermediate, `4-5` $\to$ advanced). Absent, a hand-authored `difficulty` on the note is preserved. | `--difficulty advanced` |
 | `--depends-on <ids>` | `string` | `""` | Comma-separated list of prerequisite topic IDs (available in single-file mode only). | `--depends-on "T-01-basics,T-02-memory"` |
 | `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. | `--include "0[1-4]-*,lab-*,deep-dive*"` |
 | `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. | `--exclude "*template*,*rubric*,*draft*"` |

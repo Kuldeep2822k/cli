@@ -146,6 +146,29 @@ function carriedPillarScores(frontmatter: Record<string, unknown> | null | undef
 }
 
 /**
+ * True when a note opens a frontmatter block and never closes it.
+ *
+ * @param content - The note's text
+ * @returns `true` for a leading `---` line with no closing delimiter anywhere
+ *
+ * @remarks
+ * `parseFrontmatter` reports this shape as "no frontmatter" and no error, because
+ * the same bytes can be an ordinary Markdown thematic break — and a *closed*
+ * block holding a scalar stays exactly that, adoptable. An unterminated opener
+ * is different: any `palee_id` written under it is invisible to the parser, so
+ * adopting the note would prepend a fresh block with a minted id and strand the
+ * learner's own in the body, which is the identity loss adoption exists to avoid.
+ */
+function hasUnclosedFrontmatterOpener(content: string): boolean {
+  const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== '---') {
+    return false;
+  }
+  return !lines.slice(1).some((line) => line.trim() === '---');
+}
+
+/**
  * CLI command handler for adopting existing Markdown notes as PALEE topics.
  *
  * @param targetPath - Optional relative or absolute path to note file or directory
@@ -265,7 +288,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       const content = fs.readFileSync(absolutePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
+      const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+
+      // Refuse to write over a note whose frontmatter cannot be read: both
+      // malformations can carry a `palee_id` the parser never reached, and
+      // `updateFrontmatter` would either throw mid-batch or prepend a minted id
+      // over the learner's own.
+      if (frontmatterError !== undefined) {
+        console.error(`Error: ${targetPath} has malformed frontmatter (${frontmatterError}); nothing was adopted.`);
+        process.exitCode = 2;
+        return;
+      }
+      if (hasUnclosedFrontmatterOpener(content)) {
+        console.error(`Error: ${targetPath} opens a frontmatter block but never closes it; nothing was adopted.`);
+        process.exitCode = 2;
+        return;
+      }
 
       if (frontmatter && frontmatter.palee_id) {
         console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
@@ -424,6 +462,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // skip it, adopt the rest.
       if (frontmatterError !== undefined) {
         skippedUnreadable.set(relPath, frontmatterError);
+        continue;
+      }
+
+      // The other way to hide a declared id from the parser: an opener with no
+      // closing fence yields no frontmatter and no error, so the note entered the
+      // batch and the commit prepended a fresh block with a minted id, stranding
+      // the learner's own in the body.
+      if (hasUnclosedFrontmatterOpener(content)) {
+        skippedUnreadable.set(relPath, 'the frontmatter block is never closed');
         continue;
       }
 
