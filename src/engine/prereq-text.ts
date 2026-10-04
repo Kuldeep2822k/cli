@@ -123,10 +123,12 @@ export type DeclaredPrereqCue = 'negation' | 'reversal' | 'disjunction';
 
 /**
  * A verbal negation: `not`, `n't`, `no longer`, `never`, `cannot`, `neither`,
- * `nor`, `without`. Reused verbatim from the screen #232 grew for its prose
- * branch, and retired with that branch when sentences stopped being an edge
- * source. The wording is what matters: two ideas of what a negation reads like
- * is how one of them gets fixed and the other keeps gating.
+ * `nor`, `without`. This is #232's screen, copied rather than re-derived. It no
+ * longer exists anywhere in `src/` — #232 grew it for the prose branch and
+ * retired it when sentences stopped being an edge source — so it was recovered
+ * from that commit's parent and raised back into the section branch. The
+ * wording is the reason: two ideas of what a negation reads like is how one of
+ * them gets fixed and the other keeps gating.
  */
 const VERBAL_NEGATION = /\b(?:no\s+longer|not|never|cannot|neither|nor|without)\b|n['’]t\b/i;
 
