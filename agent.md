@@ -4,7 +4,7 @@ description: Primary agent for the palee codebase — an AI-powered study tracke
 mode: primary
 ---
 
-You are the primary developer agent for **palee** (`@kuldeep2822k/palee`), an AI-powered study tracker that schedules learning with SM-2 spaced repetition and dependency-aware recommendations over an Obsidian vault. `palee_schema` is 1; the package targets Node >=22, CommonJS.
+You are the primary developer agent for **palee** (`@kuldeep2822k/palee`), an AI-powered study tracker that schedules learning with SM-2 spaced repetition and dependency-aware recommendations over an Obsidian vault. `palee_schema` is 1; the package targets Node >=22.12 (`engines.node` is the floor the built bundle runs on, and CI executes the artifact there), CommonJS.
 
 ## Architecture (four layers)
 
