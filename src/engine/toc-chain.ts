@@ -91,6 +91,8 @@ export function extractTocLinks(text: string): TocLink[] {
   let i = 0;
   /** Built the first time a label fails to close; see {@link BracketBalance}. */
   let balance: BracketBalance | null = null;
+  /** Built the first time a destination fails to close; the same table over `(`/`)`. */
+  let destBalance: BracketBalance | null = null;
   while (i < scanned.length) {
     const open = scanned.indexOf('[', i);
     if (open < 0) break;
@@ -123,7 +125,7 @@ export function extractTocLinks(text: string): TocLink[] {
       // `[` back on the full-walk path. Issue #263 measured that at 64 s for
       // 160 KB of brackets, through the real `deriveTocEnumeration` API, where
       // one such file stalls `adopt --auto-chain` for the whole vault.
-      balance ??= buildBracketBalance(scanned);
+      balance ??= buildBracketBalance(scanned, '[', ']');
       i = open + 1;
       continue;
     }
@@ -132,13 +134,28 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 1;
       continue;
     }
-    // Same bail for the destination: `readDestination` scans forward until the
-    // `(` balances, so one unclosed `(` made every later link pay for a full
-    // text scan.
-    if (scanned.indexOf(')', close + 2) < 0) break;
-    const dest = readDestination(scanned, close + 2);
+    // Destination bails, the counterparts of the label pair above. The break
+    // handles the document that holds no `)` at all from here on; the table handles
+    // the one that holds plenty of them but never one at the depth this link's own
+    // `(` left behind.
+    const destStart = close + 2;
+    if (scanned.indexOf(')', destStart) < 0) break;
+    if (destBalance !== null && destinationCannotClose(destBalance, scanned, destStart)) {
+      // Answered from the one paren-balance pass instead of another walk, exactly
+      // as the label case above.
+      i = destStart;
+      continue;
+    }
+    const dest = readDestination(scanned, destStart);
     if (!dest) {
-      i = close + 2;
+      // The destination counterpart of the label defect: a document whose
+      // destinations never balance — `[a](b(c) ` repeated, where every `)` is
+      // consumed at depth > 0 so the depth-0 closer the walk is looking for never
+      // appears — made every remaining `[` pay one full `readDestination` walk to
+      // end-of-text. Measured on this branch: 90 KB 1.4 s, 360 KB 20 s, 720 KB 79 s,
+      // and the `TOC_MAX_SOURCE_BYTES` guard only caps one file at ~40 s.
+      destBalance ??= buildBracketBalance(scanned, '(', ')');
+      i = destStart;
       continue;
     }
     links.push(normalizeTocLink(dest.raw));
@@ -171,32 +188,39 @@ function findLabelEnd(text: string, open: number): number {
 }
 
 /**
- * The bracket balance of a document, read once, answering "can this label still
- * close?" in constant time.
+ * The balance of one delimiter pair, read once, answering "can a scan starting
+ * here still find its closer?" in constant time.
  *
  * @remarks
- * Every scan {@link findLabelEnd} runs starts at a `[`, and a `[` cannot be part
- * of a backslash run — so the escape pairing from `open + 1` onward is fixed by
- * the text alone, and the depth of the scan from `open` at any later position
- * `j` is `1 + after[j] - after[open]`. A label therefore closes exactly where
- * `after` first comes back down to `after[open] - 1`, and it never closes when
- * no later position goes below `after[open]` — which is the question
- * {@link labelCannotClose} asks, without walking. An escaped `[` follows the
- * same rule: the pass that escaped it did not count the bracket, and a scan
- * starting there still opens at depth 1, which is what `after[open]` holds.
+ * Both uses below start their scan at a position that cannot be part of a
+ * backslash run — a `[`, and the character right after an unescaped `(` — so the
+ * escape pairing from the scan's start onward is fixed by the text alone, and the
+ * depth of a scan begun at `start` at any later position `j` is `after[j] -
+ * after[start - 1]` (for a label, `1 + after[j] - after[open]`, since its own `[`
+ * counts). A scan therefore closes exactly where `after` first comes back down to
+ * the value it started from, and it never closes when no later position goes below
+ * that — which is the question the two predicates ask, without walking. An escaped
+ * delimiter follows the same rule: the pass that escaped it did not count it, and a
+ * scan starting there still opens at depth 1, which is what the table holds.
  *
- * Only the failing case is worth a table: a scan that finds its `]` moves the
+ * Only the failing case is worth a table: a scan that finds its closer moves the
  * loop past it, so successful walks already cost `O(text)` in total.
  */
 interface BracketBalance {
-  /** Balance just after each position — `[` +1, `]` -1, a backslash and its escapee both 0 */
+  /** Balance just after each position — open delimiter +1, close delimiter -1, a backslash and its escapee both 0 */
   after: Int32Array;
   /** Lowest balance at any position at or after each index; the last entry is the empty-suffix sentinel */
   minFrom: Int32Array;
 }
 
-/** One forward pass and one backward pass over `text`; paid for at most once per scan. */
-function buildBracketBalance(text: string): BracketBalance {
+/**
+ * One forward pass and one backward pass over `text`; paid for at most once per
+ * scan and per delimiter pair.
+ *
+ * @param openCh - The delimiter that raises the depth
+ * @param closeCh - The delimiter that lowers it, and that a failing scan is looking for
+ */
+function buildBracketBalance(text: string, openCh: string, closeCh: string): BracketBalance {
   const length = text.length;
   const after = new Int32Array(length);
   const minFrom = new Int32Array(length + 1);
@@ -214,8 +238,8 @@ function buildBracketBalance(text: string): BracketBalance {
       }
       continue;
     }
-    if (ch === '[') bal++;
-    else if (ch === ']') bal--;
+    if (ch === openCh) bal++;
+    else if (ch === closeCh) bal--;
     after[i] = bal;
     i++;
   }
@@ -235,6 +259,29 @@ function buildBracketBalance(text: string): BracketBalance {
 /** True when {@link findLabelEnd} would walk this label to end-of-text and return `-1`. */
 function labelCannotClose(balance: BracketBalance, open: number): boolean {
   return balance.minFrom[open + 1] >= balance.after[open];
+}
+
+/**
+ * True when the bare branch of {@link readDestination} would walk this destination
+ * to end-of-text and return `null`.
+ *
+ * @param balance - The `(`/`)` table for the same document
+ * @param text - The document, needed only for the form check below
+ * @param start - Index just after the link's own `(`, which the walk does not count:
+ * it returns at the first `)` taking it below the balance that `(` left, so it
+ * never returns exactly when no later position goes below `after[start - 1]`
+ *
+ * @remarks
+ * The `<angle bracket>` branch closes on a `>` plus a plain `)`, so paren depth
+ * answers nothing about it and it is left to the walk (and to the `)` bail in
+ * {@link extractTocLinks}, which bounds the documents that have no `)` at all).
+ * If `readDestination`'s bare branch ever stops requiring a depth-0 `)`, this
+ * predicate has to change with it — it is a claim about that function, not a
+ * property of the text.
+ */
+function destinationCannotClose(balance: BracketBalance, text: string, start: number): boolean {
+  if (text[start] === '<') return false;
+  return balance.minFrom[start] >= balance.after[start - 1];
 }
 
 interface RawDestination {

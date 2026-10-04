@@ -124,6 +124,40 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       }
     });
 
+    // Issue #263's sibling: the destination scan is the same shape one function
+    // over. `readDestination` walks forward until the paren balances and returns
+    // `null` only at end-of-text, so a document whose destinations never balance —
+    // `[a](b(c) ` repeated, where every `)` is consumed at depth > 0 so a depth-0
+    // closer never exists — puts every remaining `[` on a full walk of the rest of
+    // the file. Measured on the branch that fixed only the label scan: 90 KB 1.4 s,
+    // 180 KB 5.8 s, 360 KB 20 s, 720 KB 79 s. `TOC_MAX_SOURCE_BYTES` caps a
+    // document at 512 KiB, which still leaves ~40 s for one pathological README and
+    // an unbounded aggregate over a vault, because `deriveTocEnumeration` reads
+    // every one of them. Bound chosen the same way as the label case above: ~8x
+    // under the defect at this size, ~1000x over the linearised scan.
+    it('does not rescan every destination when none of them balances', () => {
+      const junk = '[a](b(c) '.repeat(40000);
+      for (const [label, text] of [
+        ['run of unbalanced destinations', junk],
+        ['real links on both sides of the junk', `[L](d/l.md)\n${junk}\n[ok](b.md)`],
+      ] as const) {
+        const started = performance.now();
+        const targets = extractTocLinks(text)
+          .map((l) => l.destination)
+          .filter((d): d is string => d !== null);
+        const elapsed = performance.now() - started;
+        assert.ok(
+          elapsed < 250,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — a destination scan is being repeated`
+        );
+        if (label === 'run of unbalanced destinations') {
+          assert.deepStrictEqual(targets, [], 'a run of unbalanced destinations enumerates nothing');
+        } else {
+          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
+        }
+      }
+    });
+
     // The lineariser answers "can this label still close?" from one balance
     // pass instead of a walk per `[`, so the shapes that could fool such a
     // shortcut are pinned by output rather than by a clock. The first three are
@@ -142,6 +176,33 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.deepStrictEqual(
         destinations(`[first](a.md)\n${'['.repeat(5000)}]\n[last](z.md)`),
         ['a.md', 'z.md']
+      );
+    });
+
+    // The destination lineariser answers "can this paren still balance?" from one
+    // pass too, so the shapes that could fool such a shortcut are pinned by output
+    // rather than by a clock. An escaped paren must not count toward the depth, a
+    // `"title"` must not stop it from tracking, and the `<angle bracket>` form must
+    // keep its own rules: that branch closes on a `>` plus a plain `)`, so paren
+    // depth answers nothing about it and the balance may never be consulted for it.
+    it('answers destination closure from the parens the scanner actually sees', () => {
+      const destinations = (text: string): (string | null)[] =>
+        extractTocLinks(text).map((l) => l.destination);
+      assert.deepStrictEqual(destinations('[a](b(c) d.md)'), ['b(c)']);
+      assert.deepStrictEqual(destinations('[a](b\\)c)'), ['b)c']);
+      assert.deepStrictEqual(destinations('[a](b\\(c) [d](e.md)'), ['b(c', 'e.md']);
+      assert.deepStrictEqual(destinations('[a](b(c)'), []);
+      assert.deepStrictEqual(destinations('[a](b(c) [d](e.md)'), ['e.md']);
+      assert.deepStrictEqual(destinations('[a](b(c) [d](e(f) [g](h.md)'), ['h.md']);
+      assert.deepStrictEqual(destinations('[a](<b(c) [d](e.md)'), ['e.md']);
+      assert.deepStrictEqual(destinations('[a](<b) [d](e.md)'), ['e.md']);
+      assert.deepStrictEqual(destinations('[a](<x> [b](c)'), ['x']);
+      assert.deepStrictEqual(destinations('[a](f.md "t(1) x") [b](g.md)'), ['f.md', 'g.md']);
+      assert.deepStrictEqual(destinations('[a](f.md "t(1) [b](g.md)'), ['g.md']);
+      assert.deepStrictEqual(destinations(`${'[a](b(c) '.repeat(50)}[z](last.md)`), ['last.md']);
+      assert.deepStrictEqual(
+        destinations(`- [A](a.md)\n${'[x](y(z) '.repeat(4000)}\n- [C](c.md)`),
+        ['a.md', 'c.md']
       );
     });
 
