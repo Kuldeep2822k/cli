@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A tie is a tie at every rank** ([#255](https://github.com/Kuldeep2822k/cli/issues/255)): `assignment`/`quiz` and `README`/`SUMMARY` pairs in a numbered directory were ordered by their filenames alone yet labelled `numbered`, so they gated and the alphabetical-order warning stayed silent. `tiedByName` now reports what its own docstring said — every pair the comparator resolves by collation — so those edges are advisory `tie`, the warning counts them, and `palee migrate --relabel-ties` can retire the ones v0.6.0 already wrote.
-- **`palee adopt <note> --dry-run` previews instead of adopting** ([#257](https://github.com/Kuldeep2822k/cli/issues/257)): the single-file branch had no dry-run guard, so the command a user runs before trusting it minted a `palee_id`, rewrote the note's frontmatter and dropped a hand-authored `depends_on`.
+- **`palee migrate --relabel-ties` demotes only edges the chain could have written** ([#251](https://github.com/Kuldeep2822k/cli/issues/251)): a stored `numbered` edge that steps over a same-rank sibling still in the directory keeps gating, while the nearest *surviving* sibling still demotes — so deleting the middle note never strands the vault behind a false gate.
 
 ## [0.6.0] - 2026-10-01
 
