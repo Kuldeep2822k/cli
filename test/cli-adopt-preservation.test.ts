@@ -61,6 +61,51 @@ describe('adoption preserves what the note already declares', () => {
     }
   });
 
+  test('an unterminated frontmatter opener is skipped by name, not adopted over', () => {
+    // A leading `---` with no closing fence parses as "no frontmatter" and no
+    // error, so this note entered the batch and the commit prepended a fresh
+    // block with a minted id — stranding `palee_id: T-mine-2` in the body while
+    // every edge that named it pointed at a note that no longer answered to it.
+    const sibling = writeNote('well.md', '---\ntitle: Well\n---\n# Well\n');
+    const stranded = writeNote(
+      'stranded.md',
+      '---\npalee_id: T-mine-2\ndifficulty: beginner\ntitle: Stranded\n\n# Stranded body\n'
+    );
+    const before = fs.readFileSync(path.join(vaultDir, stranded), 'utf8');
+
+    const result = runCLI(['adopt', '--all', '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 0, `one unfinished note must not fail the run: ${output}`);
+    assert.match(output, /stranded\.md/, 'the note is named');
+    assert.match(output, /never closed/, 'and the reason stated');
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, stranded), 'utf8'), before,
+      'its bytes, including the id inside them, are untouched');
+    assert.match(fs.readFileSync(path.join(vaultDir, sibling), 'utf8'), /palee_id: T-/,
+      'the healthy note is still adopted');
+  });
+
+  test('a closed thematic break is still an ordinary note and adopts', () => {
+    // The refusal above must not swallow the shape `parseFrontmatter` already
+    // rules out on purpose: `---` / scalar / `---` is a Markdown thematic break,
+    // not frontmatter, and adopting it is correct.
+    const note = writeNote('rules.md', '---\nIntro prose\n---\n\n# Rules\n');
+
+    const result = runCLI(['adopt', note, '--yes']);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(fs.readFileSync(path.join(vaultDir, note), 'utf8'), /palee_id: T-/);
+  });
+
+  test('a single note with an unterminated opener is refused and left alone', () => {
+    const note = writeNote('half.md', '---\npalee_id: T-mine-3\ntitle: Half\n\n# Half\n');
+    const before = fs.readFileSync(path.join(vaultDir, note), 'utf8');
+
+    const result = runCLI(['adopt', note, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 2, `an unreadable note must be refused: ${output}`);
+    assert.match(output, /half\.md opens a frontmatter block but never closes it/);
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, note), 'utf8'), before);
+  });
+
   test('one unreadable note is skipped by name instead of ending the batch', () => {
     // `updateFrontmatter` rejects a note whose YAML will not parse, and the batch
     // had no per-note guard ahead of it: one bad note threw out of Phase 1, the
@@ -141,6 +186,11 @@ describe('adoption preserves what the note already declares', () => {
     assert.match(written, /topic_mastery: 0\.68/, 'the stored score is preserved');
 
     const validate = runCLI(['validate', '--json']);
+    // Parse first: an assertion against an empty stdout passes for the wrong
+    // reason, which is exactly the vacuous check this suite is supposed to be.
+    const report = JSON.parse(validate.stdout) as { valid?: boolean };
+    assert.strictEqual(validate.status, 0, 'validate must have run to completion');
+    assert.ok(typeof report.valid === 'boolean', 'and produced a report to read');
     assert.doesNotMatch(
       validate.stdout,
       /valid-topic-mastery/,
