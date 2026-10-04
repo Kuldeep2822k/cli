@@ -59,6 +59,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import type { LoadedTopic } from '../../storage/loader';
+import { normalizeDependsOnSource } from '../../types';
 import { displayValue } from './diagnostic-value';
 
 /**
@@ -162,7 +163,7 @@ function validateDependencyField(
 export const validDependencyListRule: ValidationRule = {
   id: 'valid-dependency-list',
   description:
-    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning',
+    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning; a depends_on_source outside numbered|toc|declared|tie is reported because it gates',
   severity: 'error',
   // `manual`, not `safe`: only the duplicate-entry findings are safely
   // dedupable; shape errors and self-references need a human decision
@@ -191,6 +192,28 @@ export const validDependencyListRule: ValidationRule = {
         });
 
         validateDependencyField(topic, 'dependencies', rawLegacy, issues);
+      }
+
+      // The provenance label qualifies these same edges, so it is checked here.
+      // An unrecognized value is not cosmetic: `normalizeDependsOnSource` fails
+      // closed to `undefined`, which means "learner-authored, so gate" — a typo
+      // like `toc-typo` therefore keeps the note gated forever while every report
+      // the CLI makes says the vault is valid.
+      const rawSource = topic.frontmatter.depends_on_source;
+      if (
+        rawSource !== undefined
+        && rawSource !== null
+        && normalizeDependsOnSource(rawSource) === undefined
+      ) {
+        issues.push({
+          ruleId: 'valid-dependency-list',
+          severity: 'error',
+          message: `Topic ${topic.palee_id}: depends_on_source must be one of numbered, toc, declared, tie, got ${JSON.stringify(displayValue(rawSource))} — an unrecognized label gates the note`,
+          file: topic.path,
+          topicId: topic.palee_id,
+          field: 'depends_on_source',
+          details: { actual: displayValue(rawSource) },
+        });
       }
     }
 

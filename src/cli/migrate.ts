@@ -56,6 +56,10 @@ interface RelabelOutcome {
   failed: number;
   /** Notes left gated because their stored predecessor no longer resolves */
   unresolved: number;
+  /** Writes refused by a lock or an OCC conflict, each of which a re-run retries */
+  conflicted: number;
+  /** Notes deleted between the scan and the write, so there is nothing left to relabel */
+  vanished: number;
   /** True when a write conflicted, or a note drifted while the pass held it */
   hadConflict: boolean;
 }
@@ -233,7 +237,9 @@ async function reportStoredTies(
   apply: boolean,
   dryRun: boolean
 ): Promise<RelabelOutcome> {
-  const none: RelabelOutcome = { relabelled: 0, stale: 0, failed: 0, unresolved: 0, hadConflict: false };
+  const none: RelabelOutcome = {
+    relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0, hadConflict: false,
+  };
   const { ties, unresolved } = findStoredTies(scanned);
   if (ties.length === 0 && unresolved.length === 0) return none;
   if (ties.length > 0) {
@@ -270,10 +276,14 @@ async function reportStoredTies(
       console.log('     never touched, and a relabelled note is no longer held off `palee plan`.');
       console.log();
     }
-    return none;
+    return { ...none, unresolved: unresolved.length };
   }
 
-  const outcome: RelabelOutcome = { ...none };
+  // Every return from here on carries the unresolved count it just printed: an
+  // audit report that named N notes and hands back 0 is the same number being
+  // wrong in two places, and a caller reading the outcome would conclude the
+  // vault had no dangling `numbered` edge at all.
+  const outcome: RelabelOutcome = { ...none, unresolved: unresolved.length };
   for (const tie of ties) {
     try {
       const content = fs.readFileSync(tie.filePath, 'utf8');
@@ -293,13 +303,30 @@ async function reportStoredTies(
       await atomicWrite(vaultPath, tie.filePath, updated, tie.noteFingerprint);
       outcome.relabelled++;
     } catch (err: unknown) {
+      // A note deleted between the scan and this write is not a failed write, and
+      // it is not gated either — there is nothing left to gate. Counting it as one
+      // sent the caller off to repair a note that does not exist, under exit `5`.
+      if ((err as { code?: string }).code === 'ENOENT') {
+        console.error(`  Skipped ${tie.filePath}: the note no longer exists.`);
+        outcome.vanished++;
+        continue;
+      }
       console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
-      if (exitCodeFor(err) === ExitCode.Conflict) outcome.hadConflict = true;
-      else outcome.failed++;
+      if (exitCodeFor(err) === ExitCode.Conflict) {
+        // A lock or an OCC conflict is a "re-run to retry", not a write error:
+        // counted nowhere but the boolean, the summary below read "Relabelled 1
+        // of 2 notes" while a note had in fact been refused.
+        outcome.hadConflict = true;
+        outcome.conflicted++;
+      } else {
+        outcome.failed++;
+      }
     }
   }
   console.log(`✓ Relabelled ${outcome.relabelled} of ${ties.length} notes to \`depends_on_source: tie\`.`
     + (outcome.stale ? ` (${outcome.stale} skipped: changed while writing)` : '')
+    + (outcome.conflicted ? ` (${outcome.conflicted} locked: re-run to retry)` : '')
+    + (outcome.vanished ? ` (${outcome.vanished} no longer exist: nothing to relabel)` : '')
     + (outcome.failed ? ` (${outcome.failed} write error(s))` : ''));
   console.log();
   return outcome;

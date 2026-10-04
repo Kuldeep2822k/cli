@@ -400,6 +400,43 @@ describe('valid-dependency-list rule (#33)', () => {
     assert.deepStrictEqual(validDependencyListRule.run(makeContext(topics)), []);
   });
 
+  // The label decides gating, and an unrecognized one fails closed: the loader
+  // maps it to `undefined`, which means "learner-authored, so gate". A typo
+  // therefore kept a note gated forever while `validate --json` reported
+  // `valid: true`, because no rule anywhere read the label's value (#269).
+  test('a recognized depends_on_source passes, padded or uppercased', () => {
+    for (const label of ['numbered', 'toc', 'declared', 'tie', ' Toc ', 'DECLARED']) {
+      const topics = [makeTopic({
+        palee_id: 'T-label',
+        frontmatter: { depends_on: ['T-a'], depends_on_source: label },
+      })];
+      assert.deepStrictEqual(
+        validDependencyListRule.run(makeContext(topics)),
+        [],
+        `"${label}" is inside the domain the engine reads`
+      );
+    }
+  });
+
+  test('an absent depends_on_source is the pre-existing state and passes', () => {
+    const topics = [makeTopic({ palee_id: 'T-plain', frontmatter: { depends_on: ['T-a'] } })];
+    assert.deepStrictEqual(validDependencyListRule.run(makeContext(topics)), []);
+  });
+
+  test('an unrecognized depends_on_source is an error naming the gate', () => {
+    for (const label of ['toc-typo', 'weird', '', ['toc'], 7]) {
+      const topics = [makeTopic({
+        palee_id: 'T-bad',
+        frontmatter: { depends_on: ['T-a'], depends_on_source: label },
+      })];
+      const issues = validDependencyListRule.run(makeContext(topics));
+      assert.strictEqual(issues.length, 1, `${JSON.stringify(label)} is outside the domain`);
+      assert.strictEqual(issues[0].severity, 'error', 'a gate that never lifts is not a warning');
+      assert.strictEqual(issues[0].field, 'depends_on_source');
+      assert.match(issues[0].message, /gates the note/);
+    }
+  });
+
   test('string instead of array reports an error', () => {
     const topics = [makeTopic({
       palee_id: 'T-str',
