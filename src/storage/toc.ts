@@ -26,7 +26,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, isResolvableNotePath } from './vault-walker';
+import { walkVault, isResolvableNotePath, relativeVaultPath, foldNoteKey } from './vault-walker';
 import { isWithinVault } from './wikilink';
 import { classifyNoteForChain, isPhaseSubtree, stemOf } from '../engine/tier0-hygiene';
 import { extractTocLinks, foldTocDestination } from '../engine/toc-chain';
@@ -55,16 +55,13 @@ export interface TocEnumeration {
   skipped: TocSkippedLink[];
 }
 
-/** Exact → case-folded note lookup; `ambiguous` when the fold matches several real paths. */
+/** Exact → case- and Unicode-folded note lookup; `ambiguous` when the fold matches several real paths. */
 function lookupNote(index: NoteIndex, rel: string): { path: string | null; ambiguous: boolean } {
   if (index.exact.has(rel)) return { path: rel, ambiguous: false };
-  const hits = index.folded.get(rel.toLowerCase()) ?? [];
+  const hits = index.folded.get(foldNoteKey(rel)) ?? [];
   if (hits.length === 1) return { path: hits[0], ambiguous: false };
   if (hits.length > 1) return { path: null, ambiguous: true };
   return { path: null, ambiguous: false };
-}
-function toRelative(vaultPath: string, absolute: string): string {
-  return path.relative(vaultPath, absolute).split(path.sep).join('/');
 }
 
 /**
@@ -143,9 +140,9 @@ function buildNoteIndex(vaultPath: string): NoteIndex {
   const exact = new Map<string, true>();
   const folded = new Map<string, string[]>();
   for (const absolute of walkVault(vaultPath)) {
-    const rel = toRelative(vaultPath, absolute);
+    const rel = relativeVaultPath(vaultPath, absolute);
     exact.set(rel, true);
-    const key = rel.toLowerCase();
+    const key = foldNoteKey(rel);
     const list = folded.get(key);
     if (list) list.push(rel);
     else folded.set(key, [rel]);

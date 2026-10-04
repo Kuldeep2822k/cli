@@ -243,7 +243,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       Boolean(targetPath) &&
       fs.existsSync(path.resolve(vaultPath, targetPath!)) &&
       fs.statSync(path.resolve(vaultPath, targetPath!)).isFile() &&
-      targetPath!.endsWith('.md');
+      // Case-folded like the walker: `palee adopt "Setup.MD"` used to fall out of
+      // single-file mode into the batch branch, which then refused it for not
+      // being a directory.
+      targetPath!.toLowerCase().endsWith('.md');
 
     if (isExplicitSingleFile) {
       // Single-file adoption mode

@@ -432,6 +432,36 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         fs.rmSync(blocker, { force: true });
       }
     });
+
+    // APFS stores an accented filename decomposed (`cafe` + U+0301) while a link
+    // typed for it arrives composed. `toLowerCase()` alone leaves those two
+    // unequal, so the note resolved to nothing at all: an accented subtree
+    // chained to no predecessor, in a vault whose notes the file browser opens
+    // side by side.
+    it('resolves a composed link to a note stored with a decomposed name', () => {
+      // Built from code points so the two spellings are fixed by the source, not by
+      // however this file happens to be encoded: `cafe\u0301` is `e` plus a
+      // combining acute (NFD), `caf\u00e9` is the precomposed character (NFC).
+      const NFD_ACUTE = String.fromCharCode(0x0301); // combining acute: NFD spells `e` + this
+      const NFC_ACUTE = String.fromCharCode(0x00e9); // precomposed `é`: what a keyboard produces
+      const note = path.join(vaultPath, 'cafe' + NFD_ACUTE + '.md');
+      fs.writeFileSync(note, '# Cafe\n');
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        const resolved = resolveWikilinkTarget(
+          vaultPath,
+          link('[[' + 'caf' + NFC_ACUTE + ']]'),
+          index
+        );
+        assert.strictEqual(
+          fs.realpathSync(resolved.absolutePath),
+          fs.realpathSync(note),
+          'the two spellings have to meet at one note'
+        );
+      } finally {
+        fs.rmSync(note, { force: true });
+      }
+    });
   });
 
   describe('resolveWikilinkRoadmap', () => {
@@ -472,6 +502,27 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       assert.strictEqual(roadmap.topics[0].id, 'T-existing-1');
       assert.strictEqual(roadmap.topics[0].title, 'Adopted Note');
       fs.rmSync(adopted);
+    });
+
+    // The walker matched `.md` case-sensitively while `isResolvableNotePath`
+    // folded case, so `Setup.MD` was a note no scan listed yet a target the
+    // resolver accepted: the adoption minted an id for a path `loadTopics` could
+    // not see, and the note kept two identities from then on.
+    it('reuses the declared id of a note whose extension is not lowercase', () => {
+      const upper = path.join(vaultPath, 'Upper Case.MD');
+      fs.writeFileSync(
+        upper,
+        '---\npalee_id: T-upper-1\npalee_schema: 1\ntitle: Upper\ndepends_on: []\n---\n# Upper\n'
+      );
+      try {
+        const roadmap = resolveWikilinkRoadmap(vaultPath, [
+          { track: '', links: [link('[[upper case]]')] },
+        ]);
+        assert.strictEqual(roadmap.topics[0].id, 'T-upper-1', 'the note keeps the id it carries');
+        assert.strictEqual(roadmap.topics[0].path, 'Upper Case.MD');
+      } finally {
+        fs.rmSync(upper, { force: true });
+      }
     });
 
     // `loadTopics` requires a string `palee_id` on purpose (B7), so a note whose

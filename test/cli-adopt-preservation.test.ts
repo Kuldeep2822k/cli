@@ -61,6 +61,24 @@ describe('adoption preserves what the note already declares', () => {
     }
   });
 
+  test('a note with an uppercase extension is adopted as the note it is', () => {
+    // The batch scan folded case when deciding a path was a note; the mode
+    // detection and the loader's basename fallback did not. `palee adopt
+    // "Setup.MD"` fell out of single-file mode into the batch branch and was
+    // refused for not being a directory, and a note with no frontmatter title was
+    // titled from its filename with the extension still attached.
+    const titled = writeNote('Setup.MD', '---\ndifficulty: beginner\n---\n# Setup\n');
+    const result = runCLI(['adopt', titled, '--yes']);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Adopted as topic T-/, 'single-file mode owns this path');
+    assert.match(result.stdout, /Title: Setup\b/, 'the title comes from the heading, not the filename');
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, titled), 'utf8'),
+      /difficulty: beginner/,
+      'and the note is loaded as a note'
+    );
+  });
+
   test('one unreadable note is skipped by name instead of ending the batch', () => {
     // `updateFrontmatter` rejects a note whose YAML will not parse, and the batch
     // had no per-note guard ahead of it: one bad note threw out of Phase 1, the

@@ -14,13 +14,13 @@
  * `.trash`/other dot-namespaces, `node_modules`), is rejected with
  * {@link UnresolvedWikilinkError} rather than skipped: it never falls through
  * to a lookalike note. Anchors (`#heading`, `#^block`) and `.md` suffixes are
- * stripped before resolution; matching is case-insensitive with an exact-case
- * tiebreak.
+ * stripped before resolution; matching folds case and normalizes Unicode to NFC,
+ * with an exact-case tiebreak.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, relativeVaultPath, isResolvableNotePath } from './vault-walker';
+import { walkVault, relativeVaultPath, isResolvableNotePath, stemOfNote, foldNoteKey } from './vault-walker';
 import { generateTopicId } from '../engine/topic-id';
 import type { ParsedWikilink } from '../engine/auto-chain';
 import type { WikilinkRoadmapSection } from './roadmap-parser';
@@ -79,15 +79,15 @@ export interface ResolvedWikilink {
 }
 
 /**
- * Builds a case-insensitive basename index of every Markdown note in the vault.
+ * Builds a case- and Unicode-folded basename index of every Markdown note in the vault.
  *
  * @param vaultPath - Absolute path to the vault root
- * @returns Map from lowercased basename (without `.md`) to absolute paths
+ * @returns Map from folded basename (without `.md`) to absolute paths
  */
 export function buildVaultNoteIndex(vaultPath: string): Map<string, string[]> {
   const index = new Map<string, string[]>();
   for (const absolutePath of walkVault(vaultPath)) {
-    const key = path.basename(absolutePath, '.md').toLowerCase();
+    const key = foldNoteKey(path.basename(absolutePath));
     const list = index.get(key);
     if (list) {
       list.push(absolutePath);
@@ -154,7 +154,7 @@ function targetBaseName(target: string): string {
  * allows) fold to one key, and there nothing is guessed.
  */
 function withWalkedCasing(canonical: string, index: Map<string, string[]>): string {
-  const listed = index.get(path.basename(canonical, '.md').toLowerCase());
+  const listed = index.get(foldNoteKey(path.basename(canonical)));
   if (!listed) {
     return canonical;
   }
@@ -311,14 +311,15 @@ export function resolveWikilinkTarget(
     throw new UnresolvedWikilinkError(target);
   }
 
-  // 2. Basename match (case-insensitive); an exact-case hit wins ties
-  const key = targetBaseName(target).toLowerCase();
+  // 2. Basename match (case- and Unicode-folded); an exact-case hit wins ties
+  const key = foldNoteKey(targetBaseName(target));
   const hits = index.get(key) ?? [];
   if (hits.length === 1) {
     return { absolutePath: hits[0], relativePath: relativeVaultPath(vaultPath, hits[0]) };
   }
   if (hits.length > 1) {
-    const exactCase = hits.filter((h) => path.basename(h, '.md') === targetBaseName(target));
+    const wanted = stemOfNote(targetBaseName(target)).normalize('NFC');
+    const exactCase = hits.filter((h) => stemOfNote(path.basename(h)).normalize('NFC') === wanted);
     if (exactCase.length === 1) {
       return {
         absolutePath: exactCase[0],

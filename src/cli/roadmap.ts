@@ -19,8 +19,10 @@ import {
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
+  relativeVaultPath,
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
+import { isResolvableNotePath } from '../storage/vault-walker';
 import { detectCyclesBounded } from '../engine/dependency';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
@@ -414,6 +416,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
         if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        } else if (!isResolvableNotePath(relativeVaultPath(resolvedVault, absoluteTopicPath))) {
+          // A path the walker cannot see is a note that exists for exactly one
+          // command. `path: .md` is the sharpest case: `path.extname('.md')` is
+          // empty, so the writer makes a directory named `.md`, drops `.md/.md`
+          // inside it, reports "Created: 1 notes" and exits `0` — while every
+          // segment starting with a dot is invisible to `walkVault`, so no other
+          // command ever loads the note it just promised to create. Checked
+          // before the first write, so the batch that would create it never starts.
+          errors.push(
+            `Topic "${id || '(unnamed)'}" path is not a visible Markdown note path in the vault: ${relativePath}`
+          );
         } else if (id) {
           // A note the vault already adopted answers to the id on its own
           // frontmatter. Importing a different id over that path retired it:
