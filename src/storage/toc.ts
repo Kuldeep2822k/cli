@@ -35,14 +35,25 @@ import { parseNumericPrefix } from '../engine/auto-chain';
 /** Names (case-insensitive) that enumerate lessons when found in a directory. */
 const TOC_FILE_STEMS = ['readme', 'summary'];
 
+/**
+ * Largest document the enumeration will read, in bytes — 512 KiB, on the order
+ * of 10 000 link lines. A hand-written lesson list does not reach it while a
+ * pasted diff or a generated index does, and such a document is not a table of
+ * contents: it is declined with an {@link TocSkippedLink} rather than parsed, so
+ * one pathological README can never decide the cost of a whole-vault
+ * `adopt --auto-chain` scan (issue #263). It also bounds the input handed to the
+ * link scanner, whose label table is sized by the document.
+ */
+const TOC_MAX_SOURCE_BYTES = 512 * 1024;
+
 /** One skipped link target with the reason it never became a chain edge. */
 export interface TocSkippedLink {
   /** Vault-relative path of the TOC document containing the link */
   tocFile: string;
-  /** Destination text as written */
-  raw: string;
-  /** Why the link was dropped */
-  reason: 'escaped-vault' | 'missing' | 'ambiguous' | 'outside-scope';
+  /** Destination text as written; absent for a skip that names no link, such as `oversized` */
+  raw?: string;
+  /** Why the link was dropped; `oversized` declines the whole document without reading it */
+  reason: 'escaped-vault' | 'missing' | 'ambiguous' | 'outside-scope' | 'oversized';
 }
 
 /** The full result of reading a vault's own enumerations. */
@@ -169,7 +180,9 @@ function buildNoteIndex(vaultPath: string): NoteIndex {
  * `..` that leaves the root rejected via the same {@link isWithinVault} guard
  * wikilinks use; case-insensitive fallback resolves `02-core/readme.md` to
  * the actual `02-core/README.md`, and a fallback that matches several real
- * paths is ambiguous → skipped.
+ * paths is ambiguous → skipped. A document over {@link TOC_MAX_SOURCE_BYTES}
+ * is never read at all: it is counted as `oversized`, because a file that large
+ * is not somebody's table of contents (issue #263).
  */
 export function deriveTocEnumeration(vaultPath: string, scopePaths?: Set<string>): TocEnumeration {
   const resolvedVault = fs.realpathSync(vaultPath);
@@ -180,9 +193,16 @@ export function deriveTocEnumeration(vaultPath: string, scopePaths?: Set<string>
 
   for (const tocFile of tocFiles) {
     const tocDir = tocFile.includes('/') ? tocFile.slice(0, tocFile.lastIndexOf('/')) : '';
+    const absolute = path.join(resolvedVault, tocFile);
     let text: string;
     try {
-      text = fs.readFileSync(path.join(resolvedVault, tocFile), 'utf8');
+      // Stat first: a document over the guard is declined without being read at
+      // all, so the size bound covers the IO and the parse, not only the parse.
+      if (fs.statSync(absolute).size > TOC_MAX_SOURCE_BYTES) {
+        skipped.push({ tocFile, reason: 'oversized' });
+        continue;
+      }
+      text = fs.readFileSync(absolute, 'utf8');
     } catch {
       continue; // unreadable TOC contributes nothing; other TOCs still run
     }

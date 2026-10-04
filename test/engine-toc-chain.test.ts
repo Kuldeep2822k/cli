@@ -94,6 +94,57 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       }
     });
 
+    // Issue #263: the bail above fires only when NO `]` follows at all, so a
+    // single stray `]` — the closing bracket of a mangled list item, a pasted
+    // diff — defeated it and put every `[` back on the quadratic path, each
+    // paying a full `findLabelEnd` walk to end-of-text. Measured on the unfixed
+    // scanner with `'['.repeat(N) + ']'`: 20 000 brackets 0.6 s, 40 000 2.8 s,
+    // 80 000 20 s, 160 000 82 s. This 100 000-bracket case took 17.8 s there and
+    // ~2 ms linearised, so the bound below is ~70x under the defect and ~100x
+    // over the fix: red on any return of the rescan, green on a loaded host.
+    it('does not rescan every label when one stray ] defeats the no-closer bail', () => {
+      for (const [label, junk] of [
+        ['run of opens closed once', `${'['.repeat(100000)}]`],
+        ['real links on both sides of the junk', `[L](d/l.md)\n${'['.repeat(100000)}]\n[ok](b.md)`],
+      ] as const) {
+        const started = performance.now();
+        const targets = extractTocLinks(junk)
+          .map((l) => l.destination)
+          .filter((d): d is string => d !== null);
+        const elapsed = performance.now() - started;
+        assert.ok(
+          elapsed < 250,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — a label scan is being repeated`
+        );
+        if (label === 'run of opens closed once') {
+          assert.deepStrictEqual(targets, [], 'a run of stray brackets enumerates nothing');
+        } else {
+          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
+        }
+      }
+    });
+
+    // The lineariser answers "can this label still close?" from one balance
+    // pass instead of a walk per `[`, so the shapes that could fool such a
+    // shortcut are pinned by output rather than by a clock. The first three are
+    // the escape and imbalance cases a balance test can get wrong: the loop
+    // finds brackets with `indexOf`, which knows nothing about escapes, so a
+    // scan always starts AT a `[` even when the pass escaping it called that
+    // bracket a literal.
+    it('answers label closure from the brackets the scanner actually sees', () => {
+      const destinations = (text: string): (string | null)[] =>
+        extractTocLinks(text).map((l) => l.destination);
+      assert.deepStrictEqual(destinations('\\[x](a.md) [b](c.md)'), ['a.md', 'c.md']);
+      assert.deepStrictEqual(destinations('] [a](b.md)'), ['b.md']);
+      assert.deepStrictEqual(destinations('[a\\]b](d.md)'), ['d.md']);
+      assert.deepStrictEqual(destinations(`${'['.repeat(30)}\\]`), []);
+      assert.deepStrictEqual(destinations(`${']'.repeat(5)}${'['.repeat(5)}]`), []);
+      assert.deepStrictEqual(
+        destinations(`[first](a.md)\n${'['.repeat(5000)}]\n[last](z.md)`),
+        ['a.md', 'z.md']
+      );
+    });
+
     // A README documenting link syntax is not enumerating the curriculum. The
     // extractor used to scan raw text, so an example naming a note that really
     // exists put that note into the enumeration and gave it a written

@@ -670,6 +670,25 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
+      // The enumeration also declines whole documents, and that has to be said
+      // too: a learner whose README was skipped would otherwise be told the
+      // vault carries no order signal when the tier in fact refused to read one.
+      // Reported only where a tier reads TOC documents — `strict` never does, so
+      // a bound it never exercised is not its news.
+      const oversizedToc =
+        autoChainTier === 'toc' || autoChainTier === 'full'
+          ? tocEnumeration.skipped.filter((s) => s.reason === 'oversized')
+          : [];
+      if (oversizedToc.length > 0) {
+        console.log(
+          `⚠ Warning: ${oversizedToc.length} README/SUMMARY document(s) were too large to enumerate, ` +
+            'so no chain edge was read from them.'
+        );
+        for (const example of oversizedToc.slice(0, 3)) {
+          console.log(`    e.g. ${example.tocFile}`);
+        }
+      }
+
       const plannedGraph = new Map<string, TopicNode>();
       for (const relPath of chainPlan.orderedPaths) {
         const id = idByPath.get(relPath);

@@ -89,6 +89,8 @@ export function extractTocLinks(text: string): TocLink[] {
   const scanned = stripFencedCodeBlocks(text);
   const links: TocLink[] = [];
   let i = 0;
+  /** Built the first time a label fails to close; see {@link BracketBalance}. */
+  let balance: BracketBalance | null = null;
   while (i < scanned.length) {
     const open = scanned.indexOf('[', i);
     if (open < 0) break;
@@ -97,13 +99,31 @@ export function extractTocLinks(text: string): TocLink[] {
       i = open + 1;
       continue;
     }
-    // `findLabelEnd` walks to end-of-text when a label never closes, and the
-    // loop re-entered it for every remaining `[` — quadratic on a README of
-    // stray brackets. If no `]` exists at or after `open`, none exists for any
-    // later `[` either, so nothing past here can form a label.
-    if (scanned.indexOf(']', open) < 0) break;
+    if (balance !== null) {
+      // Answered from the one balance pass instead of another walk: no closer
+      // below this level means no `]` that this label — or any later one — can
+      // still reach, so the walk below would only re-read the same text.
+      if (labelCannotClose(balance, open)) {
+        i = open + 1;
+        continue;
+      }
+    } else {
+      // `findLabelEnd` walks to end-of-text when a label never closes, and the
+      // loop re-entered it for every remaining `[` — quadratic on a README of
+      // stray brackets. If no `]` exists at or after `open`, none exists for any
+      // later `[` either, so nothing past here can form a label.
+      if (scanned.indexOf(']', open) < 0) break;
+    }
     const close = findLabelEnd(scanned, open);
     if (close < 0) {
+      // The walk that just failed is the last full one this scan pays for: from
+      // here every open `[` is answered from the balance table instead. Without
+      // it the bail above only skips one bracket, so a README holding a single
+      // stray `]` — which defeats the bail, since a `]` does follow — put every
+      // `[` back on the full-walk path. Issue #263 measured that at 64 s for
+      // 160 KB of brackets, through the real `deriveTocEnumeration` API, where
+      // one such file stalls `adopt --auto-chain` for the whole vault.
+      balance ??= buildBracketBalance(scanned);
       i = open + 1;
       continue;
     }
@@ -127,7 +147,13 @@ export function extractTocLinks(text: string): TocLink[] {
   return links;
 }
 
-/** Finds the `]` closing a `[` label, tolerating one level of nested brackets. */
+/**
+ * Finds the `]` closing a `[` label, tolerating one level of nested brackets.
+ *
+ * @remarks
+ * Returns `-1` only after walking the rest of the text, which is the cost
+ * {@link buildBracketBalance} exists to make unnecessary the second time.
+ */
 function findLabelEnd(text: string, open: number): number {
   let depth = 0;
   for (let i = open; i < text.length; i++) {
@@ -142,6 +168,73 @@ function findLabelEnd(text: string, open: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * The bracket balance of a document, read once, answering "can this label still
+ * close?" in constant time.
+ *
+ * @remarks
+ * Every scan {@link findLabelEnd} runs starts at a `[`, and a `[` cannot be part
+ * of a backslash run — so the escape pairing from `open + 1` onward is fixed by
+ * the text alone, and the depth of the scan from `open` at any later position
+ * `j` is `1 + after[j] - after[open]`. A label therefore closes exactly where
+ * `after` first comes back down to `after[open] - 1`, and it never closes when
+ * no later position goes below `after[open]` — which is the question
+ * {@link labelCannotClose} asks, without walking. An escaped `[` follows the
+ * same rule: the pass that escaped it did not count the bracket, and a scan
+ * starting there still opens at depth 1, which is what `after[open]` holds.
+ *
+ * Only the failing case is worth a table: a scan that finds its `]` moves the
+ * loop past it, so successful walks already cost `O(text)` in total.
+ */
+interface BracketBalance {
+  /** Balance just after each position — `[` +1, `]` -1, a backslash and its escapee both 0 */
+  after: Int32Array;
+  /** Lowest balance at any position at or after each index; the last entry is the empty-suffix sentinel */
+  minFrom: Int32Array;
+}
+
+/** One forward pass and one backward pass over `text`; paid for at most once per scan. */
+function buildBracketBalance(text: string): BracketBalance {
+  const length = text.length;
+  const after = new Int32Array(length);
+  const minFrom = new Int32Array(length + 1);
+  let bal = 0;
+  let i = 0;
+  while (i < length) {
+    const ch = text[i];
+    if (ch === '\\') {
+      // Neither the backslash nor the character it escapes changes the depth.
+      after[i] = bal;
+      i++;
+      if (i < length) {
+        after[i] = bal;
+        i++;
+      }
+      continue;
+    }
+    if (ch === '[') bal++;
+    else if (ch === ']') bal--;
+    after[i] = bal;
+    i++;
+  }
+  // A suffix with no characters left can supply no closer: the sentinel keeps
+  // the check below reporting an empty suffix as unresolved rather than as a
+  // balance of zero.
+  const noCloser = 0x7fffffff;
+  minFrom[length] = noCloser;
+  let lowest = noCloser;
+  for (let j = length - 1; j >= 0; j--) {
+    if (after[j] < lowest) lowest = after[j];
+    minFrom[j] = lowest;
+  }
+  return { after, minFrom };
+}
+
+/** True when {@link findLabelEnd} would walk this label to end-of-text and return `-1`. */
+function labelCannotClose(balance: BracketBalance, open: number): boolean {
+  return balance.minFrom[open + 1] >= balance.after[open];
 }
 
 interface RawDestination {
