@@ -61,6 +61,38 @@ interface RelabelOutcome {
 }
 
 /**
+ * True when another note of the same tied rank sits strictly between a stored
+ * predecessor and its dependent.
+ *
+ * @param siblings - Every note basename in the candidate's directory
+ * @param predBase - Basename of the stored predecessor
+ * @param ownBase - Basename of the candidate
+ * @returns Whether the stored edge skips a sibling that is still on disk
+ *
+ * @remarks
+ * The chain links neighbours: for `02-a`, `02-b`, `02-c` it writes `02-b → 02-a`
+ * and `02-c → 02-b`, and never `02-c → 02-a`. An edge that skips a present
+ * sibling is therefore not one the chain wrote, and demoting it would retire a
+ * gate the learner set.
+ *
+ * Deleting the middle note is why this is not an adjacency test. With `02-b` gone
+ * the stored `02-c → 02-a` *is* the edge the chain wrote — `02-a` is simply the
+ * nearest surviving sibling — and it must still be demoted. So the property is
+ * "nothing of the same rank lies between them", not "the predecessor is the
+ * element immediately before this one".
+ */
+function survivingSiblingBetween(siblings: string[], predBase: string, ownBase: string): boolean {
+  for (const other of siblings) {
+    if (other === predBase || other === ownBase) continue;
+    if (!tiedByName(other, ownBase)) continue;
+    if (compareLessonOrderTier0(predBase, other) < 0 && compareLessonOrderTier0(other, ownBase) < 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Finds notes still locked behind an alphabetical tie the numbering never decided.
  *
  * @param topics - Every topic loaded from the vault
@@ -70,8 +102,10 @@ interface RelabelOutcome {
  * Before #234 an auto-chained tie was written as `depends_on_source: numbered`,
  * which gates. The two labels are indistinguishable without re-deriving the
  * order, so this re-asks the planner's own predicates against what is on disk:
- * same directory, {@link tiedByName} true of the two names, and the stored
- * predecessor the one {@link compareLessonOrderTier0} would have placed *first*.
+ * same directory, {@link tiedByName} true of the two names, the stored
+ * predecessor the one {@link compareLessonOrderTier0} would have placed *first*,
+ * and nothing of the same rank still sitting between the two
+ * ({@link survivingSiblingBetween}).
  *
  * The direction test is not decoration. Rank equality says two notes were ordered
  * by their filenames; it does not say which of them the planner put in front.
@@ -86,6 +120,8 @@ interface RelabelOutcome {
  *
  * - only a note with exactly one stored predecessor is considered — a longer
  *   list may have been edited by hand, and `adopt` never wrote one;
+ * - an edge that skips a same-rank sibling still on disk is left alone, because
+ *   the chain links neighbours and never wrote such an edge;
  * - a note with no label is left alone: absent means the learner wrote it;
  * - a predecessor that no longer loads cannot be ranked at all, so the note is
  *   reported in {@link StoredTieScan.unresolved} rather than guessed at, and left
@@ -93,7 +129,14 @@ interface RelabelOutcome {
  */
 function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
   const byId = new Map<string, LoadedTopic>();
-  for (const t of topics) byId.set(t.id, t);
+  const siblingsByDir = new Map<string, string[]>();
+  for (const t of topics) {
+    byId.set(t.id, t);
+    const dir = path.dirname(t.filePath);
+    const basenames = siblingsByDir.get(dir);
+    if (basenames === undefined) siblingsByDir.set(dir, [path.basename(t.filePath)]);
+    else basenames.push(path.basename(t.filePath));
+  }
   const found: StoredTie[] = [];
   const unresolved: string[] = [];
   for (const t of topics) {
@@ -105,11 +148,13 @@ function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
       unresolved.push(t.filePath);
       continue;
     }
-    if (path.dirname(pred.filePath) !== path.dirname(t.filePath)) continue;
+    const dir = path.dirname(t.filePath);
+    if (path.dirname(pred.filePath) !== dir) continue;
     const predBase = path.basename(pred.filePath);
     const ownBase = path.basename(t.filePath);
     if (!tiedByName(predBase, ownBase)) continue;
     if (compareLessonOrderTier0(predBase, ownBase) >= 0) continue;
+    if (survivingSiblingBetween(siblingsByDir.get(dir) ?? [], predBase, ownBase)) continue;
     found.push({
       filePath: t.filePath,
       predecessorPath: pred.path,
