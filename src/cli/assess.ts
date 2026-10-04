@@ -277,6 +277,15 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
       console.log(`  Mastered (≥ ${threshold}).`);
     } else {
       console.log(`  Below the ${threshold} threshold, so it still gates what depends on it.`);
+      if (scores.feynman === 0) {
+        // Feynman is the only double-weighted term, so the three ordinary pillars
+        // cap mastery at 3/5 = 0.60 and the gate is unreachable without it.
+        const ceiling = ((PILLARS.length - 1) / 5).toFixed(2);
+        console.log(
+          `  With no --feynman score, mastery is capped at ${ceiling} because it is ` +
+            `(conceptual + practical + debug + 2 * feynman) / 5; --feynman is the only way past ${threshold}.`
+        );
+      }
     }
     if (unlocked.length > 0) {
       const listed = unlocked.slice(0, 3).join(', ');

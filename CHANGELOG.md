@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A tie is a tie at every rank** ([#255](https://github.com/Kuldeep2822k/cli/issues/255)): `assignment`/`quiz` and `README`/`SUMMARY` pairs in a numbered directory were ordered by their filenames alone yet labelled `numbered`, so they gated and the alphabetical-order warning stayed silent. `tiedByName` now reports what its own docstring said — every pair the comparator resolves by collation — so those edges are advisory `tie`, the warning counts them, and `palee migrate --relabel-ties` can retire the ones v0.6.0 already wrote.
 - **`palee migrate --relabel-ties` demotes only edges the chain could have written** ([#251](https://github.com/Kuldeep2822k/cli/issues/251)): a stored `numbered` edge that steps over a same-rank sibling still in the directory keeps gating, while the nearest *surviving* sibling still demotes — so deleting the middle note never strands the vault behind a false gate.
+- **`palee assess` names the pillar a low score was never able to supply** ([#260](https://github.com/Kuldeep2822k/cli/issues/260)): mastery is `(conceptual + practical + debug + 2 * feynman) / 5`, so Feynman's double weight means the three ordinary pillars cap at `0.60` and can never reach the `0.70` gate alone. A below-threshold assessment with no Feynman score now prints a hint naming `--feynman` and the arithmetic, instead of reading as "your score was too low".
 
 ## [0.6.0] - 2026-10-01
 
