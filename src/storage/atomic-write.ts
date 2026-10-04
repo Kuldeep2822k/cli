@@ -3,18 +3,20 @@
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
- * 1. Acquires target file {@link Lock}.
- * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
- * 5. Atomically renames temporary file over the destination file.
- * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 1. Asserts the resolved destination lies inside the vault (#264).
+ * 2. Acquires target file {@link Lock}.
+ * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
+ * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 6. Atomically renames temporary file over the destination file.
+ * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  */
 
 import fs from 'fs';
 import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
+import { assertContainedInVault, isContainmentError } from './containment';
 import { NodeError } from '../types';
 
 const WINDOWS_RETRY_ATTEMPTS = 5;
@@ -81,16 +83,27 @@ export function isConflictError(e: unknown): boolean {
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
  * @returns Promise that resolves once data is fsync-flushed and renamed
+ * @throws {NodeError} If the destination resolves outside the vault (`ECONTAINMENT`, a
+ * security refusal — never an `ECONFLICT`, because no retry makes an escaping path safe)
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
- * 1. Acquires target file {@link Lock}.
- * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
- * 5. Atomically renames temporary file over the destination file.
- * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 1. Asserts the resolved destination is still inside the vault (#264).
+ * 2. Acquires target file {@link Lock}.
+ * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
+ * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 6. Atomically renames temporary file over the destination file.
+ * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ *
+ * The containment assertion guards the destination rather than trusting the
+ * spelling: until #264 only the *final* path component was ever questioned, so a
+ * junction planted higher up — `vault\.palee\sessions` pointing outside the vault
+ * — redirected the whole write, and `.palee` is invisible to `walkVault` so
+ * `validate` never noticed. It belongs here, in the one primitive every vault
+ * write goes through, so the roadmap / adopt / migrate / review / session paths
+ * inherit it instead of each re-implementing it badly.
  *
  * @example
  * ```typescript
@@ -108,6 +121,12 @@ async function atomicWrite(
   newContent: string,
   expectedFingerprint: string | null = null
 ): Promise<void> {
+  // Containment first, before anything is written — including before the `Lock`
+  // is constructed: `getLockDir` creates `.palee/locks` the moment it runs, so a
+  // refusal raised after acquisition would still have left lock metadata behind
+  // for a destination it had just rejected.
+  assertContainedInVault(vaultPath, targetPath);
+
   const lock = new Lock(vaultPath, targetPath);
 
   let lockAcquired = false;
@@ -186,5 +205,5 @@ async function atomicWrite(
   }
 }
 
-export { atomicWrite };
+export { atomicWrite, isContainmentError };
 
