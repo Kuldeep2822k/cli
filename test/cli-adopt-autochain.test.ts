@@ -1261,6 +1261,35 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.deepStrictEqual(dependsOn(vaultDir, 'guide/zeta.md'), [], 'the enumerated head has no dep');
   });
 
+  // Issue #263: the enumeration now declines a document too large to be
+  // somebody's lesson list rather than spending minutes parsing it. A decline
+  // the learner cannot see reads as "this vault holds no enumeration signal",
+  // so it is reported on the same terms as every other counted skip.
+  test('a README too large to enumerate is reported instead of silently ignored', () => {
+    const { configDir } = freshVault({
+      'README.md': `- [Next](guide/next.md)\n- [Intro](guide/intro.md)\n${'x'.repeat(512 * 1024)}`,
+      'guide/intro.md': '# I\n',
+      'guide/next.md': '# N\n',
+    });
+    const started = Date.now();
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    const elapsed = Date.now() - started;
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /too large to enumerate/);
+    assert.match(dry.stdout, /e\.g\. README\.md/);
+    // The listing order the file states is `next` before `intro`, the reverse of
+    // its collation: an edge between them could only have been read from the
+    // document, and the declined document was never opened.
+    assert.deepStrictEqual(
+      plannedEdges(dry.stdout).filter((e) => e.dependsOn !== null),
+      [],
+      'no edge is authored out of a document the tier never read'
+    );
+    // The bound is also why the run does not stall: that README is exactly the
+    // input the unfixed scanner spent minutes on, and it is never parsed.
+    assert.ok(elapsed < 30000, `adopt against an oversized README took ${elapsed}ms`);
+  });
+
   test('a genuinely unnumbered sibling still warns alongside a TOC chain', () => {
     const { configDir } = freshVault({
       'README.md': '- [Zeta](guide/zeta.md)\n- [Alpha](guide/alpha.md)\n',
