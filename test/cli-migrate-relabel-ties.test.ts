@@ -492,6 +492,53 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     }
   });
 
+  test('a note that vanishes mid-relabel is not then migrated by the schema pass', async () => {
+    // Both passes read the one pre-relabel scan, so a note the relabel pass proved
+    // gone is still in it. Under `--fix` the schema pass then reads that path, and
+    // a note that is simply missing was reported as a migration failure with exit
+    // `5` — a repair instruction for a file the vault already lost.
+    const schemalessPair = {
+      'm/02-a.md': ['---', 'palee_id: T-a', 'title: A', 'depends_on: []', 'topic_mastery: 0', '---', '', '# A', ''].join('\n'),
+      'm/02-b.md': ['---', 'palee_id: T-b', 'title: B', 'depends_on: [T-a]', 'depends_on_source: numbered', 'topic_mastery: 0', '---', '', '# B', ''].join('\n'),
+    };
+    const { vaultDir, configDir } = freshVault(schemalessPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
+          throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return Reflect.apply(originalRead, fs, [target, options]);
+      }) as typeof fs.readFileSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true, fix: true });
+      });
+
+      assert.match(output, /02-b\.md: the note no longer exists/, 'the relabel pass names it once');
+      assert.doesNotMatch(output, /Failed to migrate .*02-b\.md/, 'the schema pass never reaches for it');
+      assert.match(output, /Migrating 1 schema-less notes/, 'only the surviving note is migrated');
+      assert.notStrictEqual(process.exitCode, 5, 'a deleted note is not a failed migration');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.match(fs.readFileSync(path.join(vaultDir, 'm', '02-a.md'), 'utf8'), /palee_schema: 1/);
+  });
+
   test('a write error fails the command instead of reporting success', async () => {
     // A permission or disk failure has to be visible to a caller: exiting 0 with
     // the note still gated is how an incomplete migration reads as a done one.

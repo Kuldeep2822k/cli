@@ -73,6 +73,8 @@ interface RelabelOutcome {
   conflicted: number;
   /** Notes deleted between the scan and the write, so there is nothing left to relabel */
   vanished: number;
+  /** Paths {@link RelabelOutcome.vanished} names, so no later pass acts on a note that is gone */
+  vanishedPaths: string[];
   /** True when a write conflicted, or a note drifted while the pass held it */
   hadConflict: boolean;
 }
@@ -332,7 +334,8 @@ async function reportStoredTies(
   includeUnlabeledTies: boolean
 ): Promise<RelabelOutcome> {
   const none: RelabelOutcome = {
-    relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0, hadConflict: false,
+    relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0,
+    vanishedPaths: [], hadConflict: false,
   };
   const { ties, unresolved } = findStoredTies(scanned, includeUnlabeledTies);
   if (ties.length === 0 && unresolved.length === 0) return none;
@@ -401,7 +404,9 @@ async function reportStoredTies(
   // audit report that named N notes and hands back 0 is the same number being
   // wrong in two places, and a caller reading the outcome would conclude the
   // vault had no dangling `numbered` edge at all.
-  const outcome: RelabelOutcome = { ...none, unresolved: unresolved.length };
+  const outcome: RelabelOutcome = {
+    ...none, unresolved: unresolved.length, vanishedPaths: [],
+  };
   for (const tie of ties) {
     try {
       const content = fs.readFileSync(tie.filePath, 'utf8');
@@ -432,6 +437,7 @@ async function reportStoredTies(
       if ((err as { code?: string }).code === 'ENOENT' && !fs.existsSync(tie.filePath)) {
         console.error(`  Skipped ${tie.filePath}: the note no longer exists.`);
         outcome.vanished++;
+        outcome.vanishedPaths.push(tie.filePath);
         continue;
       }
       console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
@@ -513,11 +519,19 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     console.log('Scanning vault for PALEE schema versions...');
     console.log();
 
+    // Both passes read the one pre-relabel scan, so a note the relabel pass proved
+    // is gone is still in `loaded`. Reading it here fails on a path that no longer
+    // exists and the schema pass files it under "Unrecognized schema" — a
+    // repair instruction for a note the vault already lost. The vanished set is
+    // dropped before this loop, not reported twice.
+    const gone = new Set(tieOutcome.vanishedPaths);
+    const scannable = gone.size === 0 ? loaded : loaded.filter((t) => !gone.has(t.filePath));
+
     let schemaV1 = 0;
     const missingSchema: string[] = [];
     const unrecognized: string[] = [];
 
-    for (const t of loaded) {
+    for (const t of scannable) {
       const schema = t.frontmatter.palee_schema;
 
       if (schema === 1) {
