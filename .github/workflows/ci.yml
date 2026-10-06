@@ -55,9 +55,9 @@ jobs:
       # One matrix for every event. It used to be a ternary on
       # `github.event_name`: pull requests ran ubuntu 22/24 plus windows 24,
       # while only a push to main added node 26, windows 22 and both macOS
-      # legs. So the legs that broke were the ones no PR ever ran — every one
-      # of the eight merges in `v0.5.2..v0.6.0` that left `main` red or
-      # unverified failed on macOS (heap limit, case-fold and symlink
+      # legs. So the legs that broke were the legs no PR ever ran: #269
+      # records the merges between v0.5.2 and v0.6.0 that left `main` red or
+      # unverified as macOS failures (heap limit, case-fold and symlink
       # suites), and a tag push ran only `release.yml`, which is ubuntu-only.
       matrix:
         include:

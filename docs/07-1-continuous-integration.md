@@ -34,7 +34,7 @@ This job performs static analysis and build verification on `ubuntu-latest` usin
 
 To ensure the CLI remains stable across environments, the `test-matrix` job runs the unit and invariant test suites across multiple operating systems and Node.js versions [.github/workflows/ci.yml#49-76](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L49-L76)
 
-The matrix is **one list for every event** — a pull request, a push to `main`, and a release tag all run the same seven legs. It used to be conditional on `github.event_name`: pull requests ran ubuntu 22.x/24.x plus windows 24.x only, while a push to `main` additionally ran ubuntu 26.x, windows 22.x and both macOS legs. The legs that broke were therefore the legs no pull request ever ran — every one of the eight merges between `v0.5.2` and `v0.6.0` that left `main` red or unverified failed on macOS (heap limit, case-fold and symlink suites). `test/ci-workflow-matrix.test.ts` is the fitness function that keeps the two paths from diverging again.
+The matrix is **one list for every event** — a pull request, a push to `main`, and a release tag all run the same seven legs. It used to be conditional on `github.event_name`: pull requests ran ubuntu 22.x/24.x plus windows 24.x only, while a push to `main` additionally ran ubuntu 26.x, windows 22.x and both macOS legs. The legs that broke were therefore the legs no pull request ever ran — [#269](https://github.com/Kuldeep2822k/cli/issues/269) attributes the merges between `v0.5.2` and `v0.6.0` that left `main` red or unverified to macOS suites (heap limit, case-fold and symlink). `test/ci-workflow-matrix.test.ts` is the fitness function that keeps the two paths from diverging again.
 
 | Environment | Versions | Condition |
 | --- | --- | --- |

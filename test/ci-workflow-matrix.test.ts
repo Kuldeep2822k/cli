@@ -6,9 +6,9 @@ import { parseDocument } from 'yaml';
 
 /**
  * The matrix is the thing that was wrong, and a workflow file has no other
- * test: eight merges in `v0.5.2..v0.6.0` left `main` red or unverified, every
- * one on a leg no pull request ran. These assertions are the fitness function
- * that keeps the two event types from diverging again.
+ * test: #269 attributes the merges that left `main` red or unverified between
+ * v0.5.2 and v0.6.0 to legs no pull request ran (macOS). These assertions are
+ * the fitness function that keeps the two event types from diverging again.
  */
 describe('CI workflow matrix parity (#269 release health)', () => {
   const workflowPath = path.resolve(__dirname, '../.github/workflows/ci.yml');
@@ -32,17 +32,28 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       'the test matrix must not be conditional on the event'
     );
 
-    assert.ok(combos.includes('macos-latest@22.x'), 'macOS runs on a pull request');
-    assert.ok(combos.includes('macos-latest@24.x'), 'on both of its supported nodes');
-    assert.ok(combos.includes('ubuntu-latest@26.x'), 'node 26 is not main-only');
-    assert.ok(combos.includes('windows-latest@22.x'), 'nor the lower windows node');
-    assert.strictEqual(combos.length, 7, `every leg main runs:\n${combos.join('\n')}`);
+    // The whole set, not membership plus a count: dropping windows 22.x while
+    // adding a second ubuntu leg satisfies `includes` checks and a length
+    // assertion, and would leave `main` running a different matrix than a PR.
+    assert.deepStrictEqual(combos, [
+      'macos-latest@22.x',
+      'macos-latest@24.x',
+      'ubuntu-latest@22.x',
+      'ubuntu-latest@24.x',
+      'ubuntu-latest@26.x',
+      'windows-latest@22.x',
+      'windows-latest@24.x',
+    ]);
   });
 
   test('the installed package is smoke-tested on macOS in a pull request too', () => {
-    const platforms = doc.jobs['smoke-install'].strategy?.matrix?.os ?? [];
-    assert.ok(platforms.includes('macos-latest'), 'npm install -g has to be proven where it ships');
-    assert.strictEqual(platforms.length, 3);
+    // `npm install -g` has to be proven on the set of platforms it ships to, not
+    // merely on a set that happens to contain macOS plus two others.
+    assert.deepStrictEqual(doc.jobs['smoke-install'].strategy?.matrix?.os ?? [], [
+      'ubuntu-latest',
+      'windows-latest',
+      'macos-latest',
+    ]);
   });
 
   test('a release tag is tested, not only published', () => {
