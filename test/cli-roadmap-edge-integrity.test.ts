@@ -257,6 +257,32 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     );
   });
 
+  test('an entry whose declared id matches only after String() is still refused', () => {
+    // A single-element list stringifies to its element, so `String(raw) !== id`
+    // read `palee_id: [T-a]` as the id `T-a` and let the entry through — the write
+    // then replaced the array with a string. The loader and the wikilink resolver
+    // both call a non-string id unusable; the preflight check has to agree.
+    fs.writeFileSync(
+      path.join(vaultDir, 'listid-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: [T-list-a]', 'title: List Id', 'topic_mastery: 0', '---', '', '# List Id', ''].join('\n')
+    );
+    const sameName = path.join(tempDir, 'roadmap-listid.yaml');
+    fs.writeFileSync(
+      sameName,
+      ['topics:', '  - id: T-list-a', '    title: List Id Renamed', '    path: listid-1.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', sameName, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 3, `a list id is not a string id: ${output}`);
+    assert.match(output, /declares palee_id \["T-list-a"\]/);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'listid-1.md'), 'utf8'),
+      /palee_id: \[T-list-a\]/,
+      'the declared value is not coerced on the way past'
+    );
+  });
+
   test('a note whose frontmatter will not parse fails alone and keeps its bytes', () => {
     // Preflight is for roadmap defects. A corrupted note is vault state the import
     // already isolates: `updateFrontmatter` refuses to write it, so no identity is
