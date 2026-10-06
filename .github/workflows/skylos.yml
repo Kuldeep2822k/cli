@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
 
       - name: Skylos - Dead Code Detection & SAST
-        uses: duriantaco/skylos@6d1ac3de35dfff5b53b840b9080f5fa44db6b29e # v4.39.2
+        uses: duriantaco/skylos@fc5fffd2bad9ebeb2c215b140868c9b84a4751be # v4.43.2
         with:
           # Advisory rollout: findings are annotated but never block the merge.
           # Once the false-positive rate is measured on this repo, switch to
