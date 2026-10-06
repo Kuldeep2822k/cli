@@ -21,6 +21,8 @@ topic_mastery = round((conceptual + practical + debug + 2 * feynman) / 5, 4)
 
 A topic is considered **mastered** and satisfies downstream dependencies when its weighted score reaches or exceeds `0.70` (70%).
 
+Because Feynman is the only double-weighted term, the three ordinary pillars cap mastery at `(1 + 1 + 1) / 5 = 0.60`; a topic cannot reach the `0.70` gate without a non-zero Feynman score.
+
 ## Consequences
 - **Positive**:
   - Encourages holistic comprehension rather than rote memorization.
