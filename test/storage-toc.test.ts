@@ -239,6 +239,39 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.strictEqual(enum_.skipped[0].reason, 'outside-scope');
     });
 
+    // Issue #263 asked for a size guard on a TOC *candidate*, reported with a
+    // skip reason, rather than an unbounded parse: `deriveTocEnumeration` reads
+    // every README/SUMMARY in the vault unattended during `adopt --auto-chain`,
+    // so one pathological document (a pasted diff, a generated index) held up
+    // the whole vault. The bound is `TOC_MAX_SOURCE_BYTES` = 512 KiB in
+    // src/storage/toc.ts — an order of magnitude more link lines than an author
+    // enumerates by hand, and small enough that the scanner can never be handed
+    // a document whose parse is unbounded.
+    it('skips an oversized TOC document with a counted reason instead of parsing it', () => {
+      const guard = 512 * 1024;
+      write(vault, 'README.md', `- [ok](guide/intro.md)\n${'x'.repeat(guard)}\n`);
+      write(vault, 'guide/intro.md');
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.documentOrder, [], 'the document was never scanned');
+      assert.deepStrictEqual(enum_.tocFiles, ['README.md'], 'it is still a discovered TOC document');
+      assert.strictEqual(enum_.skipped.length, 1, 'the decline is counted, not silent');
+      assert.strictEqual(enum_.skipped[0].tocFile, 'README.md');
+      assert.strictEqual(enum_.skipped[0].reason, 'oversized');
+      const composed = composeTieredChain({
+        tier: 'full',
+        numbered: planAutoChainWithHygiene(enum_.documentOrder),
+        tocPaths: enum_.documentOrder,
+      });
+      assert.strictEqual(composed.tocEdgeCount, 0, 'no edge is authored from a document that was not read');
+
+      // Just inside the bound the same document still enumerates: the guard
+      // declines a pathological file, it does not ban a long README.
+      write(vault, 'README.md', `- [ok](guide/intro.md)\n${'x'.repeat(guard - 64)}`);
+      const under = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(under.documentOrder, ['guide/intro.md']);
+      assert.deepStrictEqual(under.skipped, []);
+    });
+
     it('end-to-end: phase inversion in an unnumbered repo composes to a clean chain', () => {
       write(vault, 'README.md', [
         '# Course',

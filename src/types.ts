@@ -329,9 +329,28 @@ export interface MigrateOptions {
    * @remarks Edges written before the `tie` label existed recorded an
    * alphabetical tiebreak as a numbering decision, and a `numbered` edge gates.
    * This changes the label only — never `depends_on` — so the note stops being
-   * held off the ready list by a filename collation.
+   * held off the ready list by a filename collation. Notes with **no**
+   * `depends_on_source` key at all are not in this population; see
+   * {@link MigrateOptions.includeUnlabeledTies}.
    */
   relabelTies?: boolean;
+  /**
+   * Extend the `--relabel-ties` scan to notes that carry no `depends_on_source`
+   * key at all — the shape the auto-chain left behind before that label existed
+   * (#266) — and report that population on a preview run.
+   *
+   * @remarks Opt-in by design. An absent label is the fail-closed spelling for
+   * "the learner typed this list", and it is byte-identical to what a chain edge
+   * looks like, so nothing on disk separates the two: only the user knows the
+   * vault was adopted. Opening the route on upgrade would rewrite frontmatter
+   * nobody asked to touch, so a bare `--relabel-ties` keeps its pre-#266 meaning
+   * exactly. Even opted in, a note is demoted only when the planner itself could
+   * have written the edge — one prerequisite, pointing backward, same directory,
+   * equal rank, no same-rank sibling still between the pair, no legacy
+   * `dependencies` alias, and both notes inside the plan — and `depends_on` is
+   * never edited.
+   */
+  includeUnlabeledTies?: boolean;
   /**
    * Report what the pass would touch and write nothing, even alongside
    * `--relabel-ties`.
