@@ -381,9 +381,11 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
         target: fs.PathLike | number,
         options?: unknown
       ) => {
-        // Read #1 is the scan's, read #2 is the write loop's re-read: deleting the
-        // note between them is exactly the race the pass is supposed to survive.
+        // Read #1 is the scan's, read #2 is the write loop's re-read: removing the
+        // note between them is exactly the race the pass has to survive, and the
+        // file really is gone by the time the pass asks.
         if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
           throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
             code: 'ENOENT',
           });
@@ -411,6 +413,43 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
       /depends_on_source: numbered/,
       'the surviving note is left alone: only the vanished one was a candidate'
     );
+  });
+
+  test('an ENOENT from the write is still a write error when the note exists', async () => {
+    // The vanished classification keys on the note being gone, not on the error
+    // code: a parent directory removed under `atomicWrite`, or a temp-file race in
+    // its rename, raises ENOENT while the note sits there untouched — and a note
+    // that exists still has its relabel to do. Calling that "nothing to relabel"
+    // and exiting 0 tells the learner their vault is settled when it is not.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRename = fs.renameSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { renameSync: unknown }).renameSync = ((from: string, to: string) => {
+        if (to === notePath) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, rename '${from}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return originalRename(from, to);
+      }) as typeof fs.renameSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /\(1 write error\(s\)\)/, 'the note that still exists is a failed write');
+      assert.doesNotMatch(output, /no longer exist/, 'and it is not reported as gone');
+      assert.strictEqual(process.exitCode, 5, 'a real write failure still fails the run');
+    } finally {
+      (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
   });
 
   test('a locked note is counted in the summary, not only on stderr', async () => {
