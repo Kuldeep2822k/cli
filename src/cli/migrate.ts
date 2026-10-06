@@ -11,6 +11,7 @@ import {
   type LoadedTopic,
 } from '../storage';
 import { tiedByName, compareLessonOrderTier0 } from '../engine/auto-chain';
+import { classifyNoteForChain } from '../engine/tier0-hygiene';
 import { MigrateOptions } from '../types';
 
 /** A note whose stored `depends_on` was ordered by its filename, not its number. */
@@ -36,6 +37,18 @@ export interface StoredTie {
    * derivation actually relied on is that this id still lives at this path.
    */
   predecessorId: string;
+  /**
+   * True when the note carried **no** `depends_on_source` key rather than a
+   * stored `numbered` one, i.e. it was adopted before the label existed (#266).
+   *
+   * @remarks
+   * Optional and defaulting to false so the labelled population — and every
+   * {@link StoredTie} built before this flag existed — reads unchanged. The two
+   * populations are written the same way (the label is all this pass touches);
+   * they differ in what the report may honestly say about them, so the pass keeps
+   * the distinction rather than re-deriving it from the frontmatter later.
+   */
+  unlabeled?: boolean;
 }
 
 /** What one vault scan turned up, before anything was written. */
@@ -97,19 +110,70 @@ function survivingSiblingBetween(siblings: string[], predBase: string, ownBase: 
 }
 
 /**
+ * Whether an edge on a note that carries **no** `depends_on_source` key at all
+ * could have been written by the auto-chain rather than typed by a person.
+ *
+ * @param note - The candidate: a note with an absent label
+ * @param pred - The single note its `depends_on` names
+ * @returns `false` when any signal says the chain never authored this edge
+ *
+ * @remarks
+ * An absent label is the fail-closed spelling for "the learner wrote this" (see
+ * {@link normalizeDependsOnSource}), and it is also exactly what the 0.5.2
+ * auto-chain left behind, because the label did not exist yet. The two are the
+ * same bytes on disk — that is the whole of #266 — so the caller reaching this
+ * predicate has already passed `--include-unlabeled-ties` and declared its
+ * unlabeled notes to be adopted ones. These are the cases where even that
+ * declaration is not enough, because the planner provably did not write the edge:
+ *
+ * - **a legacy `dependencies` key on the note.** `normalizeDependencies` unions
+ *   `dependencies` into `depends_on` (`src/storage/loader.ts:246`) and dedupes,
+ *   so a note whose alias names the same id loads as a *single* predecessor and
+ *   looks exactly like a chain edge. The chain only ever wrote `depends_on`, so
+ *   the alias is a person's spelling or a pre-auto-chain build's, and the union
+ *   hides which entry is whose: indistinguishable means refused.
+ * - **either endpoint excluded by Tier-0 hygiene.** `classifyNoteForChain` drops
+ *   repo-meta (`index.md`, `license.md`), translation copies and templates from
+ *   the plan before any edge is written, so an edge between two of them is not
+ *   one the planner could have produced however its names rank. The check is the
+ *   shipped classifier, not a restatement of it.
+ *
+ * Every remaining signal — same directory, rank equality
+ * ({@link tiedByName}), direction ({@link compareLessonOrderTier0}), and the
+ * surviving-sibling rule — is applied to both populations by
+ * {@link findStoredTies} itself, so this only carries what is specific to an
+ * absent label.
+ */
+function unlabeledEdgeCouldComeFromTheChain(note: LoadedTopic, pred: LoadedTopic): boolean {
+  if (note.frontmatter.dependencies !== undefined) return false;
+  if (classifyNoteForChain(note.path, note.frontmatter.palee_id).cls === 'excluded') return false;
+  return classifyNoteForChain(pred.path, pred.frontmatter.palee_id).cls !== 'excluded';
+}
+
+/**
  * Finds notes still locked behind an alphabetical tie the numbering never decided.
  *
  * @param topics - Every topic loaded from the vault
+ * @param includeUnlabeledTies - Also consider notes with no `depends_on_source`
+ *   key at all, which is what `--include-unlabeled-ties` asks for
  * @returns The notes whose stored label should read `tie`, in vault order
  *
  * @remarks
- * Before #234 an auto-chained tie was written as `depends_on_source: numbered`,
- * which gates. The two labels are indistinguishable without re-deriving the
- * order, so this re-asks the planner's own predicates against what is on disk:
- * same directory, {@link tiedByName} true of the two names, the stored
- * predecessor the one {@link compareLessonOrderTier0} would have placed *first*,
- * and nothing of the same rank still sitting between the two
- * ({@link survivingSiblingBetween}).
+ * Before #234 an auto-chain tie was written as `depends_on_source: numbered`,
+ * which gates; before the label existed at all it was written with **no** label,
+ * which gates the same way. Nothing rewrites an adopted note, so both outlive the
+ * fix, and the two are indistinguishable except by the label itself — which is
+ * why the unlabeled population sits behind {@link includeUnlabeledTies} rather
+ * than in the default scan. Absent that flag the scan is exactly what it was:
+ * only notes whose label reads the exact string `numbered`.
+ *
+ * For either population this re-asks the planner's own predicates against what is
+ * on disk, because an edge may only be demoted if the planner itself could have
+ * produced it: same directory, {@link tiedByName} true of the two names, the
+ * stored predecessor the one {@link compareLessonOrderTier0} would have placed
+ * *first*, and nothing of the same rank still sitting between the two
+ * ({@link survivingSiblingBetween}). The unlabeled population adds
+ * {@link unlabeledEdgeCouldComeFromTheChain} on top.
  *
  * The direction test is not decoration. Rank equality says two notes were ordered
  * by their filenames; it does not say which of them the planner put in front.
@@ -126,12 +190,18 @@ function survivingSiblingBetween(siblings: string[], predBase: string, ownBase: 
  *   list may have been edited by hand, and `adopt` never wrote one;
  * - an edge that skips a same-rank sibling still on disk is left alone, because
  *   the chain links neighbours and never wrote such an edge;
- * - a note with no label is left alone: absent means the learner wrote it;
- * - a predecessor that no longer loads cannot be ranked at all, so the note is
- *   reported in {@link StoredTieScan.unresolved} rather than guessed at, and left
- *   to the dangling-edge report that owns that case.
+ * - a note whose label is present but unrecognized (`depends_on_source:
+ *   numbering`) is left alone: only a key that is not there at all is the 0.5.x
+ *   shape, and a typo must not be overwritten (#266);
+ * - a labelled note that is not `numbered` — `toc`, `declared`, `tie` — is left
+ *   alone, since its label already says who authored the edge;
+ * - a predecessor that no longer resolves cannot be ranked at all, so a labelled
+ *   note is reported in {@link StoredTieScan.unresolved} rather than guessed at,
+ *   and left to the dangling-edge report that owns that case. An unlabeled note
+ *   is simply refused: that report is worded for the labelled population, and
+ *   with no pair to rank this pass has no claim about the edge either way.
  */
-function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
+function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): StoredTieScan {
   const byId = new Map<string, LoadedTopic>();
   const siblingsByDir = new Map<string, string[]>();
   for (const t of topics) {
@@ -144,12 +214,25 @@ function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
   const found: StoredTie[] = [];
   const unresolved: string[] = [];
   for (const t of topics) {
-    if (t.depends_on_source !== 'numbered') continue;
+    // The raw key is the only thing that separates "no label was ever written"
+    // from "the label is there but this build does not recognize it", because
+    // `normalizeDependsOnSource` fails both to `undefined`. An absent raw key is
+    // the 0.5.x shape; a typo is a note somebody edited, and neither is a
+    // `numbered` label, which still decides the labelled population on its own.
+    const unlabeled = t.frontmatter.depends_on_source === undefined;
+    if (unlabeled) {
+      if (!includeUnlabeledTies) continue;
+    } else if (t.depends_on_source !== 'numbered') {
+      continue;
+    }
     const deps = t.depends_on ?? [];
     if (deps.length !== 1) continue;
     const pred = byId.get(deps[0] as string);
     if (pred === undefined) {
-      unresolved.push(t.filePath);
+      // An unlabeled note makes no claim this pass can answer without the pair,
+      // and the line below reports `numbered` labels, so it is refused in silence
+      // and `palee validate` names the missing id.
+      if (!unlabeled) unresolved.push(t.filePath);
       continue;
     }
     const dir = path.dirname(t.filePath);
@@ -159,12 +242,14 @@ function findStoredTies(topics: LoadedTopic[]): StoredTieScan {
     if (!tiedByName(predBase, ownBase)) continue;
     if (compareLessonOrderTier0(predBase, ownBase) >= 0) continue;
     if (survivingSiblingBetween(siblingsByDir.get(dir) ?? [], predBase, ownBase)) continue;
+    if (unlabeled && !unlabeledEdgeCouldComeFromTheChain(t, pred)) continue;
     found.push({
       filePath: t.filePath,
       predecessorPath: pred.path,
       predecessorFilePath: pred.filePath,
       noteFingerprint: computeFingerprint(t.content),
       predecessorId: pred.id,
+      unlabeled,
     });
   }
   return { ties: found, unresolved };
@@ -215,6 +300,9 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * @param dryRun - True when `--dry-run` was given: report, and write nothing even
  *   alongside `--relabel-ties`, so a caller that always passes the flag can be
  *   made safe without editing the command.
+ * @param includeUnlabeledTies - True when `--include-unlabeled-ties` was given:
+ *   the scan also covers notes with no `depends_on_source` key (#266), and the
+ *   report says so instead of describing them as labelled notes
  * @returns What the pass did; zero writes and no conflict on a report-only run
  *
  * @remarks
@@ -223,6 +311,11 @@ export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
  * whole-vault read here would sit one statement away from the first and close no
  * window worth its cost. The gap that matters is between deriving a tie and
  * promoting its write, and each write closes that gap for itself, below.
+ *
+ * Both populations are written the same way — the label is all this pass touches —
+ * but only the unlabeled one gains a key it never had, so the header names which
+ * notes are in front of the user and the dry run lists every one of them before
+ * anything is written.
  *
  * Each write is confirmed against the state its own decision read: the gated
  * note's fingerprint, and the predecessor's identity. A mismatch means the vault
@@ -235,18 +328,34 @@ async function reportStoredTies(
   vaultPath: string,
   scanned: LoadedTopic[],
   apply: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  includeUnlabeledTies: boolean
 ): Promise<RelabelOutcome> {
   const none: RelabelOutcome = {
     relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0, hadConflict: false,
   };
-  const { ties, unresolved } = findStoredTies(scanned);
+  const { ties, unresolved } = findStoredTies(scanned, includeUnlabeledTies);
   if (ties.length === 0 && unresolved.length === 0) return none;
+  // Which population the user is looking at, so the report and the tip below both
+  // describe the notes actually in front of them.
+  const unlabeledCount = ties.reduce((n, t) => (t.unlabeled === true ? n + 1 : n), 0);
+  const numberedCount = ties.length - unlabeledCount;
   if (ties.length > 0) {
     console.log(`Prerequisite labels:  ${ties.length} note(s) gate behind a same-directory sibling`);
-    console.log('                    their stored label says `numbered`, but the numbering did not'
-      + ' decide those');
-    console.log('                    orders — the filenames did, which is what `tie` means.');
+    if (unlabeledCount === 0) {
+      console.log('                    their stored label says `numbered`, but the numbering did not'
+        + ' decide those');
+      console.log('                    orders — the filenames did, which is what `tie` means.');
+    } else if (numberedCount === 0) {
+      console.log('                    they carry no `depends_on_source` key at all — the shape notes');
+      console.log('                    adopted before that label existed were left in. Their order');
+      console.log('                    came from the filenames, which is what `tie` means.');
+    } else {
+      console.log(`                    ${numberedCount} say \`numbered\` and ${unlabeledCount} carry no`
+        + ' `depends_on_source` key at all — the shape notes');
+      console.log('                    adopted before that label existed were left in. In both cases');
+      console.log('                    the filenames decided the order, which is what `tie` means.');
+    }
     // A dry run is the preview of exactly what `--relabel-ties` would touch,
     // so it lists every candidate. The audit-only report keeps its limit.
     const previewAll = apply && dryRun;
@@ -272,8 +381,17 @@ async function reportStoredTies(
         + ' Nothing written.');
       console.log();
     } else {
-      console.log('Tip: Run "palee migrate --relabel-ties" to rewrite the label. `depends_on` is');
+      // Name the flags that actually reach the notes being reported: a learner
+      // told to run `--relabel-ties` against unlabeled notes would get the same
+      // silent exit 0 that #266 is about.
+      const hint = unlabeledCount > 0 ? '--relabel-ties --include-unlabeled-ties' : '--relabel-ties';
+      console.log(`Tip: Run "palee migrate ${hint}" to rewrite the label. \`depends_on\` is`);
       console.log('     never touched, and a relabelled note is no longer held off `palee plan`.');
+      if (unlabeledCount > 0) {
+        console.log(`     Add "--dry-run" first: these ${unlabeledCount} note(s) have no label, so the`);
+        console.log('     pass would be writing a key they never had, and only the user can say');
+        console.log('     whether they were adopted or typed by hand.');
+      }
       console.log();
     }
     return { ...none, unresolved: unresolved.length };
@@ -340,7 +458,10 @@ async function reportStoredTies(
 /**
  * CLI command handler for validating and migrating note schema versions across the vault.
  *
- * @param options - Migration options including `--fix` and `--relabel-ties`.
+ * @param options - Migration options including `--fix`, `--relabel-ties`,
+ * `--include-unlabeled-ties` and `--dry-run`. The unlabeled population is reached
+ * only by that third flag, so a bare `--relabel-ties` run keeps doing exactly what
+ * it did before #266: notes whose label reads `numbered`, and nothing else.
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
  * process.exitCode = 3 if unrecognized schemas remain, process.exitCode = 4 if any
@@ -375,7 +496,8 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       vaultPath,
       loaded,
       options.relabelTies === true,
-      options.dryRun === true
+      options.dryRun === true,
+      options.includeUnlabeledTies === true
     );
     if (tieOutcome.hadConflict) {
       console.error('Error: OCC conflict or active lock detected while relabelling. Re-run to retry.');
