@@ -277,6 +277,19 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
       console.log(`  Mastered (≥ ${threshold}).`);
     } else {
       console.log(`  Below the ${threshold} threshold, so it still gates what depends on it.`);
+      if (scores.feynman === 0) {
+        // Ceiling read from the engine rather than restated here: it is whatever
+        // maxed ordinary pillars actually score, so this line cannot drift from
+        // the weighting it describes — and if that weighting ever changes so the
+        // three pillars can reach the gate, the hint stops printing by itself.
+        const ceiling = computeTopicMastery(1, 1, 1, 0);
+        if (ceiling < MASTERY_THRESHOLD) {
+          console.log(
+            `  The feynman pillar is 0, and mastery is (conceptual + practical + debug + 2 * feynman) / 5, so the ` +
+              `other three cap at ${ceiling.toFixed(2)} and cannot reach ${threshold}. Score --feynman to lift this gate.`
+          );
+        }
+      }
     }
     if (unlocked.length > 0) {
       const listed = unlocked.slice(0, 3).join(', ');
