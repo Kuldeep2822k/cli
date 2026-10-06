@@ -392,6 +392,30 @@ describe('valid-dependency-list rule (#33)', () => {
     assert.deepStrictEqual(validDependencyListRule.run(makeContext(topics)), []);
   });
 
+  test('a self-referential value is reported instead of crashing the rule', () => {
+    // `yaml` 2.9.1 keeps an alias cycle: `depends_on_source: &self [*self]` parses
+    // to an array holding itself. `JSON.stringify` throws a TypeError on that,
+    // `runRules` catches it as a generic rule-execution failure, and the unsafe
+    // value silences the finding that names it — the same cycle would then break
+    // `validate --json` while serializing `details.actual`.
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    for (const frontmatter of [
+      { depends_on: [], depends_on_source: cyclic },
+      { depends_on: cyclic },
+    ]) {
+      const topics = [makeTopic({ palee_id: 'T-cycle', frontmatter })];
+      const issues = validDependencyListRule.run(makeContext(topics));
+      assert.strictEqual(issues.length, 1, `exactly one finding for a cycle: ${JSON.stringify(issues)}`);
+      assert.match(issues[0].message, /\[circular\]/, 'the message names the shape without walking it');
+      assert.strictEqual(
+        JSON.parse(JSON.stringify(issues))[0].details.actual,
+        '[circular]',
+        'and the report serializes for `validate --json`'
+      );
+    }
+  });
+
   test('clean list of string IDs passes', () => {
     const topics = [makeTopic({
       palee_id: 'T-c',

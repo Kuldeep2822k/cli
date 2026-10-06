@@ -306,7 +306,12 @@ async function reportStoredTies(
       // A note deleted between the scan and this write is not a failed write, and
       // it is not gated either — there is nothing left to gate. Counting it as one
       // sent the caller off to repair a note that does not exist, under exit `5`.
-      if ((err as { code?: string }).code === 'ENOENT') {
+      // ENOENT from anywhere in this try is not proof the note is gone: the
+      // parent directory vanishing under `atomicWrite`, or a temp-file race in its
+      // rename, raises the same code while the note sits there untouched — and a
+      // note that exists still has its relabel to do. Classify as vanished only
+      // when the path really is absent now.
+      if ((err as { code?: string }).code === 'ENOENT' && !fs.existsSync(tie.filePath)) {
         console.error(`  Skipped ${tie.filePath}: the note no longer exists.`);
         outcome.vanished++;
         continue;
