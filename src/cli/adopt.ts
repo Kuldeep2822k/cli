@@ -41,6 +41,7 @@ import {
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
 import { resolveNoteTitle } from '../storage/note-title';
+import { normalizeDependencies } from '../storage/dependencies';
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -317,9 +318,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         return;
       }
 
-      const dependsOn = options.dependsOn
+      const flagDeps = options.dependsOn
         ? options.dependsOn.split(',').map((s) => s.trim()).filter(Boolean)
         : [];
+
+      // #258 — a note adopted for the first time that already carries a
+      // non-empty `depends_on` is stating its own prerequisites, and adoption is
+      // documented as strictly non-destructive (docs/02-1) with "explicit
+      // non-empty `depends_on` always wins" (docs/03-2). Reading only the flag
+      // here wrote `depends_on: []` straight over that gate. `--depends-on` still
+      // outranks the note: passing it in the same invocation *is* the learner
+      // overriding what the frontmatter said. The list goes through the storage
+      // normalizer rather than being copied verbatim so what is stored is the
+      // form `loadTopics` reads back (a comma string and a flow sequence name
+      // the same edges), and in the author's own order.
+      const frontmatterDeps = normalizeDependencies(frontmatter?.depends_on);
+      const dependsOn = flagDeps.length > 0 ? flagDeps : frontmatterDeps;
 
       const topicId = generateTopicId();
       const title = resolveNoteTitle(content, absolutePath, frontmatter);
@@ -357,6 +371,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         last_reviewed_at: null,
         due_at: null,
       };
+
+      // `declared` is the label that already means "the learner wrote this list"
+      // (the `## Prerequisites` path in batch mode uses it), and unlike
+      // `toc`/`tie` it gates — which is the point: a hand-written prerequisite
+      // has to keep holding the note off the ready list, just as it did before
+      // adoption. Nothing is labelled when the note stated no dependencies, or
+      // when the flag overrode them, so those cases stay exactly as today.
+      if (flagDeps.length === 0 && frontmatterDeps.length > 0) {
+        paleeData.depends_on_source = 'declared';
+      }
 
       if (options.dryRun) {
         console.log(`Dry run: would adopt ${targetPath} as a new topic`);
@@ -444,6 +468,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedUnreadable = new Map<string, string>();
     /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
     const adoptedPaleeId = new Map<string, unknown>();
+    /**
+     * #258 — the non-empty `depends_on` each candidate note already carries in its
+     * own frontmatter, i.e. the prerequisites the learner stated directly rather
+     * than in the `## Prerequisites` prose the planner otherwise reads. Collected
+     * during the scan because that is where the note is parsed once, and only for
+     * an `--auto-chain` batch, which is the pass that synthesizes an edge over it.
+     */
+    const handAuthoredDeps = new Map<string, string[]>();
 
     const recordHygieneSkip = (reason: Tier0SkipReason, relPath: string): void => {
       const list = skippedByHygiene.get(reason);
@@ -540,6 +572,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
           continue;
         }
+        // Read where the frontmatter is already parsed, and only after every
+        // filter above has been applied: a note this batch will not write must
+        // not contribute an edge to the report either, so the list of surviving
+        // candidates is the whole input.
+        const ownDeps = normalizeDependencies(frontmatter?.depends_on);
+        if (ownDeps.length > 0) {
+          handAuthoredDeps.set(relPath, ownDeps);
+        }
       }
 
       toAdopt.push({
@@ -609,6 +649,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         if (planPaths.has(rel) && !toAdoptPaths.has(rel)) {
           idByPath.set(rel, topic.id);
         }
+      }
+
+      /**
+       * palee_id -> vault-relative path over the *whole* vault, not just this
+       * plan: the reverse of `idByPath` cannot resolve the ids a note names by
+       * hand, since those may point outside the scanned scope. Used to print a
+       * preserved hand-written edge as a path, the way a chain edge is printed.
+       */
+      const pathOfId = new Map<string, string>();
+      for (const topic of existingTopics) {
+        pathOfId.set(topic.id, topic.path.replace(/\\/g, '/'));
+      }
+      for (const [rel, id] of idByPath) {
+        pathOfId.set(id, rel);
       }
 
       // WS6 — a note's own links outrank any inference about it. The name index
@@ -722,7 +776,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         !tiered.hasNumberedLayout &&
         tiered.tocEdgeCount === 0 &&
         tiered.numberedEdgeCount === 0 &&
-        declaredDeps.size === 0;
+        declaredDeps.size === 0 &&
+        // #258 — a hand-written `depends_on` is as much an order signal as a
+        // `## Prerequisites` line, and the plan does write its edge, so claiming
+        // "no chainable order signal" over it would print `0 edges` on a run
+        // that gates a note on an edge the learner authored. Same reason
+        // `declaredDeps` is already in this conjunction (#225).
+        handAuthoredDeps.size === 0;
       // Distinct from "nothing to chain": under `strict` the enumeration may hold
       // links the selected tier simply does not read, and naming the tier is the
       // useful advice. Keyed on the enumeration's *presence* it lies in the other
@@ -767,6 +827,25 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       }
 
+      // The enumeration also declines whole documents, and that has to be said
+      // too: a learner whose README was skipped would otherwise be told the
+      // vault carries no order signal when the tier in fact refused to read one.
+      // Reported only where a tier reads TOC documents — `strict` never does, so
+      // a bound it never exercised is not its news.
+      const oversizedToc =
+        autoChainTier === 'toc' || autoChainTier === 'full'
+          ? tocEnumeration.skipped.filter((s) => s.reason === 'oversized')
+          : [];
+      if (oversizedToc.length > 0) {
+        console.log(
+          `⚠ Warning: ${oversizedToc.length} README/SUMMARY document(s) were too large to enumerate, ` +
+            'so no chain edge was read from them.'
+        );
+        for (const example of oversizedToc.slice(0, 3)) {
+          console.log(`    e.g. ${example.tocFile}`);
+        }
+      }
+
       const plannedGraph = new Map<string, TopicNode>();
       for (const relPath of chainPlan.orderedPaths) {
         const id = idByPath.get(relPath);
@@ -782,6 +861,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           continue;
         }
         const declared = declaredDeps.get(relPath);
+        const handAuthored = handAuthoredDeps.get(relPath);
         const predecessorPath = chainPlan.predecessorOf.get(relPath) ?? null;
         const predecessorId = predecessorPath ? idByPath.get(predecessorPath) : undefined;
         const dependsOn: string[] = [];
@@ -795,6 +875,25 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           chainSourceOf.set(relPath, 'declared');
           for (const target of declared) {
             chainWritePlan.push({ path: relPath, dependsOnPath: target.path });
+          }
+        } else if (handAuthored) {
+          // #258 — the note already names its own gates in its frontmatter, so
+          // there is nothing for the planner to infer: writing the alphabetical
+          // predecessor here *replaced* that list and stamped it `numbered`, and
+          // a `numbered` edge gates, so the learner was held off the ready list by
+          // a filename collation they never chose. Same replace-don't-merge rule
+          // and same `declared` label as the prose branch above, because that is
+          // what this is — the note's own claim. Its edges are then counted under
+          // `Declared:`, not among the ones this tier authored.
+          dependsOn.push(...handAuthored);
+          chainSourceOf.set(relPath, 'declared');
+          for (const depId of handAuthored) {
+            // `dependsOnPath: null` would preview this note as a chain head whose
+            // `depends_on` stays empty, which is false, and would drop the edge
+            // from the `Declared:` count. An id resolving to no note prints as
+            // itself: the edge really is dangling, and `palee validate` is where
+            // that gets reported.
+            chainWritePlan.push({ path: relPath, dependsOnPath: pathOfId.get(depId) ?? depId });
           }
         } else if (predecessorId) {
           dependsOn.push(predecessorId);
@@ -1132,7 +1231,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // preserves what the note's own frontmatter declares.
       const effectiveDifficulty =
         options.difficulty === undefined ? normalizeDifficulty(frontmatter?.difficulty) : difficulty;
-      const plannedDeps = options.autoChain ? (chainDependsOn.get(note.relativePath) ?? []) : [];
+
+      // #258 — `depends_on` a note already states is not adoption's to clear. The
+      // planned edge wins when the chain authored one for this note; otherwise the
+      // note's own list is what gets written back. Under a plain `adopt --all` the
+      // plan is empty for every note, so this is what stops that invocation — the
+      // commonest one — from flattening a hand-written gate to `[]`. A note the
+      // planner visited keeps the ids the planner chose for it, which for a
+      // hand-authored note are the same ids (see `handAuthoredDeps`).
+      const ownDeps = normalizeDependencies(frontmatter?.depends_on);
+      const chainDeps = chainDependsOn.get(note.relativePath) ?? [];
+      const preservedOwnDeps = chainDeps.length === 0 && ownDeps.length > 0;
+      const plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
@@ -1159,6 +1269,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const edgeSource = chainSourceOf.get(note.relativePath);
         if (edgeSource) {
           paleeData.depends_on_source = edgeSource;
+        } else if (preservedOwnDeps) {
+          // Same label the prose branch uses for a list the author wrote, so both
+          // adopt paths describe a preserved hand-written gate the same way rather
+          // than one labelling it and the other leaving it absent.
+          paleeData.depends_on_source = 'declared';
         }
       }
 
