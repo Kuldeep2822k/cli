@@ -158,14 +158,20 @@ function carriedPillarScores(frontmatter: Record<string, unknown> | null | undef
  * is different: any `palee_id` written under it is invisible to the parser, so
  * adopting the note would prepend a fresh block with a minted id and strand the
  * learner's own in the body, which is the identity loss adoption exists to avoid.
+ * Both delimiters are matched exactly, as the parser matches them: its opener
+ * regex wants `---` at the start of the file and its closer wants `---` at the
+ * start of a line, so a padded `--- ` opener is no frontmatter at all (adoptable)
+ * while an indented ` ---` closes nothing (refused). A trim here would disagree
+ * with the parser in both directions, and the disagreeing direction is the one
+ * that strands an identity.
  */
 function hasUnclosedFrontmatterOpener(content: string): boolean {
   const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   const lines = text.split(/\r?\n/);
-  if (lines[0]?.trim() !== '---') {
+  if (lines[0] !== '---') {
     return false;
   }
-  return !lines.slice(1).some((line) => line.trim() === '---');
+  return !lines.slice(1).includes('---');
 }
 
 /**

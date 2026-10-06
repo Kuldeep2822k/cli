@@ -470,7 +470,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             // isolated and named, the bytes are untouched, and pre-invalidating the
             // whole batch would cost the vault the import resilience it documents.
             const declared = declaredIdOfNote(absoluteTopicPath);
-            if (declared.kind === 'declared' && String(declared.raw).trim() !== id) {
+            // Only a string can *be* this entry's id. `String(raw)` would read the
+            // single-element list `[T-a]` as `"T-a"` and wave the entry through,
+            // then replace the array with a string — while `loadTopics` and the
+            // wikilink resolver both call a non-string id unusable. Match them.
+            if (
+              declared.kind === 'declared'
+              && !(typeof declared.raw === 'string' && declared.raw.trim() === id)
+            ) {
               errors.push(
                 `Topic "${id}" targets ${relativePath}, which declares palee_id ` +
                   `${JSON.stringify(declared.raw)} — a declared identity this entry does not carry. ` +

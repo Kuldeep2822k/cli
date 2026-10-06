@@ -95,6 +95,25 @@ describe('adoption preserves what the note already declares', () => {
     assert.match(fs.readFileSync(path.join(vaultDir, note), 'utf8'), /palee_id: T-/);
   });
 
+  test('the unclosed-opener check agrees with the parser on both delimiters', () => {
+    // The parser wants `---` at the very start of the file and `---` at the start
+    // of a line, exactly. A padded opener is therefore no frontmatter at all, and
+    // an indented line closes nothing. Trimming either side disagrees with the
+    // parser — and the direction that matters is the one where the note keeps an
+    // unreadable `palee_id` and adoption prepends a second identity over it.
+    const paddedOpener = writeNote('padded.md', '--- \ntitle: Padded\n\n# Padded\n');
+    const padded = runCLI(['adopt', paddedOpener, '--yes']);
+    assert.strictEqual(padded.status, 0, `a padded opener is no frontmatter: ${padded.stderr}`);
+    assert.match(fs.readFileSync(path.join(vaultDir, paddedOpener), 'utf8'), /palee_id: T-/);
+
+    const indentedCloser = writeNote('indented.md', '---\npalee_id: T-mine-4\n ---\nbody\n');
+    const before = fs.readFileSync(path.join(vaultDir, indentedCloser), 'utf8');
+    const refused = runCLI(['adopt', indentedCloser, '--yes']);
+    assert.strictEqual(refused.status, 2, `an indented line closes nothing: ${refused.stderr}`);
+    assert.match(refused.stderr, /never closes it/);
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, indentedCloser), 'utf8'), before);
+  });
+
   test('a single note with an unterminated opener is refused and left alone', () => {
     const note = writeNote('half.md', '---\npalee_id: T-mine-3\ntitle: Half\n\n# Half\n');
     const before = fs.readFileSync(path.join(vaultDir, note), 'utf8');
