@@ -212,4 +212,70 @@ describe('CLI Adopt Batch Integration Tests', () => {
     const result = runCLI(['adopt', '--all', '--include', 'valid/**', '-y']);
     assert.strictEqual(result.status, 0);
   });
+
+  // #258 — the single-file branch built `depends_on` from the `--depends-on` flag
+  // alone, so adopting a note that had already stated its prerequisites in its
+  // own frontmatter wrote `depends_on: []` over them and unlocked a note the
+  // learner had gated. These two notes live in their own directory and are the
+  // last tests here, so the counts the earlier tests assert against this shared
+  // vault are read before any of it exists.
+  test('palee adopt <note> keeps a hand-written depends_on from the frontmatter', () => {
+    const abs = path.join(vaultDir, 'ISSUE258', 'hand-declared.md');
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(
+      abs,
+      `---\ntitle: Hand Declared\ndepends_on: [T-real]\n---\n# Hand Declared\n`
+    );
+
+    const result = runCLI(['adopt', 'ISSUE258/hand-declared.md']);
+    assert.strictEqual(result.status, 0, `Command failed: ${result.stderr}`);
+
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(abs, 'utf8'));
+    assert.ok(frontmatter?.palee_id, 'the note was adopted');
+    assert.deepStrictEqual(frontmatter?.depends_on, ['T-real']);
+    assert.strictEqual(frontmatter?.depends_on_source, 'declared');
+    // The gate the learner wrote is still the gate the note reports.
+    assert.match(result.stdout, /Dependencies: T-real/);
+  });
+
+  test('palee adopt --depends-on overrides the note\'s own frontmatter depends_on', () => {
+    const abs = path.join(vaultDir, 'ISSUE258', 'flag-wins.md');
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(
+      abs,
+      `---\ntitle: Flag Wins\ndepends_on: [T-hand-written]\n---\n# Flag Wins\n`
+    );
+
+    const result = runCLI(['adopt', 'ISSUE258/flag-wins.md', '--depends-on', 'T-flag']);
+    assert.strictEqual(result.status, 0, `Command failed: ${result.stderr}`);
+
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(abs, 'utf8'));
+    assert.ok(frontmatter?.palee_id, 'the note was adopted');
+    // Passing the flag in the same invocation is the learner overriding the note,
+    // so it wins — and it carries no provenance label, exactly as before #258.
+    assert.deepStrictEqual(frontmatter?.depends_on, ['T-flag']);
+    assert.strictEqual(frontmatter?.depends_on_source, undefined);
+  });
+
+  test('palee adopt <directory> with no --auto-chain keeps a hand-written depends_on too', () => {
+    // The write loop planned `[]` for every note whenever `--auto-chain` was off, so
+    // the commonest invocation of all erased a hand-written gate while inferring
+    // nothing at all. Reverting `preservedOwnDeps` there writes `depends_on: []` and
+    // fails the deepStrictEqual below.
+    const abs = path.join(vaultDir, 'ISSUE258B', 'plain-adopt.md');
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(
+      abs,
+      `---\ntitle: Plain Adopt\ndepends_on: [T-earlier-note]\n---\n# Plain Adopt\n`
+    );
+
+    const result = runCLI(['adopt', 'ISSUE258B', '--yes']);
+    assert.strictEqual(result.status, 0, `Command failed: ${result.stdout}${result.stderr}`);
+
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(abs, 'utf8'));
+    assert.ok(frontmatter?.palee_id, 'the note was adopted');
+    assert.deepStrictEqual(frontmatter?.depends_on, ['T-earlier-note']);
+    assert.strictEqual(frontmatter?.depends_on_source, 'declared',
+      'a preserved list carries the same label the prose branch uses');
+  });
 });

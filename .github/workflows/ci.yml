@@ -139,9 +139,56 @@ jobs:
       - name: Test global binary --help
         run: palee --help
 
+  # package.json engines.node is a promise, and dist/bin/palee.js breaks it on
+  # Node 22.0-22.11: tsc emits `require("commander")` (dist/bin/palee.js:11) and
+  # commander 15 is ESM-only, so require(esm) has to be unflagged — Node >=22.12.0.
+  # The Node version here is read out of package.json itself, so lowering the
+  # declared floor below what the artifact runs on fails this leg instead of
+  # shipping an install that only warns (EBADENGINE) and then crashes.
+  engines-floor-smoke:
+    name: Built Artifact on the Declared Node Floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read declared Node floor from package.json
+        id: floor
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const range = pkg.engines.node;
+            const match = /^>=(\d+\.\d+\.\d+)\$/.exec(range);
+            if (!match) {
+              console.error('engines.node must be an exact floor of the form >=X.Y.Z, got:', range);
+              process.exit(1);
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'node=' + match[1] + '\n');
+            console.log('Declared Node floor:', match[1]);
+          "
+
+      - name: Use Node.js ${{ steps.floor.outputs.node }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.floor.outputs.node }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Run the built artifact on the declared floor
+        run: node dist/bin/palee.js --version
+
   ci-success:
     if: always()
-    needs: [quality-check, test-matrix, smoke-install]
+    needs: [quality-check, test-matrix, smoke-install, engines-floor-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

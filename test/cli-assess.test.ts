@@ -370,6 +370,52 @@ describe('CLI assess — making topic_mastery reachable', () => {
     );
   });
 
+  test('maxing the three ordinary pillars names --feynman as the missing pillar', async () => {
+    // (1 + 1 + 1 + 2*0) / 5 = 0.6. Because feynman is the only double-weighted
+    // term, the three ordinary pillars can never reach the 0.70 gate on their
+    // own, so a below-threshold score with no feynman mark must say which pillar
+    // is short and why — not just report a low number.
+    await runInTempVault({ 'three.md': note('Three Pillars') }, async () => {
+      const output = await captureOutput(() =>
+        assessCommand('Three Pillars', { conceptual: '1', practical: '1', debug: '1' })
+      );
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /mastery\s+0 → 0\.6/);
+      assert.match(output, /Below the 0\.70 threshold/);
+      assert.match(output, /--feynman/, 'the hint must name the --feynman flag');
+      assert.match(output, /2 \* feynman/, 'the hint must show the weighting arithmetic');
+    });
+  });
+
+  test('a below-threshold score that did use --feynman does not blame it', async () => {
+    // (1 + 0 + 0 + 2*0.5) / 5 = 0.4 — below the gate, but the learner scored
+    // feynman. The hint must stay honest and not name a pillar already given.
+    await runInTempVault({ 'low.md': note('Low Score') }, async () => {
+      const output = await captureOutput(() =>
+        assessCommand('Low Score', { conceptual: '1', practical: '0', debug: '0', feynman: '0.5' })
+      );
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /Below the 0\.70 threshold/);
+      assert.doesNotMatch(output, /--feynman/, 'the hint must not blame a pillar the learner scored');
+    });
+  });
+
+  test('an explicit --feynman 0 is described as a zero, not as a missing flag', async () => {
+    // `scores` defaults every pillar to 0, so an absent flag and `--feynman 0`
+    // reach the hint through the same branch. The line must therefore state the
+    // pillar's value, which is true both ways, rather than claim no score was
+    // given when the learner typed one.
+    await runInTempVault({ 'zero.md': note('Zero Feynman') }, async () => {
+      const output = await captureOutput(() =>
+        assessCommand('Zero Feynman', { conceptual: '1', practical: '1', debug: '1', feynman: '0' })
+      );
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /feynman pillar is 0/, 'must name the value, not the absence of a flag');
+      assert.match(output, /--feynman/);
+      assert.doesNotMatch(output, /With no --feynman score/);
+    });
+  });
+
   test('an exact palee_id wins over a neighbour that contains it', async () => {
     // `T-math` is a substring of `T-math-2`, so a substring scan matched both and
     // the command refused to write either — the learner had named the topic

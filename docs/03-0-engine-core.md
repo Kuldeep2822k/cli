@@ -129,6 +129,7 @@ Rather than reducing topic comprehension to a single 1-dimensional recall score,
 
 - **Score Normalization**: Inputs are sanitized via `normalizeScore`, clamping values to `[0.0, 1.0]` and rounding to 4 decimal places.
 - **Mastery Threshold**: Standardized constant `MASTERY_THRESHOLD = 0.70` (70%). Topics meeting or exceeding `0.70` are designated as mastered and unblock downstream prerequisites.
+- **Weighting**: `topic_mastery = (conceptual + practical + debug + 2 * feynman) / 5`. Feynman is the only double-weighted term, so the other three pillars cap mastery at `(1 + 1 + 1) / 5 = 0.60`; a topic cannot reach the `0.70` gate without a non-zero Feynman score. `palee assess` names this when a below-threshold score leaves `feynman` at `0`.
 - **Archive Exclusion**: Aggregate vault metrics in `palee progress` strictly exclude archived topics (`status === 'archived'`) from active mastery averages and readiness queues.
 
 #### 3. Dependency Graph Engine

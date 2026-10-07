@@ -123,7 +123,8 @@ program
   .command('migrate')
   .description('Migrate PALEE schema and prerequisite labels to the current version')
   .option('--fix', 'Automatically update notes missing palee_schema to schema v1')
-  .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes adopted before that label existed, so they stop gating; depends_on is never changed')
+  .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes whose stored label says `numbered`, so they stop gating; depends_on is never changed. Notes carrying no depends_on_source key at all - the ones adopted before that label existed - are NOT reached by this flag; they need --include-unlabeled-ties')
+  .option('--include-unlabeled-ties', 'With --relabel-ties, also relabel notes that carry no depends_on_source key at all, which is what notes adopted before that label existed were left in. Opt-in because an unlabeled note is byte-identical whether the chain or a person wrote its depends_on: only the label is written, never the list, and only for a single backward edge to a same-rank sibling in the same directory with no same-rank sibling still between them. Combine with --dry-run to preview every note it would touch')
   .option('--dry-run', 'With --relabel-ties, print the notes that would be relabelled and write nothing (does not affect --fix)')
   .action(migrateCommand);
 
