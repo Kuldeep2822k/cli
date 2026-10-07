@@ -56,12 +56,35 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     ]);
   });
 
-  test('a release tag is tested, not only published', () => {
-    // `release.yml` is what a `v*.*.*` push triggered, and its test job is
-    // ubuntu-only — so the artifact that reached npm had never been run on
-    // macOS or Windows at any point before it shipped.
+  test('a release tag triggers CI as well as publishing', () => {
     assert.deepStrictEqual(doc.on.push?.tags, ['v*.*.*']);
     assert.ok(doc.on.push?.branches?.includes('main'));
     assert.ok(doc.on.pull_request?.branches?.includes('main'));
+  });
+
+  test('a tag cannot publish before the platform matrix has passed', () => {
+    // CI's own tag run is a separate workflow, and a workflow cannot depend on
+    // another's result — so the publish gate has to live in `release.yml`, which
+    // means the matrix is written in two files. That duplication is precisely the
+    // drift this suite exists to catch, so it is asserted rather than trusted: a
+    // release gated on a narrower set than CI runs would gate a smaller claim than
+    // the one being made.
+    const releasePath = path.resolve(__dirname, '../.github/workflows/release.yml');
+    const release = parseDocument(fs.readFileSync(releasePath, 'utf8')).toJSON() as {
+      jobs: Record<string, {
+        needs?: string | string[];
+        strategy?: { matrix?: { include?: unknown[] } };
+      }>;
+    };
+
+    const ciMatrix = doc.jobs['test-matrix'].strategy?.matrix?.include ?? [];
+    const releaseMatrix = release.jobs['test-platforms']?.strategy?.matrix?.include ?? [];
+    assert.ok(ciMatrix.length > 0, 'precondition: CI declares a matrix');
+    assert.deepStrictEqual(releaseMatrix, ciMatrix);
+
+    const needs = release.jobs['publish-npm']?.needs ?? [];
+    const required = Array.isArray(needs) ? needs : [needs];
+    assert.ok(required.includes('test-platforms'), 'publishing must wait for the matrix');
+    assert.ok(required.includes('verify-and-pack'), 'and for the artifact it publishes');
   });
 });
