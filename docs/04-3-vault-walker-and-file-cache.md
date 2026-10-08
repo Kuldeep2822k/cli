@@ -16,7 +16,8 @@ The storage subsystem relies on efficient discovery of Markdown files and a robu
 
 The `walkVault` function in `src/storage/vault-walker.ts` traverses the file system and collects absolute paths to Markdown files, applying strict filtering rules:
 
-- **Markdown Only**: Only files ending in `.md` are collected.
+- **Markdown Only**: Files ending in `.md` are collected, matched without regard to case — `Setup.MD` is a note. `isResolvableNotePath` folds case, so a walker that did not would hide a note from `loadTopics` while leaving it resolvable as a link and TOC target: the note gets an id minted at a path no scan lists.
+- **Name Identity**: Where two spellings of one note have to meet, `foldNoteKey` case-folds and normalizes to NFC. APFS stores an accented filename decomposed (`cafe` + U+0301) while a link typed for it arrives composed, and `toLowerCase()` alone leaves those unequal — the note resolves to nothing and an accented subtree chains to no predecessor.
 - **Excluded Directories**: Specifically ignores `node_modules` and any custom directories configured via `WalkOptions.excludeDirs` (e.g. `_templates`, `archive`).
 - **Hidden Directories**: Any directory starting with a dot (`.`) is skipped, effectively excluding `.obsidian`, `.trash`, and `.git`.
 - **Symlinks**: By default, symbolic links are skipped to prevent circular references or escaping the vault, unless explicitly enabled via `WalkOptions.followSymlinks`.

@@ -129,11 +129,14 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     );
   });
 
-  test('an id this import superseded counts as a dangling edge target', () => {
-    // The note at `repl-1.md` already carries T-old. This import writes T-new
-    // over the same path, so T-old exists nowhere — but the pre-import scan
-    // still held it, and treating it as known hid the edge pointing at it,
-    // which is exactly the case this report exists to catch.
+  test('an import that would retire an adopted id is refused before any write', () => {
+    // The note at `repl-1.md` already answers to T-old, and an edge elsewhere in
+    // the vault names it. Writing T-new over that path retired T-old: the
+    // dependent note then resolved its prerequisite to nothing, which keeps it
+    // out of `palee plan` for good, while `palee validate` counts a missing
+    // dependency as a warning and exits 0. The learner learned about it from a
+    // stderr list after the writes landed. INV-32 makes it a validation error
+    // instead, so the roadmap is corrected before the vault is touched.
     fs.writeFileSync(
       path.join(vaultDir, 'repl-1.md'),
       ['---', 'palee_schema: 1', 'palee_id: T-old', 'title: Old One', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
@@ -156,38 +159,26 @@ describe('roadmap import reports edges to notes that do not exist', () => {
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
     const output = result.stdout + result.stderr;
-    assert.strictEqual(result.status, 0, output);
-    assert.match(output, /T-dep → T-old/, 'the superseded id must be named');
+    assert.strictEqual(result.status, 3, `a retiring import must be refused: ${output}`);
+    assert.match(output, /already adopted as "T-old"/, 'the id it would retire is named');
+    assert.match(output, /Topic "T-new"/, 'along with the id that would replace it');
+    assert.match(output, /repl-1\.md/, 'and the note whose identity is at stake');
 
-    // Scoped to the note actually overwritten: an edge onto a topic this same
-    // batch wrote must stay unreported.
-    const keep = path.join(tempDir, 'roadmap-keep.yaml');
-    fs.writeFileSync(
-      keep,
-      [
-        'topics:',
-        '  - id: T-fresh',
-        '    title: Fresh',
-        '    path: keep-1.md',
-        '  - id: T-fresh-dep',
-        '    title: Fresh Dependent',
-        '    path: keep-2.md',
-        '    depends_on: [T-fresh]',
-        '',
-      ].join('\n')
+    assert.strictEqual(
+      fs.existsSync(path.join(vaultDir, 'repl-2.md')),
+      false,
+      'refusal writes nothing, so the dependent note does not appear either'
     );
-    const second = runCLI(['roadmap', '--from', keep, '--yes']);
-    const secondOutput = second.stdout + second.stderr;
-    assert.strictEqual(second.status, 0, secondOutput);
-    assert.doesNotMatch(secondOutput, /edge\(s\) point at topics that do not exist/);
+    const untouched = fs.readFileSync(path.join(vaultDir, 'repl-1.md'), 'utf8');
+    assert.match(untouched, /palee_id: T-old/, 'and the incumbent keeps its id');
   });
 
-  test('an overwrite declared by absolute path still retires the id it replaced', () => {
-    // Matching a written note against the loader's vault-relative paths is what
-    // makes the superseded-id rule work. Declaring the same note by an absolute
-    // in-vault path — which the write path accepts — bypassed that match entirely,
-    // so `T-old` was still counted as present and the edge naming it went
-    // unreported.
+  test('an overwrite declared by absolute path is refused on the same grounds', () => {
+    // Matching the incumbent note against a declaration is what makes this check
+    // work. Comparing the loader's vault-relative path against an absolute
+    // in-vault declaration — which the write path accepts — is a different
+    // spelling of the same note, and both sides go through one canonicalizer so
+    // the two spellings meet.
     fs.writeFileSync(
       path.join(vaultDir, 'abs-1.md'),
       ['---', 'palee_schema: 1', 'palee_id: T-old-abs', 'title: Old Abs', 'depends_on: []', 'topic_mastery: 0', '---', '', '# Old', ''].join('\n')
@@ -200,18 +191,137 @@ describe('roadmap import reports edges to notes that do not exist', () => {
         '  - id: T-new-abs',
         '    title: New Abs',
         `    path: ${path.join(vaultDir, 'abs-1.md')}`,
-        '  - id: T-dep-abs',
-        '    title: Dep Abs',
-        '    path: abs-2.md',
-        '    depends_on: [T-old-abs]',
         '',
       ].join('\n')
     );
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
     const output = result.stdout + result.stderr;
-    assert.strictEqual(result.status, 0, output);
-    assert.match(output, /T-dep-abs → T-old-abs/, 'an absolute declared path must retire the id it overwrote');
+    assert.strictEqual(result.status, 3, `an absolute declaration must be matched too: ${output}`);
+    assert.match(output, /already adopted as "T-old-abs"/);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'abs-1.md'), 'utf8'),
+      /palee_id: T-old-abs/,
+      'the note keeps the id it was adopted with'
+    );
+  });
+
+  test('re-importing a roadmap under the ids its notes already carry still writes', () => {
+    // The refusal must not become a ban on importing twice. The ordinary second
+    // run declares the same id for the same path, and lands as it always did.
+    const yamlPath = path.join(tempDir, 'roadmap-same-id.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-old',
+        '    title: Old One Renamed',
+        '    path: repl-1.md',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 0, `a same-id re-import must succeed: ${output}`);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'repl-1.md'), 'utf8'),
+      /title: Old One Renamed/,
+      'and the rest of the entry is applied'
+    );
+  });
+
+  test('an entry over a note with a numeric palee_id is refused too', () => {
+    // `loadTopics` is blind to a non-string id by design (B7), so the incumbent
+    // lookup found nothing at this path and the import wrote `T-new-numeric` over
+    // a note that had declared an identity — the same silent rename the string
+    // case refuses, reached through the loader's necessary blind spot.
+    fs.writeFileSync(
+      path.join(vaultDir, 'num-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: 20240115', 'title: Numeric', 'topic_mastery: 0', '---', '', '# Numeric', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-numeric.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-new-numeric', '    title: New Numeric', '    path: num-1.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 3, `a numeric id is still a declared identity: ${output}`);
+    assert.match(output, /declares palee_id 20240115/);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'num-1.md'), 'utf8'),
+      /palee_id: 20240115/,
+      'and the note keeps what it declared'
+    );
+  });
+
+  test('an entry whose declared id matches only after String() is still refused', () => {
+    // A single-element list stringifies to its element, so `String(raw) !== id`
+    // read `palee_id: [T-a]` as the id `T-a` and let the entry through — the write
+    // then replaced the array with a string. The loader and the wikilink resolver
+    // both call a non-string id unusable; the preflight check has to agree.
+    fs.writeFileSync(
+      path.join(vaultDir, 'listid-1.md'),
+      ['---', 'palee_schema: 1', 'palee_id: [T-list-a]', 'title: List Id', 'topic_mastery: 0', '---', '', '# List Id', ''].join('\n')
+    );
+    const sameName = path.join(tempDir, 'roadmap-listid.yaml');
+    fs.writeFileSync(
+      sameName,
+      ['topics:', '  - id: T-list-a', '    title: List Id Renamed', '    path: listid-1.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', sameName, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 3, `a list id is not a string id: ${output}`);
+    assert.match(output, /declares palee_id \["T-list-a"\]/);
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'listid-1.md'), 'utf8'),
+      /palee_id: \[T-list-a\]/,
+      'the declared value is not coerced on the way past'
+    );
+  });
+
+  test('a note whose frontmatter will not parse fails alone and keeps its bytes', () => {
+    // Preflight is for roadmap defects. A corrupted note is vault state the import
+    // already isolates: `updateFrontmatter` refuses to write it, so no identity is
+    // replaced — the batch loses the one topic, names it, and imports the rest.
+    // Making this a validation error would trade a named single failure for the
+    // whole batch refusing to run.
+    fs.writeFileSync(
+      path.join(vaultDir, 'unreadable-1.md'),
+      ['---', 'palee_id: T-broken', 'depends_on: [unclosed', '---', '', '# Broken', ''].join('\n')
+    );
+    const yamlPath = path.join(tempDir, 'roadmap-unreadable.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-over-broken',
+        '    title: Over Broken',
+        '    path: unreadable-1.md',
+        '  - id: T-healthy',
+        '    title: Healthy',
+        '    path: healthy-1.md',
+        '',
+      ].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+    assert.strictEqual(result.status, 1, `one corrupted note must not invalidate the batch: ${output}`);
+    assert.match(output, /T-over-broken/, 'the refused topic is named');
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'unreadable-1.md'), 'utf8'),
+      /palee_id: T-broken/,
+      'the bytes nothing could read are left alone'
+    );
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'healthy-1.md'), 'utf8'),
+      /palee_id: T-healthy/,
+      'and the healthy topic still lands'
+    );
   });
 
   test('an edge from a note the same batch later overwrote is not reported', () => {

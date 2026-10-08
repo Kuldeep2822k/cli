@@ -14,17 +14,18 @@
  * `.trash`/other dot-namespaces, `node_modules`), is rejected with
  * {@link UnresolvedWikilinkError} rather than skipped: it never falls through
  * to a lookalike note. Anchors (`#heading`, `#^block`) and `.md` suffixes are
- * stripped before resolution; matching is case-insensitive with an exact-case
- * tiebreak.
+ * stripped before resolution; matching folds case and normalizes Unicode to NFC,
+ * with an exact-case tiebreak.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, relativeVaultPath, isResolvableNotePath } from './vault-walker';
+import { walkVault, relativeVaultPath, isResolvableNotePath, stemOfNote, foldNoteKey } from './vault-walker';
 import { generateTopicId } from '../engine/topic-id';
 import type { ParsedWikilink } from '../engine/auto-chain';
 import type { WikilinkRoadmapSection } from './roadmap-parser';
 import { loadTopics } from './loader';
+import { parseFrontmatter } from './frontmatter';
 import { resolveNoteTitle } from './note-title';
 import type { RoadmapFile, RoadmapTopic } from '../types';
 
@@ -78,15 +79,15 @@ export interface ResolvedWikilink {
 }
 
 /**
- * Builds a case-insensitive basename index of every Markdown note in the vault.
+ * Builds a case- and Unicode-folded basename index of every Markdown note in the vault.
  *
  * @param vaultPath - Absolute path to the vault root
- * @returns Map from lowercased basename (without `.md`) to absolute paths
+ * @returns Map from folded basename (without `.md`) to absolute paths
  */
 export function buildVaultNoteIndex(vaultPath: string): Map<string, string[]> {
   const index = new Map<string, string[]>();
   for (const absolutePath of walkVault(vaultPath)) {
-    const key = path.basename(absolutePath, '.md').toLowerCase();
+    const key = foldNoteKey(path.basename(absolutePath));
     const list = index.get(key);
     if (list) {
       list.push(absolutePath);
@@ -132,7 +133,7 @@ function targetBaseName(target: string): string {
 }
 
 /**
- * Re-spells a resolved note path with the exact casing `walkVault` reported.
+ * Re-spells a resolved note path with the exact spelling `walkVault` reported.
  *
  * @param canonical - Absolute path from `fs.realpathSync` on the written target
  * @param index - Note index from {@link buildVaultNoteIndex}, i.e. walkVault output
@@ -153,14 +154,21 @@ function targetBaseName(target: string): string {
  * root the walk started from — which `fs.realpathSync.native` is not guaranteed
  * to be. Case twins (`Case.md` beside `case.md`, which a case-sensitive volume
  * allows) fold to one key, and there nothing is guessed.
+ *
+ * The comparison folds the way {@link foldNoteKey} folds, not case alone. On a
+ * normalization-insensitive volume the stored `cafe\u0301.md` opens for a
+ * composed `caf\u00e9` link and `realpathSync` echoes the composed spelling
+ * back, so the walker's entry and the resolved path differ by normalization
+ * rather than casing: a case-only compare finds no match there and returns the
+ * typed spelling, which is the divergence this function exists to remove.
  */
 function withWalkedCasing(canonical: string, index: Map<string, string[]>): string {
-  const listed = index.get(path.basename(canonical, '.md').toLowerCase());
+  const listed = index.get(foldNoteKey(path.basename(canonical)));
   if (!listed) {
     return canonical;
   }
-  const folded = canonical.toLowerCase();
-  const matches = listed.filter((p) => p.toLowerCase() === folded);
+  const folded = foldNoteKey(canonical);
+  const matches = listed.filter((p) => foldNoteKey(p) === folded);
   return matches.length === 1 ? matches[0] : canonical;
 }
 
@@ -312,14 +320,15 @@ export function resolveWikilinkTarget(
     throw new UnresolvedWikilinkError(target);
   }
 
-  // 2. Basename match (case-insensitive); an exact-case hit wins ties
-  const key = targetBaseName(target).toLowerCase();
+  // 2. Basename match (case- and Unicode-folded); an exact-case hit wins ties
+  const key = foldNoteKey(targetBaseName(target));
   const hits = index.get(key) ?? [];
   if (hits.length === 1) {
     return { absolutePath: hits[0], relativePath: relativeVaultPath(vaultPath, hits[0]) };
   }
   if (hits.length > 1) {
-    const exactCase = hits.filter((h) => path.basename(h, '.md') === targetBaseName(target));
+    const wanted = stemOfNote(targetBaseName(target)).normalize('NFC');
+    const exactCase = hits.filter((h) => stemOfNote(path.basename(h)).normalize('NFC') === wanted);
     if (exactCase.length === 1) {
       return {
         absolutePath: exactCase[0],
@@ -385,8 +394,48 @@ export function resolveWikilinkRoadmap(
         id = existing.id;
         title = existing.title;
       } else {
-        id = generateTopicId();
-        const content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        let content: string;
+        try {
+          content = fs.readFileSync(resolved.absolutePath, 'utf8');
+        } catch (err: unknown) {
+          const e = err as Error;
+          throw new Error(`Cannot read roadmap target ${resolved.relativePath}: ${e.message}`, {
+            cause: err,
+          });
+        }
+        const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+        // An adopted note is missing from `existingByPath` whenever `loadTopics`
+        // could not use its `palee_id` — a numeric id (B7), or a path the walker
+        // spells differently. The identity is still on disk, so the read path
+        // here has to honour it: minting a fresh id over the note rewrote its
+        // name and orphaned every edge that used the old one. A block that will
+        // not parse is refused rather than guessed at, keeping INV-48 fail-closed.
+        if (frontmatterError !== undefined) {
+          throw new Error(
+            `Roadmap target ${resolved.relativePath} has malformed frontmatter (${frontmatterError}); ` +
+              'its topic ID cannot be read. Repair the note before linking to it.'
+          );
+        }
+        const declaredId = frontmatter?.palee_id;
+        // A blank *string* declares nothing, so minting is correct. An empty list
+        // or map is a declared value that happens to be unusable: `String([])` is
+        // the empty string, and folding it into the mint branch would hand the
+        // same silent rename the rest of this block exists to refuse.
+        if (
+          declaredId === undefined
+          || declaredId === null
+          || (typeof declaredId === 'string' && declaredId.trim() === '')
+        ) {
+          id = generateTopicId();
+        } else if (typeof declaredId === 'string') {
+          id = declaredId.trim();
+        } else {
+          throw new Error(
+            `Roadmap target ${resolved.relativePath} declares a palee_id that is not a usable topic ID ` +
+              `(${JSON.stringify(declaredId)}); correct the note before linking to it. ` +
+              'A new ID would orphan every edge that names the current one.'
+          );
+        }
         title = resolveNoteTitle(content, resolved.absolutePath);
       }
 
