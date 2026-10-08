@@ -342,6 +342,203 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     assert.ok(readyIds(configDir).includes('T-b'), 'and the note comes off the gated side');
   });
 
+  /**
+   * Runs the pass with every `console.log` and `console.error` line collected.
+   *
+   * @param run - The call to make while the streams are redirected
+   * @returns The collected output, stdout and stderr interleaved as printed
+   */
+  async function withCapturedOutput(run: () => Promise<void>): Promise<string> {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = (...args: unknown[]): void => { lines.push(args.join(' ')); };
+    console.error = (...args: unknown[]): void => { lines.push(args.join(' ')); };
+    try {
+      await run();
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+    return lines.join('\n');
+  }
+
+  test('a note deleted before its write is reported as gone, not as a failed write', async () => {
+    // ENOENT here was counted as a write error, so the command closed with
+    // "1 relabel write(s) failed. The notes remain gated." under exit `5` — a
+    // direction to repair a note that no longer exists, about a vault in which
+    // nothing is gated any more. The saved exit code makes the run look like a
+    // crash rather than a note that moved on.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        // Read #1 is the scan's, read #2 is the write loop's re-read: removing the
+        // note between them is exactly the race the pass has to survive, and the
+        // file really is gone by the time the pass asks.
+        if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
+          throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return Reflect.apply(originalRead, fs, [target, options]);
+      }) as typeof fs.readFileSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /02-b\.md: the note no longer exists/, 'the note is named, not lumped in');
+      assert.match(output, /\(1 no longer exist: nothing to relabel\)/, 'and the summary counts it apart');
+      assert.match(output, /Relabelled 0 of 1 notes/, 'the pass still reports what it did');
+      assert.notStrictEqual(process.exitCode, 5, 'a note that is gone is not a crashed migration');
+      assert.notStrictEqual(process.exitCode, 4, 'and it is not a conflict to re-run either');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'm', '02-a.md'), 'utf8'),
+      /depends_on_source: numbered/,
+      'the surviving note is left alone: only the vanished one was a candidate'
+    );
+  });
+
+  test('an ENOENT from the write is still a write error when the note exists', async () => {
+    // The vanished classification keys on the note being gone, not on the error
+    // code: a parent directory removed under `atomicWrite`, or a temp-file race in
+    // its rename, raises ENOENT while the note sits there untouched — and a note
+    // that exists still has its relabel to do. Calling that "nothing to relabel"
+    // and exiting 0 tells the learner their vault is settled when it is not.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRename = fs.renameSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { renameSync: unknown }).renameSync = ((from: string, to: string) => {
+        if (to === notePath) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, rename '${from}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return originalRename(from, to);
+      }) as typeof fs.renameSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /\(1 write error\(s\)\)/, 'the note that still exists is a failed write');
+      assert.doesNotMatch(output, /no longer exist/, 'and it is not reported as gone');
+      assert.strictEqual(process.exitCode, 5, 'a real write failure still fails the run');
+    } finally {
+      (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test('a locked note is counted in the summary, not only on stderr', async () => {
+    // The conflict set `hadConflict` and nothing else, so stdout read "Relabelled
+    // 1 of 2 notes" with no hint that a note had been refused, and the reason
+    // lived only on stderr — where a caller diffing the summary would never look.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRename = fs.renameSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { renameSync: unknown }).renameSync = ((from: string, to: string) => {
+        if (to === notePath) {
+          throw Object.assign(new Error('Lock conflict: held by another process'), {
+            code: 'ECONFLICT',
+          });
+        }
+        return originalRename(from, to);
+      }) as typeof fs.renameSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /\(1 locked: re-run to retry\)/, 'the summary has to say a note was refused');
+      assert.match(output, /OCC conflict or active lock detected/, 'and point at the retry');
+      assert.strictEqual(process.exitCode, 4, 'the conflict exit code is unchanged');
+      assert.strictEqual(
+        parseFrontmatter(fs.readFileSync(notePath, 'utf8')).frontmatter?.depends_on_source,
+        'numbered',
+        'the refused note keeps its label'
+      );
+    } finally {
+      (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test('a note that vanishes mid-relabel is not then migrated by the schema pass', async () => {
+    // Both passes read the one pre-relabel scan, so a note the relabel pass proved
+    // gone is still in it. Under `--fix` the schema pass then reads that path, and
+    // a note that is simply missing was reported as a migration failure with exit
+    // `5` — a repair instruction for a file the vault already lost.
+    const schemalessPair = {
+      'm/02-a.md': ['---', 'palee_id: T-a', 'title: A', 'depends_on: []', 'topic_mastery: 0', '---', '', '# A', ''].join('\n'),
+      'm/02-b.md': ['---', 'palee_id: T-b', 'title: B', 'depends_on: [T-a]', 'depends_on_source: numbered', 'topic_mastery: 0', '---', '', '# B', ''].join('\n'),
+    };
+    const { vaultDir, configDir } = freshVault(schemalessPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
+          throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return Reflect.apply(originalRead, fs, [target, options]);
+      }) as typeof fs.readFileSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true, fix: true });
+      });
+
+      assert.match(output, /02-b\.md: the note no longer exists/, 'the relabel pass names it once');
+      assert.doesNotMatch(output, /Failed to migrate .*02-b\.md/, 'the schema pass never reaches for it');
+      assert.match(output, /Migrating 1 schema-less notes/, 'only the surviving note is migrated');
+      assert.notStrictEqual(process.exitCode, 5, 'a deleted note is not a failed migration');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.match(fs.readFileSync(path.join(vaultDir, 'm', '02-a.md'), 'utf8'), /palee_schema: 1/);
+  });
+
   test('a write error fails the command instead of reporting success', async () => {
     // A permission or disk failure has to be visible to a caller: exiting 0 with
     // the note still gated is how an incomplete migration reads as a done one.

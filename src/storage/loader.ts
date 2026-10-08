@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { walkVault, relativeVaultPath } from './vault-walker';
+import { walkVault, relativeVaultPath, stemOfNote } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
 import { normalizeDependencies } from './dependencies';
@@ -241,7 +241,7 @@ export function loadTopics(
     const relPath = relativeVaultPath(vaultPath, filePath);
     const title = typeof frontmatter.title === 'string' && frontmatter.title.trim()
       ? frontmatter.title.trim()
-      : path.basename(filePath, '.md');
+      : stemOfNote(path.basename(filePath));
 
     const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
     const dependsOnSource = normalizeDependsOnSource(frontmatter.depends_on_source);

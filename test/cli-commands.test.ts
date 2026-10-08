@@ -149,6 +149,46 @@ topics:
     assert.strictEqual(parsed.frontmatter!.repetition, 5); // Should be preserved
   });
 
+  test('roadmap import rejects a topic path no other command can see', () => {
+    // `path.extname('.md')` is the empty string, so the importer read `.md` as a
+    // bare note with no directory: it made a directory named `.md`, wrote
+    // `.md/.md` into it, reported "Created: 1 notes" and exited `0`. Every segment
+    // starting with a dot is invisible to `walkVault`, so no other command ever
+    // loaded the note this one promised to create.
+    const dotYaml = path.join(tempDir, 'dot-path-roadmap.yaml');
+    fs.writeFileSync(dotYaml, `
+topics:
+  - id: R-dot
+    title: Dot Path
+    path: .md
+`);
+
+    const result = runCLI(['roadmap', '--from', dotYaml, '--yes']);
+    assert.strictEqual(
+      result.status,
+      3,
+      `an invisible path must fail at validation. Got ${result.status}: ${result.stderr}`
+    );
+    assert.match(result.stderr, /not a visible Markdown note path/);
+    assert.strictEqual(
+      fs.existsSync(path.join(vaultDir, '.md')),
+      false,
+      'a batch that cannot land must never start'
+    );
+
+    // A hidden name inside a visible directory is the same defect one level down.
+    const hiddenYaml = path.join(tempDir, 'hidden-path-roadmap.yaml');
+    fs.writeFileSync(hiddenYaml, `
+topics:
+  - id: R-hidden
+    title: Hidden
+    path: notes/.draft.md
+`);
+    const hidden = runCLI(['roadmap', '--from', hiddenYaml, '--yes']);
+    assert.strictEqual(hidden.status, 3, `a dot-named note must fail at validation. Got ${hidden.status}`);
+    assert.match(hidden.stderr, /not a visible Markdown note path/);
+  });
+
   test('roadmap command imports from Markdown files with frontmatter and code blocks', () => {
     const mdVault = path.join(tempDir, 'md-roadmap-vault');
     fs.mkdirSync(mdVault, { recursive: true });

@@ -536,4 +536,35 @@ describe('loadTopics cache injection (Issue #129)', () => {
   });
 });
 
+describe('a note whose extension is not lowercase', () => {
+  let vault: string;
+
+  /**
+   * Creates a vault holding `Setup.MD`, adopted and titled by nothing but its
+   * filename.
+   */
+  beforeEach(() => {
+    vault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-case-'));
+    fs.writeFileSync(
+      path.join(vault, 'Setup.MD'),
+      '---\npalee_id: T-setup-1\npalee_schema: 1\ndepends_on: []\n---\n# Setup\n'
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(vault, { recursive: true, force: true });
+  });
+
+  // `walkVault` matched the extension case-sensitively, so this note was in no
+  // scan at all while `[[setup]]` still resolved it as a link target — and the
+  // loader's title fallback stripped `.md` case-sensitively too, so a note that
+  // did arrive came back titled "Setup.MD".
+  test('is loaded, and titled from its name without the extension', () => {
+    const topics = loadTopics(vault);
+    assert.strictEqual(topics.length, 1, 'the walker and the loader fold the same way');
+    assert.strictEqual(topics[0].palee_id, 'T-setup-1');
+    assert.strictEqual(topics[0].title, 'Setup');
+  });
+});
+
 

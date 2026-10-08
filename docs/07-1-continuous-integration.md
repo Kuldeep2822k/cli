@@ -32,20 +32,22 @@ This job performs static analysis and build verification on `ubuntu-latest` usin
 
 ### 2. Test Matrix Job
 
-To ensure the CLI remains stable across environments, the `test-matrix` job runs the unit and invariant test suites across multiple operating systems and Node.js versions [.github/workflows/ci.yml#39-49](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L39-L49)
+To ensure the CLI remains stable across environments, the `test-matrix` job runs the unit and invariant test suites across multiple operating systems and Node.js versions [.github/workflows/ci.yml#49-76](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L49-L76)
+
+The matrix is **one list for every event** — a pull request, a push to `main`, and a release tag all run the same seven legs. It used to be conditional on `github.event_name`: pull requests ran ubuntu 22.x/24.x plus windows 24.x only, while a push to `main` additionally ran ubuntu 26.x, windows 22.x and both macOS legs. The legs that broke were therefore the legs no pull request ever ran — [#269](https://github.com/Kuldeep2822k/cli/issues/269) attributes the merges between `v0.5.2` and `v0.6.0` that left `main` red or unverified to macOS suites (heap limit, case-fold and symlink). `test/ci-workflow-matrix.test.ts` is the fitness function that keeps the two paths from diverging again.
 
 | Environment | Versions | Condition |
 | --- | --- | --- |
-| Ubuntu | 22.x, 24.x, 26.x | 26.x excluded on PRs |
-| Windows | 22.x, 24.x |  |
-| macOS | 22.x, 24.x | Excluded on PRs |
+| Ubuntu | 22.x, 24.x, 26.x | Always, on PRs and pushes alike |
+| Windows | 22.x, 24.x | Always |
+| macOS | 22.x, 24.x | Always |
 
 - Coverage: Tests are executed via `npm run test:coverage`[.github/workflows/ci.yml#65-66](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L65-L66)
 - PR Coverage Guard: For PRs on Ubuntu/Node 24.x, the `diff-cover` tool ensures that new or changed code maintains at least 50% coverage relative to `origin/main`[.github/workflows/ci.yml#68-73](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L68-L73)
 
 ### 3. Global Smoke Test
 
-The `smoke-install` job verifies the integrity of the NPM package by simulating a global installation [.github/workflows/ci.yml#75-81](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L75-L81)
+The `smoke-install` job verifies the integrity of the NPM package by simulating a global installation on ubuntu, windows and macOS alike, on a pull request rather than only after the merge [.github/workflows/ci.yml#104-115](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L104-L115)
 
 1. Pack: Creates a `.tgz` tarball using `npm pack`[.github/workflows/ci.yml#97-109](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L97-L109)
 2. Verify: Runs `scripts/verify-tarball.js` to assert the contents of the package [.github/workflows/ci.yml#111-113](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L111-L113)

@@ -17,6 +17,38 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 /**
+ * A note name without its Markdown extension, compared without regard to case.
+ *
+ * @param name - A basename, with or without the `.md` extension
+ * @returns The stem, with the extension removed only when it is really there
+ *
+ * @remarks
+ * `path.basename(p, '.md')` is case-sensitive, so it leaves `Setup.MD` carrying
+ * its extension and the two spellings of one note never share a key.
+ */
+function stemOfNote(name: string): string {
+  return name.toLowerCase().endsWith('.md') ? name.slice(0, -3) : name;
+}
+
+/**
+ * Folds a note name or vault-relative path for identity comparison.
+ *
+ * @param name - A stem, a full note name, or a vault-relative POSIX path
+ * @returns Case-folded, NFC-normalized text
+ *
+ * @remarks
+ * Case is folded because {@link isResolvableNotePath} already folds it, and a
+ * fold that only one side of a comparison performs is no fold. Unicode is
+ * folded to NFC because APFS stores an accented name decomposed — `cafe\u0301.md`
+ * — while a link typed for it arrives composed, and `toLowerCase()` alone leaves
+ * those two unequal: the note resolves to nothing, and an accented subtree
+ * chains to no predecessor at all.
+ */
+function foldNoteKey(name: string): string {
+  return stemOfNote(name).toLowerCase().normalize('NFC');
+}
+
+/**
  * Whether a path names a note the CLI treats as visible — the exclusion rules `walkVault` applies
  * when it indexes the vault (dot-files, dot-directories such as `.obsidian`/`.trash`/`.git`/`.palee`,
  * and every `EXCLUDED_DIRS` entry is invisible there too), plus Markdown-only.
@@ -40,7 +72,9 @@ function isResolvableNotePath(relativePath: string): boolean {
  * Exclusion rules:
  * - Dot-directories (e.g. `.obsidian`, `.trash`, `.git`, `.palee`) matching directory entry names are skipped.
  * - Dot-files (e.g. `.hidden.md`, `.DS_Store`) are skipped.
- * - Non-markdown files are skipped.
+ * - Non-markdown files are skipped. The extension is matched case-insensitively, because
+ *   `isResolvableNotePath` folds case: a `Setup.MD` is invisible to no one else in the CLI,
+ *   and a walker that hid it let `[[setup.md]]` resolve to a path `loadTopics` never listed.
  * - `node_modules` directory entries are skipped.
  * - Symbolic links are ignored by default unless `options.followSymlinks` is explicitly enabled.
  * - Symbolic link *files* (when followSymlinks is enabled) whose real target lies outside the vault are excluded.
@@ -149,7 +183,7 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
 
       if (isDir) {
         walk(fullPath);
-      } else if (isFil && entry.name.endsWith('.md')) {
+      } else if (isFil && entry.name.toLowerCase().endsWith('.md')) {
         // For symlinked files, validate their real target is within the vault
         if (entry.isSymbolicLink() && followSymlinks) {
           try {
@@ -302,4 +336,4 @@ function relativeVaultPath(vaultPath: string, filePath: string): string {
   return lexical;
 }
 
-export { walkVault, ensureVaultDirectory, relativeVaultPath, isResolvableNotePath };
+export { walkVault, ensureVaultDirectory, relativeVaultPath, isResolvableNotePath, stemOfNote, foldNoteKey };
