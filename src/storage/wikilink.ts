@@ -131,7 +131,7 @@ function targetBaseName(target: string): string {
 }
 
 /**
- * Re-spells a resolved note path with the exact casing `walkVault` reported.
+ * Re-spells a resolved note path with the exact spelling `walkVault` reported.
  *
  * @param canonical - Absolute path from `fs.realpathSync` on the written target
  * @param index - Note index from {@link buildVaultNoteIndex}, i.e. walkVault output
@@ -152,14 +152,21 @@ function targetBaseName(target: string): string {
  * root the walk started from — which `fs.realpathSync.native` is not guaranteed
  * to be. Case twins (`Case.md` beside `case.md`, which a case-sensitive volume
  * allows) fold to one key, and there nothing is guessed.
+ *
+ * The comparison folds the way {@link foldNoteKey} folds, not case alone. On a
+ * normalization-insensitive volume the stored `cafe\u0301.md` opens for a
+ * composed `caf\u00e9` link and `realpathSync` echoes the composed spelling
+ * back, so the walker's entry and the resolved path differ by normalization
+ * rather than casing: a case-only compare finds no match there and returns the
+ * typed spelling, which is the divergence this function exists to remove.
  */
 function withWalkedCasing(canonical: string, index: Map<string, string[]>): string {
   const listed = index.get(foldNoteKey(path.basename(canonical)));
   if (!listed) {
     return canonical;
   }
-  const folded = canonical.toLowerCase();
-  const matches = listed.filter((p) => p.toLowerCase() === folded);
+  const folded = foldNoteKey(canonical);
+  const matches = listed.filter((p) => foldNoteKey(p) === folded);
   return matches.length === 1 ? matches[0] : canonical;
 }
 
