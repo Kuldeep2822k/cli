@@ -116,6 +116,15 @@ export function isConflictError(e: unknown): boolean {
  * predicate, so notes, directories and locks share one refusal surface —
  * `ECONTAINMENT` and exit 3 — instead of three that can disagree.
  *
+ * The assertion is re-run on every attempt immediately before the temp file is
+ * opened and the destination renamed. Between the first certification and the
+ * write sit the `await`s — `lock.acquire()` and its retry sleeps, then the OCC read
+ * — and a component of the certified path replaced with a link to outside the
+ * vault during that window still spells an in-vault destination to every string
+ * this function holds. Re-asserting narrows the exposure from the whole of that
+ * window to the syscall that follows it; the last gap is not closable from JS,
+ * because Node exposes no relative, no-follow open of an ancestor.
+ *
  * @example
  * ```typescript
  * await atomicWrite(
@@ -145,6 +154,13 @@ async function atomicWrite(
   // certified path and the written path identical by construction — which is also
   // what makes the guard's own answer meaningful — and it leaves every absolute
   // caller (all of them today) writing the same file it always wrote.
+  //
+  // "Resolved", not "reached": a destination whose *final* component is a link is
+  // written through the link, because the OCC read below follows it too. Renaming
+  // onto the spelled path instead would replace the link with a new regular file,
+  // splitting one note across two names — and the fingerprint the caller verified
+  // would belong to the file the write then ignored. A link that resolves *out* of
+  // the vault is refused here, with the link left intact.
   const resolvedTarget = assertContainedInVault(vaultPath, targetPath);
 
   const lock = new Lock(vaultPath, resolvedTarget);
@@ -187,6 +203,18 @@ async function atomicWrite(
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {
+        // The bound is re-asserted as the last step before the filesystem is
+        // touched, on every attempt. The certification above describes the vault as
+        // it was *then*; everything between that and this line is `await`s — the
+        // whole of `lock.acquire()`, its retry loop if the target is busy, then the
+        // OCC read. A component of `resolvedTarget` replaced with a link during that
+        // window still spells an in-vault destination, and `openSync`/`renameSync`
+        // happily follow it out. Re-checking here costs two `realpathSync` calls and
+        // replaces a window that spans a retry loop with one that spans a syscall:
+        // the gap before `openSync` is not closable from JS, because no
+        // `openat`-style relative, no-follow open is exposed (#264 review).
+        assertContainedInVault(vaultPath, resolvedTarget);
+
         let fd: number | null = null;
         try {
           fd = fs.openSync(tempPath, 'w');

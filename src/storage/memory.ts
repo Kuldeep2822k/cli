@@ -136,7 +136,14 @@ function resolveActiveTopic(read: HotMemoryRead): string | null {
  * ```
  */
 function getPaleeDir(vaultPath: string): string {
-  const dir = path.join(vaultPath, '.palee');
+  // `resolve`, not `join`. With a relative `vaultPath` a joined path is relative
+  // too, and `assertContainedInVault` resolves a *relative* destination against
+  // the vault root — the check then certified `<cwd>/vault/vault/.palee` while
+  // the `mkdirSync` below created `<cwd>/vault/.palee`. Checked and created were
+  // two different paths, so a planted link was never inspected and a real
+  // directory still appeared outside the vault. One absolute path serves the
+  // check, the creation and the returned value (#264 review).
+  const dir = path.resolve(vaultPath, '.palee');
   // Containment before the `mkdirSync`, not merely before the note write (#264).
   // `existsSync` follows links, so with `.palee` itself planted as a junction this
   // call saw "already there", walked straight through it, and every `.palee` child
@@ -169,7 +176,9 @@ function getPaleeDir(vaultPath: string): string {
  * ```
  */
 function getSessionsDir(vaultPath: string): string {
-  const dir = path.join(vaultPath, '.palee', 'sessions');
+  // Anchored like `getPaleeDir`: a relative `vaultPath` here would certify
+  // `<vault>/<vault>/.palee/sessions` and then create `<vault>/.palee/sessions`.
+  const dir = path.resolve(vaultPath, '.palee', 'sessions');
   // The sessions tree gets its own assertion rather than relying on `getPaleeDir`,
   // because it does not call it: canonicalising `.palee/sessions` resolves *through*
   // `.palee`, so this one check covers a junction at either level and any planted
