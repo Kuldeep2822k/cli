@@ -188,7 +188,15 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     it('answers destination closure from the parens the scanner actually sees', () => {
       const destinations = (text: string): (string | null)[] =>
         extractTocLinks(text).map((l) => l.destination);
-      assert.deepStrictEqual(destinations('[a](b(c) d.md)'), ['b(c)']);
+      // `[a](b(c) d.md)` reaches its closing `)` only if the depth scan pairs the
+      // `(` with the first `)`. #262 then refuses the whole destination for the
+      // raw space rather than truncating it to `b(c)`, so the depth answer is
+      // still what this case pins while the destination is now `null`.
+      assert.deepStrictEqual(destinations('[a](b(c) d.md)'), [null]);
+      assert.deepStrictEqual(
+        extractTocLinks('[a](b(c) d.md)').map((l) => l.skip),
+        ['unescaped-space']
+      );
       assert.deepStrictEqual(destinations('[a](b\\)c)'), ['b)c']);
       assert.deepStrictEqual(destinations('[a](b\\(c) [d](e.md)'), ['b(c', 'e.md']);
       assert.deepStrictEqual(destinations('[a](b(c)'), []);
@@ -317,10 +325,63 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       }
       // The headline form: an escaped dot is the note `v1.2.md`, not `v1\.2.md`.
       assert.strictEqual(extractTocLinks('[a](notes/v1\\.2.md)')[0].destination, 'notes/v1.2.md');
-      // `#` and `%` consume the backslash too — visible in `raw`, which is the
-      // destination after escape resolution.
-      assert.strictEqual(extractTocLinks('[a](notes/v1\\#2.md)')[0].raw, 'notes/v1#2.md');
-      assert.strictEqual(extractTocLinks('[a](notes/v1\\%2.md)')[0].raw, 'notes/v1%2.md');
+      // `#` and `%` are no longer blind spots: their escape survives long enough
+      // for `normalizeTocLink` to split the fragment and decode the percents, so
+      // `destination` shows the unescaping the same way it does for the rest.
+      assert.strictEqual(extractTocLinks('[a](notes/v1\\#2.md)')[0].destination, 'notes/v1#2.md');
+      assert.strictEqual(extractTocLinks('[a](notes/v1\\%2.md)')[0].destination, 'notes/v1%2.md');
+    });
+
+    // Review follow-ups on the same three forms. Each one is the PR's own defect
+    // class — a destination that resolves onto a note the author did not name —
+    // reached by a step the first pass ordered wrongly.
+    it('keeps an escaped # out of the anchor split, in either destination form', () => {
+      // `\#` is a literal hash in the filename. Cutting at it sent the lookup to
+      // `notes/c`, and a note by that name is a real, unrelated file.
+      assert.strictEqual(extractTocLinks('[a](notes/c\\#2.md#section)')[0].destination, 'notes/c#2.md');
+      assert.strictEqual(extractTocLinks('[a](<notes/c\\#2.md>)')[0].destination, 'notes/c#2.md');
+      // A literal hash still begins a fragment when nothing escaped it.
+      assert.strictEqual(extractTocLinks('[a](notes/c#2.md)')[0].destination, 'notes/c');
+      // …and a doubled backslash before one is a literal backslash *and* a real
+      // fragment: `\\` resolves to data first, so the `#` that follows is syntax.
+      // Without the marks surviving the scan these two spellings are identical.
+      assert.strictEqual(extractTocLinks('[a](x\\\\#y.md)')[0].destination, 'x\\');
+      assert.strictEqual(extractTocLinks('[a](x\\\\\\#y.md)')[0].destination, 'x\\#y.md');
+    });
+
+    it('keeps an escaped % out of the percent decode', () => {
+      // `\%20` is a literal percent, not an encoded space: decoding it looked up
+      // `notes/a b.md` while the author named `notes/a%20b.md`.
+      assert.strictEqual(extractTocLinks('[a](notes/a\\%20b.md)')[0].destination, 'notes/a%20b.md');
+      assert.strictEqual(extractTocLinks('[a](<notes/a\\%20b.md>)')[0].destination, 'notes/a%20b.md');
+      // An unescaped percent still decodes, and a malformed one is still refused.
+      assert.strictEqual(extractTocLinks('[a](notes/a%20b.md)')[0].destination, 'notes/a b.md');
+      assert.strictEqual(extractTocLinks('[a](notes/a%zz.md)')[0].skip, 'malformed');
+    });
+
+    it('does not trim a space the destination itself encoded', () => {
+      // `%20` decodes to a space, and `decoded.trim()` then removed it, turning a
+      // lookup for `notes/file.md ` into one for `notes/file.md` — the truncation
+      // `unescaped-space` refuses in the raw form, re-added in the decoded one.
+      assert.strictEqual(extractTocLinks('[a](notes/file.md%20)')[0].destination, 'notes/file.md ');
+      assert.strictEqual(extractTocLinks('[a](%20notes/file.md)')[0].destination, ' notes/file.md');
+      // Whitespace the author typed around the destination is still not data, and
+      // a destination that is only whitespace is still `empty`.
+      assert.strictEqual(extractTocLinks('[a](%20%20)')[0].skip, 'empty');
+    });
+
+    it('refuses trailing text after a title instead of reading it as one title', () => {
+      // `"one" "two"` begins and ends with a quote, which is all `looksLikeTitle`
+      // checked. CommonMark allows exactly one delimited title, so this is not a
+      // link at all — and accepting the prefix authored an edge onto `notes/my`.
+      const links = extractTocLinks('[a](notes/my "one" "two")');
+      assert.strictEqual(links[0].destination, null);
+      assert.strictEqual(links[0].skip, 'unescaped-space');
+      // One title, with or without inner spaces, stays a title.
+      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md "it (works)")')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md (parens))')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md \'single\')')[0].destination, 'path.md');
     });
 
     // The angle-bracket form shares the bare form's escape grammar; only its
