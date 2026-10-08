@@ -20,6 +20,20 @@ import { extractTocLinks } from './toc-chain';
  * here hides a note from `palee plan` permanently, because mastery only falls
  * and a gate never lifts itself. A prerequisite worth gating on is a link.
  *
+ * An item under such a heading is the next class along, and the one #232 left
+ * unexamined while it was closing negation holes in the prose branch: there a
+ * link carries the reference, and the words around it only qualify it.
+ * Qualification decides whether the item is still a statement the author stands
+ * behind. A negation (`does not require [[x]]`) denies the very gate it names; a
+ * disjunction (`requires [[x]] or [[y]]`) offers a choice that
+ * `areDependenciesSatisfied`, which knows only AND, cannot honour either way;
+ * and a reversal (`this note is a prerequisite for [[x]]`) states something true
+ * about the other direction, which this section does not author. So the section
+ * filter is a filter, not a parser: a hedged item contributes nothing and an
+ * unambiguous one still authors its gating edge, exactly as before. The cost is
+ * a real-but-hedged prerequisite — one edge lost, the numbered tree's still in
+ * place, which is the direction this module chooses everywhere else.
+ *
  * fs-free by design: extraction turns text into candidate names and
  * {@link resolveDeclaredPrerequisites} turns names into targets through a
  * caller-supplied lookup, so nothing here knows what a vault is.
@@ -75,6 +89,129 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(.+)$/;
 const TASK_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s/;
 
 /**
+ * An HTML comment. Blanked whole, across lines, like a fenced block: nothing
+ * between `<!--` and `-->` is a statement the reader is meant to act on.
+ */
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+
+/**
+ * A single-line inline code span, run of one or two backticks on each side.
+ *
+ * @remarks
+ * Deliberately line-local. A code span may legally cross lines, and matching
+ * one that does would let a single unpaired backtick blank the rest of the note
+ * and silently drop every real declaration after it. A span left unmatched is
+ * the rare case and costs its own edge; a blank that over-reaches costs the
+ * document.
+ */
+const INLINE_CODE = /``[^`\n]*``|`[^`\n]*`/g;
+
+/** Blank a span, keeping the newlines it held so line scans stay aligned. */
+function blankKeepingLines(span: string): string {
+  return span.replace(/[^\n]/g, ' ');
+}
+
+/**
+ * Why an item under a prerequisites heading was refused.
+ *
+ * @remarks
+ * Kept distinct because the three are different claims about the link, and a
+ * report that called a reversal a negation would teach the next reader the
+ * wrong rule: the reversal is true, just pointed the other way.
+ */
+export type DeclaredPrereqCue = 'negation' | 'reversal' | 'disjunction';
+
+/**
+ * A verbal negation: `not`, `n't`, `no longer`, `never`, `cannot`, `neither`,
+ * `nor`, `without`. This is #232's screen, copied rather than re-derived. It no
+ * longer exists anywhere in `src/` — #232 grew it for the prose branch and
+ * retired it when sentences stopped being an edge source — so it was recovered
+ * from that commit's parent and raised back into the section branch. The
+ * wording is the reason: two ideas of what a negation reads like is how one of
+ * them gets fixed and the other keeps gating.
+ */
+const VERBAL_NEGATION = /\b(?:no\s+longer|not|never|cannot|neither|nor|without)\b|n['’]t\b/i;
+
+/** A negative subject opening the item: `No lesson`, `Nothing`, `Neither`. */
+const NEGATIVE_SUBJECT = /^(?:none|nobody|nothing|neither|no\s+one|no)\b/i;
+
+/**
+ * The author offered a choice rather than a requirement. `and/or` arrives free,
+ * because the word boundary in front of `or` is satisfied by the slash.
+ */
+const DISJUNCTION_CUE = /\b(?:either|or)\b/i;
+
+/**
+ * The link is the dependent, not the prerequisite: `a prerequisite for X`,
+ * `required by X`, `X requires this note`, `X depends on this lesson`.
+ *
+ * @remarks
+ * Deliberately a short list, and the phrasings #261 reported. An unrecognised
+ * way of saying the same thing still gates, which is the direction a section
+ * filter should fail in: a hedge the engine cannot see is indistinguishable
+ * from a statement, and inventing a reverse edge to fix it is a bigger claim
+ * than this module makes about any sentence.
+ *
+ * `for` reads both ways, so its arm is the one that has to look ahead.
+ * `[[m/01]] is required for this lesson` puts the link at the far end of a
+ * normal prerequisite — the current note depends on it — while
+ * `This note is a prerequisite for [[m/02]]` makes the link the dependent. Only
+ * the second is a reversal, so the first arm refuses to fire when the object
+ * after `for` names the current note, matching the marker the other arms
+ * already use.
+ */
+const REVERSAL_CUE =
+  /\b(?:prerequisites?|requirements?|required|requiring)\s+for\b(?!\s+(?:this|these|the\s+current)\b)|\brequired\s+by\b|\b(?:requires?|needs?)\s+(?:this|these|the\s+current)\b|\bdepend\w*\s+(?:up)?on\s+(?:this|these|the\s+current)\b/i;
+
+/**
+ * A link and its delimiters, as written: wikilink (with `!` embed), markdown
+ * link, or a bare label.
+ */
+const LINK_SPAN = /!?\[\[[^\]]*\]\]|!?\[[^\]]*\]\([^)]*\)|\[[^\]]*\]/g;
+
+/**
+ * The qualifier that disqualifies a prerequisite item.
+ *
+ * @param content - One item's content as the section scan sees it: the text
+ * after the list marker, with fenced code, comments and inline code already
+ * blanked
+ * @returns The cue that fired, in the order negation, reversal, disjunction, or
+ * `null` when the item reads as an unambiguous declaration
+ *
+ * @remarks
+ * The window is the item, and the item's prose only.
+ *
+ * Item-level because each bullet is its own declaration: a section that lists
+ * `[[a]]`, `does not require [[b]]`, `[[c]]` gates on `a` and `c` and reads
+ * nothing from `b`. Line-level would be the same thing here — one item per
+ * line is what the scan reads — but the rule is about the declaration, not the
+ * newline. Section-level would let one hedge disarm a whole list.
+ *
+ * Prose only because the reference is the author's chosen name, and names say
+ * things: `[[m/01-or-basics]]` and `[[x|either of the two]]` are not the author
+ * hedging, so {@link LINK_SPAN} is blanked before the cue is looked for. A cue
+ * that survives that blanking qualifies the whole item, and an item with two
+ * links and one `or` between them loses both rather than guessing which half
+ * the author meant.
+ *
+ * No clause analysis, on purpose. `does not need a calculator, but requires
+ * [[a]]` is one item holding both a denial and a requirement, and #232's answer
+ * was a rule-chain — aside removal, clause boundaries, a subject test — that
+ * measured zero edges over 11,168 notes and still had a documented hole. Here
+ * the chain would only ever decide whether to keep one gate a link already
+ * justifies, so the simpler reading stands: a hedge anywhere in the item is a
+ * statement the engine does not lock a learner out on.
+ */
+export function declaredPrereqCue(content: string): DeclaredPrereqCue | null {
+  const prose = content.replace(LINK_SPAN, ' ').trim();
+  if (prose.length === 0) return null;
+  if (VERBAL_NEGATION.test(prose) || NEGATIVE_SUBJECT.test(prose)) return 'negation';
+  if (REVERSAL_CUE.test(prose)) return 'reversal';
+  if (DISJUNCTION_CUE.test(prose)) return 'disjunction';
+  return null;
+}
+
+/**
  * Extracts the prerequisites a note declares about itself.
  *
  * @param text - Note text (a frontmatter block in it is harmless)
@@ -90,15 +227,25 @@ const TASK_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s/;
  *
  * Fenced code is blanked first, so a `## Prerequisites` block inside a
  * documentation example — exactly how a course teaches its own template —
- * declares nothing. Escaped wikilinks are skipped by {@link extractWikilinks}
+ * declares nothing. HTML comments and inline code spans are blanked the same
+ * way: `<!-- [[setup]] -->` and `` `[[setup]]` `` are written to be read, not
+ * followed. Escaped wikilinks are skipped by {@link extractWikilinks}
  * and images and reference-style links by {@link extractTocLinks}, for the same
  * reason: a link written to be read is not a link written to be followed.
  *
  * Task items are dropped too. An unchecked `- [ ] [[todo]]` is a to-do the
  * author has not committed to, and reading one invents a gate.
+ *
+ * An item carrying a qualifier {@link declaredPrereqCue} recognises — a
+ * negation, a reversal, a disjunction — is dropped with its links. The heading
+ * makes the section an author statement, but the sentence inside it says the
+ * statement does not hold, and `declared` is the label nothing downstream
+ * questions.
  */
 export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] {
-  const scanned = stripFencedCodeBlocks(text);
+  const scanned = stripFencedCodeBlocks(text)
+    .replace(HTML_COMMENT, blankKeepingLines)
+    .replace(INLINE_CODE, blankKeepingLines);
   const lines = scanned.split(/\r?\n/);
   const refs: DeclaredPrereqRef[] = [];
   const seen = new Set<string>();
@@ -122,6 +269,7 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
     const item = LIST_ITEM.exec(line);
     const content = (item ? item[1] : line).trim();
     if (content.length === 0) continue;
+    if (declaredPrereqCue(content) !== null) continue;
     for (const link of extractWikilinks(content)) {
       push(link.target, 'wikilink');
     }

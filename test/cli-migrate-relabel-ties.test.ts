@@ -342,6 +342,203 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     assert.ok(readyIds(configDir).includes('T-b'), 'and the note comes off the gated side');
   });
 
+  /**
+   * Runs the pass with every `console.log` and `console.error` line collected.
+   *
+   * @param run - The call to make while the streams are redirected
+   * @returns The collected output, stdout and stderr interleaved as printed
+   */
+  async function withCapturedOutput(run: () => Promise<void>): Promise<string> {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = (...args: unknown[]): void => { lines.push(args.join(' ')); };
+    console.error = (...args: unknown[]): void => { lines.push(args.join(' ')); };
+    try {
+      await run();
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+    return lines.join('\n');
+  }
+
+  test('a note deleted before its write is reported as gone, not as a failed write', async () => {
+    // ENOENT here was counted as a write error, so the command closed with
+    // "1 relabel write(s) failed. The notes remain gated." under exit `5` — a
+    // direction to repair a note that no longer exists, about a vault in which
+    // nothing is gated any more. The saved exit code makes the run look like a
+    // crash rather than a note that moved on.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        // Read #1 is the scan's, read #2 is the write loop's re-read: removing the
+        // note between them is exactly the race the pass has to survive, and the
+        // file really is gone by the time the pass asks.
+        if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
+          throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return Reflect.apply(originalRead, fs, [target, options]);
+      }) as typeof fs.readFileSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /02-b\.md: the note no longer exists/, 'the note is named, not lumped in');
+      assert.match(output, /\(1 no longer exist: nothing to relabel\)/, 'and the summary counts it apart');
+      assert.match(output, /Relabelled 0 of 1 notes/, 'the pass still reports what it did');
+      assert.notStrictEqual(process.exitCode, 5, 'a note that is gone is not a crashed migration');
+      assert.notStrictEqual(process.exitCode, 4, 'and it is not a conflict to re-run either');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.match(
+      fs.readFileSync(path.join(vaultDir, 'm', '02-a.md'), 'utf8'),
+      /depends_on_source: numbered/,
+      'the surviving note is left alone: only the vanished one was a candidate'
+    );
+  });
+
+  test('an ENOENT from the write is still a write error when the note exists', async () => {
+    // The vanished classification keys on the note being gone, not on the error
+    // code: a parent directory removed under `atomicWrite`, or a temp-file race in
+    // its rename, raises ENOENT while the note sits there untouched — and a note
+    // that exists still has its relabel to do. Calling that "nothing to relabel"
+    // and exiting 0 tells the learner their vault is settled when it is not.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRename = fs.renameSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { renameSync: unknown }).renameSync = ((from: string, to: string) => {
+        if (to === notePath) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, rename '${from}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return originalRename(from, to);
+      }) as typeof fs.renameSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /\(1 write error\(s\)\)/, 'the note that still exists is a failed write');
+      assert.doesNotMatch(output, /no longer exist/, 'and it is not reported as gone');
+      assert.strictEqual(process.exitCode, 5, 'a real write failure still fails the run');
+    } finally {
+      (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test('a locked note is counted in the summary, not only on stderr', async () => {
+    // The conflict set `hadConflict` and nothing else, so stdout read "Relabelled
+    // 1 of 2 notes" with no hint that a note had been refused, and the reason
+    // lived only on stderr — where a caller diffing the summary would never look.
+    const { vaultDir, configDir } = freshVault(tiedPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRename = fs.renameSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { renameSync: unknown }).renameSync = ((from: string, to: string) => {
+        if (to === notePath) {
+          throw Object.assign(new Error('Lock conflict: held by another process'), {
+            code: 'ECONFLICT',
+          });
+        }
+        return originalRename(from, to);
+      }) as typeof fs.renameSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+
+      assert.match(output, /\(1 locked: re-run to retry\)/, 'the summary has to say a note was refused');
+      assert.match(output, /OCC conflict or active lock detected/, 'and point at the retry');
+      assert.strictEqual(process.exitCode, 4, 'the conflict exit code is unchanged');
+      assert.strictEqual(
+        parseFrontmatter(fs.readFileSync(notePath, 'utf8')).frontmatter?.depends_on_source,
+        'numbered',
+        'the refused note keeps its label'
+      );
+    } finally {
+      (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test('a note that vanishes mid-relabel is not then migrated by the schema pass', async () => {
+    // Both passes read the one pre-relabel scan, so a note the relabel pass proved
+    // gone is still in it. Under `--fix` the schema pass then reads that path, and
+    // a note that is simply missing was reported as a migration failure with exit
+    // `5` — a repair instruction for a file the vault already lost.
+    const schemalessPair = {
+      'm/02-a.md': ['---', 'palee_id: T-a', 'title: A', 'depends_on: []', 'topic_mastery: 0', '---', '', '# A', ''].join('\n'),
+      'm/02-b.md': ['---', 'palee_id: T-b', 'title: B', 'depends_on: [T-a]', 'depends_on_source: numbered', 'topic_mastery: 0', '---', '', '# B', ''].join('\n'),
+    };
+    const { vaultDir, configDir } = freshVault(schemalessPair);
+    const notePath = path.join(vaultDir, 'm', '02-b.md');
+    const originalRead = fs.readFileSync;
+    const savedConfigDir = process.env.PALEE_CONFIG_DIR;
+    const savedExitCode = process.exitCode;
+    let noteReads = 0;
+    try {
+      process.env.PALEE_CONFIG_DIR = configDir;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+        target: fs.PathLike | number,
+        options?: unknown
+      ) => {
+        if (target === notePath && ++noteReads === 2) {
+          fs.rmSync(notePath, { force: true });
+          throw Object.assign(new Error(`ENOENT: no such file or directory, open '${notePath}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return Reflect.apply(originalRead, fs, [target, options]);
+      }) as typeof fs.readFileSync;
+
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true, fix: true });
+      });
+
+      assert.match(output, /02-b\.md: the note no longer exists/, 'the relabel pass names it once');
+      assert.doesNotMatch(output, /Failed to migrate .*02-b\.md/, 'the schema pass never reaches for it');
+      assert.match(output, /Migrating 1 schema-less notes/, 'only the surviving note is migrated');
+      assert.notStrictEqual(process.exitCode, 5, 'a deleted note is not a failed migration');
+    } finally {
+      (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
+      process.exitCode = savedExitCode;
+      if (savedConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = savedConfigDir;
+    }
+    assert.match(fs.readFileSync(path.join(vaultDir, 'm', '02-a.md'), 'utf8'), /palee_schema: 1/);
+  });
+
   test('a write error fails the command instead of reporting success', async () => {
     // A permission or disk failure has to be visible to a caller: exiting 0 with
     // the note still gated is how an incomplete migration reads as a done one.
@@ -596,5 +793,307 @@ ${result.stdout}`);
     const after = readyIds(configDir);
     assert.ok(!after.includes('T-a'), 'a mastered note never re-enters the ready list');
     assert.deepStrictEqual(after, before, "and the relabel changes nobody else's readiness");
+  });
+
+  /**
+   * #266: the population `--help` promised but never reached.
+   *
+   * A note adopted by the shipped 0.5.2 auto-chain carries an edge and **no**
+   * `depends_on_source` key at all, because that label did not exist yet, and an
+   * absent label gates by design. `findStoredTies` asked only for the exact
+   * `numbered` string, so `--relabel-ties` exited 0 in silence over exactly the
+   * vaults it advertises. These run the unlabeled route behind its opt-in flag;
+   * the shape of the frontmatter is what that build wrote (see the `v0.5.2`
+   * auto-chain commit, whose `palee adopt --auto-chain` emits this field set).
+   */
+  describe('#266 the unlabeled v0.5.x population (--include-unlabeled-ties)', () => {
+    /** The same note as {@link storedNote} with no label key — the 0.5.2 shape. */
+    function unlabeledNote(id: string, title: string, deps: string[]): string {
+      return [
+        '---',
+        `palee_id: ${id}`,
+        'palee_schema: 1',
+        `title: ${title}`,
+        'difficulty: beginner',
+        `depends_on: [${deps.join(', ')}]`,
+        'topic_mastery: 0',
+        'ease_factor: 2.5',
+        'interval_days: 1',
+        'repetition: 0',
+        'lapses: 0',
+        '---',
+        '',
+        `# ${title}`,
+        '',
+      ].join('\n');
+    }
+
+    /** A tied pair as the 0.5.2 auto-chain left it: an edge, no label. */
+    const unlabeledTiedPair = {
+      'm/02-a.md': unlabeledNote('T-a', 'First of the pair', []),
+      'm/02-b.md': unlabeledNote('T-b', 'Second of the pair', ['T-a']),
+    };
+
+    test('an unlabeled tie keeps gating without the opt-in', () => {
+      // The default must not change: opening this route silently on upgrade would
+      // rewrite user frontmatter nobody asked to touch, which is the defect class
+      // this release already carries (#257/#258/#259).
+      const { vaultDir, configDir } = freshVault(unlabeledTiedPair);
+      const before = fs.readFileSync(path.join(vaultDir, 'm', '02-b.md'), 'utf8');
+
+      const result = runCLI(['migrate', '--relabel-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+        `the opt-in is the only route to an unlabeled note:\n${result.stdout}`);
+      assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'm', '02-b.md'), 'utf8'), before,
+        'and the default pass writes nothing at all');
+      assert.ok(!readyIds(configDir).includes('T-b'), 'so the note stays blocked');
+    });
+
+    test('--include-unlabeled-ties demotes the v0.5.x tie and unlocks the note', () => {
+      const { vaultDir, configDir } = freshVault(unlabeledTiedPair);
+      const storedBefore = frontmatterOf(vaultDir, 'm/02-b.md');
+      assert.ok(!readyIds(configDir).includes('T-b'), 'the unlabeled edge must gate before');
+
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout, /Relabelled 1 of 1 notes/,
+        `the route the --help promised must actually reach the note:\n${result.stdout}`);
+
+      const fm = frontmatterOf(vaultDir, 'm/02-b.md');
+      assert.strictEqual(fm?.depends_on_source, 'tie', 'the note gains the advisory label');
+      assert.deepStrictEqual(fm?.depends_on, ['T-a'], 'depends_on is never changed');
+      assert.ok(readyIds(configDir).includes('T-b'), 'and the note comes off the gated side');
+
+      // Label-only: every key the 0.5.2 build wrote must come back unchanged.
+      const onlyLabelAdded = Object.entries({ ...(fm as Record<string, unknown>) })
+        .filter(([key]) => key !== 'depends_on_source')
+        .sort(([a], [b]) => a.localeCompare(b));
+      const storedRest = Object.entries({ ...(storedBefore as Record<string, unknown>) })
+        .filter(([key]) => key !== 'depends_on_source')
+        .sort(([a], [b]) => a.localeCompare(b));
+      assert.deepStrictEqual(onlyLabelAdded, storedRest,
+        'palee_id, schema, title, difficulty, depends_on, mastery and the SRS fields survive untouched');
+    });
+
+    test('the audit reports unlabeled candidates only when they are asked for', () => {
+      const { vaultDir, configDir } = freshVault(unlabeledTiedPair);
+      const before = fs.readFileSync(path.join(vaultDir, 'm', '02-b.md'), 'utf8');
+
+      const result = runCLI(['migrate', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout, /Prerequisite labels:\s+1 note/,
+        `the preview must name the unlabeled note:\n${result.stdout}`);
+      assert.match(result.stdout, /m[\\/]02-b\.md → m\/02-a\.md/);
+      assert.match(result.stdout, /no `depends_on_source` key/,
+        `and must say which population it is describing:\n${result.stdout}`);
+      assert.match(result.stdout, /palee migrate --relabel-ties --include-unlabeled-ties/,
+        `and the tip must name both flags:\n${result.stdout}`);
+      assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'm', '02-b.md'), 'utf8'), before,
+        'a preview run without --relabel-ties writes nothing');
+    });
+
+    test('a dry run previews every unlabeled candidate before anything is written', () => {
+      // This path rewrites notes the CLI did not label, so the preview has to be
+      // the whole blast radius — the same rule #239 established for `numbered`.
+      const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+      const files: Record<string, string> = {
+        'm/02-a.md': unlabeledNote('T-a', 'First of the chain', []),
+      };
+      let prev = 'T-a';
+      for (const letter of ids.slice(1)) {
+        const id = `T-${letter}`;
+        files[`m/02-${letter}.md`] = unlabeledNote(id, `Note ${letter}`, [prev]);
+        prev = id;
+      }
+      const { vaultDir, configDir } = freshVault(files);
+
+      const dry = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties', '--dry-run'], configDir);
+      assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+      assert.match(dry.stdout, /Dry run: would relabel 6 note/);
+      assert.doesNotMatch(dry.stdout, /\.\.\. and/, 'a dry run must not truncate its preview');
+      assert.doesNotMatch(dry.stdout, /Relabelled /, 'a dry run must not claim to have written');
+      for (const letter of ids.slice(1)) {
+        assert.match(dry.stdout, new RegExp(`02-${letter}\\.md`), `the dry run must name 02-${letter}.md`);
+      }
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-g.md')?.depends_on_source, undefined,
+        '--dry-run still writes nothing');
+      assert.ok(!readyIds(configDir).includes('T-g'), 'and the note stays gated');
+    });
+
+    test('the stored `numbered` population still demotes beside the opt-in', () => {
+      // Opting into the unlabeled route must not narrow the route that already
+      // worked: one run, both populations, each judged by the same planner rule.
+      const { vaultDir, configDir } = freshVault({
+        ...tiedPair,
+        'n/02-p.md': unlabeledNote('T-p', 'First of the unlabelled pair', []),
+        'n/02-q.md': unlabeledNote('T-q', 'Second of the unlabelled pair', ['T-p']),
+      });
+
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout, /Relabelled 2 of 2 notes/,
+        `both populations are demoted in one pass:\n${result.stdout}`);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+      assert.strictEqual(frontmatterOf(vaultDir, 'n/02-q.md')?.depends_on_source, 'tie');
+    });
+
+    test('an unlabeled forward edge is refused', () => {
+      // Nothing in the chain produces `02-a → 02-b`: the enumeration puts `02-a`
+      // first, so this edge runs against it and only a person typed it.
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'First of the pair', ['T-b']),
+        'm/02-b.md': unlabeledNote('T-b', 'Second of the pair', []),
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+        `a reversed edge is not the chain's:\n${result.stdout}`);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-a.md')?.depends_on_source, undefined,
+        'and the note keeps no label');
+      assert.ok(!readyIds(configDir).includes('T-a'), 'so it keeps gating');
+    });
+
+    test('an unlabeled edge into another directory is refused', () => {
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-ma', 'Note in the first directory', []),
+        'n/02-b.md': unlabeledNote('T-nb', 'Note in the second directory', ['T-ma']),
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/);
+      assert.strictEqual(frontmatterOf(vaultDir, 'n/02-b.md')?.depends_on_source, undefined);
+      assert.ok(!readyIds(configDir).includes('T-nb'), 'and the cross-directory gate holds');
+    });
+
+    test('an unlabeled note with two prerequisites is refused', () => {
+      // One label covers the whole list, and the chain wrote one edge per note, so
+      // a second entry is a person's doing and demoting it would make their real
+      // prerequisite advisory.
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'First sibling', []),
+        'm/02-c.md': unlabeledNote('T-c', 'Third sibling', ['T-a', 'T-gone']),
+        'm/02-d.md': unlabeledNote('T-d', 'Fourth sibling', ['T-c']),
+      });
+      fs.writeFileSync(path.join(vaultDir, 'm', '02-b.md'), unlabeledNote('T-b', 'Second sibling', ['T-a']));
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, undefined,
+        'the two-edge list is not this pass to relabel');
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie',
+        'while the neighbour edge still qualifies');
+    });
+
+    test('an unlabeled edge that steps over a surviving sibling is refused', () => {
+      // #251's rule is the pass's own: the chain links neighbours, so `02-c → 02-a`
+      // with `02-b` on disk was never written by the planner — whoever typed it
+      // meant a two-deep gate.
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'First sibling', []),
+        'm/02-b.md': unlabeledNote('T-b', 'Second sibling', ['T-a']),
+        'm/02-c.md': unlabeledNote('T-c', 'Third sibling, skipping one', ['T-a']),
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, undefined,
+        'the skipping edge is left exactly as the vault stored it');
+      const ready = readyIds(configDir);
+      assert.ok(ready.includes('T-b'), 'the demoted neighbour is offered');
+      assert.ok(!ready.includes('T-c'), 'while the skipping note stays gated');
+    });
+
+    test('an unlabeled note carrying the legacy dependencies alias is refused', () => {
+      // `normalizeDependencies` unions `dependencies` into `depends_on` at
+      // src/storage/loader.ts:246, so a loaded one-entry list does not prove the
+      // note states one edge: the alias is a person's or a pre-auto-chain build's
+      // spelling, and the chain never wrote it. Indistinguishable means refused.
+      const aliasBoth = ['---', 'palee_id: T-b', 'palee_schema: 1', 'title: Second',
+        'difficulty: beginner', 'depends_on: [T-a]', 'dependencies: [T-a]', 'topic_mastery: 0',
+        '---', '', '# Second', ''].join('\n');
+      const aliasOnly = ['---', 'palee_id: T-d', 'palee_schema: 1', 'title: Fourth',
+        'difficulty: beginner', 'depends_on: []', 'dependencies: [T-c]', 'topic_mastery: 0',
+        '---', '', '# Fourth', ''].join('\n');
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'First of the pair', []),
+        'm/02-b.md': aliasBoth,
+        'm/02-c.md': unlabeledNote('T-c', 'Third of the pair', []),
+        'm/02-d.md': aliasOnly,
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+        `a legacy alias makes the edge unattributable:
+${result.stdout}`);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, undefined);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-d.md')?.depends_on_source, undefined);
+      const ready = readyIds(configDir);
+      assert.ok(!ready.includes('T-b') && !ready.includes('T-d'), 'and both stay gated');
+    });
+
+    test('an unlabeled note whose label is present but unrecognized is refused', () => {
+      // `normalizeDependsOnSource` fails closed: an unrecognized value loads as
+      // `undefined`, the same value a key that was never written loads as. Only
+      // the raw frontmatter tells them apart, and a typo is not an absent label.
+      const typo = ['---', 'palee_id: T-b', 'palee_schema: 1', 'title: Second',
+        'difficulty: beginner', 'depends_on: [T-a]', 'depends_on_source: numbering',
+        'topic_mastery: 0', '---', '', '# Second', ''].join('\n');
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'First of the pair', []),
+        'm/02-b.md': typo,
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbering',
+        'a typo is left exactly as written, never overwritten with `tie`');
+      assert.ok(!readyIds(configDir).includes('T-b'), 'and it keeps gating');
+    });
+
+    test('an unlabeled note the planner never chained is refused', () => {
+      // Tier-0 hygiene removes `index`/`license` from the plan entirely, so an
+      // edge between two of them cannot be one the chain wrote, however the
+      // filenames rank. This is the shipped `classifyNoteForChain` predicate, not
+      // a restatement of it.
+      const plain = (id: string, file: string, deps: string[]): string => [
+        '---', `palee_id: ${id}`, 'palee_schema: 1', `title: ${file}`, 'difficulty: beginner',
+        `depends_on: [${deps.join(', ')}]`, 'topic_mastery: 0', '---', '', `# ${file}`, '',
+      ].join('\n');
+      const { vaultDir, configDir } = freshVault({
+        'm/index.md': plain('T-i', 'index', []),
+        'm/license.md': plain('T-l', 'license', ['T-i']),
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/,
+        `an excluded note is not a chain member:
+${result.stdout}`);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/license.md')?.depends_on_source, undefined);
+      assert.ok(!readyIds(configDir).includes('T-l'), 'and its gate stands');
+    });
+
+    test('an unlabeled note with an unresolvable prerequisite is left to validate', () => {
+      // With no id to rank against there is no pair to judge, and the unresolved
+      // report is worded for the `numbered` population, which this note is not.
+      const { vaultDir, configDir } = freshVault({
+        'm/02-a.md': unlabeledNote('T-a', 'Depends on a deleted note', ['T-gone']),
+      });
+      const result = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.doesNotMatch(result.stdout, /Prerequisite labels:/);
+      assert.doesNotMatch(result.stdout, /depend on an id/,
+        `the \`numbered\` wording must not claim this note:\n${result.stdout}`);
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-a.md')?.depends_on_source, undefined);
+    });
+
+    test('the unlabeled route is idempotent', () => {
+      const { vaultDir, configDir } = freshVault(unlabeledTiedPair);
+      runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      const again = runCLI(['migrate', '--relabel-ties', '--include-unlabeled-ties'], configDir);
+      assert.strictEqual(again.status, 0, again.stdout + again.stderr);
+      assert.doesNotMatch(again.stdout, /Prerequisite labels:/, 'a demoted note is never a candidate twice');
+      assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie',
+        'and the label is not rewritten again');
+    });
   });
 });
