@@ -188,7 +188,15 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     it('answers destination closure from the parens the scanner actually sees', () => {
       const destinations = (text: string): (string | null)[] =>
         extractTocLinks(text).map((l) => l.destination);
-      assert.deepStrictEqual(destinations('[a](b(c) d.md)'), ['b(c)']);
+      // `[a](b(c) d.md)` reaches its closing `)` only if the depth scan pairs the
+      // `(` with the first `)`. #262 then refuses the whole destination for the
+      // raw space rather than truncating it to `b(c)`, so the depth answer is
+      // still what this case pins while the destination is now `null`.
+      assert.deepStrictEqual(destinations('[a](b(c) d.md)'), [null]);
+      assert.deepStrictEqual(
+        extractTocLinks('[a](b(c) d.md)').map((l) => l.skip),
+        ['unescaped-space']
+      );
       assert.deepStrictEqual(destinations('[a](b\\)c)'), ['b)c']);
       assert.deepStrictEqual(destinations('[a](b\\(c) [d](e.md)'), ['b(c', 'e.md']);
       assert.deepStrictEqual(destinations('[a](b(c)'), []);
@@ -257,6 +265,160 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         links.map((l) => l.destination),
         ['x.md', 'y.md']
       );
+    });
+
+    // Issue #262 — three destination forms that, split or cleaned in the wrong
+    // order, resolved onto a DIFFERENT real note. Pinned at the engine level here
+    // and again against real decoy notes in `test/storage-toc.test.ts`.
+    it('splits the anchor before percent-decoding so %23 stays a literal # in the path', () => {
+      // The fragment separator is a LITERAL `#` in the destination; `%23` is an
+      // encoded `#` inside the path. Decoding first turned `notes/c%23.md` into
+      // `notes/c#.md`, then split it at `#` -> `notes/c` -> a different note.
+      assert.strictEqual(extractTocLinks('[sharp](notes/c%23.md)')[0].destination, 'notes/c#.md');
+      assert.strictEqual(extractTocLinks('[both](notes/c%23.md#section)')[0].destination, 'notes/c#.md');
+      // One decode pass only: `%2523` is a literal `%23` in the filename, not a `#`.
+      assert.strictEqual(extractTocLinks('[dbl](x%2523.md)')[0].destination, 'x%23.md');
+    });
+
+    it('records a bare destination with an unescaped space as unparseable, never truncated', () => {
+      // Obsidian accepts this spelling, so `notes/my` silently linked a real
+      // `notes/my.md`. CommonMark requires <angle brackets> or a %XX/backslash
+      // escape for a space in a bare destination; failing to parse it is a skip.
+      const links = extractTocLinks('[my](notes/my note.md)');
+      assert.strictEqual(links[0].destination, null);
+      assert.strictEqual(links[0].skip, 'unescaped-space');
+      // The documented supported forms must keep resolving onto the spaced note:
+      assert.strictEqual(extractTocLinks('[a](<notes/my note.md>)')[0].destination, 'notes/my note.md');
+      assert.strictEqual(extractTocLinks('[a](notes/my%20note.md)')[0].destination, 'notes/my note.md');
+      // A real `path + "title"` is still a title, not an unescaped space.
+      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
+    });
+
+    it('keeps a backslash literal unless it escapes a destination character, so it cannot collapse onto a sibling', () => {
+      // `\0` is not escapable, so deleting it produced `01-a02-b.md` — a real
+      // sibling note. Digits and letters are not ASCII punctuation, so their
+      // backslash survives; every escapable character is unpinned by the sweep
+      // below.
+      assert.strictEqual(extractTocLinks('[x](01-a\\02-b.md)')[0].destination, '01-a\\02-b.md');
+      assert.strictEqual(extractTocLinks('[x](notes/v1\\b2.md)')[0].destination, 'notes/v1\\b2.md');
+      // Genuine destination escapes still work (unchanged behaviour):
+      assert.strictEqual(extractTocLinks('[a](intro\\(v2\\).md)')[0].destination, 'intro(v2).md');
+      assert.strictEqual(extractTocLinks('[a](a\\\\b.md)')[0].destination, 'a\\b.md');
+    });
+
+    // CommonMark 2.4: "Any ASCII punctuation character may be backslash-escaped",
+    // and punctuation is exactly U+0021-2F, U+003A-40, U+005B-60, U+007B-7E. A
+    // hand-maintained subset silently loses the edge of any note whose real name
+    // was written with an escape the list forgot — `[a](notes/v1\.2.md)` is
+    // `notes/v1.2.md`, not a file named `v1\.2.md`, so the lookup missed.
+    // `#` and `%` are swept separately below: their escape is consumed the same
+    // way, but `normalizeTocLink` then treats `#` as the anchor separator and
+    // `%2` as a percent-escape, so `destination` cannot show the unescaping.
+    const ASCII_PUNCTUATION = [...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'];
+    const SWEEPABLE = ASCII_PUNCTUATION.filter((p) => p !== '#' && p !== '%');
+
+    it('unescapes every ASCII punctuation character in a bare destination', () => {
+      assert.strictEqual(SWEEPABLE.length, 30);
+      for (const p of SWEEPABLE) {
+        const links = extractTocLinks('[a](notes/v1\\' + p + '2.md)');
+        assert.strictEqual(links[0].destination, 'notes/v1' + p + '2.md', `\\${p} must lose its backslash`);
+      }
+      // The headline form: an escaped dot is the note `v1.2.md`, not `v1\.2.md`.
+      assert.strictEqual(extractTocLinks('[a](notes/v1\\.2.md)')[0].destination, 'notes/v1.2.md');
+      // `#` and `%` are no longer blind spots: their escape survives long enough
+      // for `normalizeTocLink` to split the fragment and decode the percents, so
+      // `destination` shows the unescaping the same way it does for the rest.
+      assert.strictEqual(extractTocLinks('[a](notes/v1\\#2.md)')[0].destination, 'notes/v1#2.md');
+      assert.strictEqual(extractTocLinks('[a](notes/v1\\%2.md)')[0].destination, 'notes/v1%2.md');
+    });
+
+    // Review follow-ups on the same three forms. Each one is the PR's own defect
+    // class — a destination that resolves onto a note the author did not name —
+    // reached by a step the first pass ordered wrongly.
+    it('keeps an escaped # out of the anchor split, in either destination form', () => {
+      // `\#` is a literal hash in the filename. Cutting at it sent the lookup to
+      // `notes/c`, and a note by that name is a real, unrelated file.
+      assert.strictEqual(extractTocLinks('[a](notes/c\\#2.md#section)')[0].destination, 'notes/c#2.md');
+      assert.strictEqual(extractTocLinks('[a](<notes/c\\#2.md>)')[0].destination, 'notes/c#2.md');
+      // A literal hash still begins a fragment when nothing escaped it.
+      assert.strictEqual(extractTocLinks('[a](notes/c#2.md)')[0].destination, 'notes/c');
+      // …and a doubled backslash before one is a literal backslash *and* a real
+      // fragment: `\\` resolves to data first, so the `#` that follows is syntax.
+      // Without the marks surviving the scan these two spellings are identical.
+      assert.strictEqual(extractTocLinks('[a](x\\\\#y.md)')[0].destination, 'x\\');
+      assert.strictEqual(extractTocLinks('[a](x\\\\\\#y.md)')[0].destination, 'x\\#y.md');
+    });
+
+    it('keeps an escaped % out of the percent decode', () => {
+      // `\%20` is a literal percent, not an encoded space: decoding it looked up
+      // `notes/a b.md` while the author named `notes/a%20b.md`.
+      assert.strictEqual(extractTocLinks('[a](notes/a\\%20b.md)')[0].destination, 'notes/a%20b.md');
+      assert.strictEqual(extractTocLinks('[a](<notes/a\\%20b.md>)')[0].destination, 'notes/a%20b.md');
+      // An unescaped percent still decodes, and a malformed one is still refused.
+      assert.strictEqual(extractTocLinks('[a](notes/a%20b.md)')[0].destination, 'notes/a b.md');
+      assert.strictEqual(extractTocLinks('[a](notes/a%zz.md)')[0].skip, 'malformed');
+    });
+
+    it('does not trim a space the destination itself encoded', () => {
+      // `%20` decodes to a space, and `decoded.trim()` then removed it, turning a
+      // lookup for `notes/file.md ` into one for `notes/file.md` — the truncation
+      // `unescaped-space` refuses in the raw form, re-added in the decoded one.
+      assert.strictEqual(extractTocLinks('[a](notes/file.md%20)')[0].destination, 'notes/file.md ');
+      assert.strictEqual(extractTocLinks('[a](%20notes/file.md)')[0].destination, ' notes/file.md');
+      // Whitespace the author typed around the destination is still not data, and
+      // a destination that is only whitespace is still `empty`.
+      assert.strictEqual(extractTocLinks('[a](%20%20)')[0].skip, 'empty');
+    });
+
+    it('refuses trailing text after a title instead of reading it as one title', () => {
+      // `"one" "two"` begins and ends with a quote, which is all `looksLikeTitle`
+      // checked. CommonMark allows exactly one delimited title, so this is not a
+      // link at all — and accepting the prefix authored an edge onto `notes/my`.
+      const links = extractTocLinks('[a](notes/my "one" "two")');
+      assert.strictEqual(links[0].destination, null);
+      assert.strictEqual(links[0].skip, 'unescaped-space');
+      // One title, with or without inner spaces, stays a title.
+      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md "it (works)")')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md (parens))')[0].destination, 'path.md');
+      assert.strictEqual(extractTocLinks('[a](path.md \'single\')')[0].destination, 'path.md');
+    });
+
+    // The angle-bracket form shares the bare form's escape grammar; only its
+    // delimiters differ (it ends at `>` and lets spaces and parens through as
+    // data). Verified against commonmark.js and markdown-it: `<foo\.bar>` is
+    // `foo.bar` in both. A narrower set here silently dropped the edge of every
+    // escaped name written in the one form authors reach for when a path holds
+    // a space.
+    it('unescapes every ASCII punctuation character in an angle-bracket destination', () => {
+      for (const p of SWEEPABLE) {
+        const links = extractTocLinks('[a](<notes/v1\\' + p + '2.md>)');
+        assert.strictEqual(
+          links[0].destination,
+          'notes/v1' + p + '2.md',
+          `\\${p} must lose its backslash inside <…>`
+        );
+      }
+      assert.strictEqual(extractTocLinks('[a](<01-a\\02-b.md>)')[0].destination, '01-a\\02-b.md');
+      // An escaped `>` stays data — it must not close the destination.
+      assert.strictEqual(extractTocLinks('[a](<notes/a\\>b.md>)')[0].destination, 'notes/a>b.md');
+    });
+
+    it('reports the whole destination as written when a bare one is refused for a space', () => {
+      // `TocLink.raw` is documented as the destination exactly as written, and it
+      // is what a skip report line is built from. Handing back the truncated
+      // prefix showed the author a path they never typed.
+      const links = extractTocLinks('[my](notes/my note.md)');
+      assert.strictEqual(links[0].destination, null);
+      assert.strictEqual(links[0].skip, 'unescaped-space');
+      assert.strictEqual(links[0].raw, 'notes/my note.md');
+      assert.strictEqual(
+        extractTocLinks('[my](notes/my note with several words.md)')[0].raw,
+        'notes/my note with several words.md'
+      );
+      assert.strictEqual(extractTocLinks('[a](x\\ y.md)')[0].raw, 'x\\ y.md');
+      // A real title is not a refusal: `raw` stays the destination, not the slice.
+      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].raw, 'path.md');
     });
   });
 

@@ -50,7 +50,9 @@ export type TocSkipReason =
   | 'external'
   | 'self-anchor'
   | 'malformed'
-  | 'empty';
+  | 'empty'
+  /** A bare destination carrying an unescaped space: unparseable, never truncated (issue #262) */
+  | 'unescaped-space';
 
 /** One parsed link from a TOC document. */
 export interface TocLink {
@@ -158,7 +160,7 @@ export function extractTocLinks(text: string): TocLink[] {
       i = destStart;
       continue;
     }
-    links.push(normalizeTocLink(dest.raw));
+    links.push(dest.skip ? { raw: dest.raw, destination: null, skip: dest.skip } : normalizeTocLink(dest.raw));
     i = dest.next;
   }
   return links;
@@ -289,6 +291,93 @@ interface RawDestination {
   raw: string;
   /** Index to resume scanning after the closing `)` */
   next: number;
+  /** Set when the destination text exists but cannot name a note; `raw` then holds that text exactly as written, not the readable prefix */
+  skip?: TocSkipReason;
+}
+
+/**
+ * CommonMark's `ASCII punctuation character` class (spec 0.31.2, §2.4): the
+ * code-point ranges U+0021–2F, U+003A–40, U+005B–60 and U+007B–7E — 32
+ * characters — and §2.4's rule that *any* of them may be backslash-escaped.
+ *
+ * @remarks
+ * Stated as the spec's own ranges instead of a hand-maintained list, because a
+ * list that drifts is the very defect this replaces: holding only
+ * `\\ ( ) < > \` [ ] # % _ * -`, an escaped dot kept its backslash, so
+ * `[a](notes/v1\.2.md)` looked up a file literally named `v1\.2.md` and the
+ * author's edge silently vanished.
+ *
+ * Digits and letters fall outside these ranges by construction, which is the
+ * behaviour issue #262 needs: `\0` is *not* an escape, and collapsing it merged
+ * `01-a\02-b.md` onto the real sibling `01-a02-b.md`. Non-ASCII (including
+ * lone surrogates, which is what `text` iterates) is above U+007E and so is
+ * never escapable — exactly as in the spec.
+ */
+function isAsciiPunctuation(ch: string): boolean {
+  const cp = ch.charCodeAt(0);
+  return (
+    (cp >= 0x21 && cp <= 0x2f) ||
+    (cp >= 0x3a && cp <= 0x40) ||
+    (cp >= 0x5b && cp <= 0x60) ||
+    (cp >= 0x7b && cp <= 0x7e)
+  );
+}
+
+/**
+ * Whether one resolved escape keeps its backslash in the destination text.
+ *
+ * @param next - The character the backslash escaped
+ * @returns `true` for `#`, `%` and `\`
+ *
+ * @remarks
+ * Three characters are read *after* this scan, by {@link normalizeTocLink}: a `#`
+ * is the fragment separator, a `%` opens a percent-escape, and a `\` is what tells
+ * the two apart from data. Consuming their backslash here is what made
+ * `[a](notes/c\#2.md)` resolve onto `notes/c` and `[a](notes/a\%20b.md)` onto
+ * `notes/a b.md` — each a different, real note (#262 review). Keeping the mark
+ * costs nothing downstream, because the marks are resolved before the destination
+ * is ever folded or looked up; every other escapable character is resolved here,
+ * where nothing later re-reads it.
+ */
+function keepsEscapeMark(next: string): boolean {
+  return next === '#' || next === '%' || next === '\\';
+}
+
+/**
+ * Is the text after a bare destination's first whitespace exactly one CommonMark title?
+ *
+ * @param rest - Everything after the first unescaped whitespace, with every escape
+ * but the three marks {@link keepsEscapeMark} preserves already resolved
+ * @returns `true` only when one delimited sequence fills the text
+ *
+ * @remarks
+ * A title is *one* sequence, and nothing may follow it: `"one" "two"` starts and
+ * ends on a quote yet is two titles, which CommonMark has no such link for. Reading
+ * that prefix as a title accepted `[a](notes/my "one" "two")` and wrote an ordering
+ * edge onto `notes/my` — the same class #262 refuses, one step later. The closing
+ * delimiter must therefore be the last character with no unescaped copy of either
+ * delimiter before it. A title whose own quote was escaped is indistinguishable
+ * here, because the scanner resolves those first: such a destination is declined as
+ * `unescaped-space`, never truncated.
+ */
+function looksLikeTitle(rest: string): boolean {
+  const t = rest.trim();
+  if (t.length < 2) return false;
+  const open = t[0];
+  if (open !== '"' && open !== "'" && open !== '(') return false;
+  const close = open === '(' ? ')' : open;
+  for (let i = 1; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (ch === close) return i === t.length - 1;
+    // An unescaped `(` inside a `(...)` title is not a title; the spec closes the
+    // sequence on the first unescaped `)` and this has no way to mean otherwise.
+    if (open === '(' && ch === '(') return false;
+  }
+  return false;
 }
 
 /**
@@ -296,6 +385,10 @@ interface RawDestination {
  * matching `)`.
  *
  * @remarks
+ * Both forms resolve a backslash plus ASCII punctuation into that literal
+ * character ({@link isAsciiPunctuation}); only their delimiters differ, and the
+ * branches below are deliberately not merged.
+ *
  * A bare destination may contain **balanced** parentheses — CommonMark allows
  * `[lesson](notes/intro(v2).md)` — so the scan tracks depth and only ends the
  * destination on the `)` that closes the one that opened it. Stopping at the
@@ -309,8 +402,19 @@ function readDestination(text: string, start: number): RawDestination | null {
     let out = '';
     for (let i = start + 1; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\\' && i + 1 < text.length && (text[i + 1] === '>' || text[i + 1] === '\\')) {
-        out += text[i + 1];
+      if (ch === '\\' && i + 1 < text.length && isAsciiPunctuation(text[i + 1])) {
+        // The escape grammar here is the *same* {@link isAsciiPunctuation} rule
+        // the bare branch below uses — CommonMark resolves `\` + punctuation in
+        // both forms (§2.4; verified against commonmark.js and markdown-it:
+        // `<foo\.bar>` and `<foo\<bar>` are `foo.bar` and `foo<bar`). The two
+        // forms differ only in their **delimiters**, and that is the part that
+        // must not be unified: this one ends at the first unescaped `>` and
+        // takes raw spaces and parentheses as data, while the bare form ends at
+        // the `)` that balances the link and refuses outright on a raw space.
+        // So `\>` below is data and deliberately does not close the destination.
+        // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
+        // {@link keepsEscapeMark}.
+        out += keepsEscapeMark(text[i + 1]) ? ch + text[i + 1] : text[i + 1];
         i++;
         continue;
       }
@@ -324,39 +428,144 @@ function readDestination(text: string, start: number): RawDestination | null {
     return null;
   }
   let out = '';
+  /** Text after the first unescaped whitespace; a CommonMark title, or a malformed destination. */
+  let afterSpace = '';
   let depth = 0;
-  /** Once whitespace is seen the destination is closed; the rest is a `"title"`. */
-  let inTitle = false;
+  let sawSpace = false;
+  const emit = (ch: string): void => {
+    if (sawSpace) afterSpace += ch;
+    else out += ch;
+  };
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
     if (ch === '\\' && i + 1 < text.length) {
-      // CommonMark allows `\)` and friends; keep the escaped char literal.
-      if (!inTitle) out += text[i + 1];
-      i++;
+      const next = text[i + 1];
+      if (isAsciiPunctuation(next)) {
+        // An escape sequence: the backslash is syntax, the character is data.
+        // Same class as the angle-bracket branch — see {@link isAsciiPunctuation}.
+        // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
+        // {@link keepsEscapeMark}.
+        emit(keepsEscapeMark(next) ? ch + next : next);
+        i++;
+        continue;
+      }
+      // Not escapable (a digit or a letter), so the backslash is part of the
+      // path. Deleting it merged `01-a\02-b.md` onto a real sibling
+      // `01-a02-b.md` (issue #262).
+      emit(ch);
       continue;
     }
     if (ch === '(') {
       depth++;
-      if (!inTitle) out += ch;
+      emit(ch);
       continue;
     }
     if (ch === ')') {
       if (depth > 0) {
         depth--;
-        if (!inTitle) out += ch;
+        emit(ch);
         continue;
+      }
+      if (sawSpace && !looksLikeTitle(afterSpace)) {
+        // A bare destination may not contain a space: `[a](notes/my note.md)` is
+        // not a link, and reading it as `notes/my` silently linked a different,
+        // real note. Obsidian accepts the spelling, so it must be declined, not
+        // truncated — `<angle brackets>` and `%20` are the ways to mean a space.
+        // `raw` is the whole text as written (`text.slice`), never `out`: a skip
+        // is reported to the author, and `notes/my` is a path they did not type.
+        return { raw: text.slice(start, i), next: i + 1, skip: 'unescaped-space' };
       }
       return { raw: out, next: i + 1 };
     }
-    if (!inTitle && /\s/.test(ch)) {
+    if (!sawSpace && /\s/.test(ch)) {
       // Optional `"title"` follows whitespace; keep scanning for the paren that
       // actually closes the link, since a title may carry balanced parens.
-      inTitle = true;
+      sawSpace = true;
       continue;
     }
-    if (!inTitle) out += ch;
+    emit(ch);
   }
   return null;
+}
+
+/**
+ * Index of the first `#` that is destination data rather than the fragment
+ * separator, or -1 when there is none.
+ *
+ * @remarks
+ * A backslash consumes the character after it, which is how the marks
+ * {@link keepsEscapeMark} preserved stay invisible to the split: `notes/c\#2.md`
+ * has no fragment at all, while `notes/c#2.md` cuts at the hash as it always did.
+ */
+function literalHash(text: string): number {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\') i++;
+    else if (text[i] === '#') return i;
+  }
+  return -1;
+}
+
+/**
+ * Percent-decodes a destination, leaving a protected `%` alone.
+ *
+ * @param text - Destination text, fragment separator already removed
+ * @returns The decoded text, marks still in place
+ * @throws {URIError} On a `%` that begins no valid escape — the caller's `malformed` skip
+ *
+ * @remarks
+ * `decodeURIComponent` over the whole string cannot express this: `\%20` is a
+ * literal percent the author escaped precisely so it would *not* decode, and
+ * decoding anyway looked up `notes/a b.md` for a note named `notes/a\%20b.md`.
+ * Runs decode as one unit — `%E4%B8%AD` is a single character and each pair on its
+ * own is an invalid sequence — and an unprotected `%` that starts no valid escape
+ * throws exactly where `decodeURIComponent` would have.
+ */
+function decodePercents(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') {
+      out += ch;
+      if (i + 1 < text.length) out += text[++i];
+      continue;
+    }
+    if (ch !== '%') {
+      out += ch;
+      continue;
+    }
+    let run = '';
+    let j = i;
+    while (text[j] === '%' && /^[0-9a-fA-F]{2}$/.test(text.slice(j + 1, j + 3))) {
+      run += text.slice(j, j + 3);
+      j += 3;
+    }
+    if (run.length === 0) throw new URIError(`malformed percent escape at index ${i}`);
+    out += decodeURIComponent(run);
+    i = j - 1;
+  }
+  return out;
+}
+
+/**
+ * Resolves the marks {@link keepsEscapeMark} preserved. Last step, after the split
+ * and the decode: until here a `\#` still meant "not a fragment" and a `\%` still
+ * meant "not an escape".
+ *
+ * @remarks
+ * Only those three marks resolve. A backslash before anything else reached this
+ * function as *data*, not as an escape — `01-a\02-b.md` is a filename with a
+ * backslash in it, and consuming that backslash here is the collapse #262 refuses.
+ */
+function applyEscapeMarks(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\' && i + 1 < text.length && keepsEscapeMark(text[i + 1])) {
+      out += text[++i];
+      continue;
+    }
+    out += text[i];
+  }
+  return out;
 }
 
 /** Decodes + anchor-strips one raw destination into a chainable target, or a skip reason. */
@@ -370,7 +579,14 @@ function normalizeTocLink(raw: string): TocLink {
   }
   let decoded: string;
   try {
-    decoded = decodeURIComponent(trimmed);
+    // The fragment separator is a LITERAL `#`. Splitting before the decode is
+    // what keeps `%23` a `#` inside the path: decoding first turned
+    // `notes/c%23.md` into `notes/c#.md`, then the split cut it to `notes/c` —
+    // which resolved onto a different, real note (issue #262). The split reads
+    // the *unescaped* hash for the same reason one step earlier: `notes/c\#2.md`
+    // names a file, not a fragment (#262 review).
+    const hash = literalHash(trimmed);
+    decoded = decodePercents(hash >= 0 ? trimmed.slice(0, hash) : trimmed);
   } catch {
     // Malformed `%` escape: fail closed on this link only. Note the decode
     // runs BEFORE any filesystem matching and there is no raw-form fallback,
@@ -380,12 +596,18 @@ function normalizeTocLink(raw: string): TocLink {
   if (URI_SCHEME.test(decoded)) {
     return { raw, destination: null, skip: 'external' };
   }
-  const hash = decoded.indexOf('#');
-  const destination = hash >= 0 ? decoded.slice(0, hash) : decoded;
-  if (destination.trim().length === 0) {
+  // Whitespace-only is `empty`; a space the destination *encoded* is data.
+  // `decoded.trim()` here re-opened the defect this function closes: it turned
+  // `notes/file.md%20` into a lookup for `notes/file.md`, the same truncation the
+  // raw form refuses outright as `unescaped-space`.
+  if (decoded.trim().length === 0) {
     return { raw, destination: null, skip: 'empty' };
   }
-  return { raw, destination: destination.trim() };
+  const destination = applyEscapeMarks(decoded);
+  if (destination.length === 0) {
+    return { raw, destination: null, skip: 'empty' };
+  }
+  return { raw, destination };
 }
 
 /** Result of folding one destination against the TOC file's directory. */
