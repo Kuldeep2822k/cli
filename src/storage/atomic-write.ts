@@ -213,7 +213,22 @@ async function atomicWrite(
         // replaces a window that spans a retry loop with one that spans a syscall:
         // the gap before `openSync` is not closable from JS, because no
         // `openat`-style relative, no-follow open is exposed (#264 review).
-        assertContainedInVault(vaultPath, resolvedTarget);
+        //
+        // The re-check also has to *bind*, not merely pass. A final-component
+        // symlink installed since the first certification resolves to a different
+        // in-vault note: the assertion accepts it, while `renameSync` on the path
+        // spelled above replaces the link itself — and the OCC read just performed
+        // followed that link. Read and write would then address two different
+        // files, which is the split the resolve-once design exists to prevent, so a
+        // destination that moved is a retryable conflict: the next call re-resolves,
+        // locks the path it now resolves to, and re-reads that file's fingerprint.
+        if (assertContainedInVault(vaultPath, resolvedTarget) !== resolvedTarget) {
+          const movedErr = new Error(
+            `OCC conflict: ${resolvedTarget} resolves elsewhere after the lock was taken`
+          ) as NodeError;
+          movedErr.code = 'ECONFLICT';
+          throw movedErr;
+        }
 
         let fd: number | null = null;
         try {

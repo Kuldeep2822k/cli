@@ -35,8 +35,9 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { atomicWrite } from '../src/storage/atomic-write';
+import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
 import { isContainmentError } from '../src/storage/containment';
+import { computeFingerprint } from '../src/storage/frontmatter';
 
 /** Symlink type that works on both POSIX and Windows without elevated rights. */
 const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
@@ -111,5 +112,48 @@ describe('a destination re-linked while the write waits is refused before the by
     // Restore, so the vault is left as the next test would expect it.
     removeLink(notes);
     fs.renameSync(stored, notes);
+  });
+
+  // The same window, one level narrower: nothing leaves the vault this time, so
+  // containment is not what breaks. A link installed at the *destination itself*
+  // makes the OCC read follow to another note while the rename replaces the link —
+  // two files, one write. The re-check has to bind to what it certified, not just
+  // pass, and a destination whose resolution moved is retryable rather than fatal.
+  test('a link installed at the destination during the write is refused, not replaced', async (t) => {
+    const real = path.join(vault, 'linked-target.md');
+    const spelled = path.join(vault, 'written-as-link.md');
+    fs.writeFileSync(real, '# Original\n');
+
+    // Certified while `written-as-link.md` does not exist: `resolvedTarget` is the
+    // spelled path, and the lock hash is taken from it.
+    const write = atomicWrite(vault, spelled, '# Rewritten\n', computeFingerprint(fs.readFileSync(real, 'utf8')));
+
+    let installed = true;
+    try {
+      fs.symlinkSync(real, spelled, 'file');
+    } catch {
+      installed = false;
+    }
+    if (!installed) {
+      await write;
+      t.skip('file symlink creation is not permitted on this platform');
+      return;
+    }
+
+    await assert.rejects(
+      () => write,
+      (err: unknown) => {
+        assert.strictEqual(
+          isConflictError(err),
+          true,
+          'a destination that came to resolve elsewhere is a conflict the caller can retry, not a security refusal'
+        );
+        return true;
+      }
+    );
+
+    assert.ok(fs.lstatSync(spelled).isSymbolicLink(), 'the link must still be a link');
+    assert.strictEqual(fs.readFileSync(real, 'utf8'), '# Original\n', 'the note behind it must be untouched');
+    fs.unlinkSync(spelled);
   });
 });
