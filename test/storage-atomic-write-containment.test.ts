@@ -33,6 +33,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { atomicWrite, isConflictError, isContainmentError } from '../src/storage/atomic-write';
+import { computeFingerprint } from '../src/storage/frontmatter';
 
 /** Symlink type that works on both POSIX and Windows without elevated rights. */
 const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
@@ -216,6 +217,51 @@ describe('atomicWrite refuses a destination that resolves outside the vault', ()
 
     assert.strictEqual(fs.readFileSync(outsideFile, 'utf8'), canary, 'the outside file must not be rewritten');
     assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link itself must not be replaced');
+    removeLink(link);
+  });
+
+  // The companion case to the refusal above, which used to be only implied: a note
+  // addressed through a link that stays *inside* the vault is written through the
+  // link. Renaming onto the link path instead would replace the link with a new
+  // regular file — one note split across two paths, each minting its own
+  // `palee_id` — and the OCC read already follows the link, so a writer that had
+  // just verified the linked note's fingerprint would overwrite a different file
+  // and never match it again. The contract is therefore: follow it in, refuse it
+  // out, and pin both here.
+  test('a final-component link inside the vault is written through, not replaced', async (t) => {
+    const real = path.join(vault, 'linked-real.md');
+    fs.writeFileSync(real, '# Original\n');
+    const link = path.join(vault, 'linked-shortcut.md');
+    try {
+      fs.symlinkSync(real, link, 'file');
+    } catch {
+      t.skip('file symlink creation is not permitted on this platform');
+      return;
+    }
+
+    await atomicWrite(vault, link, '# Written through the shortcut\n');
+
+    assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link must survive the write');
+    assert.strictEqual(
+      fs.readFileSync(real, 'utf8'),
+      '# Written through the shortcut\n',
+      'the bytes belong to the note the link names'
+    );
+
+    // Read and write address one file, so a fingerprint taken through the link is
+    // what the next write through the link expects.
+    const fingerprint = computeFingerprint(fs.readFileSync(link, 'utf8'));
+    await atomicWrite(vault, link, '# Second\n', fingerprint);
+    assert.match(fs.readFileSync(real, 'utf8'), /# Second/, 'the linked note was replaced as the caller asked');
+
+    await assert.rejects(
+      () => atomicWrite(vault, link, '# Third\n', 'not-the-disk-fingerprint'),
+      (err: unknown) => {
+        assert.strictEqual(isConflictError(err), true, 'a stale fingerprint on the linked note still conflicts');
+        return true;
+      }
+    );
+
     removeLink(link);
   });
 
