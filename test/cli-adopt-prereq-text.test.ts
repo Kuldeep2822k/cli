@@ -129,6 +129,38 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
     assert.ok(!ready.includes(idOf(vaultDir, 'm/02-behind.md')), 'a declared prerequisite must gate');
   });
 
+  test('a prerequisite the note disclaims does not hold it off the ready list', () => {
+    // #261 measured this end to end: a note whose `## Prerequisites` section
+    // said `does not require [[m/01-setup]]` and `no longer requires
+    // [[m/02-alpha]]` was written with both as `declared` gates, and
+    // `palee plan --json` returned `ready: [Setup]` — the two notes the learner
+    // ruled out were the two that locked it out. The refusal is the extractor's
+    // business; this is the proof that the refusal reaches the plan, since a
+    // `declared` label is one nothing downstream questions.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-setup.md': '# Setup\n\n',
+      'm/02-alpha.md': '# Alpha\n\n',
+      'x/03-beta.md': [
+        '# Beta',
+        '',
+        '## Prerequisites',
+        '',
+        '- does not require [[m/01-setup]]',
+        '- no longer requires [[m/02-alpha]]',
+        '- This note is a prerequisite for [[m/02-alpha]]',
+      ].join('\n'),
+    });
+    const result = adopt(vaultDir, configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'x/03-beta.md'), []);
+    assert.strictEqual(frontmatterOf(vaultDir, 'x/03-beta.md')?.depends_on_source, undefined);
+    assert.doesNotMatch(result.stdout, /Declared:/, 'a disclaimed item declares nothing');
+    const ready = readyIds(configDir);
+    assert.ok(ready.includes(idOf(vaultDir, 'x/03-beta.md')), 'a note with no real prerequisite is offerable');
+    assert.ok(!ready.includes(idOf(vaultDir, 'm/02-alpha.md')), 'the numbered tree still gates Alpha');
+  });
+
   test('a name matching several notes is a counted skip and keeps the tree edge', () => {
     // Losing an edge is the safe direction. Inventing one for `README`, where two
     // notes carry that basename, would lock a learner behind a note nobody chose.

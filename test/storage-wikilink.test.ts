@@ -12,7 +12,7 @@ import {
   type WikilinkRoadmapSection,
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
-import { relativeVaultPath } from '../src/storage/vault-walker';
+import { relativeVaultPath, foldNoteKey } from '../src/storage/vault-walker';
 
 /** Parses a wikilink string, asserting it is well-formed, and returns it. */
 function link(text: string) {
@@ -460,6 +460,42 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         );
       } finally {
         fs.rmSync(note, { force: true });
+      }
+    });
+
+    // The test above only bites on a normalization-insensitive volume, so on
+    // Linux and Windows the fold inside `withWalkedCasing` is never exercised:
+    // the exact-match branch is skipped and the basename fallback returns the
+    // walked path directly. This fixture forces the same divergence wherever it
+    // runs — the resolved path arrives composed, the walker's index holds the
+    // decomposed spelling — so a compare that folds case alone fails here too.
+    it('returns the walked spelling when only its normalization differs', () => {
+      const NFD_ACUTE = String.fromCharCode(0x0301);
+      const NFC_ACUTE = String.fromCharCode(0x00e9);
+      // Joined onto the realpath'd root rather than realpath'd per file: the
+      // two spellings have to stay two distinct strings, and the resolver does
+      // the same thing internally.
+      const root = fs.realpathSync(vaultPath);
+      const decomposed = path.join(root, 'cafe' + NFD_ACUTE + '.md');
+      const composed = path.join(root, 'caf' + NFC_ACUTE + '.md');
+      fs.writeFileSync(decomposed, '# Cafe\n');
+      fs.writeFileSync(composed, '# Cafe\n');
+      try {
+        assert.notStrictEqual(decomposed, composed, 'fixture needs two distinct spellings');
+        const index = new Map([[foldNoteKey('cafe' + NFD_ACUTE), [decomposed]]]);
+        const resolved = resolveWikilinkTarget(
+          vaultPath,
+          link('[[' + 'caf' + NFC_ACUTE + ']]'),
+          index
+        );
+        assert.strictEqual(
+          resolved.absolutePath,
+          decomposed,
+          'the caller keys notes by the walked string, so the typed spelling is a second identity for one note'
+        );
+      } finally {
+        fs.rmSync(decomposed, { force: true });
+        fs.rmSync(composed, { force: true });
       }
     });
   });
