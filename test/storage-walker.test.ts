@@ -45,6 +45,23 @@ describe('Vault Walker', () => {
     assert.deepStrictEqual(basenames, ['note1.md', 'note2.md', 'root.md']);
   });
 
+  test('collects a note whose extension is not lowercase', () => {
+    // `isResolvableNotePath` folds case, so `[[setup]]` resolved a `Setup.MD`
+    // this walker had never listed: the note was invisible to `loadTopics` yet a
+    // valid chain target, and adopting it minted a `palee_id` for a path no other
+    // command could see. The two folds have to agree on what a note is.
+    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-walker-case-'));
+    try {
+      fs.writeFileSync(path.join(vault, 'Setup.MD'), '# Setup\n');
+      fs.writeFileSync(path.join(vault, 'plain.md'), '# Plain\n');
+      fs.writeFileSync(path.join(vault, 'asset.TXT'), 'not markdown');
+      const names = walkVault(vault).map((f) => path.basename(f)).sort();
+      assert.deepStrictEqual(names, ['Setup.MD', 'plain.md']);
+    } finally {
+      fs.rmSync(vault, { recursive: true, force: true });
+    }
+  });
+
   test('excludes .obsidian directory', () => {
     const files = walkVault(testVaultPath);
     const hasObsidian = files.some(f => f.includes('.obsidian'));

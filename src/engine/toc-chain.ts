@@ -39,7 +39,7 @@ import {
 } from './auto-chain';
 import type { DependsOnSource } from '../types';
 
-/** Accepted values of `--chain-tier` (default `full`). */
+/** Accepted values of `--chain-tier` (default `strict`, set in `src/cli/adopt.ts`). */
 export type AutoChainTier = 'strict' | 'toc' | 'full';
 
 /** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). Declared in `src/types.ts`, re-exported here for engine consumers. */

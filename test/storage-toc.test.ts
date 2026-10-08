@@ -75,6 +75,32 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       ]);
     });
 
+    // `walkVault` reports paths under its own `realpathSync` of the root (#122),
+    // while the relative form here was derived from the root the *caller* passed.
+    // Reach one vault through a symlink and every discovered path escapes it —
+    // `../<real-dir>/README.md` — and `discoverTocFiles` is a public export of the
+    // storage barrel, so a caller outside this module inherits that garbage path.
+    it('reports vault-relative paths when the root is reached through a symlink', (t) => {
+      write(vault, 'README.md', '# Index\n- [A](a.md)\n');
+      write(vault, 'a.md');
+      const alias = path.join(path.dirname(vault), `palee-toc-alias-${process.pid}`);
+      try {
+        fs.symlinkSync(vault, alias, 'dir');
+      } catch {
+        t.skip('directory symlink creation is not permitted here');
+        return;
+      }
+      try {
+        assert.deepStrictEqual(discoverTocFiles(alias), ['README.md']);
+      } finally {
+        try {
+          fs.rmSync(alias, { force: true });
+        } catch {
+          fs.rmSync(alias, { force: true, recursive: true });
+        }
+      }
+    });
+
     it('never treats phase-subtree or translation-dir READMEs as TOC sources', () => {
       write(vault, 'README.md');
       write(vault, 'solution/01-a/README.md');

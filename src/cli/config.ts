@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode } from './exit-codes';
 
@@ -105,7 +106,12 @@ function saveConfig(config: PaleeConfig): void {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const tempPath = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+  // `pid + Date.now()` is not a unique name: two processes that fork from the
+  // same parent inside the same millisecond share both, and the second `open(w)`
+  // truncates the first one's temp file mid-write. `atomicWrite` already pays for
+  // entropy here, so the config writer has no reason to be weaker than the note
+  // writer.
+  const tempPath = `${configPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
   const payload = JSON.stringify(config, null, 2);
 
   let fd: number | null = null;

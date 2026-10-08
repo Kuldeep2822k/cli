@@ -19,8 +19,10 @@ import {
   isConflictError,
   loadTopics,
   ensureVaultDirectory,
+  relativeVaultPath,
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
+import { isResolvableNotePath } from '../storage/vault-walker';
 import { detectCyclesBounded } from '../engine/dependency';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
@@ -199,6 +201,38 @@ type RoadmapTopicAlias = import('../types').RoadmapTopic;
 type LoadedTopicAlias = { id: string; depends_on?: string[] };
 
 /**
+ * The `palee_id` a note declares on disk, read without the loader's filters.
+ *
+ * @param absolutePath - Canonical path of the note a roadmap entry targets
+ * @returns `absent` when nothing declares an identity, `unreadable` when the
+ * frontmatter block will not parse, or the value exactly as stored
+ *
+ * @remarks
+ * `loadTopics` requires a non-empty string `palee_id` by design (B7), so a note
+ * whose id YAML read as a number leaves no incumbent in that scan — and an import
+ * keyed on the scan would overwrite a declared identity anyway, the same silent
+ * rename the wikilink path refuses. The note has to be asked directly.
+ */
+function declaredIdOfNote(absolutePath: string):
+  { kind: 'absent' } | { kind: 'unreadable'; reason: string } | { kind: 'declared'; raw: unknown } {
+  let content: string;
+  try {
+    content = fs.readFileSync(absolutePath, 'utf8');
+  } catch {
+    return { kind: 'absent' }; // no note yet: this entry adopts rather than overwrites
+  }
+  const { frontmatter, error } = parseFrontmatter(content);
+  if (error !== undefined) {
+    return { kind: 'unreadable', reason: error };
+  }
+  const raw = frontmatter?.palee_id;
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
+    return { kind: 'absent' };
+  }
+  return { kind: 'declared', raw };
+}
+
+/**
  * Single derivation of the effective frontmatter values a roadmap import
  * writes for one topic (#139).
  *
@@ -371,6 +405,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     // effective dependencies using the same rule for both validation and writeback.
     const existingTopics = loadTopics(vaultPath);
     const existingTopicsById = new Map(existingTopics.map((topic) => [topic.id, topic]));
+    // The note that lives at each declared path, keyed through the same
+    // canonicalizer the declarations use so `./x.md`, an absolute in-vault path
+    // and the loader's vault-relative spelling of one note meet at one key.
+    const existingTopicsByPath = new Map(
+      existingTopics.map((topic) => [canonicalDeclaredPath(resolvedVault, topic.path), topic] as const)
+    );
 
     // Effective deps per roadmap topic, computed once and shared by validation + doImport.
     // User-intent rules: explicit empty array clears, omitted preserves existing, populated replaces.
@@ -408,6 +448,57 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const absoluteTopicPath = canonicalDeclaredPath(resolvedVault, relativePath);
         if (!isWithinVault(resolvedVault, absoluteTopicPath)) {
           errors.push(`Topic "${id || '(unnamed)'}" path escapes vault boundary: ${relativePath}`);
+        } else if (!isResolvableNotePath(relativeVaultPath(resolvedVault, absoluteTopicPath))) {
+          // A path the walker cannot see is a note that exists for exactly one
+          // command. `path: .md` is the sharpest case: `path.extname('.md')` is
+          // empty, so the writer makes a directory named `.md`, drops `.md/.md`
+          // inside it, reports "Created: 1 notes" and exits `0` — while every
+          // segment starting with a dot is invisible to `walkVault`, so no other
+          // command ever loads the note it just promised to create. Checked
+          // before the first write, so the batch that would create it never starts.
+          errors.push(
+            `Topic "${id || '(unnamed)'}" path is not a visible Markdown note path in the vault: ${relativePath}`
+          );
+        } else if (id) {
+          // A note the vault already adopted answers to the id on its own
+          // frontmatter. Importing a different id over that path retired it:
+          // every edge naming the old id resolved to no topic, which hard-blocks
+          // the dependent notes out of `palee plan`, while `validate` counts a
+          // missing dependency only as a warning and exits 0. The learner found
+          // out afterwards, from a stderr list. INV-32 puts the decision before
+          // any write instead, and names both ids so the roadmap can be corrected.
+          const incumbent = existingTopicsByPath.get(absoluteTopicPath);
+          if (incumbent && incumbent.id !== id) {
+            errors.push(
+              `Topic "${id}" targets ${relativePath}, which is already adopted as "${incumbent.id}". ` +
+                `Importing would retire "${incumbent.id}" and orphan every edge that names it. ` +
+                `Give this entry the id the note already carries, or point it at a new path.`
+            );
+          } else if (!incumbent) {
+            // No incumbent is not the same as no identity: the loader is blind to a
+            // `palee_id` that is not a usable string, so a note declaring
+            // `palee_id: 20240115` looked unadopted here and the import wrote over
+            // it anyway. Ask the note. A block that will not parse is deliberately
+            // not refused: its write throws in `updateFrontmatter`, the topic is
+            // isolated and named, the bytes are untouched, and pre-invalidating the
+            // whole batch would cost the vault the import resilience it documents.
+            const declared = declaredIdOfNote(absoluteTopicPath);
+            // Only a string can *be* this entry's id. `String(raw)` would read the
+            // single-element list `[T-a]` as `"T-a"` and wave the entry through,
+            // then replace the array with a string — while `loadTopics` and the
+            // wikilink resolver both call a non-string id unusable. Match them.
+            if (
+              declared.kind === 'declared'
+              && !(typeof declared.raw === 'string' && declared.raw.trim() === id)
+            ) {
+              errors.push(
+                `Topic "${id}" targets ${relativePath}, which declares palee_id ` +
+                  `${JSON.stringify(declared.raw)} — a declared identity this entry does not carry. ` +
+                  `Give the entry the id the note declares, or correct the note to "${id}"; ` +
+                  'importing over a declared identity replaces it silently.'
+              );
+            }
+          }
         }
       }
 

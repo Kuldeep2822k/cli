@@ -59,7 +59,44 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import type { LoadedTopic } from '../../storage/loader';
+import { normalizeDependsOnSource } from '../../types';
 import { displayValue } from './diagnostic-value';
+
+/**
+ * True when a value contains itself, through an array or an object.
+ *
+ * @param value - The value to probe
+ * @param chain - The objects on the current path (internal)
+ * @returns `true` for a self-referential structure
+ */
+function isCyclic(value: unknown, chain: Set<unknown> = new Set()): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (chain.has(value)) return true;
+  chain.add(value);
+  const children = Array.isArray(value) ? value : Object.values(value);
+  for (const child of children) {
+    if (isCyclic(child, chain)) return true;
+  }
+  chain.delete(value);
+  return false;
+}
+
+/**
+ * The value a dependency finding reports, kept safe to serialize.
+ *
+ * @param raw - The raw frontmatter value behind the finding
+ * @returns The display value, or a marker when the value refers to itself
+ *
+ * @remarks
+ * `yaml` 2.9.1 preserves an alias cycle, so `depends_on_source: &self [*self]`
+ * parses to an array holding itself. `JSON.stringify` throws a `TypeError` on
+ * that, `runRules` catches it and emits a generic rule-execution failure — the
+ * unsafe value silenced the very finding that names it, and the same cycle would
+ * then blow up `validate --json` while serializing `details.actual`.
+ */
+function safeActual(raw: unknown): unknown {
+  return isCyclic(raw) ? "[circular]" : displayValue(raw);
+}
 
 /**
  * Validates dependency list shape for a given field (`depends_on` or `dependencies`).
@@ -89,11 +126,11 @@ function validateDependencyField(
     issues.push({
       ruleId: 'valid-dependency-list',
       severity: 'error',
-      message: `Topic ${topic.palee_id}: ${field} must be an array of topic IDs, got ${JSON.stringify(displayValue(raw))}`,
+      message: `Topic ${topic.palee_id}: ${field} must be an array of topic IDs, got ${JSON.stringify(safeActual(raw))}`,
       file: topic.path,
       topicId: topic.palee_id,
       field,
-      details: { actual: displayValue(raw) },
+      details: { actual: safeActual(raw) },
     });
     return;
   }
@@ -104,11 +141,11 @@ function validateDependencyField(
       issues.push({
         ruleId: 'valid-dependency-list',
         severity: 'error',
-        message: `Topic ${topic.palee_id}: every ${field} entry must be a non-empty topic ID string, got ${JSON.stringify(displayValue(item))}`,
+        message: `Topic ${topic.palee_id}: every ${field} entry must be a non-empty topic ID string, got ${JSON.stringify(safeActual(item))}`,
         file: topic.path,
         topicId: topic.palee_id,
         field,
-        details: { actual: displayValue(item) },
+        details: { actual: safeActual(item) },
       });
     }
   }
@@ -162,7 +199,7 @@ function validateDependencyField(
 export const validDependencyListRule: ValidationRule = {
   id: 'valid-dependency-list',
   description:
-    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning',
+    'depends_on must be an array of non-empty string IDs without self-references or duplicates; a legacy dependencies alias emits a migration advisory warning; a depends_on_source outside numbered|toc|declared|tie is reported because it gates',
   severity: 'error',
   // `manual`, not `safe`: only the duplicate-entry findings are safely
   // dedupable; shape errors and self-references need a human decision
@@ -187,10 +224,32 @@ export const validDependencyListRule: ValidationRule = {
           file: topic.path,
           topicId: topic.palee_id,
           field: 'dependencies',
-          details: { actual: displayValue(rawLegacy) },
+          details: { actual: safeActual(rawLegacy) },
         });
 
         validateDependencyField(topic, 'dependencies', rawLegacy, issues);
+      }
+
+      // The provenance label qualifies these same edges, so it is checked here.
+      // An unrecognized value is not cosmetic: `normalizeDependsOnSource` fails
+      // closed to `undefined`, which means "learner-authored, so gate" — a typo
+      // like `toc-typo` therefore keeps the note gated forever while every report
+      // the CLI makes says the vault is valid.
+      const rawSource = topic.frontmatter.depends_on_source;
+      if (
+        rawSource !== undefined
+        && rawSource !== null
+        && normalizeDependsOnSource(rawSource) === undefined
+      ) {
+        issues.push({
+          ruleId: 'valid-dependency-list',
+          severity: 'error',
+          message: `Topic ${topic.palee_id}: depends_on_source must be one of numbered, toc, declared, tie, got ${JSON.stringify(safeActual(rawSource))} — an unrecognized label gates the note`,
+          file: topic.path,
+          topicId: topic.palee_id,
+          field: 'depends_on_source',
+          details: { actual: safeActual(rawSource) },
+        });
       }
     }
 

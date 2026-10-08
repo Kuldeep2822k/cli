@@ -75,11 +75,13 @@ Sources: [.github/workflows/release.yml#14-75](https://github.com/Kuldeep2822k/c
 
 ### 2. Idempotent NPM Publishing (`publish-npm`)
 
-The publishing job uses the `npm-release` environment and requires `id-token: write` for OIDC-based authentication [.github/workflows/release.yml#79-83](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L79-L83)
+Publishing waits on two jobs: `verify-and-pack`, which produces the artifact it uploads, and `test-platforms`, which runs the same operating-system and Node matrix CI runs [.github/workflows/release.yml#L89-L133](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L89-L133). The gate lives here rather than depending on CI's tag run because a GitHub Actions job cannot depend on another workflow's result — without it, a macOS or Windows failure could occur while the ubuntu-only release path published anyway. `test/ci-workflow-matrix.test.ts` asserts the two matrices stay identical, so the release cannot quietly gate a narrower claim than CI tests.
 
-To ensure the pipeline is idempotent (safe to re-run), it performs a pre-check using `npm view`. It queries the registry for the specific version being released; if the version already exists, the publish step is skipped to avoid "cannot modify existing version" errors [.github/workflows/release.yml#100-112](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L100-L112)
+The publishing job uses the `npm-release` environment and requires `id-token: write` for OIDC-based authentication [.github/workflows/release.yml#L131-L137](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L131-L137)
 
-Sources: [.github/workflows/release.yml#76-116](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L76-L116)
+To ensure the pipeline is idempotent (safe to re-run), it performs a pre-check using `npm view`. It queries the registry for the specific version being released; if the version already exists, the publish step is skipped to avoid "cannot modify existing version" errors [.github/workflows/release.yml#L158-L168](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L158-L168)
+
+Sources: [.github/workflows/release.yml#L131-L173](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L131-L173)
 
 ### 3. GitHub Release Creation (`github-release`)
 
