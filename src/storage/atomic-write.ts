@@ -3,18 +3,20 @@
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
- * 1. Acquires target file {@link Lock}.
- * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
- * 5. Atomically renames temporary file over the destination file.
- * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 1. Asserts the resolved destination lies inside the vault (#264).
+ * 2. Acquires target file {@link Lock}.
+ * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
+ * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 6. Atomically renames temporary file over the destination file.
+ * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  */
 
 import fs from 'fs';
 import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
+import { assertContainedInVault, isContainmentError } from './containment';
 import { NodeError } from '../types';
 
 const WINDOWS_RETRY_ATTEMPTS = 5;
@@ -77,20 +79,51 @@ export function isConflictError(e: unknown): boolean {
  * Atomically writes content to a target file within a vault with OCC verification and lock synchronization.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
- * @param targetPath - Absolute path of destination file
+ * @param targetPath - Path of the destination file. Absolute, as every in-repo
+ * caller passes it; a relative path is resolved against `vaultPath` — the same
+ * resolution the containment guard applies — and the resolved path is what gets
+ * written, so the guard can never certify a file other than the one written
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
  * @returns Promise that resolves once data is fsync-flushed and renamed
+ * @throws {NodeError} If the destination resolves outside the vault (`ECONTAINMENT`, a
+ * security refusal — never an `ECONFLICT`, because no retry makes an escaping path safe)
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
- * 1. Acquires target file {@link Lock}.
- * 2. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 3. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 4. Calls `fsyncSync` to flush data and metadata to physical storage.
- * 5. Atomically renames temporary file over the destination file.
- * 6. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 1. Asserts the resolved destination is still inside the vault (#264) and adopts that resolved path.
+ * 2. Acquires target file {@link Lock}.
+ * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
+ * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 6. Atomically renames temporary file over the destination file.
+ * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ *
+ * The containment assertion guards the destination rather than trusting the
+ * spelling: until #264 only the *final* path component was ever questioned, so a
+ * junction planted higher up — `vault\.palee\sessions` pointing outside the vault
+ * — redirected the whole write, and `.palee` is invisible to `walkVault` so
+ * `validate` never noticed. It belongs here, in the one primitive every vault
+ * write goes through, so the roadmap / adopt / migrate / review / session paths
+ * inherit it instead of each re-implementing it badly.
+ *
+ * It is the write path's last line, not its only one: the `.palee` tree is asserted
+ * where it is created (`getPaleeDir`/`getSessionsDir` in `src/storage/memory.ts`,
+ * `getLockDir` in `src/storage/lock.ts`), because a refusal raised only at the note
+ * would still have let `mkdirSync` make a directory outside the vault on the way
+ * there. Every site runs the same `assertContainedInVault` → `isWithinVault`
+ * predicate, so notes, directories and locks share one refusal surface —
+ * `ECONTAINMENT` and exit 3 — instead of three that can disagree.
+ *
+ * The assertion is re-run on every attempt immediately before the temp file is
+ * opened and the destination renamed. Between the first certification and the
+ * write sit the `await`s — `lock.acquire()` and its retry sleeps, then the OCC read
+ * — and a component of the certified path replaced with a link to outside the
+ * vault during that window still spells an in-vault destination to every string
+ * this function holds. Re-asserting narrows the exposure from the whole of that
+ * window to the syscall that follows it; the last gap is not closable from JS,
+ * because Node exposes no relative, no-follow open of an ancestor.
  *
  * @example
  * ```typescript
@@ -108,7 +141,29 @@ async function atomicWrite(
   newContent: string,
   expectedFingerprint: string | null = null
 ): Promise<void> {
-  const lock = new Lock(vaultPath, targetPath);
+  // Containment first, before anything is written — including before the `Lock`
+  // is constructed: `getLockDir` creates `.palee/locks` the moment it runs, so a
+  // refusal raised after acquisition would still have left lock metadata behind
+  // for a destination it had just rejected.
+  //
+  // The canonical path it returns is then used for *every* filesystem operation
+  // below (#264 residual). The guard resolves a relative destination against the
+  // vault root; `targetPath` passed verbatim to `fs` reaches the filesystem
+  // relative to the process cwd, so certifying one spelling and writing another
+  // could put bytes somewhere the guard never looked. Resolving once keeps the
+  // certified path and the written path identical by construction — which is also
+  // what makes the guard's own answer meaningful — and it leaves every absolute
+  // caller (all of them today) writing the same file it always wrote.
+  //
+  // "Resolved", not "reached": a destination whose *final* component is a link is
+  // written through the link, because the OCC read below follows it too. Renaming
+  // onto the spelled path instead would replace the link with a new regular file,
+  // splitting one note across two names — and the fingerprint the caller verified
+  // would belong to the file the write then ignored. A link that resolves *out* of
+  // the vault is refused here, with the link left intact.
+  const resolvedTarget = assertContainedInVault(vaultPath, targetPath);
+
+  const lock = new Lock(vaultPath, resolvedTarget);
 
   let lockAcquired = false;
   try {
@@ -117,19 +172,19 @@ async function atomicWrite(
 
     // OCC: Check fingerprint against disk state
     if (expectedFingerprint !== null) {
-      if (!fs.existsSync(targetPath)) {
-        const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist (was deleted or missing)`) as NodeError;
+      if (!fs.existsSync(resolvedTarget)) {
+        const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist (was deleted or missing)`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;
       }
 
       let currentContent: string;
       try {
-        currentContent = fs.readFileSync(targetPath, 'utf8');
+        currentContent = fs.readFileSync(resolvedTarget, 'utf8');
       } catch (e: unknown) {
         const readErr = e as NodeError;
         if (readErr.code === 'ENOENT') {
-          const conflictErr = new Error(`OCC conflict: ${targetPath} does not exist`) as NodeError;
+          const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist`) as NodeError;
           conflictErr.code = 'ECONFLICT';
           throw conflictErr;
         }
@@ -138,16 +193,43 @@ async function atomicWrite(
 
       const currentFingerprint = computeFingerprint(currentContent);
       if (currentFingerprint !== expectedFingerprint) {
-        const conflictErr = new Error(`OCC conflict: ${targetPath} was modified by another process`) as NodeError;
+        const conflictErr = new Error(`OCC conflict: ${resolvedTarget} was modified by another process`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;
       }
     }
 
-    const tempPath = `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+    const tempPath = `${resolvedTarget}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {
+        // The bound is re-asserted as the last step before the filesystem is
+        // touched, on every attempt. The certification above describes the vault as
+        // it was *then*; everything between that and this line is `await`s — the
+        // whole of `lock.acquire()`, its retry loop if the target is busy, then the
+        // OCC read. A component of `resolvedTarget` replaced with a link during that
+        // window still spells an in-vault destination, and `openSync`/`renameSync`
+        // happily follow it out. Re-checking here costs two `realpathSync` calls and
+        // replaces a window that spans a retry loop with one that spans a syscall:
+        // the gap before `openSync` is not closable from JS, because no
+        // `openat`-style relative, no-follow open is exposed (#264 review).
+        //
+        // The re-check also has to *bind*, not merely pass. A final-component
+        // symlink installed since the first certification resolves to a different
+        // in-vault note: the assertion accepts it, while `renameSync` on the path
+        // spelled above replaces the link itself — and the OCC read just performed
+        // followed that link. Read and write would then address two different
+        // files, which is the split the resolve-once design exists to prevent, so a
+        // destination that moved is a retryable conflict: the next call re-resolves,
+        // locks the path it now resolves to, and re-reads that file's fingerprint.
+        if (assertContainedInVault(vaultPath, resolvedTarget) !== resolvedTarget) {
+          const movedErr = new Error(
+            `OCC conflict: ${resolvedTarget} resolves elsewhere after the lock was taken`
+          ) as NodeError;
+          movedErr.code = 'ECONFLICT';
+          throw movedErr;
+        }
+
         let fd: number | null = null;
         try {
           fd = fs.openSync(tempPath, 'w');
@@ -159,7 +241,7 @@ async function atomicWrite(
           }
         }
 
-        fs.renameSync(tempPath, targetPath);
+        fs.renameSync(tempPath, resolvedTarget);
         break;
       } catch (e: unknown) {
         const err = e as NodeError;
@@ -186,5 +268,5 @@ async function atomicWrite(
   }
 }
 
-export { atomicWrite };
+export { atomicWrite, isContainmentError };
 

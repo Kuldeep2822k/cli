@@ -100,8 +100,10 @@ export function buildVaultNoteIndex(vaultPath: string): Map<string, string[]> {
 
 /**
  * Whether an absolute path stays inside the vault root, after both are
- * canonicalized. The single containment guard for the #73 code paths: wikilink
- * resolution and `palee roadmap`'s topic-path validation.
+ * canonicalized. The single containment guard for the code paths that resolve a
+ * path against the vault: wikilink resolution and `palee roadmap`'s topic-path
+ * validation (#73), and — via `src/storage/containment.ts` — the `atomicWrite`
+ * destination check and the lock tree (#264).
  *
  * @param resolvedVault - Canonical absolute vault root (`fs.realpathSync`ed)
  * @param absolutePath - Canonical absolute candidate path

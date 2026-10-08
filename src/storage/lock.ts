@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import { assertContainedInVault } from './containment';
 import { LockData, NodeError } from '../types';
 
 /**
@@ -134,7 +135,17 @@ function getLockDir(vaultPath: string, targetPath: string): string {
 
   const relativePath = path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/');
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
-  const locksDir = path.join(vaultPath, '.palee', 'locks');
+  // Anchored once, like `getPaleeDir`: with a relative `vaultPath` the joined
+  // string is relative, and the assertion below resolves a relative destination
+  // *against the vault* — it would certify `<vault>/<vault>/.palee/locks` while
+  // the `mkdirSync` created `<vault>/.palee/locks` through a planted link.
+  const locksDir = path.resolve(vaultPath, '.palee', 'locks');
+  // The lock tree hangs off the vault root, not off the destination, so the
+  // containment assertion in `atomicWrite` cannot speak for it: with `.palee`
+  // itself planted as a junction, an in-vault note would still file its
+  // `.lockdir` outside the vault (#264). Checked before the `mkdir`, so the
+  // refusal creates nothing rather than creating first and complaining after.
+  assertContainedInVault(vaultPath, locksDir);
   fs.mkdirSync(locksDir, { recursive: true });
   return path.join(locksDir, `${hash}.lockdir`);
 }

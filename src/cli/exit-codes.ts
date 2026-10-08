@@ -9,7 +9,7 @@
  * OCC/lock conflicts identically.
  */
 
-import { isConflictError } from '../storage';
+import { isConflictError, isContainmentError } from '../storage';
 
 /** Documented CLI exit codes */
 export const ExitCode = {
@@ -31,8 +31,18 @@ export const ExitCode = {
  * Maps an error caught by a command handler to the documented exit code.
  *
  * @param error - The caught error value
- * @returns `ExitCode.Conflict` when the error is an OCC/lock conflict, otherwise `ExitCode.Unexpected`
+ * @returns `ExitCode.Conflict` when the error is an OCC/lock conflict,
+ * `ExitCode.Validation` when it refuses a destination that escapes the vault,
+ * otherwise `ExitCode.Unexpected`
+ *
+ * @remarks
+ * A containment refusal is a vault integrity condition, not a crash and not a
+ * collision: a planted link that would move a note outside the vault is exactly
+ * what `ExitCode.Validation` (3) already reports for a roadmap topic path that
+ * escapes the vault, and unlike `ECONFLICT` no retry can make it safe.
  */
-export function exitCodeFor(error: unknown): 4 | 5 {
-  return isConflictError(error) ? ExitCode.Conflict : ExitCode.Unexpected;
+export function exitCodeFor(error: unknown): 3 | 4 | 5 {
+  if (isConflictError(error)) return ExitCode.Conflict;
+  if (isContainmentError(error)) return ExitCode.Validation;
+  return ExitCode.Unexpected;
 }

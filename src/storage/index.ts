@@ -6,7 +6,7 @@
  * - **Vault Traversal & Loading**: `walkVault`, `loadTopics`
  * - **YAML CST & Markdown Frontmatter**: `parseFrontmatter`, `updateFrontmatter`, `computeFingerprint`
  * - **Cross-Process File Locking**: `Lock`
- * - **Atomic OCC Writes**: `atomicWrite`, `isConflictError`
+ * - **Atomic OCC Writes**: `atomicWrite`, `isConflictError`, `isContainmentError`
  * - **Unsettled Horizon Cache**: `FileCache`, `UNSETTLED_HORIZON`
  * - **Session & Memory Persistence**: `writeSessionNote`, `updateHotMemory`, `regenerateIndex`, `rebuildHotAndIndex`, `recoverDraft`, etc.
  * - **Pattern & Roadmap Parsers**: `matchesPattern`, `matchesTags`, `parseRoadmapContent`
@@ -18,6 +18,7 @@ import { scanNotes } from './scanner';
 import type { ScanNotesOptions } from './scanner';
 import { Lock } from './lock';
 import { atomicWrite, isConflictError } from './atomic-write';
+import { isContainmentError } from './containment';
 import { FileCache, UNSETTLED_HORIZON } from './cache';
 import {
   generateSessionId,
@@ -98,6 +99,7 @@ export {
   // Atomic writes
   atomicWrite,
   isConflictError,
+  isContainmentError,
 
   // Caching
   FileCache,
