@@ -81,7 +81,13 @@ describe('a relative vault path keeps one reading of the .palee tree', () => {
 
   before(() => {
     savedCwd = process.cwd();
-    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-relative-vault-'));
+    // Realpath'd, because a relative `vaultPath` anchors on `process.cwd()`, and
+    // macOS reports the canonical `/private/var/...` after `chdir` while
+    // `os.tmpdir()` hands back the `/var/...` symlink. Comparing the two spellings
+    // would pin a difference that has nothing to do with what this file is about —
+    // the same reasoning `test/storage-palee-tree-containment.test.ts` gives for
+    // deriving its escaping targets from realpaths.
+    baseDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'palee-relative-vault-')));
     cwdDir = path.join(baseDir, 'cwd');
     fs.mkdirSync(cwdDir, { recursive: true });
     process.chdir(cwdDir);
