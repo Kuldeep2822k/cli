@@ -135,7 +135,17 @@ describe('a destination re-linked while the write waits is refused before the by
       installed = false;
     }
     if (!installed) {
-      await write;
+      // The write is already running and will reject: with no link installed, the
+      // destination never exists, so its OCC existence check fires first. Await
+      // that rejection as the conflict it is before skipping — a bare `await`
+      // throws out of the test, and `t.skip` does not end execution.
+      await assert.rejects(
+        () => write,
+        (err: unknown) => {
+          assert.strictEqual(isConflictError(err), true, 'the absent destination must conflict, not escape');
+          return true;
+        }
+      );
       t.skip('file symlink creation is not permitted on this platform');
       return;
     }
