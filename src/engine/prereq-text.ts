@@ -151,9 +151,17 @@ const DISJUNCTION_CUE = /\b(?:either|or)\b/i;
  * filter should fail in: a hedge the engine cannot see is indistinguishable
  * from a statement, and inventing a reverse edge to fix it is a bigger claim
  * than this module makes about any sentence.
+ *
+ * `for` reads both ways, so its arm is the one that has to look ahead.
+ * `[[m/01]] is required for this lesson` puts the link at the far end of a
+ * normal prerequisite — the current note depends on it — while
+ * `This note is a prerequisite for [[m/02]]` makes the link the dependent. Only
+ * the second is a reversal, so the first arm refuses to fire when the object
+ * after `for` names the current note, matching the marker the other arms
+ * already use.
  */
 const REVERSAL_CUE =
-  /\b(?:prerequisites?|requirements?|required|requiring)\s+for\b|\brequired\s+by\b|\b(?:requires?|needs?)\s+(?:this|these|the\s+current)\b|\bdepend\w*\s+(?:up)?on\s+(?:this|these|the\s+current)\b/i;
+  /\b(?:prerequisites?|requirements?|required|requiring)\s+for\b(?!\s+(?:this|these|the\s+current)\b)|\brequired\s+by\b|\b(?:requires?|needs?)\s+(?:this|these|the\s+current)\b|\bdepend\w*\s+(?:up)?on\s+(?:this|these|the\s+current)\b/i;
 
 /**
  * A link and its delimiters, as written: wikilink (with `!` embed), markdown

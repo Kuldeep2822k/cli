@@ -286,6 +286,24 @@ describe('prerequisite-section cues (#261)', () => {
     // Negation is checked before the others: a denied choice is still a denial.
     assert.strictEqual(declaredPrereqCue('does not require [[m/01-setup]] or [[m/02-alpha]]'), 'negation');
   });
+
+  test('`for` naming the current note is a prerequisite, not a reversal', () => {
+    // `for` points both ways. `This note is a prerequisite for [[m/02]]` makes
+    // the link the dependent, but `[[m/01]] is required for this lesson` is an
+    // ordinary prerequisite stated from the other end — and reading it as a
+    // reversal dropped a real gating edge, which is the commonest phrasing in a
+    // `## Prerequisites` section of that shape.
+    assert.strictEqual(declaredPrereqCue('[[m/01-setup]] is required for this lesson'), null);
+    assert.strictEqual(declaredPrereqCue('[[m/01-setup]] (prerequisite for this module)'), null);
+    assert.strictEqual(declaredPrereqCue('[[m/01-setup]] is a requirement for the current note'), null);
+    // The reversal the arm exists for still fires: the link is past `for`.
+    assert.strictEqual(declaredPrereqCue('This note is a prerequisite for [[m/02-alpha]]'), 'reversal');
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites('## Prerequisites\n\n- [[m/01-setup]] is required for this lesson\n')
+        .map((entry) => entry.name),
+      ['m/01-setup']
+    );
+  });
 });
 
 describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
