@@ -69,6 +69,12 @@ interface RelabelOutcome {
   failed: number;
   /** Notes left gated because their stored predecessor no longer resolves */
   unresolved: number;
+  /** Writes refused by a lock or an OCC conflict, each of which a re-run retries */
+  conflicted: number;
+  /** Notes deleted between the scan and the write, so there is nothing left to relabel */
+  vanished: number;
+  /** Paths {@link RelabelOutcome.vanished} names, so no later pass acts on a note that is gone */
+  vanishedPaths: string[];
   /** True when a write conflicted, or a note drifted while the pass held it */
   hadConflict: boolean;
 }
@@ -327,7 +333,10 @@ async function reportStoredTies(
   dryRun: boolean,
   includeUnlabeledTies: boolean
 ): Promise<RelabelOutcome> {
-  const none: RelabelOutcome = { relabelled: 0, stale: 0, failed: 0, unresolved: 0, hadConflict: false };
+  const none: RelabelOutcome = {
+    relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0,
+    vanishedPaths: [], hadConflict: false,
+  };
   const { ties, unresolved } = findStoredTies(scanned, includeUnlabeledTies);
   if (ties.length === 0 && unresolved.length === 0) return none;
   // Which population the user is looking at, so the report and the tip below both
@@ -388,10 +397,16 @@ async function reportStoredTies(
       }
       console.log();
     }
-    return none;
+    return { ...none, unresolved: unresolved.length };
   }
 
-  const outcome: RelabelOutcome = { ...none };
+  // Every return from here on carries the unresolved count it just printed: an
+  // audit report that named N notes and hands back 0 is the same number being
+  // wrong in two places, and a caller reading the outcome would conclude the
+  // vault had no dangling `numbered` edge at all.
+  const outcome: RelabelOutcome = {
+    ...none, unresolved: unresolved.length, vanishedPaths: [],
+  };
   for (const tie of ties) {
     try {
       const content = fs.readFileSync(tie.filePath, 'utf8');
@@ -411,13 +426,36 @@ async function reportStoredTies(
       await atomicWrite(vaultPath, tie.filePath, updated, tie.noteFingerprint);
       outcome.relabelled++;
     } catch (err: unknown) {
+      // A note deleted between the scan and this write is not a failed write, and
+      // it is not gated either — there is nothing left to gate. Counting it as one
+      // sent the caller off to repair a note that does not exist, under exit `5`.
+      // ENOENT from anywhere in this try is not proof the note is gone: the
+      // parent directory vanishing under `atomicWrite`, or a temp-file race in its
+      // rename, raises the same code while the note sits there untouched — and a
+      // note that exists still has its relabel to do. Classify as vanished only
+      // when the path really is absent now.
+      if ((err as { code?: string }).code === 'ENOENT' && !fs.existsSync(tie.filePath)) {
+        console.error(`  Skipped ${tie.filePath}: the note no longer exists.`);
+        outcome.vanished++;
+        outcome.vanishedPaths.push(tie.filePath);
+        continue;
+      }
       console.error(`  Failed to relabel ${tie.filePath}: ${(err as Error).message}`);
-      if (exitCodeFor(err) === ExitCode.Conflict) outcome.hadConflict = true;
-      else outcome.failed++;
+      if (exitCodeFor(err) === ExitCode.Conflict) {
+        // A lock or an OCC conflict is a "re-run to retry", not a write error:
+        // counted nowhere but the boolean, the summary below read "Relabelled 1
+        // of 2 notes" while a note had in fact been refused.
+        outcome.hadConflict = true;
+        outcome.conflicted++;
+      } else {
+        outcome.failed++;
+      }
     }
   }
   console.log(`✓ Relabelled ${outcome.relabelled} of ${ties.length} notes to \`depends_on_source: tie\`.`
     + (outcome.stale ? ` (${outcome.stale} skipped: changed while writing)` : '')
+    + (outcome.conflicted ? ` (${outcome.conflicted} locked: re-run to retry)` : '')
+    + (outcome.vanished ? ` (${outcome.vanished} no longer exist: nothing to relabel)` : '')
     + (outcome.failed ? ` (${outcome.failed} write error(s))` : ''));
   console.log();
   return outcome;
@@ -481,11 +519,19 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     console.log('Scanning vault for PALEE schema versions...');
     console.log();
 
+    // Both passes read the one pre-relabel scan, so a note the relabel pass proved
+    // is gone is still in `loaded`. Reading it here fails on a path that no longer
+    // exists and the schema pass files it under "Unrecognized schema" — a
+    // repair instruction for a note the vault already lost. The vanished set is
+    // dropped before this loop, not reported twice.
+    const gone = new Set(tieOutcome.vanishedPaths);
+    const scannable = gone.size === 0 ? loaded : loaded.filter((t) => !gone.has(t.filePath));
+
     let schemaV1 = 0;
     const missingSchema: string[] = [];
     const unrecognized: string[] = [];
 
-    for (const t of loaded) {
+    for (const t of scannable) {
       const schema = t.frontmatter.palee_schema;
 
       if (schema === 1) {
