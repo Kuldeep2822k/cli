@@ -118,6 +118,63 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
   }
 }
 
+/** The four assessment pillars `topic_mastery` is computed from (INV-21). */
+const PILLAR_KEYS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+
+/**
+ * The pillar scores a note already carries, with the ones it does not omit.
+ *
+ * @param frontmatter - Parsed frontmatter of the note about to be adopted
+ * @returns Only the pillar keys present in the note, each normalized to `[0.0, 1.0]`
+ *
+ * @remarks
+ * Adoption used to write `0` for every pillar the note lacked. That is minted
+ * assessment data — the same defect #191 removed from roadmap import — and it
+ * corrupts the note: `valid-topic-mastery` computes `0` from four real zeros and
+ * reports the preserved `topic_mastery` as drift, while `validate --fix` has no
+ * mastery repairer and answers "Nothing to repair". An absent pillar stays
+ * absent, which is the condition that rule skips on.
+ */
+function carriedPillarScores(frontmatter: Record<string, unknown> | null | undefined): Record<string, number> {
+  const scores: Record<string, number> = {};
+  for (const key of PILLAR_KEYS) {
+    const raw = frontmatter?.[key];
+    if (raw !== undefined && raw !== null) {
+      scores[key] = normalizeScore(raw);
+    }
+  }
+  return scores;
+}
+
+/**
+ * True when a note opens a frontmatter block and never closes it.
+ *
+ * @param content - The note's text
+ * @returns `true` for a leading `---` line with no closing delimiter anywhere
+ *
+ * @remarks
+ * `parseFrontmatter` reports this shape as "no frontmatter" and no error, because
+ * the same bytes can be an ordinary Markdown thematic break — and a *closed*
+ * block holding a scalar stays exactly that, adoptable. An unterminated opener
+ * is different: any `palee_id` written under it is invisible to the parser, so
+ * adopting the note would prepend a fresh block with a minted id and strand the
+ * learner's own in the body, which is the identity loss adoption exists to avoid.
+ * Both delimiters are matched exactly, as the parser matches them: its opener
+ * regex wants `---` at the start of the file and its closer wants `---` at the
+ * start of a line, so a padded `--- ` opener is no frontmatter at all (adoptable)
+ * while an indented ` ---` closes nothing (refused). A trim here would disagree
+ * with the parser in both directions, and the disagreeing direction is the one
+ * that strands an identity.
+ */
+function hasUnclosedFrontmatterOpener(content: string): boolean {
+  const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const lines = text.split(/\r?\n/);
+  if (lines[0] !== '---') {
+    return false;
+  }
+  return !lines.slice(1).includes('---');
+}
+
 /**
  * CLI command handler for adopting existing Markdown notes as PALEE topics.
  *
@@ -216,7 +273,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       Boolean(targetPath) &&
       fs.existsSync(path.resolve(vaultPath, targetPath!)) &&
       fs.statSync(path.resolve(vaultPath, targetPath!)).isFile() &&
-      targetPath!.endsWith('.md');
+      // Case-folded like the walker: `palee adopt "Setup.MD"` used to fall out of
+      // single-file mode into the batch branch, which then refused it for not
+      // being a directory.
+      targetPath!.toLowerCase().endsWith('.md');
 
     if (isExplicitSingleFile) {
       // Single-file adoption mode
@@ -235,7 +295,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       const content = fs.readFileSync(absolutePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
+      const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+
+      // Refuse to write over a note whose frontmatter cannot be read: both
+      // malformations can carry a `palee_id` the parser never reached, and
+      // `updateFrontmatter` would either throw mid-batch or prepend a minted id
+      // over the learner's own.
+      if (frontmatterError !== undefined) {
+        console.error(`Error: ${targetPath} has malformed frontmatter (${frontmatterError}); nothing was adopted.`);
+        process.exitCode = 2;
+        return;
+      }
+      if (hasUnclosedFrontmatterOpener(content)) {
+        console.error(`Error: ${targetPath} opens a frontmatter block but never closes it; nothing was adopted.`);
+        process.exitCode = 2;
+        return;
+      }
 
       if (frontmatter && frontmatter.palee_id) {
         console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
@@ -272,23 +347,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         precedence: 'existing-first',
       });
 
-      const conceptual = normalizeScore(frontmatter?.conceptual);
-      const practical = normalizeScore(frontmatter?.practical);
-      const debug = normalizeScore(frontmatter?.debug);
-      const feynman = normalizeScore(frontmatter?.feynman);
+      // `--difficulty` decides; without it the note's own value stands. Adoption
+      // once stamped every new topic `intermediate`, overwriting a hand-authored
+      // `beginner` and never reading back what the learner wrote.
+      const effectiveDifficulty =
+        options.difficulty === undefined ? normalizeDifficulty(frontmatter?.difficulty) : difficulty;
+      const pillars = carriedPillarScores(frontmatter);
 
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
         title,
-        difficulty,
+        difficulty: effectiveDifficulty,
         depends_on: dependsOn,
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
-        conceptual,
-        practical,
-        debug,
-        feynman,
+        ...pillars,
         ease_factor: 2.5,
         interval_days: 1,
         repetition: 0,
@@ -311,7 +385,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (options.dryRun) {
         console.log(`Dry run: would adopt ${targetPath} as a new topic`);
         console.log(`  Title: ${title}`);
-        console.log(`  Difficulty: ${difficulty}`);
+        console.log(`  Difficulty: ${effectiveDifficulty}`);
         if (dependsOn.length > 0) {
           console.log(`  Dependencies: ${dependsOn.join(', ')}`);
         }
@@ -327,7 +401,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.log(`✓ Adopted as topic ${topicId}`);
       console.log(`  Title: ${title}`);
       console.log(`  Path: ${targetPath}`);
-      console.log(`  Difficulty: ${difficulty}`);
+      console.log(`  Difficulty: ${effectiveDifficulty}`);
       if (dependsOn.length > 0) {
         console.log(`  Dependencies: ${dependsOn.join(', ')}`);
       }
@@ -390,6 +464,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
     /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
     const skippedInvalidId: string[] = [];
+    /** Notes whose frontmatter block will not parse, and why: neither adopted nor rewritten */
+    const skippedUnreadable = new Map<string, string>();
     /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
     const adoptedPaleeId = new Map<string, unknown>();
     /**
@@ -413,7 +489,28 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     for (const filePath of allFiles) {
       const relPath = relativeVaultPath(vaultPath, filePath);
       const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter } = parseFrontmatter(content);
+      const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+
+      // A note whose frontmatter will not parse may still declare a `palee_id`
+      // the parser never reached, so adopting it would mint an identity over the
+      // learner's own and orphan every edge that named it. Such a note is
+      // unwritable anyway — `updateFrontmatter` throws on it — and that throw
+      // used to abort the whole batch with no filename in the message. INV-11
+      // keeps a malformed note out of the scan's conclusions instead: name it,
+      // skip it, adopt the rest.
+      if (frontmatterError !== undefined) {
+        skippedUnreadable.set(relPath, frontmatterError);
+        continue;
+      }
+
+      // The other way to hide a declared id from the parser: an opener with no
+      // closing fence yields no frontmatter and no error, so the note entered the
+      // batch and the commit prepended a fresh block with a minted id, stranding
+      // the learner's own in the body.
+      if (hasUnclosedFrontmatterOpener(content)) {
+        skippedUnreadable.set(relPath, 'the frontmatter block is never closed');
+        continue;
+      }
 
       // Check if already adopted
       if (frontmatter && frontmatter.palee_id) {
@@ -890,7 +987,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     if (options.tag) {
       console.log(`Excluded (Tag):     ${skippedByTag.length} notes`);
     }
-    console.log(`Difficulty:       ${difficulty}`);
+    if (skippedUnreadable.size > 0) {
+      console.log(
+        `Unreadable:         ${skippedUnreadable.size} notes (frontmatter will not parse; not adopted, not rewritten)`
+      );
+    }
+    // Without `--difficulty` each note keeps the difficulty its own frontmatter
+    // declares, so one number here would over-claim the run.
+    console.log(
+      options.difficulty === undefined
+        ? 'Difficulty:         per note (its own value, default intermediate)'
+        : `Difficulty:         ${difficulty}`
+    );
+    // INV-11 makes a malformed note a warning, not a stopped scan — and a count
+    // alone is not a warning the learner can act on. Each skipped note is named
+    // with the YAML that rejected it.
+    for (const [relPath, reason] of skippedUnreadable) {
+      console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
+    }
     if (options.autoChain) {
       if (chainRefused) {
         // C4 honest refusal: nothing in scope was chainable under this tier —
@@ -1012,6 +1126,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log('\nSkipped by tag filter:');
         skippedByTag.forEach((f) => console.log(`  ~ ${f}`));
       }
+      if (skippedUnreadable.size > 0) {
+        console.log('\nSkipped: frontmatter will not parse (not adopted, not rewritten):');
+        for (const relPath of skippedUnreadable.keys()) {
+          console.log(`  ? ${relPath}`);
+        }
+      }
       if (options.autoChain) {
         for (const [reason, list] of skippedByHygiene) {
           console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
@@ -1107,10 +1227,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         precedence: 'existing-first',
       });
 
-      const conceptual = normalizeScore(frontmatter?.conceptual);
-      const practical = normalizeScore(frontmatter?.practical);
-      const debug = normalizeScore(frontmatter?.debug);
-      const feynman = normalizeScore(frontmatter?.feynman);
+      // Same rule as single-file adoption: `--difficulty` overrides, absence
+      // preserves what the note's own frontmatter declares.
+      const effectiveDifficulty =
+        options.difficulty === undefined ? normalizeDifficulty(frontmatter?.difficulty) : difficulty;
 
       // #258 — `depends_on` a note already states is not adoption's to clear. The
       // planned edge wins when the chain authored one for this note; otherwise the
@@ -1127,14 +1247,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         palee_id: topicId,
         palee_schema: 1,
         title,
-        difficulty,
+        difficulty: effectiveDifficulty,
         depends_on: plannedDeps,
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
-        conceptual,
-        practical,
-        debug,
-        feynman,
+        ...carriedPillarScores(frontmatter),
         ease_factor: 2.5,
         interval_days: 1,
         repetition: 0,

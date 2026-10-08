@@ -12,7 +12,7 @@ import {
   type WikilinkRoadmapSection,
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
-import { relativeVaultPath } from '../src/storage/vault-walker';
+import { relativeVaultPath, foldNoteKey } from '../src/storage/vault-walker';
 
 /** Parses a wikilink string, asserting it is well-formed, and returns it. */
 function link(text: string) {
@@ -432,6 +432,72 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         fs.rmSync(blocker, { force: true });
       }
     });
+
+    // APFS stores an accented filename decomposed (`cafe` + U+0301) while a link
+    // typed for it arrives composed. `toLowerCase()` alone leaves those two
+    // unequal, so the note resolved to nothing at all: an accented subtree
+    // chained to no predecessor, in a vault whose notes the file browser opens
+    // side by side.
+    it('resolves a composed link to a note stored with a decomposed name', () => {
+      // Built from code points so the two spellings are fixed by the source, not by
+      // however this file happens to be encoded: `cafe\u0301` is `e` plus a
+      // combining acute (NFD), `caf\u00e9` is the precomposed character (NFC).
+      const NFD_ACUTE = String.fromCharCode(0x0301); // combining acute: NFD spells `e` + this
+      const NFC_ACUTE = String.fromCharCode(0x00e9); // precomposed `é`: what a keyboard produces
+      const note = path.join(vaultPath, 'cafe' + NFD_ACUTE + '.md');
+      fs.writeFileSync(note, '# Cafe\n');
+      try {
+        const index = buildVaultNoteIndex(vaultPath);
+        const resolved = resolveWikilinkTarget(
+          vaultPath,
+          link('[[' + 'caf' + NFC_ACUTE + ']]'),
+          index
+        );
+        assert.strictEqual(
+          fs.realpathSync(resolved.absolutePath),
+          fs.realpathSync(note),
+          'the two spellings have to meet at one note'
+        );
+      } finally {
+        fs.rmSync(note, { force: true });
+      }
+    });
+
+    // The test above only bites on a normalization-insensitive volume, so on
+    // Linux and Windows the fold inside `withWalkedCasing` is never exercised:
+    // the exact-match branch is skipped and the basename fallback returns the
+    // walked path directly. This fixture forces the same divergence wherever it
+    // runs — the resolved path arrives composed, the walker's index holds the
+    // decomposed spelling — so a compare that folds case alone fails here too.
+    it('returns the walked spelling when only its normalization differs', () => {
+      const NFD_ACUTE = String.fromCharCode(0x0301);
+      const NFC_ACUTE = String.fromCharCode(0x00e9);
+      // Joined onto the realpath'd root rather than realpath'd per file: the
+      // two spellings have to stay two distinct strings, and the resolver does
+      // the same thing internally.
+      const root = fs.realpathSync(vaultPath);
+      const decomposed = path.join(root, 'cafe' + NFD_ACUTE + '.md');
+      const composed = path.join(root, 'caf' + NFC_ACUTE + '.md');
+      fs.writeFileSync(decomposed, '# Cafe\n');
+      fs.writeFileSync(composed, '# Cafe\n');
+      try {
+        assert.notStrictEqual(decomposed, composed, 'fixture needs two distinct spellings');
+        const index = new Map([[foldNoteKey('cafe' + NFD_ACUTE), [decomposed]]]);
+        const resolved = resolveWikilinkTarget(
+          vaultPath,
+          link('[[' + 'caf' + NFC_ACUTE + ']]'),
+          index
+        );
+        assert.strictEqual(
+          resolved.absolutePath,
+          decomposed,
+          'the caller keys notes by the walked string, so the typed spelling is a second identity for one note'
+        );
+      } finally {
+        fs.rmSync(decomposed, { force: true });
+        fs.rmSync(composed, { force: true });
+      }
+    });
   });
 
   describe('resolveWikilinkRoadmap', () => {
@@ -472,6 +538,118 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       assert.strictEqual(roadmap.topics[0].id, 'T-existing-1');
       assert.strictEqual(roadmap.topics[0].title, 'Adopted Note');
       fs.rmSync(adopted);
+    });
+
+    // The walker matched `.md` case-sensitively while `isResolvableNotePath`
+    // folded case, so `Setup.MD` was a note no scan listed yet a target the
+    // resolver accepted: the adoption minted an id for a path `loadTopics` could
+    // not see, and the note kept two identities from then on.
+    it('reuses the declared id of a note whose extension is not lowercase', () => {
+      const upper = path.join(vaultPath, 'Upper Case.MD');
+      fs.writeFileSync(
+        upper,
+        '---\npalee_id: T-upper-1\npalee_schema: 1\ntitle: Upper\ndepends_on: []\n---\n# Upper\n'
+      );
+      try {
+        const roadmap = resolveWikilinkRoadmap(vaultPath, [
+          { track: '', links: [link('[[upper case]]')] },
+        ]);
+        assert.strictEqual(roadmap.topics[0].id, 'T-upper-1', 'the note keeps the id it carries');
+        assert.strictEqual(roadmap.topics[0].path, 'Upper Case.MD');
+      } finally {
+        fs.rmSync(upper, { force: true });
+      }
+    });
+
+    // `loadTopics` requires a string `palee_id` on purpose (B7), so a note whose
+    // id YAML read as a number — or whose frontmatter will not parse at all — is
+    // absent from the adopted lookup while still declaring an identity on disk.
+    // Minting there handed back a fresh `T-…` for the learner's own note: the
+    // adoption silently renamed the topic and orphaned every edge that named it.
+    // Resolution stays fail-closed instead (INV-48).
+    it('refuses to mint an id over a note whose palee_id is not a string', () => {
+      const numeric = path.join(vaultPath, 'numeric-id.md');
+      fs.writeFileSync(
+        numeric,
+        '---\npalee_id: 20240115\npalee_schema: 1\ntitle: Numeric\ndepends_on: []\n---\n# Numeric\n'
+      );
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[numeric-id]]')] },
+            ]),
+          /numeric-id\.md declares a palee_id that is not a usable topic ID \(20240115\)/
+        );
+      } finally {
+        fs.rmSync(numeric, { force: true });
+      }
+    });
+
+    it('refuses to mint an id over a note whose frontmatter will not parse', () => {
+      const broken = path.join(vaultPath, 'broken-id.md');
+      fs.writeFileSync(
+        broken,
+        '---\npalee_id: T-broken\ndepends_on: [unclosed\ntitle: Broken\n---\n# Broken\n'
+      );
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[broken-id]]')] },
+            ]),
+          /broken-id\.md has malformed frontmatter/
+        );
+      } finally {
+        fs.rmSync(broken, { force: true });
+      }
+    });
+
+    it('names the roadmap target whose bytes cannot be opened', (t) => {
+      // This was the one unguarded `readFileSync` in the function: an EACCES
+      // escaped as the OS error alone, so the command died without naming which
+      // roadmap target it could not read.
+      const note = path.join(vaultPath, 'unreadable.md');
+      fs.writeFileSync(note, '# Unreadable\n');
+      try {
+        fs.chmodSync(note, 0o000);
+        try {
+          fs.readFileSync(note, 'utf8');
+          t.skip('this platform and user can read a 0o000 file, so no EACCES is reachable');
+          return;
+        } catch {
+          // The read is genuinely blocked; the wrapper's message is what follows.
+        }
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[unreadable]]')] },
+            ]),
+          /Cannot read roadmap target unreadable\.md/
+        );
+      } finally {
+        fs.chmodSync(note, 0o644);
+        fs.rmSync(note, { force: true });
+      }
+    });
+
+    it('refuses to mint an id over a note whose palee_id is an empty list', () => {
+      // `String([])` is the empty string, so a value-check written as
+      // `String(declared).trim() === ''` read this as "no id declared" and minted
+      // one — the same silent rename the branch above exists to refuse.
+      const listy = path.join(vaultPath, 'list-id.md');
+      fs.writeFileSync(listy, '---\npalee_id: []\npalee_schema: 1\ntitle: List\n---\n# List\n');
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[list-id]]')] },
+            ]),
+          /list-id\.md declares a palee_id that is not a usable topic ID \(\[\]\)/
+        );
+      } finally {
+        fs.rmSync(listy, { force: true });
+      }
     });
 
     // `fs.realpathSync` performs no case conversion on a case-insensitive

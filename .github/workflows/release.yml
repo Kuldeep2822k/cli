@@ -79,9 +79,58 @@ jobs:
           path: ${{ steps.pack.outputs.filename }}
           if-no-files-found: error
 
+  # A tag is published only after the code it ships has run on every platform it
+  # supports. `verify-and-pack` is ubuntu-only, so a macOS or Windows failure —
+  # heap limit, case-fold, symlink suites are the ones that actually broke —
+  # could not block publication: CI's own tag run is a separate workflow, and a
+  # workflow cannot depend on another one's result. The gate therefore has to live
+  # in this file. The matrix is duplicated from `ci.yml` deliberately, and
+  # `test/ci-workflow-matrix.test.ts` fails if the two ever differ.
+  test-platforms:
+    name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+          - os: ubuntu-latest
+            node-version: 24.x
+          - os: ubuntu-latest
+            node-version: 26.x
+          - os: windows-latest
+            node-version: 22.x
+          - os: windows-latest
+            node-version: 24.x
+          - os: macos-latest
+            node-version: 22.x
+          - os: macos-latest
+            node-version: 24.x
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run unit & invariant test suite
+        run: npm run test:coverage
+
   publish-npm:
     name: Publish Tarball to NPM Registry
-    needs: verify-and-pack
+    needs: [verify-and-pack, test-platforms]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm-release

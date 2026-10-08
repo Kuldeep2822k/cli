@@ -24,7 +24,7 @@ Topic management commands handle the ingestion, configuration, and structural li
 
 ## 1. Topic Adoption (`palee adopt`)
 
-The `palee adopt` command inspects Markdown notes, resolves display titles, and injects required PALEE tracking frontmatter (`palee_id`, `palee_schema`, `difficulty`, `depends_on`, and initial SM-2 defaults). Adoption is strictly non-destructive: all existing note bodies, Obsidian tags, and custom YAML frontmatter properties are preserved.
+The `palee adopt` command inspects Markdown notes, resolves display titles, and injects required PALEE tracking frontmatter (`palee_id`, `palee_schema`, `difficulty`, `depends_on`, and initial SM-2 defaults). Adoption is strictly non-destructive: all existing note bodies, Obsidian tags, and custom YAML frontmatter properties are preserved. A `difficulty` the note already declares is kept, and is overridden only by `--difficulty`. An assessment pillar the note does not carry is left out of the frontmatter rather than written as `0`: a note adopted with `topic_mastery: 0.68` and no pillars stays consistent, instead of reporting mastery drift that `validate --fix` has no repairer for. In batch mode, a note whose frontmatter will not parse is named on stderr and skipped — the rest of the batch adopts (INV-11).
 
 ### Adoption Modes
 
@@ -61,7 +61,7 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | :--- | :--- | :--- | :--- | :--- |
 | `[path]` | `string` | `undefined` | Path to a single `.md` file or directory relative to the vault root. | `palee adopt "DSA/Trees.md"` |
 | `--all` | `boolean` | `false` | Scan and adopt all untracked Markdown files across the entire vault. | `palee adopt --all` |
-| `--difficulty <level>` | `string` | `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1-2` $\to$ beginner, `3` $\to$ intermediate, `4-5` $\to$ advanced). | `--difficulty advanced` |
+| `--difficulty <level>` | `string` | the note's own `difficulty`, else `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1` $\to$ beginner, `2-3` $\to$ intermediate, `4-5` $\to$ advanced). Absent, a hand-authored `difficulty` on the note is preserved. | `--difficulty advanced` |
 | `--depends-on <ids>` | `string` | `""` | Comma-separated list of prerequisite topic IDs (available in single-file mode only). | `--depends-on "T-01-basics,T-02-memory"` |
 | `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. | `--include "0[1-4]-*,lab-*,deep-dive*"` |
 | `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. | `--exclude "*template*,*rubric*,*draft*"` |
@@ -238,7 +238,7 @@ palee_roadmap: true
 
 The `palee_roadmap: true` marker is required (INV-48) and must be the YAML boolean, not the string `'true'`. Any other `.md` passed to `--from` — including an ordinary note with a heading and `[[links]]` — is rejected with exit `2` and zero writes, so pointing the command at a regular note can never rewrite `depends_on` across the notes it links to. Deeper heading levels are excluded for the same reason: every `##` section head is written with `depends_on: []`, which clears the prerequisites a note already has.
 
-Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, then unique case-insensitive basenames (exact-case wins ties); ambiguous links error listing every candidate, unresolvable links error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected. Already-adopted notes keep their `palee_id` and SM-2 state; unadopted notes get minted IDs. The wikilink chain replaces hand-written `depends_on` on adopted notes.
+Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, then unique basenames folded for case and Unicode (exact-case wins ties; `café` composed matches a note stored decomposed); ambiguous links error listing every candidate, unresolvable links error, `#heading`/`#^block` anchors are stripped, and a note listed twice is rejected. Already-adopted notes keep their `palee_id` and SM-2 state; unadopted notes get minted IDs. A link whose target declares a `palee_id` the loader cannot use (a numeric id), or whose frontmatter will not parse, is an error naming that note rather than a minted ID: the identity the learner wrote is never replaced by an invented one. The wikilink chain replaces hand-written `depends_on` on adopted notes.
 
 `--auto-chain` does not apply to this format (INV-47): each `##` section arrives already chained from its list order, so re-chaining the resolved topics would fuse independent tracks into a single chain.
 
@@ -262,9 +262,10 @@ Before performing file creation or modification, `roadmapCommand` executes a com
 
 1. **Schema Structure**: Confirms the roadmap contains a valid `topics` list with non-empty `id`, `title`, and `path` fields.
 2. **Duplicate Detection**: Verifies there are no duplicate `id` values or duplicate target `path` locations.
-3. **Vault Boundary & Symlink Checks**: Ensures all target topic paths reside within the vault boundary and do not escape via symlinked parent directories.
-4. **Dependency Resolution**: Checks that every prerequisite ID in `depends_on` exists either in the roadmap or within existing vault notes.
-5. **3-Color DFS Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
+3. **Vault Boundary & Path Visibility**: Ensures all target topic paths reside within the vault boundary and do not escape via symlinked parent directories, and that each declared path is a note the rest of the CLI can see. A path with a dot-named segment, or one with no name before its extension, is rejected here: `path: .md` makes `path.extname('.md')` empty, so the writer creates a directory named `.md`, drops a note inside it, reports "Created: 1 notes" and exits `0` — while `walkVault` never lists anything under a dot-named segment, so no other command ever loads the note it promised to create.
+4. **Identity Preservation**: A topic entry may not name a different `palee_id` for a note the vault already adopted. Writing a new id over that path retires the id every existing edge names, and a dependent note whose prerequisite resolves to nothing stays out of `palee plan` for good while `palee validate` counts a missing dependency only as a warning and exits `0`. Such an entry is rejected here with both ids and the note path named, and nothing is written; re-importing a roadmap under the ids its notes already carry is unaffected.
+5. **Dependency Resolution**: Checks that every prerequisite ID in `depends_on` exists either in the roadmap or within existing vault notes.
+6. **3-Color DFS Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
 
 ### Idempotent Updates, Safe Directory Management & Batch Resilience
 
@@ -351,7 +352,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
-| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
+| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
 
 ---
