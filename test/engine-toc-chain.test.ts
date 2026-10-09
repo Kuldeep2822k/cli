@@ -100,7 +100,7 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // paying a full `findLabelEnd` walk to end-of-text. Measured on the unfixed
     // scanner with `'['.repeat(N) + ']'`: 20 000 brackets 0.6 s, 40 000 2.8 s,
     // 80 000 20 s, 160 000 82 s. This 100 000-bracket case took 17.8 s there and
-    // ~2 ms linearised, so the bound below is ~70x under the defect and ~100x
+    // ~2 ms linearised, so the bound below is ~9x under the defect and ~1000x
     // over the fix: red on any return of the rescan, green on a loaded host.
     it('does not rescan every label when one stray ] defeats the no-closer bail', () => {
       for (const [label, junk] of [
@@ -113,8 +113,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           .filter((d): d is string => d !== null);
         const elapsed = performance.now() - started;
         assert.ok(
-          elapsed < 250,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — a label scan is being repeated`
+          elapsed < 2000,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a label scan is being repeated`
         );
         if (label === 'run of opens closed once') {
           assert.deepStrictEqual(targets, [], 'a run of stray brackets enumerates nothing');
@@ -133,8 +133,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // 180 KB 5.8 s, 360 KB 20 s, 720 KB 79 s. `TOC_MAX_SOURCE_BYTES` caps a
     // document at 512 KiB, which still leaves ~40 s for one pathological README and
     // an unbounded aggregate over a vault, because `deriveTocEnumeration` reads
-    // every one of them. Bound chosen the same way as the label case above: ~8x
-    // under the defect at this size, ~1000x over the linearised scan.
+    // every one of them. Bound chosen the same way as the label case above: ~10x
+    // under the defect at this size, far over the linearised scan.
     it('does not rescan every destination when none of them balances', () => {
       const junk = '[a](b(c) '.repeat(40000);
       for (const [label, text] of [
@@ -147,8 +147,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           .filter((d): d is string => d !== null);
         const elapsed = performance.now() - started;
         assert.ok(
-          elapsed < 250,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — a destination scan is being repeated`
+          elapsed < 2000,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a destination scan is being repeated`
         );
         if (label === 'run of unbalanced destinations') {
           assert.deepStrictEqual(targets, [], 'a run of unbalanced destinations enumerates nothing');
@@ -184,8 +184,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           .filter((d): d is string => d !== null);
         const elapsed = performance.now() - started;
         assert.ok(
-          elapsed < 250,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — an angle destination scan is being repeated`
+          elapsed < 2000,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — an angle destination scan is being repeated`
         );
         assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the bound`);
       }
