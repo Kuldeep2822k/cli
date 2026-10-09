@@ -44,11 +44,15 @@ palee config set-vault ~/Documents/Obsidian/Learning
 
 ### Configure Free AI (Optional)
 ```bash
-palee config set-provider
-# base_url: https://opencode.ai/zen/v1
-# api_key: YOUR_FREE_TIER_KEY
-# model: nemotron-3-ultra-free
+palee config set-provider opencode
+palee config set-base-url https://opencode.ai/zen/v1
+printf '%s' "$OPENCODE_API_KEY" | palee config set-api-key
+palee config set-model nemotron-3-ultra-free
 ```
+
+`set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
+argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
+is stored in the config file, which is written `0600`.
 
 ### Start Learning
 ```bash
@@ -130,17 +134,26 @@ palee progress
 | `palee dashboard` | Show system status |
 | `palee validate` | Check data integrity |
 | `palee config set-vault <path>` | Set the Obsidian vault path |
-| `palee config set-provider` | Configure AI provider (base_url, api_key, model) |
-| `palee config show` | Display current config — vault path, provider endpoint, model; never prints api_key |
+| `palee config set-provider <name>` | Name the AI provider |
+| `palee config set-base-url <url>` | Set the OpenAI-compatible endpoint (`http` / `https` only) |
+| `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
+| `palee config unset-api-key` | Remove the stored key |
+| `palee config set-model <model>` | Set the model identifier |
+| `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
 
 ## Configuration
 
 ### Provider Setup
 ```bash
-palee config set-provider
+palee config set-provider opencode
+palee config set-base-url https://opencode.ai/zen/v1
+palee config set-api-key --from-env OPENCODE_API_KEY
 # Supports any OpenAI-compatible endpoint
 # Recommended free option: OpenCode Zen
 ```
+
+The key is kept in the config file, stored as plaintext at rest under a `0600` mode on POSIX, and no
+command prints it. `palee roadmap` and every offline command work without any of this.
 
 ### Vault Connection
 ```bash

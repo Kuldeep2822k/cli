@@ -44,16 +44,20 @@ palee config set-vault ~/Documents/Obsidian/Learning
 While PALEE's core engine is deterministic, advanced features like Feynman testing require an OpenAI-compatible API endpoint [README.md#27-33](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L27-L33)
 
 ```
-palee config set-provider "https://opencode.ai/zen/v1"
+palee config set-provider opencode
+palee config set-base-url "https://opencode.ai/zen/v1"
+palee config set-api-key --from-env OPENCODE_API_KEY
 palee config set-model "nemotron-3-ultra-free"
-# API Key is prompted or set via environment variables
 ```
+
+`set-api-key` reads the key from `--from-env`, from a pipe, or from an interactive prompt; passing it as an
+argument is refused so the secret never enters `argv`. `palee config unset-api-key` removes it again.
 
 ### 3. Verifying Configuration
 
-Use `palee config show` to view the active configuration. For security, the `api_key` is never printed to the console [src/cli/config.ts#54-61](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L54-L61)
+Use `palee config show` to view the active configuration. For security, the `api_key` is never printed to the console — it shows as `••••••••` [src/cli/config.ts#L216](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L216)
 
-Sources:[src/cli/config.ts#52-121](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L52-L121)[README.md#22-33](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L22-L33)[planning/palee_cli_spec.md#77-79](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L77-L79)
+Sources:[src/cli/config.ts#L58-L142](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L58-L142)[README.md#22-33](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L22-L33)[planning/palee_cli_spec.md#77-79](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L77-L79)
 
 ---
 
