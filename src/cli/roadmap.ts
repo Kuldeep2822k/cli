@@ -588,6 +588,107 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     console.log();
 
     /**
+     * Inspects the note one topic would write over, without creating anything.
+     *
+     * @param targetPath - The topic's path resolved against the vault
+     * @returns The target's `lstat` (`null` when it does not exist yet) and the
+     * reason it cannot be used, if there is one
+     *
+     * @remarks
+     * One implementation for two callers, so the verdict the import refuses on
+     * before writing anything is the verdict it would have skipped on mid-batch:
+     * {@link preflightReadableNotes} and the write loop both ask this. The
+     * existence test is `lstat` for the reason #264 established — `existsSync`
+     * follows a link and reports `false` for a dangling one, which would let the
+     * writer replace the link unseen — and a symlink whose target is inside the
+     * vault stays legal here because the boundary check below is what decides it.
+     */
+    function inspectExistingNote(targetPath: string): { stat: fs.Stats | null; blocker: string | null } {
+      let stat: fs.Stats;
+      try {
+        stat = fs.lstatSync(targetPath);
+      } catch (e: unknown) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') return { stat: null, blocker: null };
+        return { stat: null, blocker: `could not be inspected: ${(e as Error).message}` };
+      }
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        return { stat, blocker: 'is not a regular file' };
+      }
+      const relRealTarget = path.relative(resolvedVault, fs.realpathSync(targetPath));
+      if (
+        path.isAbsolute(relRealTarget) ||
+        relRealTarget === '..' ||
+        relRealTarget.startsWith('..' + path.sep) ||
+        relRealTarget.split(path.sep).includes('..')
+      ) {
+        return { stat, blocker: 'resolves outside the vault' };
+      }
+      return { stat, blocker: null };
+    }
+
+    /**
+     * Refuses the import only when a note this command cannot read changes the graph
+     * the validator just cleared (#267).
+     *
+     * @returns `true` when the pre-write verdict still describes the graph that would
+     * land; `false` when it does not and nothing has been written
+     *
+     * @remarks
+     * A topic whose existing note cannot be read is skipped by the write loop, and a
+     * skipped note keeps whatever `depends_on` it already carries — not the list the
+     * roadmap declared for it, and not what the validator ran with. One stored
+     * backward hop closes a loop the check never saw: the import writes, exits `1`,
+     * and leaves the vault in exactly the state INV-46 says means exit `3` and no
+     * writes.
+     *
+     * So the declared graph is rebuilt with each unreadable topic contributing the
+     * edges its note *holds* rather than the edges the roadmap meant for it, and
+     * checked again. A cycle appearing only under that reading is the case refused
+     * here, with the ids named, because "this note could not be read" is the reason
+     * the plan changed. When nothing closes, the import proceeds as it always has: the
+     * skip costs its own topic and the edge-integrity report still names whatever
+     * dangles. Refusing every unreadable note would have been the simpler rule and the
+     * worse one — it throws away a partial import the user can act on.
+     */
+    function planSurvivesSkippedNotes(): boolean {
+      const blockedIds = new Set<string>();
+      for (const topic of roadmap.topics) {
+        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
+        // An escaping path is reported per topic by the loop, and validation has
+        // already refused the file for it.
+        if (!isWithinVault(resolvedVault, absolutePath)) continue;
+        if (inspectExistingNote(absolutePath).blocker !== null) blockedIds.add(topic.id);
+      }
+      if (blockedIds.size === 0) return true;
+
+      const effectiveIfSkipped = new Map(topicsMap);
+      for (const id of blockedIds) {
+        const stored = existingTopicsById.get(id);
+        effectiveIfSkipped.set(id, {
+          palee_id: id,
+          depends_on: stored ? stored.depends_on : [],
+          topic_mastery: 0,
+        });
+      }
+      const { cycles } = detectCyclesBounded(effectiveIfSkipped);
+      if (cycles.length === 0) return true;
+
+      console.error(
+        'Error: refusing to import — the roadmap validates only if these notes are rewritten, and they cannot be read:'
+      );
+      for (const id of blockedIds) console.error(`  • ${id}`);
+      for (const cycle of cycles.slice(0, 5)) {
+        console.error(`  Cycle the skipped notes would leave behind: ${cycle.join(' → ')}`);
+      }
+      console.error(
+        'Nothing was written. A note skipped mid-import keeps the `depends_on` it already carries.'
+      );
+      process.exitCode = ExitCode.Validation;
+      return false;
+    }
+
+    /**
      * Executes batch import of parsed roadmap topics into vault notes with error isolation and OCC tracking.
      *
      * @returns Promise resolving when all topics have been processed
@@ -602,6 +703,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
      * ```
      */
     async function doImport(): Promise<void> {
+      // #267: a note this command cannot read keeps the edges it already carries, so
+      // the declared graph has to still be acyclic with those edges in it before any
+      // of this batch writes.
+      if (!planSurvivesSkippedNotes()) return;
+
       let created = 0;
       let updated = 0;
       let failed = 0;
@@ -651,50 +757,15 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           let isNew = false;
           let existingData: Record<string, unknown> = {};
 
-          // A symlinked target is never a note, whether or not it resolves.
-          // Reading through one pulls the outside file's body into the import as
-          // if it were the existing note, and the atomic write below then
-          // replaces the link itself, so content from outside the vault lands
-          // inside it and the link is destroyed. The existence test has to be
-          // `lstat`: `existsSync` follows the link and reports false for a
-          // dangling symlink, which would let the writer replace the link
-          // unseen. A topic path can arrive as a symlink because
-          // `palee roadmap --from` is routinely pointed at cloned repos.
-          //
-          // The read that follows is bound to this stat by descriptor, so a link
-          // planted between the check and the read is detected before outside
-          // content is imported. The write is still check-then-write, but it
-          // cannot leak content either: `atomicWrite` renames a fresh file over
-          // the entry, so a planted link is replaced rather than written
-          // through. Closing that window portably is tracked in #217 — a
-          // no-follow open is not the fix, because `fs.constants.O_NOFOLLOW` is
-          // undefined on win32 and the open follows the link anyway.
-          let targetStat: fs.Stats | null;
-          try {
-            targetStat = fs.lstatSync(resolvedTargetPath);
-          } catch (statErr) {
-            if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') {
-              throw statErr;
-            }
-            targetStat = null;
-          }
-          if (targetStat !== null) {
-            if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
-              console.error(`Skipped ${topic.id}: ${topic.path} is not a regular file`);
-              failed++;
-              continue;
-            }
-            const relRealTarget = path.relative(resolvedVault, fs.realpathSync(resolvedTargetPath));
-            if (
-              path.isAbsolute(relRealTarget) ||
-              relRealTarget === '..' ||
-              relRealTarget.startsWith('..' + path.sep) ||
-              relRealTarget.split(path.sep).includes('..')
-            ) {
-              console.error(`Skipped ${topic.id}: ${topic.path} resolves outside the vault`);
-              failed++;
-              continue;
-            }
+          // The same inspection the pre-flight ran (#267). Reaching `blocker` here
+          // means the target changed between the two looks — the race this layer
+          // cannot close — so it still costs its own topic rather than the batch.
+          // See {@link inspectExistingNote} for why the existence test is `lstat`.
+          const { stat: targetStat, blocker } = inspectExistingNote(resolvedTargetPath);
+          if (blocker !== null) {
+            console.error(`Skipped ${topic.id}: ${topic.path} ${blocker}`);
+            failed++;
+            continue;
           }
 
           if (targetStat !== null) {
