@@ -977,3 +977,54 @@ export function stripFencedCodeBlocks(text: string): string {
   }
   return parts.join('');
 }
+
+/**
+ * An HTML comment. Blanked whole, across lines, like a fenced block: nothing
+ * between `<!--` and `-->` is a statement the reader is meant to act on.
+ */
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+
+/**
+ * A single-line inline code span, run of one or two backticks on each side.
+ *
+ * @remarks
+ * Deliberately line-local. A code span may legally cross lines, and matching one
+ * that does would let a single unpaired backtick blank the rest of the document
+ * and silently drop every real link after it — the failure #262 was filed to
+ * stop, arriving from the other end. A span left unmatched is the rare case and
+ * costs its own edge; a blank that over-reaches costs the document.
+ */
+const INLINE_CODE = /``[^`\n]*``|`[^`\n]*`/g;
+
+/** Blank a span, keeping the newlines it held so line scans stay aligned. */
+function blankKeepingLines(span: string): string {
+  return span.replace(/[^\n]/g, ' ');
+}
+
+/**
+ * Blanks every region of a document in which a link is written to be *read*
+ * rather than followed: fenced code blocks, HTML comments, inline code spans.
+ *
+ * @param text - Raw markdown text
+ * @returns The same text, same length, with those three regions blanked
+ *
+ * @remarks
+ * One function because two consumers of the same rule drift. `extractTocLinks`
+ * enumerates a Contents into ordering edges and `extractDeclaredPrerequisites`
+ * reads a `## Prerequisites` section into authored ones; both read a real Obsidian
+ * vault, where a README documents a lesson while taking it out of the Contents
+ * (`<!-- - [Intro](guide/intro.md) -->`) and a note quotes one as an example
+ * (`` `[setup](notes/install.md)` ``). Before #261 the second carried its own copy
+ * of these two patterns and the first had only the fence, so the hole was opened
+ * twice by one edit. Line and character offsets survive — every blank is
+ * length-preserving — because the callers scan by index, not by re-parsed lines.
+ *
+ * Deliberately not blanked: an *unterminated* comment or code span. Each is the
+ * document that stops mid-sentence, and blanking to end-of-text on that reading
+ * would withdraw links the author did mean.
+ */
+export function stripUnfollowableMarkup(text: string): string {
+  return stripFencedCodeBlocks(text)
+    .replace(HTML_COMMENT, blankKeepingLines)
+    .replace(INLINE_CODE, blankKeepingLines);
+}

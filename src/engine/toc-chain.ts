@@ -34,7 +34,7 @@ import { classifyNoteForChain } from './tier0-hygiene';
 import {
   directoriesOrderedAlphabetically,
   parseNumericPrefix,
-  stripFencedCodeBlocks,
+  stripUnfollowableMarkup,
   type HygieneChainPlan,
 } from './auto-chain';
 import type { DependsOnSource } from '../types';
@@ -82,19 +82,27 @@ const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * and malformed `%` escapes are skipped, never aborted on — a bad link must
  * only cost its own edge (under-chaining is the safe direction).
  *
- * Fenced code is blanked before scanning. A README documenting how to write a
- * link — `` `[setup](notes/install.md)` `` inside an example — is not
- * enumerating anything, and a note that happens to exist would otherwise enter
- * the chain and collect a persisted prerequisite from documentation.
+ * Fenced code, HTML comments and inline code spans are blanked before scanning.
+ * A README documenting how to write a link — `` `[setup](notes/install.md)` ``
+ * inside an example — is not enumerating anything, and an entry the author
+ * commented out of the Contents (`<!-- - [Intro](guide/intro.md) -->`) names a
+ * note that really exists, so a destination that only appears inside one of those
+ * regions would still enter the chain and collect a persisted prerequisite from
+ * documentation. Same rule, one implementation: {@link stripUnfollowableMarkup}.
  */
 export function extractTocLinks(text: string): TocLink[] {
-  const scanned = stripFencedCodeBlocks(text);
+  const scanned = stripUnfollowableMarkup(text);
   const links: TocLink[] = [];
   let i = 0;
   /** Built the first time a label fails to close; see {@link BracketBalance}. */
   let balance: BracketBalance | null = null;
   /** Built the first time a destination fails to close; the same table over `(`/`)`. */
   let destBalance: BracketBalance | null = null;
+  /**
+   * Built the first time an *angle* destination fails to close. Paren depth says
+   * nothing about that form, so it gets its own table — see {@link AngleClosers}.
+   */
+  let angleClosers: AngleClosers | null = null;
   while (i < scanned.length) {
     const open = scanned.indexOf('[', i);
     if (open < 0) break;
@@ -142,7 +150,15 @@ export function extractTocLinks(text: string): TocLink[] {
     // `(` left behind.
     const destStart = close + 2;
     if (scanned.indexOf(')', destStart) < 0) break;
-    if (destBalance !== null && destinationCannotClose(destBalance, scanned, destStart)) {
+    if (scanned[destStart] === '<') {
+      // The angle form's own bound: paren depth answers nothing about a destination
+      // that closes on `>` plus a plain `)`, so the table above deliberately declines
+      // it (issue #287).
+      if (angleClosers !== null && angleCannotClose(angleClosers, destStart)) {
+        i = destStart;
+        continue;
+      }
+    } else if (destBalance !== null && destinationCannotClose(destBalance, scanned, destStart)) {
       // Answered from the one paren-balance pass instead of another walk, exactly
       // as the label case above.
       i = destStart;
@@ -156,7 +172,14 @@ export function extractTocLinks(text: string): TocLink[] {
       // appears — made every remaining `[` pay one full `readDestination` walk to
       // end-of-text. Measured on this branch: 90 KB 1.4 s, 360 KB 20 s, 720 KB 79 s,
       // and the `TOC_MAX_SOURCE_BYTES` guard only caps one file at ~40 s.
-      destBalance ??= buildBracketBalance(scanned, '(', ')');
+      //
+      // Each form builds only its own table. Building the paren one after an angle
+      // failure paid two passes for a predicate that returns `false` on that form by
+      // construction, and left the angle walk as unbounded as it had been —
+      // `'[a](<b'.repeat(10 000) + ')'` still cost 1.7 s until the closer table
+      // existed.
+      if (scanned[destStart] === '<') angleClosers ??= buildAngleClosers(scanned);
+      else destBalance ??= buildBracketBalance(scanned, '(', ')');
       i = destStart;
       continue;
     }
@@ -275,8 +298,9 @@ function labelCannotClose(balance: BracketBalance, open: number): boolean {
  *
  * @remarks
  * The `<angle bracket>` branch closes on a `>` plus a plain `)`, so paren depth
- * answers nothing about it and it is left to the walk (and to the `)` bail in
- * {@link extractTocLinks}, which bounds the documents that have no `)` at all).
+ * answers nothing about it and this predicate declines it; that form is bounded by
+ * {@link buildAngleClosers} instead, which is what `'[a](<b'.repeat(N)` needed and
+ * the `)` bail in {@link extractTocLinks} alone never covered (issue #287).
  * If `readDestination`'s bare branch ever stops requiring a depth-0 `)`, this
  * predicate has to change with it — it is a claim about that function, not a
  * property of the text.
@@ -284,6 +308,71 @@ function labelCannotClose(balance: BracketBalance, open: number): boolean {
 function destinationCannotClose(balance: BracketBalance, text: string, start: number): boolean {
   if (text[start] === '<') return false;
   return balance.minFrom[start] >= balance.after[start - 1];
+}
+
+/**
+ * Where an angle destination can still close, per index: the next unescaped `>`
+ * at or after it, and the next `)` at or after that.
+ *
+ * @remarks
+ * The `<angle bracket>` branch of {@link readDestination} answers nothing from
+ * paren depth — it ends at the first unescaped `>` and then wants a plain `)`
+ * after it — which is why #263's balance table deliberately skipped it and left
+ * it on the walk (issue #287). Two suffix tables answer the same question in one
+ * read per start, so a document of stray angle brackets costs one build instead of
+ * one walk per `[`.
+ */
+interface AngleClosers {
+  /** Index of the next candidate `>` at or after each position, `-1` when none */
+  gt: Int32Array;
+  /** Index of the next `)` at or after each position, `-1` when none */
+  rp: Int32Array;
+}
+
+/**
+ * Builds {@link AngleClosers}: one escape-aware forward pass, one backward pass.
+ * Paid for at most once per scan, and only after an angle destination has already
+ * failed to close.
+ */
+function buildAngleClosers(text: string): AngleClosers {
+  const length = text.length;
+  const gt = new Int32Array(length + 1).fill(-1);
+  const rp = new Int32Array(length + 1).fill(-1);
+  const candidate = new Uint8Array(length);
+
+  // A backslash consumes the next character only when that character is ASCII
+  // punctuation — the same rule the branch itself applies, so the table can never
+  // promote a `>` the walk would have taken for data, nor hide one it would have
+  // honoured. `\d` is two literal characters and stops nowhere near a delimiter.
+  let i = 0;
+  while (i < length) {
+    if (text[i] === '\\' && i + 1 < length && isAsciiPunctuation(text[i + 1])) {
+      i += 2;
+      continue;
+    }
+    if (text[i] === '>') candidate[i] = 1;
+    i++;
+  }
+
+  // The `)` is *not* escape-filtered, because the branch looks for it with a plain
+  // `indexOf(')', close + 1)` after the `>`. Mirroring that exactly is the point:
+  // a tidier rule here would refuse to walk documents the walk closes successfully.
+  let nextGt = -1;
+  let nextRp = -1;
+  for (let j = length - 1; j >= 0; j--) {
+    if (candidate[j] === 1) nextGt = j;
+    if (text[j] === ')') nextRp = j;
+    gt[j] = nextGt;
+    rp[j] = nextRp;
+  }
+  return { gt, rp };
+}
+
+/** True when the angle branch would walk this destination to end-of-text. */
+function angleCannotClose(closers: AngleClosers, start: number): boolean {
+  const gt = closers.gt[start];
+  if (gt < 0) return true;
+  return closers.rp[gt + 1] < 0;
 }
 
 interface RawDestination {
