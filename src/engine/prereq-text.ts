@@ -1,4 +1,4 @@
-import { extractWikilinks, stripFencedCodeBlocks } from './auto-chain';
+import { extractWikilinks, stripUnfollowableMarkup } from './auto-chain';
 import { extractTocLinks } from './toc-chain';
 
 /**
@@ -87,29 +87,6 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+(.+)$/;
  * gating edge to a note the author had not actually written.
  */
 const TASK_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s/;
-
-/**
- * An HTML comment. Blanked whole, across lines, like a fenced block: nothing
- * between `<!--` and `-->` is a statement the reader is meant to act on.
- */
-const HTML_COMMENT = /<!--[\s\S]*?-->/g;
-
-/**
- * A single-line inline code span, run of one or two backticks on each side.
- *
- * @remarks
- * Deliberately line-local. A code span may legally cross lines, and matching
- * one that does would let a single unpaired backtick blank the rest of the note
- * and silently drop every real declaration after it. A span left unmatched is
- * the rare case and costs its own edge; a blank that over-reaches costs the
- * document.
- */
-const INLINE_CODE = /``[^`\n]*``|`[^`\n]*`/g;
-
-/** Blank a span, keeping the newlines it held so line scans stay aligned. */
-function blankKeepingLines(span: string): string {
-  return span.replace(/[^\n]/g, ' ');
-}
 
 /**
  * Why an item under a prerequisites heading was refused.
@@ -243,9 +220,10 @@ export function declaredPrereqCue(content: string): DeclaredPrereqCue | null {
  * questions.
  */
 export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] {
-  const scanned = stripFencedCodeBlocks(text)
-    .replace(HTML_COMMENT, blankKeepingLines)
-    .replace(INLINE_CODE, blankKeepingLines);
+  // One shared blanking rule, so this scanner and `extractTocLinks` cannot drift
+  // again: both must ignore a link that only appears inside a comment, a fenced
+  // example, or a code span.
+  const scanned = stripUnfollowableMarkup(text);
   const lines = scanned.split(/\r?\n/);
   const refs: DeclaredPrereqRef[] = [];
   const seen = new Set<string>();

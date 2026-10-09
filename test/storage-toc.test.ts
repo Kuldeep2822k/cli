@@ -231,6 +231,48 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.ok(!enum_.documentOrder.includes('notes/c.md'), 'the truncated wrong note must collect no edge');
     });
 
+    // Issue #284, through the path `palee adopt --auto-chain` actually takes. The
+    // engine assertions pin the scanner; this pins that no edge is *written* for an
+    // entry the author commented out or quoted as an example, against notes that
+    // really exist — which is what turns a wrong destination into a false gate.
+    it('#284: a commented-out Contents entry writes no edge, while its live sibling still does', () => {
+      write(vault, 'README.md', [
+        '- [Live](notes/live.md)',
+        '<!-- - [Retired](notes/retired.md) -->',
+        '- [Example](notes/example.md) documented as `[quoted](notes/quoted.md)` only',
+      ].join('\n'));
+      write(vault, 'notes/live.md');
+      write(vault, 'notes/retired.md');
+      write(vault, 'notes/example.md');
+      write(vault, 'notes/quoted.md');
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(
+        enum_.documentOrder,
+        ['notes/live.md', 'notes/example.md'],
+        'the withdrawn entry and the quoted example contribute nothing'
+      );
+      assert.ok(!enum_.documentOrder.includes('notes/retired.md'), 'a commented-out entry must collect no edge');
+      assert.ok(!enum_.documentOrder.includes('notes/quoted.md'), 'an example link must collect no edge');
+    });
+
+    // Issue #286 — the same class arriving by the spelling #262 never named: a
+    // backslash-escaped `\#` was unescaped *before* the anchor split, so the `#` it
+    // produced was indistinguishable from a fragment separator and `notes/v1\#2.md`
+    // was cut to `notes/v1` → the unrelated `notes/v1.md`. Engine-level assertions
+    // exist; these plant the decoy so a regression is a wrong edge, not a miss, in
+    // both destination forms.
+    it('#286: an escaped # destination reaches the note the author named, not the truncated one', () => {
+      write(vault, 'README.md', [
+        '- [hash](notes/v1\\#2.md)',
+        '- [angle](<notes/v1\\#2.md>)',
+      ].join('\n'));
+      write(vault, 'notes/v1#2.md'); // the genuine note whose name carries a `#`
+      write(vault, 'notes/v1.md'); // the decoy the unescape-then-split resolved onto
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.documentOrder, ['notes/v1#2.md', 'notes/v1#2.md']);
+      assert.ok(!enum_.documentOrder.includes('notes/v1.md'), 'the truncated wrong note must collect no edge');
+    });
+
     // Issue #262 — a bare destination carrying an unescaped space was truncated at
     // the space (`notes/my`), which resolved onto the real `notes/my.md`. It must
     // instead be refused, while the documented <angle bracket> form still reaches
