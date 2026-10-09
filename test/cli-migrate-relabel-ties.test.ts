@@ -215,7 +215,9 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     );
     const result = runCLI(['migrate', '--relabel-ties'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.doesNotMatch(result.stdout, /Prerequisite labels:/, 'a two-edge list must not be demoted');
+    // #237 criterion 4: declined, but said out loud. The demotion assertion below is
+    // what this test has always protected; the silence around it was the defect.
+    assert.match(result.stdout, /1 store more than one prerequisite/, 'a two-edge list is counted as declined');
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered');
   });
 
@@ -245,7 +247,8 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
     });
     const result = runCLI(['migrate', '--relabel-ties'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.doesNotMatch(result.stdout, /Prerequisite labels:/, 'a reversed edge is not a stale tie');
+    assert.match(result.stdout, /1 point at the sibling the numbering puts after them/,
+      'a reversed edge is not a stale tie, and saying so is not demoting it');
     assert.strictEqual(frontmatterOf(vaultDir, 'm/02-a.md')?.depends_on_source, 'numbered');
     assert.ok(!readyIds(configDir).includes('T-a'), 'and it must still gate');
   });
@@ -684,6 +687,67 @@ ${result.stdout}`);
     const ready = readyIds(configDir);
     assert.ok(ready.includes('T-b'), 'and the demoted note is offered');
     assert.ok(!ready.includes('T-c'), 'while the skipping note stays gated');
+  });
+
+  test('a declined candidate is counted in the report, not passed over', () => {
+    // #237's "left alone and counted", the half the `unresolved` bucket did not
+    // cover. Both notes here resolve and both pairs are tied by name, so the pass
+    // looks like it should act — and it acts on neither. Before this it printed no
+    // line at all and exited 0, which a learner reads as a vault with no stale
+    // labels, while `palee plan` keeps gating both notes.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Points at the sibling after it', ['T-c'], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Steps over a surviving sibling', ['T-a'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Prerequisite labels:\s{2}2 note\(s\) labelled `numbered` hold an edge the/,
+      `both refusals must be reported:\n${result.stdout}`);
+    assert.match(result.stdout, /1 point at the sibling the numbering puts after them/, result.stdout);
+    assert.match(result.stdout, /1 step over a same-rank sibling still in the directory/, result.stdout);
+    assert.match(result.stdout, /palee plan` still gates them/, result.stdout);
+    assert.ok(!/store more than one prerequisite/.test(result.stdout),
+      'a cause with no note in this vault gets no line');
+    for (const rel of ['m/02-b.md', 'm/02-c.md']) {
+      assert.strictEqual(frontmatterOf(vaultDir, rel)?.depends_on_source, 'numbered',
+        `${rel} keeps the label the vault stored`);
+    }
+    const ready = readyIds(configDir);
+    assert.ok(!ready.includes('T-b') && !ready.includes('T-c'), 'and both stay gated');
+  });
+
+  test('the audit reports declined candidates without the relabel flag', () => {
+    // The report is the point, not the write: a learner running a plain
+    // `palee migrate` to check their vault should hear about a label the plan
+    // contradicts before they ever learn `--relabel-ties` exists.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Two prerequisites', ['T-a', 'T-x'], 'numbered'),
+      'm/02-x.md': storedNote('T-x', 'The other prerequisite', [], 'numbered'),
+    });
+    const result = runCLI(['migrate'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /1 store more than one prerequisite/, result.stdout);
+    assert.doesNotMatch(result.stdout, /Relabelled /, 'the audit writes nothing');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'numbered');
+  });
+
+  test('a demotion and a decline in one vault are counted separately', () => {
+    // Two populations, two numbers: the note whose edge the chain really wrote is
+    // relabelled, the one whose edge contradicts its own label is reported and left.
+    // Folding them into one count would make the summary lie about the write.
+    const { vaultDir, configDir } = freshVault({
+      'm/02-a.md': storedNote('T-a', 'First sibling', [], 'numbered'),
+      'm/02-b.md': storedNote('T-b', 'Neighbour edge the chain wrote', ['T-a'], 'numbered'),
+      'm/02-c.md': storedNote('T-c', 'Skips over 02-b', ['T-a'], 'numbered'),
+    });
+    const result = runCLI(['migrate', '--relabel-ties'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Relabelled 1 of 1 notes/, result.stdout);
+    assert.match(result.stdout, /Prerequisite labels:\s{2}1 note\(s\) labelled `numbered`/, result.stdout);
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-b.md')?.depends_on_source, 'tie');
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-c.md')?.depends_on_source, 'numbered');
   });
 
   test('the nearest surviving sibling is demoted when the middle note is gone', () => {
