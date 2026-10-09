@@ -22,6 +22,7 @@ import {
   loadTopics,
   deriveTocEnumeration,
 } from '../storage';
+import { foldIdentity } from '../storage/vault-walker';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
@@ -685,7 +686,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
       };
       const addPrereqTarget = (rawPath: string, id: string): void => {
-        const relPath = rawPath.replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+        // These two maps are keyed by note identity, so they fold the way the
+        // walker keys everything else — case *and* Unicode. Case alone was enough
+        // until #281 taught the rest of the pipeline that APFS stores `cafe` +
+        // U+0301 where a link arrives composed: the spelled key then matches no
+        // walked path, and a prerequisite that really exists is dropped as
+        // `missing`. #289 fixed the same half-fold in `withWalkedCasing`.
+        const relPath = foldIdentity(rawPath.replace(/\\/g, '/')).replace(/\.md$/, '');
         if (relPath.length === 0) return;
         const target: PrereqTarget = { id, path: rawPath.replace(/\\/g, '/') };
         addIndexed(prereqByPath, relPath, target);
@@ -701,7 +708,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
        * link into an ambiguous name.
        */
       const foldLinkDestination = (destination: string, noteDir: string): string | null => {
-        let raw = destination.trim().replace(/\\/g, '/').toLowerCase();
+        let raw = foldIdentity(destination.trim().replace(/\\/g, '/'));
         if (raw.length === 0) return null;
         if (raw.endsWith('/')) raw += 'readme';
         const withoutSuffix = raw.replace(/\.md$/, '');
@@ -719,7 +726,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const selfPath = note.relativePath.replace(/\\/g, '/');
         const noteDir = selfPath.includes('/') ? selfPath.slice(0, selfPath.lastIndexOf('/')) : '';
         const { resolved, skipped } = resolveDeclaredPrerequisites(refs, (ref) => {
-          const key = ref.name.trim().replace(/\\/g, '/').toLowerCase().replace(/\.md$/, '');
+          const key = foldIdentity(ref.name.trim().replace(/\\/g, '/')).replace(/\.md$/, '');
           if (key.length === 0) return [];
           let candidates: PrereqTarget[] | undefined;
           if (ref.form === 'mdlink') {

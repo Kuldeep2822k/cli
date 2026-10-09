@@ -119,6 +119,23 @@ describe('Frontmatter Tag Matcher', () => {
     assert.strictEqual(matchesTags(tags, 'concept, deep-dive, lab'), true);
     assert.strictEqual(matchesTags(tags, 'rubric, template'), false);
   });
+
+  // A pattern is typed by a person and a path arrives off the volume, and APFS
+  // stores the accented name decomposed while the keyboard produces the composed
+  // one. Case was already folded on both sides; Unicode was folded on neither, so
+  // `excludeDirs: notes/café` left `notes/cafe` + U+0301 in the scan. Built from
+  // code points because the two spellings must be fixed by this source, not by
+  // however the file happens to be encoded.
+  test('matches a pattern whose accent is spelled the other way round', () => {
+    const NFD_ACUTE = String.fromCharCode(0x0301); // `e` + combining acute: what APFS stores
+    const NFC_ACUTE = String.fromCharCode(0x00e9); // precomposed `é`: what a keyboard produces
+    const stored = 'notes/cafe' + NFD_ACUTE + '/01-intro.md';
+    const written = 'notes/caf' + NFC_ACUTE;
+
+    assert.strictEqual(matchesPattern(stored, written), true, 'the decomposed path matches the composed pattern');
+    assert.strictEqual(matchesPattern(written + '/01-intro.md', written), true, 'and the matching spelling still matches');
+    assert.strictEqual(matchesPattern('notes/tea/01-intro.md', written), false, 'no other directory is excluded');
+  });
 });
 
 describe('Pattern Validation', () => {

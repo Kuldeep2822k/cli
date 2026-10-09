@@ -7,6 +7,7 @@
  */
 
 import path from 'path';
+import { foldIdentity } from './vault-walker';
 
 /**
  * Converts a glob wildcard pattern into an equivalent RegExp.
@@ -278,16 +279,20 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
 
     // Segment & prefix matching for non-wildcard patterns (avoids false-positive substring collisions)
     if (!trimmedPattern.includes('*') && !trimmedPattern.includes('?')) {
-      const lowerPath = normalizedPath.toLowerCase();
-      const lowerPattern = trimmedPattern.toLowerCase();
-      const lowerBasename = basename.toLowerCase();
+      // A pattern is written by a person and a path comes off the volume, so the
+      // two arrive in different Unicode normalizations on APFS — `notes/café`
+      // excludes `notes/cafe` + U+0301 only if both sides fold the way the walked
+      // keys do. Case alone was already folded; this folds the other half.
+      const foldedPath = foldIdentity(normalizedPath);
+      const foldedPattern = foldIdentity(trimmedPattern);
+      const foldedBasename = foldIdentity(basename);
 
       if (
-        lowerPath === lowerPattern ||
-        lowerBasename === lowerPattern ||
-        lowerPath.startsWith(`${lowerPattern}/`) ||
-        lowerPath.endsWith(`/${lowerPattern}`) ||
-        lowerPath.includes(`/${lowerPattern}/`)
+        foldedPath === foldedPattern ||
+        foldedBasename === foldedPattern ||
+        foldedPath.startsWith(`${foldedPattern}/`) ||
+        foldedPath.endsWith(`/${foldedPattern}`) ||
+        foldedPath.includes(`/${foldedPattern}/`)
       ) {
         return true;
       }

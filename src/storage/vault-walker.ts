@@ -31,6 +31,22 @@ function stemOfNote(name: string): string {
 }
 
 /**
+ * Folds text for identity comparison: case and Unicode normalization, nothing else.
+ *
+ * @param text - A path, a note name, or a link destination as written
+ * @returns Case-folded, NFC-normalized text
+ *
+ * @remarks
+ * The fold {@link foldNoteKey} applies, split from the stem-stripping that only
+ * makes sense on a filename. Any comparison whose two sides are paths — a link
+ * destination against a walked key, an exclusion pattern against a note — folds
+ * through this, because a fold only one side performs is no fold.
+ */
+function foldIdentity(text: string): string {
+  return text.toLowerCase().normalize('NFC');
+}
+
+/**
  * Folds a note name or vault-relative path for identity comparison.
  *
  * @param name - A stem, a full note name, or a vault-relative POSIX path
@@ -45,7 +61,7 @@ function stemOfNote(name: string): string {
  * chains to no predecessor at all.
  */
 function foldNoteKey(name: string): string {
-  return stemOfNote(name).toLowerCase().normalize('NFC');
+  return foldIdentity(stemOfNote(name));
 }
 
 /**
@@ -336,4 +352,4 @@ function relativeVaultPath(vaultPath: string, filePath: string): string {
   return lexical;
 }
 
-export { walkVault, ensureVaultDirectory, relativeVaultPath, isResolvableNotePath, stemOfNote, foldNoteKey };
+export { walkVault, ensureVaultDirectory, relativeVaultPath, isResolvableNotePath, stemOfNote, foldNoteKey, foldIdentity };
