@@ -51,12 +51,23 @@ export interface StoredTie {
   unlabeled?: boolean;
 }
 
+/** Why a note labelled `numbered` was declined rather than demoted. */
+type DeclinedReason = 'multiple' | 'forward' | 'skipping';
+
 /** What one vault scan turned up, before anything was written. */
 interface StoredTieScan {
   /** Notes whose stored label can be demoted to `tie` with confidence */
   ties: StoredTie[];
   /** Notes labelled `numbered` whose single predecessor no longer resolves */
   unresolved: string[];
+  /**
+   * Notes labelled `numbered` whose stored edge the numbered plan cannot produce:
+   * more than one prerequisite, an edge pointing at the sibling the numbering puts
+   * after it, or one that steps over a sibling still in the directory. Left gated —
+   * demoting them would be a guess — but counted, because a pass that says nothing
+   * reads to a learner as a vault that has no such notes.
+   */
+  declined: DeclinedReason[];
 }
 
 /** What a relabel pass did, so the caller can pick an exit code. */
@@ -69,6 +80,8 @@ interface RelabelOutcome {
   failed: number;
   /** Notes left gated because their stored predecessor no longer resolves */
   unresolved: number;
+  /** Notes left gated because their stored edge is one the numbered plan does not produce */
+  declined: number;
   /** Writes refused by a lock or an OCC conflict, each of which a re-run retries */
   conflicted: number;
   /** Notes deleted between the scan and the write, so there is nothing left to relabel */
@@ -202,6 +215,14 @@ function unlabeledEdgeCouldComeFromTheChain(note: LoadedTopic, pred: LoadedTopic
  *   and left to the dangling-edge report that owns that case. An unlabeled note
  *   is simply refused: that report is worded for the labelled population, and
  *   with no pair to rank this pass has no claim about the edge either way.
+ *
+ * The three refusals that still leave a note gated — a list of more than one
+ * prerequisite, an edge pointing at the sibling the numbering puts after it, one that
+ * steps over a same-rank sibling still on disk — are counted in
+ * {@link StoredTieScan.declined} instead of passed over in silence. Each is a stored
+ * `numbered` label that the plan contradicts, and exit 0 with no line at all reads to
+ * a learner as a vault with nothing to look at. An unlabeled note is not counted: it
+ * makes no `numbered` claim for the plan to contradict.
  */
 function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): StoredTieScan {
   const byId = new Map<string, LoadedTopic>();
@@ -215,6 +236,7 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
   }
   const found: StoredTie[] = [];
   const unresolved: string[] = [];
+  const declined: DeclinedReason[] = [];
   for (const t of topics) {
     // The raw key is the only thing that separates "no label was ever written"
     // from "the label is there but this build does not recognize it", because
@@ -228,6 +250,9 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
       continue;
     }
     const deps = t.depends_on ?? [];
+    // More than one stored prerequisite is not a shape the numbered chain writes: it
+    // gives each note its immediate predecessor, one edge at a time.
+    if (deps.length > 1 && !unlabeled) declined.push('multiple');
     if (deps.length !== 1) continue;
     const pred = byId.get(deps[0] as string);
     if (pred === undefined) {
@@ -242,8 +267,19 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
     const predBase = path.basename(pred.filePath);
     const ownBase = path.basename(t.filePath);
     if (!tiedByName(predBase, ownBase)) continue;
-    if (compareLessonOrderTier0(predBase, ownBase) >= 0) continue;
-    if (survivingSiblingBetween(siblingsByDir.get(dir) ?? [], predBase, ownBase)) continue;
+    if (compareLessonOrderTier0(predBase, ownBase) >= 0) {
+      // The numbering puts the stored predecessor at or after this note, so it wrote
+      // no such edge: a `numbered` label here contradicts the label's own meaning.
+      if (!unlabeled) declined.push('forward');
+      continue;
+    }
+    if (survivingSiblingBetween(siblingsByDir.get(dir) ?? [], predBase, ownBase)) {
+      // #251: the middle note was deleted and a same-rank sibling still sits between
+      // the pair, so the edge keeps gating and this pass may not demote it. Declining
+      // was always right; saying nothing about it was not.
+      if (!unlabeled) declined.push('skipping');
+      continue;
+    }
     if (unlabeled && !unlabeledEdgeCouldComeFromTheChain(t, pred)) continue;
     found.push({
       filePath: t.filePath,
@@ -254,7 +290,7 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
       unlabeled,
     });
   }
-  return { ties: found, unresolved };
+  return { ties: found, unresolved, declined };
 }
 
 /**
@@ -334,11 +370,11 @@ async function reportStoredTies(
   includeUnlabeledTies: boolean
 ): Promise<RelabelOutcome> {
   const none: RelabelOutcome = {
-    relabelled: 0, stale: 0, failed: 0, unresolved: 0, conflicted: 0, vanished: 0,
+    relabelled: 0, stale: 0, failed: 0, unresolved: 0, declined: 0, conflicted: 0, vanished: 0,
     vanishedPaths: [], hadConflict: false,
   };
-  const { ties, unresolved } = findStoredTies(scanned, includeUnlabeledTies);
-  if (ties.length === 0 && unresolved.length === 0) return none;
+  const { ties, unresolved, declined } = findStoredTies(scanned, includeUnlabeledTies);
+  if (ties.length === 0 && unresolved.length === 0 && declined.length === 0) return none;
   // Which population the user is looking at, so the report and the tip below both
   // describe the notes actually in front of them.
   const unlabeledCount = ties.reduce((n, t) => (t.unlabeled === true ? n + 1 : n), 0);
@@ -375,8 +411,28 @@ async function reportStoredTies(
     console.log('                    this vault no longer contains, so no order can be derived for them.');
     console.log('                    `palee validate` reports those edges.');
   }
+  if (declined.length > 0) {
+    // The other half of #237's "left alone and counted". These notes do resolve, and
+    // the pair is tied by name, but the numbering did not decide the edge the way the
+    // note stores it — so demoting it would be a guess. Silence is the harm: a learner
+    // who runs the pass to unlock a note gets exit 0 and no line at all, and reads
+    // that as the vault having no problem, exactly as with #258's "Nothing to repair".
+    const causes: Array<[DeclinedReason, string]> = [
+      ['multiple', 'store more than one prerequisite, which the numbered chain never writes'],
+      ['forward', 'point at the sibling the numbering puts after them'],
+      ['skipping', 'step over a same-rank sibling still in the directory'],
+    ];
+    console.log(`Prerequisite labels:  ${declined.length} note(s) labelled \`numbered\` hold an edge the`);
+    console.log('                    numbered plan does not produce, so their labels stay as stored:');
+    for (const [cause, phrase] of causes) {
+      const count = declined.filter((r) => r === cause).length;
+      if (count > 0) console.log(`                      • ${count} ${phrase}`);
+    }
+    console.log('                    `palee plan` still gates them; only the author can say what`');
+    console.log('                    the order should be.');
+  }
   console.log();
-  if (ties.length === 0) return { ...none, unresolved: unresolved.length };
+  if (ties.length === 0) return { ...none, unresolved: unresolved.length, declined: declined.length };
 
   if (!apply || dryRun) {
     if (apply) {
@@ -397,15 +453,15 @@ async function reportStoredTies(
       }
       console.log();
     }
-    return { ...none, unresolved: unresolved.length };
+    return { ...none, unresolved: unresolved.length, declined: declined.length };
   }
 
-  // Every return from here on carries the unresolved count it just printed: an
-  // audit report that named N notes and hands back 0 is the same number being
-  // wrong in two places, and a caller reading the outcome would conclude the
+  // Every return from here on carries the unresolved and declined counts it just
+  // printed: an audit report that named N notes and hands back 0 is the same number
+  // being wrong in two places, and a caller reading the outcome would conclude the
   // vault had no dangling `numbered` edge at all.
   const outcome: RelabelOutcome = {
-    ...none, unresolved: unresolved.length, vanishedPaths: [],
+    ...none, unresolved: unresolved.length, declined: declined.length, vanishedPaths: [],
   };
   for (const tie of ties) {
     try {
