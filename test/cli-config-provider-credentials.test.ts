@@ -24,19 +24,30 @@ describe('CLI config provider credentials (#82)', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  /** Returns a fresh, empty config directory under the suite's temp root. */
   function freshConfigDir(): string {
     return fs.mkdtempSync(path.join(tempDir, 'cfg-'));
   }
 
+  /** Reads and parses the config.json written in the given directory. */
   function readStored(configDir: string): Record<string, unknown> {
     return JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
   }
 
+  /** Like {@link readStored}, but returns `{}` when no config file exists yet. */
   function readStoredOrEmpty(configDir: string): Record<string, unknown> {
     const file = path.join(configDir, 'config.json');
     return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   }
 
+  /**
+   * Runs the real `palee config` CLI against an isolated config directory.
+   *
+   * @param args - Arguments after `config` (e.g. `['set-api-key', '--from-env', 'VAR']`).
+   * @param configDir - Directory bound to `PALEE_CONFIG_DIR` for this run.
+   * @param opts - Optional stdin `input` and extra `env` entries.
+   * @returns The process exit `status` and captured `stdout` / `stderr`.
+   */
   function runConfig(
     args: string[],
     configDir: string,
@@ -149,6 +160,26 @@ describe('CLI config provider credentials (#82)', () => {
     assert.match(runConfig(['show'], unset).stdout, /API Key: \(not set\)/);
   });
 
+  test('config show --json reports that a key is set without emitting any of it', () => {
+    const configDir = freshConfigDir();
+    runConfig(['set-base-url', 'https://opencode.ai/zen/v1'], configDir);
+    runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: 'sk-json-leak-check-5c3a' },
+    });
+    const shown = runConfig(['show', '--json'], configDir);
+    assert.strictEqual(shown.status, 0, shown.stderr);
+
+    const parsed = JSON.parse(shown.stdout);
+    assert.strictEqual(parsed.api_key_set, true, 'the boolean, not the key, carries the fact a key exists');
+    assert.strictEqual(parsed.base_url, 'https://opencode.ai/zen/v1');
+    assert.ok(!('api_key' in parsed) && !('apiKey' in parsed), 'the key value has no field at all in JSON');
+    assert.ok(!shown.stdout.includes('sk-json-leak-check-5c3a'), `JSON output leaked the key:\n${shown.stdout}`);
+    assert.ok(!shown.stdout.includes('5c3a'), `even a suffix of the key must not print:\n${shown.stdout}`);
+
+    const unset = freshConfigDir();
+    assert.strictEqual(JSON.parse(runConfig(['show', '--json'], unset).stdout).api_key_set, false);
+  });
+
   test('unset-api-key removes the secret from disk', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
@@ -201,6 +232,7 @@ describe('config file mode (#82)', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  /** Runs `palee config` for the mode suite, with a key available in the env. */
   function runConfig(args: string[], configDir: string): void {
     execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),

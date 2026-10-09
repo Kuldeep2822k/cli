@@ -216,10 +216,12 @@ function promptHidden(query: string): Promise<string> {
  * @param action - Optional action: show, set-vault, set-provider, set-base-url, set-api-key,
  * unset-api-key, set-model.
  * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
- * @param options - Command options; `fromEnv` names the variable `set-api-key` reads.
+ * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
+ * `json` makes `show` emit machine-readable output.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
- * and process.exitCode = 5 on unexpected exceptions.
+ * and process.exitCode = 5 on unexpected exceptions. `show --json` reports whether a key
+ * is stored (`api_key_set`) and never the key itself.
  *
  * @example
  * ```typescript
@@ -229,11 +231,21 @@ function promptHidden(query: string): Promise<string> {
 async function configCommand(
   action?: string,
   value?: string,
-  options?: { fromEnv?: string }
+  options?: { fromEnv?: string; json?: boolean }
 ): Promise<void> {
   try {
     if (!action || action === 'show') {
       const config = loadConfig();
+      if (options?.json) {
+        console.log(JSON.stringify({
+          vault_path: config.vaultPath ?? null,
+          ai_provider: config.aiProvider ?? null,
+          base_url: config.baseUrl ?? null,
+          model: config.model ?? null,
+          api_key_set: Boolean(config.apiKey),
+        }));
+        return;
+      }
       console.log('PALEE Configuration:');
       console.log(`  Vault Path: ${config.vaultPath || '(not set)'}`);
       console.log(`  AI Provider: ${config.aiProvider || '(not set)'}`);

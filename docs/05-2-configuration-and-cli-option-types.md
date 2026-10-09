@@ -41,6 +41,8 @@ The location of `config.json` is determined by the `getConfigPath` function [src
 
 The `loadConfig` function reads the JSON file and returns a `PaleeConfig` object. If the file does not exist (`ENOENT`), it returns an empty object [src/cli/config.ts#58-88](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L58-L88) Keys are admitted one at a time and only when their value is a string, so a hand-edited `apiKey: 20240115` is dropped rather than carried as a credential. The `saveConfig` function ensures the directory exists before writing the updated configuration back to disk [src/cli/config.ts#108-142](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L108-L142) Because the file can hold a provider credential, the temp file is opened `0600` inside a `0700` directory before any byte is written, and the atomic rename carries that mode onto `config.json` — including for a file that predates the credential field. Windows ignores the mode and resolves access through the directory ACL.
 
+`palee config show --json` emits the configuration as a single JSON object with `vault_path`, `ai_provider`, `base_url`, `model`, and a boolean `api_key_set`. The credential itself has no field in that output: the boolean reports only whether a key is stored, so redirecting `config show` into a tool can never leak the key.
+
 Sources:
 
 - [src/types.ts#368-382](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L368-L382)
