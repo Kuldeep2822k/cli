@@ -9,7 +9,8 @@ import os from 'os';
 import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
-import { ExitCode } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
+import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
  * Resolves the platform-specific path to the PALEE config JSON file.
@@ -214,7 +215,7 @@ function promptHidden(query: string): Promise<string> {
  * CLI command handler for managing configuration.
  *
  * @param action - Optional action: show, set-vault, set-provider, set-base-url, set-api-key,
- * unset-api-key, set-model.
+ * unset-api-key, test-connection, set-model.
  * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
  * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
  * `json` makes `show` emit machine-readable output.
@@ -302,32 +303,23 @@ async function configCommand(
         return;
       }
 
+      // The same rule the provider applies when it calls out. Validating here with a
+      // different rule set would let a user store an endpoint that every later command
+      // refuses with a different message — and a `?token=` in the value would be stored
+      // and then folded into the middle of the request path.
       let endpoint: URL;
       try {
-        endpoint = new URL(value);
-      } catch {
-        console.error(`Error: not a valid URL: ${value}`);
-        process.exitCode = 2;
-        return;
-      }
-      if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') {
-        console.error(`Error: base URL must be http or https, got ${endpoint.protocol}`);
-        process.exitCode = 2;
-        return;
-      }
-      // A credential in the URL (https://user:key@host) would be stored in
-      // baseUrl and printed verbatim by `config show`, defeating the point of
-      // keeping the key out of readable output. Reject it without echoing it.
-      if (endpoint.username || endpoint.password) {
-        console.error('Error: base URL must not embed a username or password; set the credential with set-api-key');
-        process.exitCode = 2;
+        endpoint = normalizeProviderEndpoint(value);
+      } catch (err: unknown) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = exitCodeFor(err);
         return;
       }
 
       const config = loadConfig();
-      config.baseUrl = value;
+      config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
       saveConfig(config);
-      console.log(`AI base URL set to: ${value}`);
+      console.log(`AI base URL set to: ${config.baseUrl}`);
       return;
     }
 
@@ -365,6 +357,45 @@ async function configCommand(
       return;
     }
 
+    if (action === 'test-connection') {
+      // The one place a stored credential can prove itself. It sends the shortest
+      // possible prompt and reports reachability, the URL actually called, which key
+      // source won, and what came back — because a Phase-2 feature spending real tokens
+      // to discover a bad base URL is the expensive way to learn the same thing.
+      //
+      // The default timeout is kept rather than shortened: a local server cold-loading a
+      // model can take tens of seconds, and failing that early would report a working
+      // provider as broken.
+      try {
+        const settings = resolveProviderSettings(loadConfig());
+        const provider = new OpenAICompatibleProvider(settings);
+        const started = process.hrtime.bigint();
+        const reply = await provider.complete({
+          messages: [{ role: 'user', content: 'Reply with exactly the word OK.' }],
+          temperature: 0,
+        });
+        const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+        const keyLabel =
+          settings.keySource === 'env' ? `from $${API_KEY_ENV}`
+            : settings.keySource === 'config' ? 'from the config file'
+              : 'none configured';
+        console.log('✓ Provider reachable');
+        console.log(`  Endpoint: ${provider.url}`);
+        console.log(`  Model:    ${provider.model}`);
+        console.log(`  Key:      ${keyLabel}`);
+        console.log(`  Reply:    ${describeForeignText(settings.apiKey, reply.text)} (${elapsed.toFixed(0)} ms)`);
+        if (reply.usage) {
+          console.log(`  Tokens:   ${reply.usage.promptTokens} in / ${reply.usage.completionTokens} out`);
+        }
+        return;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        process.exitCode = exitCodeFor(err);
+        return;
+      }
+    }
+
     if (action === 'set-model') {
       if (!value) {
         console.error('Error: model name required');
@@ -380,7 +411,7 @@ async function configCommand(
     }
 
     console.error(`Error: unknown action '${action}'`);
-    console.error('Valid actions: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, set-model');
+    console.error('Valid actions: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model');
     process.exitCode = 2;
     return;
 
