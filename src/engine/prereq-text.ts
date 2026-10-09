@@ -252,7 +252,11 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
   const push = (name: string, form: DeclaredPrereqRef['form']): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0) return;
-    const key = `${form}:${trimmed.toLowerCase()}`;
+    // Case and Unicode together: one note can be named composed in one bullet and
+    // decomposed in another, and two spellings of one name are one prerequisite.
+    // Folded here rather than imported, because the engine layer stays free of
+    // storage — this is the same fold `foldNoteKey` performs on a walked path.
+    const key = `${form}:${trimmed.toLowerCase().normalize('NFC')}`;
     if (seen.has(key)) return;
     seen.add(key);
     refs.push({ name: trimmed, form });

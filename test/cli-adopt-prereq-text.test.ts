@@ -317,4 +317,31 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
       assert.strictEqual(frontmatterOf(vaultDir, rel)?.palee_id, undefined, `${rel} was written`);
     }
   });
+
+  // The declared-prerequisite index folded case but not Unicode, while everything
+  // the walker keys by folds both (#281, and #289 for the read side). A note whose
+  // stored name is decomposed — which is what APFS keeps — was therefore invisible
+  // to a prerequisite written composed, and the author's own statement about their
+  // prerequisites was dropped as naming nothing. NTFS and ext4 are normalization-
+  // sensitive, so on those volumes the two spellings are two different notes, and
+  // the miss is real rather than cosmetic.
+  test('a prerequisite stored under the other normalization still resolves', () => {
+    const NFD_ACUTE = String.fromCharCode(0x0301); // `e` + combining acute: the stored name
+    const NFC_ACUTE = String.fromCharCode(0x00e9); // precomposed `é`: the typed link
+    const prereqRel = `m/01-cafe${NFD_ACUTE}.md`;
+
+    const { vaultDir, configDir } = freshVault({
+      [prereqRel]: '# Cafe\n\nBeans and water.\n',
+      'm/02-latte.md': ['# Latte', '', '## Prerequisites', '', `- [[01-caf${NFC_ACUTE}]]`, '', 'Body.'].join('\n'),
+    });
+    const result = adopt(vaultDir, configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'm/02-latte.md'),
+      [idOf(vaultDir, prereqRel)],
+      'the declared edge reaches the note that exists, not nowhere'
+    );
+    assert.strictEqual(frontmatterOf(vaultDir, 'm/02-latte.md')?.depends_on_source, 'declared');
+  });
 });

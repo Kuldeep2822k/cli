@@ -385,3 +385,31 @@ describe('declared-prerequisite resolution (PAL-205 WS6)', () => {
     assert.deepStrictEqual(resolved.map((r) => r.target), ['/vault/01-setup.md', '/vault/02.md']);
   });
 });
+
+describe('one prerequisite named two ways is one prerequisite', () => {
+  // The section's own dedupe. APFS stores `cafe` + U+0301 while a wikilink typed
+  // for it arrives composed, and the key folded case only, so the same note read
+  // as two declarations — and `declared` is the label nothing downstream questions.
+  const NFD_ACUTE = String.fromCharCode(0x0301);
+  const NFC_ACUTE = String.fromCharCode(0x00e9);
+
+  test('deduplicates a name spelled in either normalization', () => {
+    const section = [
+      '## Prerequisites',
+      '',
+      `- [[caf${NFC_ACUTE}]]`,
+      `- [[cafe${NFD_ACUTE}]]`,
+      '',
+    ].join('\n');
+    assert.deepStrictEqual(extractDeclaredPrerequisites(section), [
+      { name: `caf${NFC_ACUTE}`, form: 'wikilink' },
+    ]);
+  });
+
+  test('keeps two names that merely share a case-folded spelling', () => {
+    // The fold must not fuse distinct notes: `Setup` and `setup` are one target,
+    // which is what the key already decided, and that stays true.
+    const section = ['## Prerequisites', '', '- [[Setup]]', '- [[setup]]', ''].join('\n');
+    assert.strictEqual(extractDeclaredPrerequisites(section).length, 1);
+  });
+});
