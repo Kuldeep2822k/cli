@@ -48,11 +48,21 @@ palee config set-provider opencode
 palee config set-base-url https://opencode.ai/zen/v1
 printf '%s' "$OPENCODE_API_KEY" | palee config set-api-key
 palee config set-model nemotron-3-ultra-free
+palee config test-connection
 ```
 
 `set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
 argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
-is stored in the config file, which is written `0600`.
+is stored in the config file, which is written `0600`. `PALEE_API_KEY` in the environment outranks the
+stored key, for anyone who would rather never write it to disk.
+
+`test-connection` sends one short prompt and reports the URL it called, which key source won, how long
+the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
+in `palee next`, `plan`, `review`, `validate`, `adopt`, `roadmap --from` or `migrate` can do the same —
+`test/ai-network-boundary.test.ts` fails if a second socket site appears. It refuses plain HTTP to any
+host that is not loopback, refuses redirects rather than re-sending the credential to a host nobody
+approved, and exits `2` on a bad endpoint, `3` on a reply that broke the output contract, `5` when the
+provider could not be reached.
 
 ### Start Learning
 ```bash
