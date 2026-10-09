@@ -55,7 +55,7 @@ palee adopt --all -y
 
 ### Options Reference for `palee adopt`
 
-The following table lists every supported option for `palee adopt` [src/types.ts#396-415](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L396-L415):
+The following table lists every supported option for `palee adopt` [src/types.ts `AdoptOptions`](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts):
 
 | Flag / Argument | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
@@ -246,7 +246,7 @@ Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, th
 
 ### Options Reference for `palee roadmap`
 
-The following table lists all options for `palee roadmap` [src/types.ts#476-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L476-L484):
+The following table lists all options for `palee roadmap` [src/types.ts `RoadmapOptions`](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts):
 
 | Flag | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
@@ -353,7 +353,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
-| `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
+| `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". | Unexpected runtime exception or YAML parsing error. |
 
 ---
 
