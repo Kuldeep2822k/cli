@@ -100,6 +100,17 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(readStored(configDir).baseUrl, 'http://127.0.0.1:11434/v1');
   });
 
+  test('a base URL that embeds a credential is refused rather than stored', () => {
+    const configDir = freshConfigDir();
+    // `config show` prints the base URL verbatim, so a key smuggled into the
+    // authority (https://user:key@host) would leak the moment someone ran show.
+    const result = runConfig(['set-base-url', 'https://user:sk-in-url-9f2a@opencode.ai/v1'], configDir);
+    assert.strictEqual(result.status, 2, `an embedded credential must be refused:\n${result.stdout}${result.stderr}`);
+    assert.ok(!result.stdout.includes('sk-in-url-9f2a') && !result.stderr.includes('sk-in-url-9f2a'),
+      'the rejection must not echo the smuggled credential');
+    assert.ok(!fs.existsSync(path.join(configDir, 'config.json')), 'a refused URL must not create a config');
+  });
+
   test('set-api-key --from-env stores the key and never echoes it', () => {
     const configDir = freshConfigDir();
     const result = runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {

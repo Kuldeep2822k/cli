@@ -315,6 +315,14 @@ async function configCommand(
         process.exitCode = 2;
         return;
       }
+      // A credential in the URL (https://user:key@host) would be stored in
+      // baseUrl and printed verbatim by `config show`, defeating the point of
+      // keeping the key out of readable output. Reject it without echoing it.
+      if (endpoint.username || endpoint.password) {
+        console.error('Error: base URL must not embed a username or password; set the credential with set-api-key');
+        process.exitCode = 2;
+        return;
+      }
 
       const config = loadConfig();
       config.baseUrl = value;
