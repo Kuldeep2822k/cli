@@ -150,8 +150,9 @@ function saveConfig(config: PaleeConfig): void {
  * @remarks
  * The key never arrives as a command-line argument: `argv` is readable by every
  * process on the machine (`ps`, `/proc/<pid>/cmdline`) and lands in shell history.
- * Precedence is `--from-env`, then a piped stdin, then an interactive prompt — a
- * terminal echo, not a hidden one. Each failure says why on `stderr`.
+ * Precedence is `--from-env`, then a piped stdin, then an interactive prompt that
+ * does not echo the key and keeps it out of line history. Each failure says why on
+ * `stderr`.
  */
 async function readApiKey(fromEnv?: string): Promise<string | null> {
   if (fromEnv) {
@@ -175,14 +176,38 @@ async function readApiKey(fromEnv?: string): Promise<string | null> {
     return piped;
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const typed = await new Promise<string>((resolve) => rl.question('API key: ', resolve));
-  rl.close();
+  const typed = await promptHidden('API key: ');
   if (!typed.trim()) {
     console.error('Error: no API key entered');
     return null;
   }
   return typed.trim();
+}
+
+/**
+ * Prompts on a TTY for a secret without echoing it. The prompt text is written,
+ * then every keystroke is swallowed, so the key never reaches terminal scrollback
+ * or a session recording; `historySize: 0` keeps it out of line-editing history.
+ */
+function promptHidden(query: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+      historySize: 0,
+    });
+    let muted = false;
+    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => {
+      if (!muted) process.stdout.write(s);
+    };
+    rl.question(query, (answer) => {
+      process.stdout.write('\n');
+      rl.close();
+      resolve(answer);
+    });
+    muted = true;
+  });
 }
 
 /**
