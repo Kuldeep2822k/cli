@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode } from './exit-codes';
 
@@ -70,6 +71,8 @@ function loadConfig(): PaleeConfig {
     if (typeof (parsed as PaleeConfig).vaultPath === 'string') validConfig.vaultPath = (parsed as PaleeConfig).vaultPath;
     if (typeof (parsed as PaleeConfig).aiProvider === 'string') validConfig.aiProvider = (parsed as PaleeConfig).aiProvider;
     if (typeof (parsed as PaleeConfig).model === 'string') validConfig.model = (parsed as PaleeConfig).model;
+    if (typeof (parsed as PaleeConfig).baseUrl === 'string') validConfig.baseUrl = (parsed as PaleeConfig).baseUrl;
+    if (typeof (parsed as PaleeConfig).apiKey === 'string') validConfig.apiKey = (parsed as PaleeConfig).apiKey;
     return validConfig;
   } catch (e: unknown) {
     const err = e as NodeError;
@@ -92,6 +95,10 @@ function loadConfig(): PaleeConfig {
  *
  * @remarks
  * Writes configuration to a unique temporary file, fsyncs data, and atomically renames.
+ * The file holds a provider credential, so it is created `0600` inside a `0700`
+ * directory: the mode is set when the temp file is opened, before a byte of the
+ * payload exists, and `renameSync` carries it onto the config path. Windows
+ * ignores the mode argument and resolves access through the directory's ACL.
  *
  * @example
  * ```typescript
@@ -103,7 +110,7 @@ function saveConfig(config: PaleeConfig): void {
   const dir = path.dirname(configPath);
 
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 
   // `pid + Date.now()` is not a unique name: two processes that fork from the
@@ -117,7 +124,7 @@ function saveConfig(config: PaleeConfig): void {
   let fd: number | null = null;
   let success = false;
   try {
-    fd = fs.openSync(tempPath, 'w');
+    fd = fs.openSync(tempPath, 'w', 0o600);
     fs.writeSync(fd, payload, 0, 'utf8');
     fs.fsyncSync(fd);
     fs.closeSync(fd);
@@ -135,10 +142,56 @@ function saveConfig(config: PaleeConfig): void {
 }
 
 /**
- * CLI command handler for managing configuration (show, set-vault, set-provider, set-model).
+ * Reads the API key a `set-api-key` should store.
  *
- * @param action - Optional configuration action (show, set-vault, set-provider, set-model).
- * @param value - Optional value to set for the given action.
+ * @param fromEnv - Optional environment variable name to read it from.
+ * @returns The trimmed key, or `null` when nothing usable was obtained.
+ *
+ * @remarks
+ * The key never arrives as a command-line argument: `argv` is readable by every
+ * process on the machine (`ps`, `/proc/<pid>/cmdline`) and lands in shell history.
+ * Precedence is `--from-env`, then a piped stdin, then an interactive prompt — a
+ * terminal echo, not a hidden one. Each failure says why on `stderr`.
+ */
+async function readApiKey(fromEnv?: string): Promise<string | null> {
+  if (fromEnv) {
+    const stored = process.env[fromEnv];
+    if (!stored || !stored.trim()) {
+      console.error(`Error: environment variable ${fromEnv} is not set`);
+      return null;
+    }
+    return stored.trim();
+  }
+
+  if (!process.stdin.isTTY) {
+    process.stdin.setEncoding('utf8');
+    let piped = '';
+    for await (const chunk of process.stdin) piped += chunk;
+    piped = piped.trim();
+    if (!piped) {
+      console.error('Error: no API key read from stdin');
+      return null;
+    }
+    return piped;
+  }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const typed = await new Promise<string>((resolve) => rl.question('API key: ', resolve));
+  rl.close();
+  if (!typed.trim()) {
+    console.error('Error: no API key entered');
+    return null;
+  }
+  return typed.trim();
+}
+
+/**
+ * CLI command handler for managing configuration.
+ *
+ * @param action - Optional action: show, set-vault, set-provider, set-base-url, set-api-key,
+ * unset-api-key, set-model.
+ * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
+ * @param options - Command options; `fromEnv` names the variable `set-api-key` reads.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
  * and process.exitCode = 5 on unexpected exceptions.
@@ -148,13 +201,19 @@ function saveConfig(config: PaleeConfig): void {
  * await configCommand('set-vault', '/Users/alex/Vault');
  * ```
  */
-async function configCommand(action?: string, value?: string): Promise<void> {
+async function configCommand(
+  action?: string,
+  value?: string,
+  options?: { fromEnv?: string }
+): Promise<void> {
   try {
     if (!action || action === 'show') {
       const config = loadConfig();
       console.log('PALEE Configuration:');
       console.log(`  Vault Path: ${config.vaultPath || '(not set)'}`);
       console.log(`  AI Provider: ${config.aiProvider || '(not set)'}`);
+      console.log(`  Base URL: ${config.baseUrl || '(not set)'}`);
+      console.log(`  API Key: ${config.apiKey ? '••••••••' : '(not set)'}`);
       console.log(`  Model: ${config.model || '(not set)'}`);
       return;
     }
@@ -199,6 +258,68 @@ async function configCommand(action?: string, value?: string): Promise<void> {
       return;
     }
 
+    if (action === 'set-base-url') {
+      if (!value) {
+        console.error('Error: base URL required');
+        process.exitCode = 2;
+        return;
+      }
+
+      let endpoint: URL;
+      try {
+        endpoint = new URL(value);
+      } catch {
+        console.error(`Error: not a valid URL: ${value}`);
+        process.exitCode = 2;
+        return;
+      }
+      if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') {
+        console.error(`Error: base URL must be http or https, got ${endpoint.protocol}`);
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = loadConfig();
+      config.baseUrl = value;
+      saveConfig(config);
+      console.log(`AI base URL set to: ${value}`);
+      return;
+    }
+
+    if (action === 'set-api-key') {
+      if (value) {
+        console.error('Error: the API key cannot be an argument — argv is readable by other processes and lands in shell history');
+        console.error('Run with --from-env VAR, pipe the key on stdin, or run with no input to be prompted');
+        process.exitCode = 2;
+        return;
+      }
+
+      const key = await readApiKey(options?.fromEnv);
+      if (key === null) {
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = loadConfig();
+      config.apiKey = key;
+      saveConfig(config);
+      console.log('API key stored. `palee config show` does not print it.');
+      return;
+    }
+
+    if (action === 'unset-api-key') {
+      const config = loadConfig();
+      if (config.apiKey === undefined) {
+        console.log('No API key is stored.');
+        return;
+      }
+
+      delete config.apiKey;
+      saveConfig(config);
+      console.log('API key removed.');
+      return;
+    }
+
     if (action === 'set-model') {
       if (!value) {
         console.error('Error: model name required');
@@ -214,7 +335,7 @@ async function configCommand(action?: string, value?: string): Promise<void> {
     }
 
     console.error(`Error: unknown action '${action}'`);
-    console.error('Valid actions: show, set-vault, set-provider, set-model');
+    console.error('Valid actions: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, set-model');
     process.exitCode = 2;
     return;
 
