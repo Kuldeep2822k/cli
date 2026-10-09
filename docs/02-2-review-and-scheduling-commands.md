@@ -230,10 +230,70 @@ Progress Summary:
 
 ---
 
-## 4. Exit Codes for Review & Scheduling Commands
+## 4. Four-Pillar Assessment (`palee assess`)
+
+`palee review` records recall quality; `palee assess` records competence. It writes pillar scores on a topic note, recomputes `topic_mastery`, and reports what that recompute did to the notes gated behind it. Because mastery is what opens a prerequisite gate, and `assess` is the only command that moves it (INV-37), it is also the only remedy a learner has for a gate they believe is wrong.
+
+### Command Syntax
+
+```bash
+palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]
+```
+
+### Arguments and Options
+
+| Argument / Option | Type | Valid Values | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `<topic>` | `string` | an exact `palee_id`, or a substring of one, or a case-insensitive fragment of a title | The topic being assessed. An exact ID wins outright, so a note called `T-math-2` cannot turn `T-math` into an ambiguity error. | `"Recursion"` |
+| `--conceptual <N>` | `number` | `0`..`1` | Understanding of the idea itself. | `0.8` |
+| `--practical <N>` | `number` | `0`..`1` | Ability to apply it. | `0.7` |
+| `--debug <N>` | `number` | `0`..`1` | Troubleshooting a broken case. | `0.6` |
+| `--feynman <N>` | `number` | `0`..`1` | Explaining it from memory, in your own words. Double-weighted; see the formula below. | `0.9` |
+
+At least one pillar option is required: `assess` with none exits `2` and prints the usage line rather than recomputing mastery from zeros. Each score must be a finite number in `0..1`; anything else exits `2`, naming the flag and the value received [src/cli/assess.ts#parsePillar](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/assess.ts).
+
+### Mastery Weighting and the `0.70` Gate
+
+```
+topic_mastery = (conceptual + practical + debug + 2 * feynman) / 5
+```
+
+rounded to four decimals [src/engine/mastery.ts#computeTopicMastery](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts), against `MASTERY_THRESHOLD = 0.7`.
+
+Feynman is the only double-weighted pillar, so the other three max out at `(1 + 1 + 1 + 0) / 5 = 0.60` and **cannot** reach the gate on their own. An assessment below the threshold that leaves `feynman` at `0` therefore prints the arithmetic and names `--feynman`, instead of reading as "your score was too low" (#260). The ceiling is read from the engine, not restated in the CLI, so the hint stops printing on its own if the weighting ever changes.
+
+### Pillars You Do Not Name
+
+A pillar you do not pass is **read, never rewritten**. Its stored value is taken as it stands, and an unusable stored score (a `feynman: 2`, say) is reported as an error and exits `2` rather than being clamped to `1` — a silent clamp would feed a mastery contribution nobody entered, which can open a gate [src/cli/assess.ts#readScoreRange](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/assess.ts). Only the pillars you pass, plus `topic_mastery` and `assessed_at` (an ISO timestamp), are written to the frontmatter. The summary marks each pillar it did not touch with `(unchanged)`.
+
+### What the Report Says About Other Notes
+
+Raising or lowering one note's mastery changes which of its dependents are ready, so the command reports the difference in availability — counting every other topic, never the note being assessed (dropping off the ready list on being mastered is the point of the call, not a lockout):
+
+```
+✓ Assessment recorded for Recursion (T-20260814T120000-abcd)
+  conceptual  0.8
+  practical   0.7 (unchanged)
+  debug       0.6
+  feynman     0.9
+  mastery     0.42 → 0.76
+  Mastered (≥ 0.70).
+  2 topic(s) newly offered by palee plan: T-trees, T-graphs
+```
+
+Lowering a score prints `N topic(s) are no longer offered by palee plan.`; when nothing crosses the boundary the line is `No topic changes availability; a dependent may gate on something else.`
+
+### Concurrency
+
+The note is re-read immediately before the write and its fingerprint compared. A note modified, moved or deleted in that window is an `ECONFLICT` — exit `4`, nothing written, re-run to retry — rather than a merge of two assessments.
+
+---
+
+## 5. Exit Codes for Review & Scheduling Commands
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee review` | Successfully recorded SM-2 review and calculated next interval and due date. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
+| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported. | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. | Unexpected runtime exception. |
 | `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |

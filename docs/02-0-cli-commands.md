@@ -60,7 +60,7 @@ flowchart TD
 
 ## Exit Code Contract (0 to 5)
 
-PALEE adheres to a strict, standardized exit code contract across all 11 commands. Automated CI/CD pipelines, shell scripts, and editor plugins can rely deterministically on these exit codes:
+PALEE adheres to a strict, standardized exit code contract across all 12 commands. Automated CI/CD pipelines, shell scripts, and editor plugins can rely deterministically on these exit codes:
 
 | Exit Code | Classification | Description | Typical Triggers |
 | :---: | :--- | :--- | :--- |
@@ -83,6 +83,7 @@ The following matrix documents the exact behavior of every command under each ex
 | `palee plan` | Successfully rendered topological daily study plan or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
 | `palee progress` | Successfully displayed vault progress metrics, topic detail (`--topic`), or empty vault state. | N/A | Unconfigured vault, or topic ID/title query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee review` | Successfully updated SM-2 interval, ease factor, repetition count, and `due_at`. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query (multiple matches). | N/A | Target note modified concurrently between prompt and write submission (`isConflictError`). | Atomic write failure or unexpected file system error. |
+| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the change in what `palee plan` offers reported. | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that cannot be read, topic not found, or ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between its read and its write (`isConflictError`); re-run to retry. | Unexpected runtime exception. |
 | `palee validate` | Vault validation passed with 0 structural errors. | N/A | Unconfigured or non-existent vault path. | Validation errors found (duplicate `palee_id`, missing `depends_on` target, or dependency cycle). | N/A | Unexpected runtime exception or directory walk failure. |
 | `palee roadmap` | Curriculum parsed, validated, and all topics created/updated on disk. | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from` argument, roadmap file not found, malformed structure (missing `topics`), or non-interactive stdin without `-y`. | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be on current schema (`palee_schema: 1`). | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | OCC mid-air collision or active file lock hit while writing a note during `migrate --fix`; remaining notes are still processed. | Unexpected runtime exception or YAML parse failure. |
