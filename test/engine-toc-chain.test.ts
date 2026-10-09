@@ -158,6 +158,76 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       }
     });
 
+    // Issue #287: the third walk #263 left standing. `destinationCannotClose` says so
+    // in its own docstring — the `<angle bracket>` branch closes on a `>` plus a plain
+    // `)`, so paren depth answers nothing about it and it stayed on the full walk. A
+    // README of stray angle brackets therefore restarts a scan of the rest of the file
+    // for every preceding `[`. Measured on the unfixed scanner, over
+    // `'[a](<b'.repeat(N) + ')'`: 2 500 → 119 ms, 5 000 → 444 ms, 10 000 → 4 746 ms.
+    // The bound is the same shape as the two above: far under the defect, far over the
+    // linearised scan. Note the second case holds both delimiters — the walk is
+    // unbounded when a `>` exists but no `)` follows it, which no single-character
+    // bail can see.
+    it('does not rescan every angle destination when none of them closes', () => {
+      for (const [label, text, expected] of [
+        ['no unescaped > at all', `${'[a](<b'.repeat(10000)})`, []],
+        ['a > with no ) after it', `${'[a](<b'.repeat(10000)})>`, []],
+        [
+          'real links on both sides of the junk',
+          `[L](d/l.md)\n${'[a](<b'.repeat(10000)}\n[ok](b.md)`,
+          ['d/l.md', 'b.md'],
+        ],
+      ] as const) {
+        const started = performance.now();
+        const targets = extractTocLinks(text)
+          .map((l) => l.destination)
+          .filter((d): d is string => d !== null);
+        const elapsed = performance.now() - started;
+        assert.ok(
+          elapsed < 250,
+          `${label}: took ${Math.round(elapsed)}ms, expected under 250ms — an angle destination scan is being repeated`
+        );
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the bound`);
+      }
+    });
+
+    // The bound above is a claim about a walk, and a claim about a walk can be wrong in
+    // the direction that silently changes which links exist. Pinned against the outputs
+    // captured from the unbounded scanner before any table was written, so a regression
+    // here is a semantic change wearing a performance fix.
+    it('answers angle closure from the table without changing what an angle destination means', () => {
+      const cases: Array<[string, Array<{ raw: string; dest: string | null; skip: string | null }>]> =
+        [
+          ['[a](<notes/b.md>)', [{ raw: 'notes/b.md', dest: 'notes/b.md', skip: null }]],
+          ['[a](<notes/my note.md>)', [{ raw: 'notes/my note.md', dest: 'notes/my note.md', skip: null }]],
+          ['[a](<notes/intro(v2).md>)', [{ raw: 'notes/intro(v2).md', dest: 'notes/intro(v2).md', skip: null }]],
+          ['[a](<notes/esc\\>right.md>)', [{ raw: 'notes/esc>right.md', dest: 'notes/esc>right.md', skip: null }]],
+          ['[a](<notes/a%20b.md>)', [{ raw: 'notes/a%20b.md', dest: 'notes/a b.md', skip: null }]],
+          ['[a](<notes/a.md#section>)', [{ raw: 'notes/a.md#section', dest: 'notes/a.md', skip: null }]],
+          ['[a](<>)', [{ raw: '', dest: null, skip: 'empty' }]],
+          ['[a](<b) [c](d.md)', [{ raw: 'd.md', dest: 'd.md', skip: null }]],
+          ['[a](<unterminated [b](c.md)', [{ raw: 'c.md', dest: 'c.md', skip: null }]],
+          ['[a](<b>', []],
+          ['[a](<b', []],
+          ['[a](<b)', []],
+          // The escaped `>` is data, so this destination never closes at all.
+          ['[a](<b\\>)', []],
+          ['[a](<<b.md>)', [{ raw: '<b.md', dest: '<b.md', skip: null }]],
+          ['[a](<b>.md)', [{ raw: 'b', dest: 'b', skip: null }]],
+          // Spaces the author wrote inside the brackets are data; the trim that
+          // removes them is `normalizeTocLink`'s, not the walk's.
+          ['[a](<  spaced.md  >)', [{ raw: '  spaced.md  ', dest: 'spaced.md', skip: null }]],
+        ];
+      for (const [text, expected] of cases) {
+        const got = extractTocLinks(text).map((l) => ({
+          raw: l.raw,
+          dest: l.destination,
+          skip: l.skip ?? null,
+        }));
+        assert.deepStrictEqual(got, expected, `${text} must resolve exactly as the unbounded walk did`);
+      }
+    });
+
     // The lineariser answers "can this label still close?" from one balance
     // pass instead of a walk per `[`, so the shapes that could fool such a
     // shortcut are pinned by output rather than by a clock. The first three are
@@ -242,6 +312,56 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.deepStrictEqual(
         links.map((l) => l.destination),
         ['a.md']
+      );
+    });
+
+    // Issue #284: the reasoning that blanks a fenced example — a link written to be
+    // read is not a link written to be followed — has never been applied to an HTML
+    // comment or an inline code span. Commenting an entry out of a Contents is a
+    // ordinary thing for an author to do, and the note it names really exists, so the
+    // chain kept collecting the edge the author had just withdrawn.
+    it('ignores a link inside an HTML comment, across lines too', () => {
+      assert.deepStrictEqual(
+        extractTocLinks('<!-- [a](notes/x.md) -->').map((l) => l.destination),
+        []
+      );
+      assert.deepStrictEqual(
+        extractTocLinks('<!--\n- [gone](notes/gone.md)\n-->\n- [live](notes/live.md)').map(
+          (l) => l.destination
+        ),
+        ['notes/live.md']
+      );
+      // A live entry sharing its line with a commented one still enumerates: the
+      // blank takes the comment's characters, not the line.
+      assert.deepStrictEqual(
+        extractTocLinks('- live [a](notes/a.md) <!-- old [b](notes/b.md) -->').map(
+          (l) => l.destination
+        ),
+        ['notes/a.md']
+      );
+    });
+
+    it('ignores a link inside an inline code span', () => {
+      assert.deepStrictEqual(
+        extractTocLinks('`[code](notes/c.md)`').map((l) => l.destination),
+        []
+      );
+      // The double-run form is the escape hatch for a name holding a backtick.
+      assert.deepStrictEqual(
+        extractTocLinks('``[code](notes/c.md)``').map((l) => l.destination),
+        []
+      );
+      // One *unterminated* delimiter blanks nothing, in either form. Over-reaching is
+      // the costlier failure: a pasted diff with a stray backtick would otherwise
+      // withdraw every real link after it, and a comment that is never closed is a
+      // document that stops mid-sentence, not an author's removal.
+      assert.deepStrictEqual(
+        extractTocLinks('unpaired ` tick\n- [live](notes/live.md)').map((l) => l.destination),
+        ['notes/live.md']
+      );
+      assert.deepStrictEqual(
+        extractTocLinks('<!-- [a](notes/x.md)').map((l) => l.destination),
+        ['notes/x.md']
       );
     });
 
