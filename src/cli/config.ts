@@ -358,6 +358,11 @@ async function configCommand(
     }
 
     if (action === 'test-connection') {
+      if (value) {
+        console.error('Error: test-connection takes no argument');
+        process.exitCode = 2;
+        return;
+      }
       // The one place a stored credential can prove itself. It sends the shortest
       // possible prompt and reports reachability, the URL actually called, which key
       // source won, and what came back — because a Phase-2 feature spending real tokens

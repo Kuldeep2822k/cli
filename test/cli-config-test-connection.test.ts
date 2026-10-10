@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -19,7 +19,10 @@ describe('CLI config test-connection (#24)', () => {
   let tempDir: string;
   let server: http.Server;
   let base = '';
-  const seen: string[] = [];
+  let seen: string[] = [];
+  // The status the loopback server answers with. Reset before every test so one case
+  // forcing a 401/500 cannot bleed into the next.
+  let responseStatus = 200;
 
   before(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-conn-'));
@@ -27,6 +30,11 @@ describe('CLI config test-connection (#24)', () => {
       seen.push(String(req.url));
       req.resume();
       req.on('end', () => {
+        if (responseStatus !== 200) {
+          res.writeHead(responseStatus, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'provider refused' } }));
+          return;
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({
           choices: [{ message: { content: 'OK' } }],
@@ -36,6 +44,14 @@ describe('CLI config test-connection (#24)', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  beforeEach(() => {
+    // Per-test capture: the success assertion below is `deepStrictEqual(seen, [...])`,
+    // which is only sound when `seen` starts empty for every test rather than relying on
+    // the three refusal cases above never reaching the socket.
+    seen = [];
+    responseStatus = 200;
   });
 
   after(async () => {
@@ -145,5 +161,40 @@ describe('CLI config test-connection (#24)', () => {
       if (previous === undefined) delete process.env.PALEE_API_KEY;
       else process.env.PALEE_API_KEY = previous;
     }
+  });
+
+  test('a 401 from the provider is a credential usage error (2), not an unexpected crash (5)', async () => {
+    const configDir = freshConfigDir();
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-bad' })
+    );
+    responseStatus = 401;
+    const result = await run(['test-connection'], configDir);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.deepStrictEqual(seen, ['/v1/chat/completions']);
+  });
+
+  test('a 500 from the provider stays an unexpected error (5)', async () => {
+    const configDir = freshConfigDir();
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-ok' })
+    );
+    responseStatus = 500;
+    const result = await run(['test-connection'], configDir);
+    assert.strictEqual(result.status, 5, `${result.stdout}${result.stderr}`);
+    assert.deepStrictEqual(seen, ['/v1/chat/completions']);
+  });
+
+  test('a stray positional is a usage error (2) and nothing is sent to the network', async () => {
+    const configDir = freshConfigDir();
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-ok' })
+    );
+    const result = await run(['test-connection', 'foo'], configDir);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.deepStrictEqual(seen, []);
   });
 });

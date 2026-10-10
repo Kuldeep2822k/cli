@@ -494,6 +494,12 @@ export class OpenAICompatibleProvider {
   /** One HTTP round trip. No retry logic lives here. */
   private async attempt(request: ChatRequest): Promise<ChatReply> {
     const { apiKey } = this.settings;
+    // The model name is checked at resolution; the key is checked here, where it is
+    // consumed. A pasted trailing newline or other control character would otherwise go
+    // straight into the Authorization header and surface as an opaque transport error.
+    if (apiKey !== undefined && !isSendable(apiKey)) {
+      throw new ProviderError('config', 'API key contains characters that cannot be sent to a provider');
+    }
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
 
@@ -509,6 +515,10 @@ export class OpenAICompatibleProvider {
     // manager's own API rather than in something a remote reply can steer.
 
     const controller = new AbortController();
+    // Honour a signal that was already aborted when the call began: the listener below
+    // only fires on a *transition* to aborted, so without this the request would be sent
+    // and run the full timeout before being reported as cancelled.
+    if (this.callerSignal?.aborted) controller.abort();
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -717,13 +727,21 @@ function extractFinishReason(value: Record<string, unknown>): string | undefined
 function extractUsage(value: Record<string, unknown>): UsageCounts | undefined {
   const usage = value.usage as Record<string, unknown> | undefined;
   if (!usage) return undefined;
+  let parsedAny = false;
   const number = (key: string): number => {
     const raw = usage[key];
-    return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      parsedAny = true;
+      return raw;
+    }
+    return 0;
   };
-  return {
+  const counts = {
     promptTokens: number('prompt_tokens'),
     completionTokens: number('completion_tokens'),
     totalTokens: number('total_tokens'),
   };
+  // A usage object whose fields are all missing or non-numeric is not "zero tokens"; it is
+  // no accounting at all. Returning zeros there would hand callers a counterfeit total.
+  return parsedAny ? counts : undefined;
 }

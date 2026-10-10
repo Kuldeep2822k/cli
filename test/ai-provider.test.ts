@@ -271,6 +271,26 @@ describe('provider request shape (#24)', () => {
     assert.ok(!('authorization' in calls[0].headers), 'a local server is not sent an empty bearer');
   });
 
+  test('a key carrying a control character is a config error, and nothing is sent', async () => {
+    // A pasted trailing newline or an embedded control byte would otherwise land in the
+    // Authorization header and come back as an opaque transport "network" error. It is a
+    // configuration problem, named as one, before any socket is opened.
+    for (const bad of [`${KEY}\n`, `${KEY}\x01more`]) {
+      const { transport, calls } = recorder(() => completion('ok'));
+      const p = new OpenAICompatibleProvider(settings({ apiKey: bad }), { transport });
+      await assert.rejects(
+        () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
+        (err: unknown) => {
+          assert.ok(err instanceof ProviderError && err.kind === 'config');
+          assert.ok(!err.message.includes(bad), 'the key must not be echoed');
+          assert.ok(!err.message.includes(KEY), 'not even the valid prefix of the key');
+          return true;
+        }
+      );
+      assert.strictEqual(calls.length, 0, 'a malformed key never reaches the wire');
+    }
+  });
+
   test('INV-37: no tool or function surface is ever sent', async () => {
     const { p, calls } = providerFor(() => completion('{"a":1}'));
     await p.complete({ messages: [{ role: 'user', content: 'json please' }], expectJson: true });
@@ -430,6 +450,23 @@ describe('provider reply handling (#24)', () => {
       () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
       (err: unknown) => err instanceof ProviderError && err.kind === 'schema' && /ran out of tokens/.test(err.message)
     );
+  });
+
+  test('an empty or absent choices array is the "no content" schema failure, not the empty-string one', async () => {
+    // Distinct from the empty-string branch above: there a choice exists and its content is
+    // '', here no choice (or no choices key) is present at all, so extraction returns
+    // undefined and the adapter must name that rather than report an empty message.
+    for (const payload of [{ choices: [] }, {}]) {
+      const { p } = providerFor(() => jsonResponse(payload));
+      await assert.rejects(
+        () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
+        (err: unknown) => {
+          assert.ok(err instanceof ProviderError && err.kind === 'schema');
+          assert.match(err.message, /no assistant message content/);
+          return true;
+        }
+      );
+    }
   });
 
   test('a non-2xx keeps its status and truncates the body safely', async () => {

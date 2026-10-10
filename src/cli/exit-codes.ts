@@ -53,6 +53,12 @@ export function exitCodeFor(error: unknown): 2 | 3 | 4 | 5 {
     // or the provider refused, is the I/O class (5).
     if (error.kind === 'config') return ExitCode.Usage;
     if (error.kind === 'schema') return ExitCode.Validation;
+    // A 401/403 is a user-fixable credential problem, not a crash: `status` is carried
+    // precisely so it can be told apart from a 5xx or an unreachable endpoint, both of
+    // which stay in the I/O class (5).
+    if (error.kind === 'provider' && (error.status === 401 || error.status === 403)) {
+      return ExitCode.Usage;
+    }
     return ExitCode.Unexpected;
   }
   return ExitCode.Unexpected;
