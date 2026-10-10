@@ -162,8 +162,22 @@ describe('CLI Adopt Batch Integration Tests', () => {
     // complained about the directory that was never asked for.
     const result = runCLI(['adopt', 'MODULES/02-linux/rubric.md', '--all', '--yes']);
     assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
-    assert.match(result.stderr, /is a file; drop --all/);
+    assert.match(result.stderr, /--all adopts every note under a directory/);
+    assert.match(result.stderr, /drop --all/);
     assert.doesNotMatch(result.stderr, /Expected directory path/);
+  });
+
+  test('palee adopt --all on a non-markdown file names the --all mismatch, not the extension', () => {
+    // With `--all` the fault is file-vs-directory, whatever the extension — a `.txt`
+    // path here used to report "Not a markdown note", hiding the flag the user misused.
+    const dir = path.join(vaultDir, 'TXT');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'plain text, not a note\n');
+
+    const result = runCLI(['adopt', 'TXT/notes.txt', '--all', '--yes']);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /--all adopts every note under a directory/);
+    assert.doesNotMatch(result.stderr, /Not a markdown note/);
   });
 
   test('palee adopt <directory> scopes adoption strictly and resolves titles with fallbacks', () => {

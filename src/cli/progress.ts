@@ -63,9 +63,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     if (!vaultPath) return;
 
     const loaded = loadTopics(vaultPath);
-    const topics: ProgressTopic[] = loaded.map(toProgressTopic);
 
-    if (topics.length === 0 && !options.topic) {
+    if (loaded.length === 0 && !options.topic) {
       if (jsonMode) {
         console.log(JSON.stringify({
           active_topic_count: 0,
@@ -166,6 +165,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         console.log(`Last Reviewed: ${formatted}`);
       }
     } else {
+      // Only the aggregate path needs every topic projected; the `--topic` branch
+      // above reports a single resolved topic and never touches this array.
+      const topics: ProgressTopic[] = loaded.map(toProgressTopic);
       const activeTopics = topics.filter(t => t.status !== 'archived');
       const archivedTopics = topics.filter(t => t.status === 'archived');
 
