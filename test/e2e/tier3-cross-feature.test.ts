@@ -290,8 +290,13 @@ topics:
     fs.writeFileSync(notePath, '# Fault Topic\nContent.', 'utf8');
     env.run(['adopt', 'fault-topic.md', '--yes']);
 
+    // #302: `session` resolves `--topic` against the vault, so the lifecycle names
+    // the ID `adopt` actually minted rather than the file's slug.
+    const adoptedId = env.readTopic('fault-topic.md').frontmatter?.palee_id as string;
+    assert.ok(adoptedId, 'adopt must mint a palee_id for the note');
+
     // 2. Create draft
-    env.run(['session', 'draft', '--topic', 'fault-topic']);
+    env.run(['session', 'draft', '--topic', adoptedId]);
 
     // 3. Corrupt the draft file
     const draftName = env.listSessions().drafts[0];
@@ -299,7 +304,7 @@ topics:
     fs.writeFileSync(draftPath, '---\ninvalid: [ YAML error\n---\n# Corrupt draft\n', 'utf8');
 
     // 4. Session end succeeds regardless of corrupt draft
-    const endRes = env.run(['session', 'end', '--topic', 'fault-topic']);
+    const endRes = env.run(['session', 'end', '--topic', adoptedId]);
     assert.strictEqual(endRes.status, 0);
 
     const sessions = env.listSessions();

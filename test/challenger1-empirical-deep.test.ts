@@ -281,6 +281,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       );
 
       // 2. End session on topic T-midnight
+      // #302: `session end` resolves `--topic` against the vault, so the topic the
+      // draft checkpoint belongs to has to be an adopted note.
+      env.createTopics(['T-45min']);
       const result = runPaleeCli(['session', 'end', '--topic', 'T-45min'], env.configDir);
       assert.strictEqual(result.status, 0, `CLI failed with: ${result.stderr}`);
 

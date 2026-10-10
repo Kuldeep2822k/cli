@@ -24,11 +24,12 @@ A session represents an active period of study focused on a single PALEE topic. 
 
 ### Topic Resolution Hierarchy
 
-When running commands that require an active study target (`draft`, `end`), PALEE resolves the target topic using a strict three-tier hierarchy via `resolveSessionTopic()` [src/cli/session.ts#24-54](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L24-L54):
+When running commands that require an active study target (`start`, `draft`, `end`), PALEE resolves the target topic with `resolveSessionTopicResolution()` [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts):
 
-1. **CLI Flag Override**: Explicitly specified via `--topic <id>` (e.g. `--topic "T-rust-ownership"`).
-2. **Working Memory Inspection**: Extracted from the `active_topic` frontmatter property of `.palee/hot.md`.
-3. **Missing Topic Error**: If neither is present or the value is `(none)`, the command terminates with exit code `2`.
+1. **CLI Flag Resolution**: An explicit `--topic <query>` is resolved against the vault through the shared `resolveTopicQuery` resolver that `review` and `assess` use — an exact `palee_id` wins outright, otherwise a partial ID or case-insensitive title substring must match exactly one topic. The session is then recorded against that topic's canonical `palee_id`, never the raw argument (#302).
+2. **Sentinel**: A `--topic` of `(none)` (whitespace tolerated) means "no topic" and is not looked up.
+3. **Working Memory Inspection**: With no flag, the target is the `active_topic` frontmatter property of `.palee/hot.md`. That value is not re-resolved: `hot.md` is canonical, and refusing to end a session because its note was renamed or deleted since the session started would discard recorded work.
+4. **Refusal**: A `--topic` that matches no topic, or matches several, terminates with exit code `2` and lists the candidates (the same refusal `review` gives for the identical string). A `draft`/`end` with neither a flag nor an active topic terminates with exit code `2` as before.
 
 ---
 
@@ -96,7 +97,7 @@ palee session start --json
 
 ### 2. `palee session draft`
 Captures an interim checkpoint during an ongoing study session without closing the session:
-- Resolves the study topic (`--topic` or active topic from `hot.md`).
+- Resolves the study topic against the vault (`--topic` resolved via `resolveTopicQuery`, or the active topic from `hot.md`) and exits `2` when the flag names no single topic.
 - Inherits the `started_at` timestamp from active hot memory if available, or records current timestamp.
 - Generates a unique draft identifier (`DRAFT-S-<random_hex>`).
 - Persists a draft markdown file in `.palee/sessions/` containing `topic_id`, `started_at`, and `status: 'draft'`.
@@ -111,7 +112,7 @@ palee session draft --topic "T-20260814T120000-abcd"
 
 ### 3. `palee session end`
 Concludes the study period, calculates actual elapsed time, and formalizes the session:
-- Resolves the target topic ID (via `--topic` or `hot.md`).
+- Resolves the target topic ID against the vault (via `--topic` or `hot.md`) and exits `2` when the flag names no single topic, before any session note is written.
 - **3-Tier Start Timestamp Recovery Algorithm**:
   - **Tier 1 (Topic Draft Checkpoints)**: Queries `getTopicDrafts(vaultPath, topicId)` for active drafts matching the topic, sorting chronologically to recover the earliest `started_at`.
   - **Tier 2 (Active Working Memory)**: Reads `started_at` from `.palee/hot.md` if `active_topic` matches the session topic.
@@ -155,7 +156,7 @@ The following table lists all supported arguments and options for `palee session
 | :--- | :--- | :--- | :--- | :--- |
 | `<action>` | `string` | **Required** | Session action to perform: `start`, `draft`, `end`, or `list`. | `palee session start` |
 | `-i, --interactive` | `boolean` | `false` | Enable interactive prompt mode for draft recovery during `palee session start`. | `palee session start -i` |
-| `--topic <id>` | `string` | `undefined` | Target topic ID. Overrides the `active_topic` defined in `.palee/hot.md`. | `palee session end --topic "T-01"` |
+| `--topic <query>` | `string` | `undefined` | Target topic, resolved against the vault like `review`'s argument: an exact `palee_id`, or a unique ID/title substring. Overrides the `active_topic` defined in `.palee/hot.md`; `(none)` selects no topic. | `palee session end --topic "T-01"` |
 | `--json` | `boolean` | `false` | Output results as structured JSON (supported for `palee session start` and `palee session list`). | `palee session start --json` |
 
 ---
@@ -191,4 +192,4 @@ All session metadata is isolated within the `.palee/` directory at the vault roo
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee session` | Session action (`start`, `draft`, `end`, `list`) completed successfully. | N/A | Vault path not configured, missing `--topic` for `draft`/`end` when no active topic exists, unconfirmed drafts blocking non-interactive `session start`, or unknown action specified. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or storage boundary violation error. |
+| `palee session` | Session action (`start`, `draft`, `end`, `list`) completed successfully. | N/A | Vault path not configured, a `--topic` that resolves to no topic or to several (every candidate is listed), missing `--topic` for `draft`/`end` when no active topic exists, unconfirmed drafts blocking non-interactive `session start`, or unknown action specified. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or storage boundary violation error. |
