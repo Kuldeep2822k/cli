@@ -126,6 +126,47 @@ describe('File Locking', () => {
     lock2.release();
   });
 
+  test('dead-process lock on this host is reclaimed before STALE_TIMEOUT', async () => {
+    // Simulate a holder that crashed without releasing: a lock file recorded on
+    // THIS host whose PID no longer exists. The same-host liveness probe should
+    // treat it as stale immediately, without waiting out STALE_TIMEOUT.
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+    const lockPath = lock1.lockPath;
+
+    const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
+    const lockFile = path.join(lockPath, files[0]);
+    const original = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+
+    // Find a PID that is not running, using the same signal-0 check the
+    // implementation relies on.
+    let deadPid = 999999;
+    for (let candidate = 999999; candidate > 1; candidate--) {
+      try {
+        process.kill(candidate, 0);
+      } catch (e) {
+        if ((e as NodeError).code === 'ESRCH') { deadPid = candidate; break; }
+      }
+    }
+
+    // Rewrite the lock file: current hostname, a dead PID, and a FRESH mtime so
+    // only the liveness probe — not the timeout — can mark it stale.
+    const stale = { ...original, pid: deadPid, hostname: os.hostname() };
+    fs.writeFileSync(lockFile, JSON.stringify(stale, null, 2), 'utf8');
+    const now = new Date();
+    fs.utimesSync(lockFile, now, now);
+
+    // A second acquisition must take over the dead holder's lock immediately.
+    const lock2 = new Lock(testVaultPath, testFilePath);
+    await lock2.acquire();
+
+    const newLockData = getLockData(lockPath);
+    assert.strictEqual(newLockData.pid, process.pid);
+    assert.notStrictEqual(newLockData.lock_id, stale.lock_id);
+
+    lock2.release();
+  });
+
   test('stale timeout is platform-specific', () => {
     if (process.platform === 'win32') {
       assert.strictEqual(STALE_TIMEOUT, 60000); // 60s on Windows
