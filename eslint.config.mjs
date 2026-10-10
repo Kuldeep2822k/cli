@@ -40,7 +40,7 @@ export default tseslint.config(
     // rule off repo-wide, so `npm run lint` passed on any input. Re-armed for
     // shipped code only — `test/` keeps it off deliberately, where `any` is
     // the pragmatic way to reach into a parsed-frontmatter fixture.
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'bin/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error'
     }
