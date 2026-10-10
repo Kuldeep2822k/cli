@@ -163,18 +163,20 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // `)`, so paren depth answers nothing about it and it stayed on the full walk. A
     // README of stray angle brackets therefore restarts a scan of the rest of the file
     // for every preceding `[`. Measured on the unfixed scanner, over
-    // `'[a](<b'.repeat(N) + ')'`: 2 500 → 119 ms, 5 000 → 444 ms, 10 000 → 4 746 ms.
-    // The bound is the same shape as the two above: far under the defect, far over the
-    // linearised scan. Note the second case holds both delimiters — the walk is
+    // `'[a](<b'.repeat(N) + ')'`: 2 500 → 119 ms, 5 000 → 444 ms, 10 000 → 4 746 ms,
+    // ~quadratic in N, so 20 000 → ~19 s. 10 000 cleared the defect by only ~2.4x of
+    // the 2000 ms bound — too thin a margin against a fast runner that could race a
+    // regressed walk under the clock — so this uses 20 000 to match the ~9x headroom the
+    // two guards above keep. Note the second case holds both delimiters — the walk is
     // unbounded when a `>` exists but no `)` follows it, which no single-character
     // bail can see.
     it('does not rescan every angle destination when none of them closes', () => {
       for (const [label, text, expected] of [
-        ['no unescaped > at all', `${'[a](<b'.repeat(10000)})`, []],
-        ['a > with no ) after it', `${'[a](<b'.repeat(10000)})>`, []],
+        ['no unescaped > at all', `${'[a](<b'.repeat(20000)})`, []],
+        ['a > with no ) after it', `${'[a](<b'.repeat(20000)})>`, []],
         [
           'real links on both sides of the junk',
-          `[L](d/l.md)\n${'[a](<b'.repeat(10000)}\n[ok](b.md)`,
+          `[L](d/l.md)\n${'[a](<b'.repeat(20000)}\n[ok](b.md)`,
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
