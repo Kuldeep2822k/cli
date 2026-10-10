@@ -76,21 +76,26 @@ describe('SM-2 Algorithm', () => {
   });
 
   test('ease_factor is clamped to minimum 1.3', () => {
-    // Quality 0 gives large negative delta
+    // Quality 0 gives a -0.8 delta: 1.3 - 0.8 = 0.5, clamped up to exactly 1.3.
     const result = processReview(
       { ease_factor: 1.3, interval_days: 1, repetition: 0 },
       0
     );
-    assert.ok(result.ease_factor! >= 1.3);
+    assert.strictEqual(result.ease_factor, 1.3);
   });
 
   test('ease_factor is rounded to 4 decimals', () => {
+    // Start from an ease with 6 decimals so the raw post-review value also has
+    // more than 4, forcing the rounding path. q=5 applies a +0.1 delta:
+    //   raw = 2.456789 + 0.1 = 2.556789
+    //   round-half-up to 4 dp = 2.5568  (computed by hand from the SM-2 formula,
+    //   NOT by calling the implementation's rounding helper).
+    // Deleting the rounding step would leave 2.556789 and fail this assertion.
     const result = processReview(
-      { ease_factor: 2.5, interval_days: 1, repetition: 0 },
-      4
+      { ease_factor: 2.456789, interval_days: 1, repetition: 0 },
+      5
     );
-    const decimals = result.ease_factor!.toString().split('.')[1] || '';
-    assert.ok(decimals.length <= 4);
+    assert.strictEqual(result.ease_factor, 2.5568);
   });
 
   test('ease_factor delta formula matches spec', () => {
