@@ -179,9 +179,17 @@ function formatLocalDateOnly(date: Date): string {
  * Computes a target review due date by advancing calendar days in the local timezone.
  *
  * @remarks
- * Performs calendar arithmetic in the local timezone to avoid daylight saving shift discrepancies.
+ * Performs calendar arithmetic in the local timezone to avoid daylight saving shift
+ * discrepancies; `agent.md` requires that this stay local `setDate` math rather than
+ * UTC millisecond arithmetic.
  *
- * @param fromDate - Starting baseline date, ISO string, or timestamp
+ * Two baselines are supported: a `Date` (what `review` passes), and a **date-only**
+ * `YYYY-MM-DD` string, read as a local calendar day. Any other string is parsed as an
+ * instant, so west of UTC its local calendar day can be the one *before* the stamped
+ * date and the result lands a day early. Epoch numbers are excluded for that reason —
+ * a bare millisecond count has no local calendar day to advance.
+ *
+ * @param fromDate - Local baseline: a `Date`, or a date-only `YYYY-MM-DD` string
  * @param days - Number of calendar days to advance
  * @returns Resulting due Date object
  *
@@ -190,7 +198,7 @@ function formatLocalDateOnly(date: Date): string {
  * const dueDate = computeDueDate('2026-08-20', 6);
  * ```
  */
-function computeDueDate(fromDate: Date | string | number, days: number): Date {
+function computeDueDate(fromDate: Date | string, days: number): Date {
   let due: Date;
   if (typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate.trim())) {
     const [year, month, day] = fromDate.trim().split('-').map(Number);

@@ -146,4 +146,24 @@ describe('SM-2 Algorithm', () => {
     assert.strictEqual(due.getMonth(), 0);
     assert.strictEqual(due.getDate(), 1);
   });
+
+  test('computeDueDate treats a Date and a date-only string as the same local day', () => {
+    // The contract #341 puts in writing: both accepted baselines resolve to a local
+    // calendar day, so the schedule cannot shift depending on which form the caller
+    // happened to hold. A full ISO string or epoch number has no such guarantee,
+    // which is why they are not part of the signature.
+    const fromObject = computeDueDate(new Date(2026, 7, 20), 6);
+    const fromString = computeDueDate('2026-08-20', 6);
+    assert.strictEqual(fromObject.getFullYear(), fromString.getFullYear());
+    assert.strictEqual(fromObject.getMonth(), fromString.getMonth());
+    assert.strictEqual(fromObject.getDate(), fromString.getDate());
+  });
+
+  test('computeDueDate takes no epoch-number baseline', () => {
+    // `new Date(1700000000000)` is a UTC instant, and its local calendar day can be
+    // the day before the stamped one west of UTC. Excluded at the type level rather
+    // than normalized, because no caller or test ever passed one.
+    // @ts-expect-error - fromDate accepts Date | string only
+    computeDueDate(1_700_000_000_000, 1);
+  });
 });
