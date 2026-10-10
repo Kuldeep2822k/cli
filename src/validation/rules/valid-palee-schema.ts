@@ -8,24 +8,19 @@
  * and mutations can refuse to touch it. Notes that are not PALEE-managed
  * (no identity keys) are never reported.
  *
- * A note is managed when a managed identity KEY is present, regardless of
- * its value type: `palee_id: 123` is malformed PALEE identity data, not a
- * user note, so it must still fail schema validation rather than bypass it.
+ * A note is managed when the SHARED predicate (`src/validation/managed-note.ts`,
+ * #324) says so: a managed identity KEY is present (`palee_id`/`session_id`/
+ * `memory_id`) or it carries `type: "session_index"` — regardless of the key's
+ * value type. `palee_id: 123` is malformed PALEE identity data, not a user
+ * note, so it must still fail schema validation rather than bypass it. The
+ * bare `palee_schema` marker alone is NOT managed here: a schema-only note has
+ * no identity, and #324 aligns this rule with the topic-id and kind rules on a
+ * single definition so they can never disagree about what is managed.
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
-
-/**
- * Identity keys that mark a note as PALEE-managed regardless of kind.
- *
- * @remarks Topic notes carry `palee_id`; session notes carry `session_id`;
- * hot memory carries `memory_id`; the session index carries
- * `type: "session_index"`. Anything else is user-owned data. Presence of
- * the key — not its type — marks the note as managed: malformed identity
- * values are still PALEE's data and must not slip past schema validation.
- */
-const MANAGED_KEYS = ['palee_id', 'session_id', 'memory_id'];
+import { isManagedNote } from '../managed-note';
 
 /** Reports managed notes with missing or unsupported schema versions. */
 export const validPaleeSchemaRule: ValidationRule = {
@@ -40,10 +35,7 @@ export const validPaleeSchemaRule: ValidationRule = {
       if (note.parseError !== undefined || note.frontmatter === null) continue;
       const fm = note.frontmatter as Record<string, unknown>;
 
-      const isManaged =
-        MANAGED_KEYS.some((key) => Object.hasOwn(fm, key)) ||
-        fm.type === 'session_index';
-      if (!isManaged) continue;
+      if (!isManagedNote(fm)) continue;
 
       const actual = fm.palee_schema;
       if (actual === undefined || actual === null) {

@@ -204,25 +204,22 @@ describe('valid-topic-id-format rule (#29)', () => {
     assert.strictEqual(issues[0].details?.actual, 123);
   });
 
-  test('absent palee_id on a schema-marked topic note is an error (CodeRabbit #159)', () => {
-    // #29 acceptance criteria: "missing or non-string IDs fail for topic
-    // notes." The old gate skipped notes without the palee_id KEY, so a
-    // topic note whose ID was entirely absent passed validation — the
-    // exact malformed record the rule exists to catch. Eligibility must
-    // come from managed markers (palee_schema here), never from the
-    // validated key itself.
+  test('palee_schema-only note is NOT a topic note — no id-format error (#324)', () => {
+    // #29 acceptance is "missing or non-string IDs fail for TOPIC notes".
+    // A note declaring only `palee_schema` (no `palee_id` key at all) has no
+    // identity to judge, so it is not a topic note. The old gate keyed topic
+    // eligibility on `palee_schema` presence, which reported this note as a
+    // malformed topic ID — a false-positive error that failed the vault at
+    // exit 3 (#324). Eligibility now comes from the shared managed-note
+    // predicate (`src/validation/managed-note.ts`): identity key present. The
+    // note is surfaced once, as the kind rule's warning, not as an error here.
+    // A malformed/absent `palee_id` VALUE on an ELIGIBLE note is still caught
+    // (see the null/blank/numeric cases below).
     const context = makeContext({
       notes: [makeNote({ relativePath: 'absent.md', frontmatter: { palee_schema: 1, title: 'No ID' } })],
     });
 
-    const issues = validTopicIdFormatRule.run(context);
-
-    assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-id-format');
-    assert.strictEqual(issues[0].file, 'absent.md');
-    assert.strictEqual(issues[0].field, 'palee_id');
-    assert.strictEqual(issues[0].details?.actual, undefined);
-    assert.strictEqual(issues[0].topicId, undefined, 'no topicId to attach when the key is absent');
+    assert.deepStrictEqual(validTopicIdFormatRule.run(context), []);
   });
 
   test('schema-marked session note without palee_id stays out of scope', () => {
