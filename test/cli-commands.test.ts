@@ -89,11 +89,11 @@ describe('CLI Commands', () => {
   });
 
   test('roadmap command preserves existing state and prevents path traversal', () => {
-    // 1. Create a roadmap yaml with R-1 only, import it successfully first
+    // 1. Create a roadmap yaml with T-first only, import it successfully first
     const roadmapYaml = path.join(tempDir, 'roadmap.yaml');
     fs.writeFileSync(roadmapYaml, `
 topics:
-  - id: R-1
+  - id: T-first
     title: First
     path: first.md
 `);
@@ -101,7 +101,7 @@ topics:
     const importResult = runCLI(['roadmap', '--from', roadmapYaml, '--yes']);
     assert.strictEqual(importResult.status, 0, `Initial import should succeed. Stderr: ${importResult.stderr}`);
 
-    // R-1 should exist
+    // T-first should exist
     const firstPath = path.join(vaultDir, 'first.md');
     assert.ok(fs.existsSync(firstPath));
 
@@ -109,10 +109,10 @@ topics:
     const traversalYaml = path.join(tempDir, 'traversal-roadmap.yaml');
     fs.writeFileSync(traversalYaml, `
 topics:
-  - id: R-1
+  - id: T-first
     title: First
     path: first.md
-  - id: R-2
+  - id: T-traversal
     title: Traversal
     path: ../escaped.md
 `);
@@ -122,7 +122,7 @@ topics:
     assert.strictEqual(traversalResult.status, 3, `Path traversal must fail at validation (exit 3). Got: ${traversalResult.status}`);
     assert.match(traversalResult.stderr, /escapes vault/);
 
-    // 3. Modify R-1 state manually to simulate a review
+    // 3. Modify T-first state manually to simulate a review
     let content = fs.readFileSync(firstPath, 'utf8');
     let parsed = parseFrontmatter(content);
     parsed.frontmatter!.topic_mastery = 0.8;
@@ -135,7 +135,7 @@ topics:
     // 4. Run roadmap import again with a valid roadmap to verify state preservation
     fs.writeFileSync(roadmapYaml, `
 topics:
-  - id: R-1
+  - id: T-first
     title: First Modified
     path: first.md
 `);
@@ -159,7 +159,7 @@ topics:
     const dotYaml = path.join(tempDir, 'dot-path-roadmap.yaml');
     fs.writeFileSync(dotYaml, `
 topics:
-  - id: R-dot
+  - id: T-dot-path
     title: Dot Path
     path: .md
 `);
@@ -181,7 +181,7 @@ topics:
     const hiddenYaml = path.join(tempDir, 'hidden-path-roadmap.yaml');
     fs.writeFileSync(hiddenYaml, `
 topics:
-  - id: R-hidden
+  - id: T-hidden-path
     title: Hidden
     path: notes/.draft.md
 `);
@@ -201,7 +201,7 @@ topics:
       fs.writeFileSync(mdFrontmatterRoadmap, `---
 title: Fullstack Path
 topics:
-  - id: R-md-1
+  - id: T-md-1
     title: TypeScript Advanced
     path: ts-advanced.md
     difficulty: advanced
@@ -218,7 +218,7 @@ Detailed notes here...
       const tsNotePath = path.join(mdVault, 'ts-advanced.md');
       assert.ok(fs.existsSync(tsNotePath));
       const tsParsed = parseFrontmatter(fs.readFileSync(tsNotePath, 'utf8'));
-      assert.strictEqual(tsParsed.frontmatter!.palee_id, 'R-md-1');
+      assert.strictEqual(tsParsed.frontmatter!.palee_id, 'T-md-1');
       assert.strictEqual(tsParsed.frontmatter!.difficulty, 'advanced');
 
       // 2. Test embedded YAML codeblock roadmap in Markdown
@@ -227,11 +227,11 @@ Detailed notes here...
 
 \`\`\`yaml
 topics:
-  - id: R-md-2
+  - id: T-md-2
     title: Serverless Microservices
     path: cloud/serverless.md
     difficulty: intermediate
-    depends_on: [R-md-1]
+    depends_on: [T-md-1]
 \`\`\`
 `);
 
@@ -242,8 +242,8 @@ topics:
       const cloudNotePath = path.join(mdVault, 'cloud', 'serverless.md');
       assert.ok(fs.existsSync(cloudNotePath));
       const cloudParsed = parseFrontmatter(fs.readFileSync(cloudNotePath, 'utf8'));
-      assert.strictEqual(cloudParsed.frontmatter!.palee_id, 'R-md-2');
-      assert.deepStrictEqual(cloudParsed.frontmatter!.depends_on, ['R-md-1']);
+      assert.strictEqual(cloudParsed.frontmatter!.palee_id, 'T-md-2');
+      assert.deepStrictEqual(cloudParsed.frontmatter!.depends_on, ['T-md-1']);
     } finally {
       // Restore vaultDir
       runCLI(['config', 'set-vault', vaultDir]);
@@ -262,14 +262,14 @@ topics:
 
       const batchRoadmap = path.join(tempDir, 'corrupt-note-roadmap.yaml');
       fs.writeFileSync(batchRoadmap, `topics:
-  - id: R-valid-1
+  - id: T-valid-first
     title: First Valid Note
     path: valid1.md
     difficulty: beginner
-  - id: R-corrupted
+  - id: T-corrupted
     title: Corrupted Note Topic
     path: corrupted.md
-  - id: R-valid-2
+  - id: T-valid-second
     title: Second Valid Note
     path: valid2.md
     difficulty: intermediate
@@ -277,7 +277,7 @@ topics:
 
       const result = runCLI(['roadmap', '--from', batchRoadmap, '--yes']);
       assert.strictEqual(result.status, 1, `Expected exit code 1 on partial failure, got ${result.status}. Stderr: ${result.stderr}`);
-      assert.match(result.stderr, /Failed R-corrupted \(corrupted\.md\)/);
+      assert.match(result.stderr, /Failed T-corrupted \(corrupted\.md\)/);
       assert.match(result.stderr, /Malformed frontmatter/);
       assert.match(result.stderr, /Failed to import 1 topics/);
 
@@ -290,8 +290,8 @@ topics:
   });
 
   test('review command updates SM2 fields but preserves mastery', () => {
-    // Review R-1
-    const result = runCLI(['review', 'R-1', '4']);
+    // Review T-first
+    const result = runCLI(['review', 'T-first', '4']);
     assert.strictEqual(result.status, 0, `Command should exit with 0. Stderr: ${result.stderr}`);
 
     const firstPath = path.join(vaultDir, 'first.md');
