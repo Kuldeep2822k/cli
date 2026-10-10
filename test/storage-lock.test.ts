@@ -48,6 +48,14 @@ describe('File Locking', () => {
     const lockData = getLockData(lockPath);
     assert.ok(lockData);
     assert.ok(lockData.lock_id.startsWith('L-'));
+    // #356: the id must carry the full 4 bytes (8 hex chars) of entropy, not a
+    // narrower suffix — two locks minted in the same second are separated by this
+    // alone, exactly as the session id is.
+    assert.match(
+      lockData.lock_id,
+      /^L-\d{8}T\d{6}-[0-9a-f]{8}$/,
+      `lock id must be L-<timestamp>-<8 hex>: ${lockData.lock_id}`
+    );
     assert.strictEqual(lockData.pid, process.pid);
     assert.strictEqual(lockData.target, testFilePath);
 
