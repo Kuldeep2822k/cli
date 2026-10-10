@@ -30,7 +30,7 @@ Acquisition uses `fs.mkdirSync` as an atomic primitive. Because directory creati
 ### Acquisition Flow
 
 1. **Directory Creation**: Attempt to create `{hash}.lockdir`.
-2. **Success**: Write a session-specific JSON file (e.g., `L-20231027T103000-abcd.json`) containing the PID, hostname, and timestamp [src/storage/lock.ts#99-125](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L99-L125).
+2. **Success**: Write a session-specific JSON file (e.g., `L-20231027T103000-abcd1234.json`) containing the PID, hostname, and timestamp [src/storage/lock.ts#99-125](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L99-L125).
 3. **Failure (EEXIST)**: If the directory exists, the process inspects the contents for stale locks [src/storage/lock.ts#126-179](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L126-L179).
 
 ```mermaid

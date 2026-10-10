@@ -19,7 +19,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
-import { atomicWrite } from './atomic-write';
+import { atomicWrite, isConflictError } from './atomic-write';
+import { Lock } from './lock';
 import { assertContainedInVault } from './containment';
 import { SUPPORTED_SCHEMA_VERSION } from '../engine/topic-id';
 import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
@@ -197,11 +198,16 @@ function getSessionsDir(vaultPath: string): string {
 /**
  * Generates a unique canonical session identifier with timestamp and random entropy.
  *
- * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXX`
- * @remarks Formats UTC timestamp segments and appends 2 bytes of random hex entropy.
+ * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXXXXXX`
+ * @remarks Formats UTC timestamp segments and appends 4 bytes of random hex entropy.
+ * The timestamp only carries whole seconds, so the entropy alone separates two
+ * sessions started in the same second — and a repeated ID is not cosmetic:
+ * `writeSessionNote` takes the OCC fingerprint from the *target* file, so a
+ * collision satisfies its own check and `renameSync` silently replaces the
+ * earlier session note. `generateDraftId` already draws 4 bytes for the same reason.
  * @example
  * ```typescript
- * const id = generateSessionId(); // "S-20260823T153000-a1b2"
+ * const id = generateSessionId(); // "S-20260823T153000-a1b2c3d4"
  * ```
  */
 function generateSessionId(): string {
@@ -213,7 +219,7 @@ function generateSessionId(): string {
   const minutes = String(now.getUTCMinutes()).padStart(2, '0');
   const seconds = String(now.getUTCSeconds()).padStart(2, '0');
   const timestamp = `${year}${month}${day}T${hours}${minutes}${seconds}`;
-  const random = crypto.randomBytes(2).toString('hex');
+  const random = crypto.randomBytes(4).toString('hex');
   return `S-${timestamp}-${random}`;
 }
 
@@ -302,7 +308,7 @@ function formatDateOnly(date: Date): string {
  * @example
  * ```typescript
  * const notePath = await writeSessionNote('/vault', {
- *   session_id: 'S-20260830T100000-abcd',
+ *   session_id: 'S-20260830T100000-abcd1234',
  *   topic_id: 'topic-math',
  *   started_at: '2026-08-30T10:00:00Z',
  *   ended_at: '2026-08-30T10:30:00Z',
@@ -419,7 +425,11 @@ async function updateHotMemory(
  *
  * @param vaultPath - Vault root path
  * @returns Absolute path to `hot.md`
- * @remarks Deletes `hot.md` if it exists, ignoring missing file errors.
+ * @remarks Deletes `hot.md` if it exists, ignoring missing file errors. The unlink
+ * is taken under the same target lock every other `hot.md` mutation goes through,
+ * so it cannot pull the file out from under a concurrent `atomicWrite` mid-rename.
+ * A lock held by another live process is not an error here: the reset is skipped
+ * and the caller's rebuild writes the replacement through that lock.
  * @example
  * ```typescript
  * await resetHotMemory('/vault');
@@ -429,12 +439,34 @@ async function resetHotMemory(vaultPath: string): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
   const hotPath = path.join(paleeDir, 'hot.md');
 
-  if (fs.existsSync(hotPath)) {
+  // Contention must not escape as `ECONFLICT`: this is the recovery step for a
+  // corrupt `hot.md`, and INV-45 requires that path to rebuild rather than fail.
+  // A live lock means some other process is maintaining the file right now, which
+  // is the healthy case, so the reset yields and `rebuildHotAndIndex` — the only
+  // caller's next statement — overwrites it under the same lock. Letting the error
+  // through would turn a recoverable vault into exit 4.
+  const lock = new Lock(vaultPath, hotPath);
+  let lockAcquired = false;
+  try {
     try {
-      fs.unlinkSync(hotPath);
+      await lock.acquire();
+      lockAcquired = true;
     } catch (e: unknown) {
-      const err = e as NodeError;
-      if (err.code !== 'ENOENT') throw err;
+      if (isConflictError(e)) return hotPath;
+      throw e;
+    }
+
+    if (fs.existsSync(hotPath)) {
+      try {
+        fs.unlinkSync(hotPath);
+      } catch (e: unknown) {
+        const err = e as NodeError;
+        if (err.code !== 'ENOENT') throw err;
+      }
+    }
+  } finally {
+    if (lockAcquired) {
+      lock.release();
     }
   }
 
@@ -463,7 +495,10 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   // silently undercounts reality (#361, #362).
   let skippedCount = 0;
   if (fs.existsSync(sessionsDir)) {
-    const files = fs.readdirSync(sessionsDir);
+    // Ascending filename order, as `loadSessions` already uses: two sessions that
+    // share a `started_at` must be listed in the same order on every OS, not in
+    // whatever order readdir returns them.
+    const files = fs.readdirSync(sessionsDir).sort();
     for (const file of files) {
       if (file.startsWith('S-') && file.endsWith('.md')) {
         const filePath = path.join(sessionsDir, file);
@@ -575,7 +610,13 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   let newestTime = -Infinity;
 
   if (fs.existsSync(sessionsDir)) {
-    const files = fs.readdirSync(sessionsDir);
+    // Ascending filename order, as `loadSessions` uses, so a tie on `started_at`
+    // resolves to the same session on every OS instead of to whatever readdir
+    // happened to return. The comparison below stays `>=` deliberately:
+    // `newestTime` starts at -Infinity and an unparseable `started_at` is ranked at
+    // -Infinity too, so under `>` a vault whose sessions all carry unreadable dates
+    // would select nothing and erase hot memory (BUG-005).
+    const files = fs.readdirSync(sessionsDir).sort();
     for (const file of files) {
       if (file.startsWith('S-') && file.endsWith('.md')) {
         const filePath = path.join(sessionsDir, file);
@@ -689,7 +730,7 @@ function getDrafts(vaultPath: string): string[] {
   const sessionsDir = getSessionsDir(vaultPath);
   if (!fs.existsSync(sessionsDir)) return [];
 
-  const files = fs.readdirSync(sessionsDir);
+  const files = fs.readdirSync(sessionsDir).sort();
   return files
     .filter(f => f.startsWith('DRAFT-S-') && f.endsWith('.md'))
     .map(f => path.join(sessionsDir, f));

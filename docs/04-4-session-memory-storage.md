@@ -89,7 +89,7 @@ Sources: [src/cli/session.ts#60-275](https://github.com/Kuldeep2822k/cli/blob/ma
 1. **Scanning**: Reads all `S-*.md` files in `.palee/sessions/` [src/storage/memory.ts#338-341](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L338-L341).
 2. **Validation**: Skips zero-byte files and safely parses frontmatter to ensure session integrity [src/storage/memory.ts#344-363](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L344-L363).
 3. **Sorting**: Sessions are sorted newest-first based on `started_at` [src/storage/memory.ts#298](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L298).
-4. **Indexing**: `regenerateIndex` creates a Markdown list with Obsidian-style links (e.g., `[[S-20260808T180000-a1b2]] - Topic: T-01 (2026-08-08)`) [src/storage/memory.ts#305-309](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L305-L309).
+4. **Indexing**: `regenerateIndex` creates a Markdown list with Obsidian-style links (e.g., `[[S-20260808T180000-a1b2c3d4]] - Topic: T-01 (2026-08-08)`) [src/storage/memory.ts#305-309](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L305-L309).
 
 ### Draft Checkpoints & Storage Boundary Functions
 

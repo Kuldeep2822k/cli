@@ -127,8 +127,8 @@ export type Session = CompletedSession | DraftSession;
 
 | Type Interface | Discriminator (`status`) | `ended_at` Contract | `session_id` Pattern | Purpose |
 | --- | --- | --- | --- | --- |
-| `CompletedSession` / `CompletedSessionRecord` | `'completed'` | `string` (ISO 8601 timestamp) | `S-YYYYMMDDTHHMMSS-XXXX` | Persisted, finalized learning session record |
-| `DraftSession` / `DraftSessionRecord` | `'draft'` | `null` (strictly null) | `DRAFT-S-YYYYMMDDTHHMMSS-XXXX` | Live checkpoint for recovery during interrupted CLI sessions |
+| `CompletedSession` / `CompletedSessionRecord` | `'completed'` | `string` (ISO 8601 timestamp) | `S-YYYYMMDDTHHMMSS-XXXXXXXX` | Persisted, finalized learning session record |
+| `DraftSession` / `DraftSessionRecord` | `'draft'` | `null` (strictly null) | `DRAFT-S-XXXXXXXX` | Live checkpoint for recovery during interrupted CLI sessions |
 
 #### Type Narrowing Invariant
 

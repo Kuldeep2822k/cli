@@ -170,8 +170,8 @@ All session metadata is isolated within the `.palee/` directory at the vault roo
 │   ├── hot.md                     # Active working memory, topic context & started_at
 │   ├── index.md                   # Chronological session index
 │   └── sessions/
-│       ├── S-20260814T120000-abcd.md       # Confirmed session record (with duration_minutes)
-│       ├── S-20260814T153000-efgh.md       # Confirmed session record (with duration_minutes)
+│       ├── S-20260814T120000-abcd1234.md       # Confirmed session record (with duration_minutes)
+│       ├── S-20260814T153000-efgh5678.md       # Confirmed session record (with duration_minutes)
 │       └── DRAFT-S-98765432.md             # Unconfirmed draft checkpoint (with started_at)
 └── Topics/
     └── Topic-Note.md
