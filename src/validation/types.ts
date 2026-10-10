@@ -25,11 +25,14 @@ export type { MemoryReadError };
 export type ValidationSeverity = 'error' | 'warning';
 
 /**
- * Fixability classification modeled ahead of the `--fix` engine.
+ * Fixability classification read by the `--fix` engine (#323).
  *
  * - `false` — the rule's findings can never be auto-fixed.
- * - `'safe'` — a future fix engine may repair the finding without data loss.
+ * - `'safe'` — the fix engine repairs the finding without data loss; every
+ *   `'safe'` rule must therefore have a repair registered in `src/cli/validate.ts`,
+ *   and one that goes missing is reported rather than silently skipped.
  * - `'manual'` — repairing requires a human decision the tool cannot make.
+ *   `--fix` still offers the repairs listed in `EXPLICIT_MANUAL_REPAIRS`.
  */
 export type ValidationFixability = false | 'safe' | 'manual';
 
@@ -151,7 +154,7 @@ export interface ValidationRule {
   description: string;
   /** Default severity classification for the rule's findings */
   severity: ValidationSeverity;
-  /** Fixability classification; `--fix` stays a Phase-1 stub */
+  /** Fixability classification; `--fix` dispatches off it (#323) */
   fixable?: ValidationFixability;
   /** Runs the rule against a collected context and returns its findings. */
   run(context: ValidationContext): ValidationIssue[];
