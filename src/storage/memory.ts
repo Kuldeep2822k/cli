@@ -659,9 +659,24 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   if (newestSession) {
     const lastSessionId = newestSession.frontmatter.session_id as string;
     const activeTopicId = (newestSession.frontmatter.topic_id as string) || null;
-    await updateHotMemory(vaultPath, lastSessionId, activeTopicId, newestSession.body);
+    // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
+    // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
+    // default blank the field on every rebuild. Normalize through `Date` so the
+    // session/hot full ISO form (ms + `Z`) is what lands in `hot.md` — never the
+    // `YYYY-MM-DD` shape the review/due fields use — and keep an absent or
+    // unparseable start as `null` rather than the string "null" (BUG-005: such a
+    // note is still selected, so it must still yield a usable working memory).
+    const rawStarted = newestSession.frontmatter.started_at;
+    let newestStartMs = Number.NaN;
+    if (rawStarted instanceof Date) {
+      newestStartMs = rawStarted.getTime();
+    } else if (typeof rawStarted === 'string') {
+      newestStartMs = Date.parse(rawStarted.trim());
+    }
+    const startedAt = Number.isNaN(newestStartMs) ? null : new Date(newestStartMs).toISOString();
+    await updateHotMemory(vaultPath, lastSessionId, activeTopicId, newestSession.body, startedAt);
   } else {
-    await updateHotMemory(vaultPath, null, null, 'No learning history recorded yet.');
+    await updateHotMemory(vaultPath, null, null, 'No learning history recorded yet.', null);
   }
 
   await regenerateIndex(vaultPath);
