@@ -68,7 +68,7 @@ describe('provider over a real socket (#24)', () => {
 
   test('a real fetch round trip reaches the endpoint the module computed', async () => {
     const provider = new OpenAICompatibleProvider(
-      resolveProviderSettings({ baseUrl: `${base}/v1`, apiKey: 'sk-loopback-42' }, {}),
+      resolveProviderSettings({ baseUrl: `${base}/v1`, apiKey: 'testkey-loopback-42' }, {}),
       { timeoutMs: 5_000 }
     );
     const reply = await provider.complete({
@@ -80,7 +80,7 @@ describe('provider over a real socket (#24)', () => {
     const [hit] = hits;
     assert.strictEqual(hit.method, 'POST');
     assert.strictEqual(hit.url, '/v1/chat/completions', 'the configured prefix is kept and the path added once');
-    assert.strictEqual(hit.authorization, 'Bearer sk-loopback-42');
+    assert.strictEqual(hit.authorization, 'Bearer testkey-loopback-42');
     const sent = JSON.parse(hit.body) as Record<string, unknown>;
     assert.ok(!('max_tokens' in sent), 'the opt-in token cap is not sent unless asked for');
     assert.deepStrictEqual(sent.response_format, { type: 'json_object' });
@@ -92,7 +92,7 @@ describe('provider over a real socket (#24)', () => {
 
   test('a redirect is not followed, and the credential is not re-sent', async () => {
     const provider = new OpenAICompatibleProvider(
-      resolveProviderSettings({ baseUrl: `${base}/redirect`, apiKey: 'sk-never-refollowed' }, {}),
+      resolveProviderSettings({ baseUrl: `${base}/redirect`, apiKey: 'testkey-never-refollowed' }, {}),
       { timeoutMs: 5_000 }
     );
     const before = hits.length;
@@ -113,7 +113,7 @@ describe('provider over a real socket (#24)', () => {
     // `palee config test-connection` and an unkillable wait is this deadline. It is asserted
     // here against a live socket rather than reasoned about.
     const provider = new OpenAICompatibleProvider(
-      resolveProviderSettings({ baseUrl: `${base}/silent`, apiKey: 'sk-never-echoed' }, {}),
+      resolveProviderSettings({ baseUrl: `${base}/silent`, apiKey: 'testkey-never-echoed' }, {}),
       { timeoutMs: 250 }
     );
     await assert.rejects(
@@ -122,7 +122,7 @@ describe('provider over a real socket (#24)', () => {
         assert.ok(err instanceof ProviderError, `expected a classified failure, got ${String(err)}`);
         assert.strictEqual(err.kind, 'network');
         assert.match(err.message, /within 250 ms/);
-        assert.ok(!err.message.includes('sk-never-echoed'), err.message);
+        assert.ok(!err.message.includes('testkey-never-echoed'), err.message);
         return true;
       }
     );

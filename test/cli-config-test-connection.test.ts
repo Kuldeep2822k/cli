@@ -91,19 +91,19 @@ describe('CLI config test-connection (#24)', () => {
     // Written by hand, because `set-base-url` now refuses it at the same gate.
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
-      JSON.stringify({ baseUrl: 'http://public.example/v1', apiKey: 'sk-abc' })
+      JSON.stringify({ baseUrl: 'http://public.example/v1', apiKey: 'testkey-abc' })
     );
     const result = await run(['test-connection'], configDir);
     assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
     assert.match(result.stderr, /clear text/);
-    assert.ok(!result.stderr.includes('sk-abc'), result.stderr);
+    assert.ok(!result.stderr.includes('testkey-abc'), result.stderr);
   });
 
   test('a provider this build cannot speak to is named as deferred, not as a bad key', async () => {
     const configDir = freshConfigDir();
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
-      JSON.stringify({ baseUrl: 'https://api.anthropic.com', aiProvider: 'anthropic', apiKey: 'sk-abc' })
+      JSON.stringify({ baseUrl: 'https://api.anthropic.com', aiProvider: 'anthropic', apiKey: 'testkey-abc' })
     );
     const result = await run(['test-connection'], configDir);
     assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
@@ -114,7 +114,7 @@ describe('CLI config test-connection (#24)', () => {
     const configDir = freshConfigDir();
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
-      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'sk-loopback-secret', model: 'test-model' })
+      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-loopback-secret', model: 'test-model' })
     );
     const result = await run(['test-connection'], configDir);
     assert.strictEqual(result.status, 0, `${result.stdout}${result.stderr}`);
@@ -123,7 +123,7 @@ describe('CLI config test-connection (#24)', () => {
     assert.match(result.stdout, /Key:\s+from the config file/);
     assert.match(result.stdout, /Reply:\s+OK/);
     assert.match(result.stdout, /Tokens:\s+4 in \/ 1 out/);
-    assert.ok(!result.stdout.includes('sk-loopback-secret'), result.stdout);
+    assert.ok(!result.stdout.includes('testkey-loopback-secret'), result.stdout);
     assert.deepStrictEqual(seen, ['/v1/chat/completions']);
   });
 
@@ -131,16 +131,16 @@ describe('CLI config test-connection (#24)', () => {
     const configDir = freshConfigDir();
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
-      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'sk-stored-not-used' })
+      JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-stored-not-used' })
     );
     const previous = process.env.PALEE_API_KEY;
-    process.env.PALEE_API_KEY = 'sk-from-env-used';
+    process.env.PALEE_API_KEY = 'testkey-from-env-used';
     try {
       const result = await run(['test-connection'], configDir);
       assert.strictEqual(result.status, 0, `${result.stdout}${result.stderr}`);
       assert.match(result.stdout, /PALEE_API_KEY/);
-      assert.ok(!result.stdout.includes('sk-from-env-used'), result.stdout);
-      assert.ok(!result.stdout.includes('sk-stored-not-used'), result.stdout);
+      assert.ok(!result.stdout.includes('testkey-from-env-used'), result.stdout);
+      assert.ok(!result.stdout.includes('testkey-stored-not-used'), result.stdout);
     } finally {
       if (previous === undefined) delete process.env.PALEE_API_KEY;
       else process.env.PALEE_API_KEY = previous;

@@ -57,7 +57,7 @@ function completion(content: unknown, extra: Record<string, unknown> = {}): Resp
   return jsonResponse({ choices: [{ message: { content }, ...extra }] });
 }
 
-const KEY = 'sk-test-9f2c7a';
+const KEY = 'testkey-test-9f2c7a';
 
 function settings(over: Partial<ReturnType<typeof resolveProviderSettings>> = {}) {
   const base = resolveProviderSettings({ baseUrl: 'https://gw.example/v1', apiKey: KEY }, {});
@@ -78,8 +78,8 @@ describe('provider endpoint validation (#24)', () => {
   });
 
   test('the environment key outranks the stored key, and which one won is reported', () => {
-    const fromEnv = resolveProviderSettings({ baseUrl: 'https://h/v1', apiKey: KEY }, { [API_KEY_ENV]: 'sk-from-env' });
-    assert.strictEqual(fromEnv.apiKey, 'sk-from-env');
+    const fromEnv = resolveProviderSettings({ baseUrl: 'https://h/v1', apiKey: KEY }, { [API_KEY_ENV]: 'testkey-from-env' });
+    assert.strictEqual(fromEnv.apiKey, 'testkey-from-env');
     assert.strictEqual(fromEnv.keySource, 'env');
 
     const blank = resolveProviderSettings({ baseUrl: 'https://h/v1', apiKey: KEY }, { [API_KEY_ENV]: '   ' });
@@ -113,7 +113,6 @@ describe('provider endpoint validation (#24)', () => {
       'http://10.0.0.5/v1',
       'http://evil.localhost/v1',
       'http://127.0.0.1.nip.io/v1',
-      'http://0/v1',
     ]) {
       assert.throws(
         () => normalizeProviderEndpoint(refused),
@@ -146,6 +145,33 @@ describe('provider endpoint validation (#24)', () => {
     assert.throws(() => normalizeProviderEndpoint('http://127.0.0.1.nip.io/v1'), /clear text|https/i);
     assert.throws(() => normalizeProviderEndpoint('http://app.localhost/v1'), /clear text|https/i);
     assert.strictEqual(normalizeProviderEndpoint('http://localhost:11434/v1').hostname, 'localhost');
+  });
+
+  test('reserved address space is refused by shape, never by the start of a name', () => {
+    // A reviewer asked for a URL allowlist. That would break "bring your own endpoint",
+    // which the spec states as the design; the part worth honouring is the surprising
+    // target, so link-local, unspecified, multicast and special-use names are refused
+    // whatever scheme they arrive under. `169.254.169.254` is the cloud metadata service,
+    // and a `test-connection` pointed at it is a probe of the host's own network.
+    for (const refused of [
+      'https://169.254.169.254/v1',
+      'https://169.254.10.10/v1',
+      'https://0.0.0.0/v1',
+      'https://239.255.255.250/v1',
+      'https://[fe80::1]/v1',
+      'https://[fd00::1]/v1',
+      'https://metadata.google.internal/v1',
+    ]) {
+      assert.throws(() => normalizeProviderEndpoint(refused), /reserved address space/, refused);
+    }
+    for (const allowed of [
+      'https://169.254.example.com/v1',
+      'https://224.example.com/v1',
+      'https://api.internal-host.example/v1',
+      'http://127.0.0.1:11434/v1',
+    ]) {
+      assert.doesNotThrow(() => normalizeProviderEndpoint(allowed), `${allowed} is a hostname, not an address`);
+    }
   });
 
   test('a credential, query or fragment inside the base URL is refused, not folded into the path', () => {
@@ -445,7 +471,7 @@ describe('structured output contract: INV-38/39/40 (#24)', () => {
 
 describe('redaction of every foreign string (#24)', () => {
   test('describeForeignText masks before it truncates', () => {
-    const key = 'sk-abcdefghij0123456789';
+    const key = 'testkey-abcdefghij0123456789';
     const echoing = `${'noise '.repeat(80)}${key} trailing`;
     const described = describeForeignText(key, echoing);
     assert.ok(!described.includes(key.slice(0, 12)), 'a fragment of the key must not survive the cut');

@@ -194,6 +194,43 @@ export function describeForeignText(secret: string | undefined, text: string): s
 }
 
 /**
+ * True for address ranges that are never a provider endpoint.
+ *
+ * @param hostname - A `URL.hostname` value
+ * @returns Whether the host must be refused whatever scheme it was configured with
+ *
+ * @remarks
+ * A reviewer flagged this module's URL as an SSRF surface. An *allowlist* would break the
+ * feature — the spec's whole premise is "bring your own OpenAI-compatible endpoint", and
+ * the value being read is the user's own config, not an attacker's request. The part of
+ * that concern worth honouring in code is the surprising target: a base URL that points at
+ * link-local space reaches the cloud metadata service (`169.254.169.254`), and nothing
+ * legitimate lives at the unspecified or multicast addresses. Those are refused outright,
+ * over https included, so a mistyped or planted endpoint cannot turn a `test-connection`
+ * into a probe of the host's own network.
+ */
+export function isReservedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (host.startsWith('[')) {
+    const bare = host.slice(1, -1);
+    // IPv6 unspecified, link-local, unique-local and multicast.
+    return bare === '::' || /^(fe80|fc|fd|ff)/.test(bare);
+  }
+  // Matched by address shape, never by the start of a DNS name: `169.254.example.com` is a
+  // hostname someone owns, `169.254.169.254` is the metadata service.
+  const quad = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (quad) {
+    const first = Number(quad[1]);
+    if (first === 0) return true;
+    if (first === 169 && Number(quad[2]) === 254) return true;
+    if (first >= 224) return true;
+  }
+  // RFC 6762 special-use suffix: cloud and corporate metadata endpoints are named, not just
+  // numbered (`metadata.google.internal`).
+  return host.endsWith('.internal');
+}
+
+/**
  * Validates a provider endpoint and returns it parsed.
  *
  * @param raw - The configured base URL
@@ -215,6 +252,14 @@ export function normalizeProviderEndpoint(raw: string): URL {
   }
   if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') {
     throw new ProviderError('config', `Provider base URL must be http or https, got ${endpoint.protocol}`);
+  }
+  if (isReservedHost(endpoint.hostname)) {
+    throw new ProviderError(
+      'config',
+      `Provider base URL points at ${describeForeignText(undefined, endpoint.host)}, which is reserved ` +
+        'address space (link-local, unspecified or multicast) — the cloud metadata service lives there, ' +
+        'and no provider endpoint does.'
+    );
   }
   if (endpoint.protocol === 'http:' && !isLoopbackHost(endpoint.hostname)) {
     throw new ProviderError(
