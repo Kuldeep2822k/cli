@@ -260,14 +260,149 @@ export function matchPathGlob(glob: string, target: string): boolean {
 }
 
 /**
+ * Splits a pattern option into its individual patterns.
+ *
+ * @param patterns - Comma-separated string or array of glob patterns
+ * @returns The pattern strings as supplied, without trimming or separator folding
+ *
+ * @remarks
+ * A string takes the comma list (so `--exclude '*template*,*rubric*'` is two
+ * patterns); an array is already a list and its entries keep their commas.
+ */
+function splitPatternList(patterns: string | string[]): string[] {
+  return Array.isArray(patterns) ? patterns : patterns.split(',');
+}
+
+/**
+ * Folds a supplied pattern into the form the matcher compares in.
+ *
+ * @param pattern - Raw pattern string
+ * @returns Trimmed pattern with `\` turned into `/` and a leading `./` dropped
+ */
+function normalizePattern(pattern: string): string {
+  return pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+/**
+ * Tests one already-normalized pattern against one already-normalized path.
+ *
+ * @param trimmedPattern - Normalized pattern (non-empty)
+ * @param normalizedPath - Normalized vault-relative path
+ * @param basename - Basename of {@link normalizedPath}
+ * @returns `true` if this single pattern selects the path
+ *
+ * @remarks
+ * The dialect, in one place so the OR-fold in {@link matchesPattern} and the
+ * per-pattern tally in {@link tallyPatterns} can never disagree about what a
+ * pattern means:
+ * - no `/` in the pattern: it matches the note's **filename in any directory**;
+ * - any `/`: it is **anchored at the vault root** and must name the whole
+ *   relative path, segment by segment (`a/*.md` never reaches `b/a/x.md`);
+ * - matching ignores case, and `*` stops at a directory boundary while `**`
+ *   crosses it.
+ */
+function patternHitsFile(trimmedPattern: string, normalizedPath: string, basename: string): boolean {
+  // Linear DP glob match
+  if (matchPathGlob(trimmedPattern, normalizedPath)) {
+    return true;
+  }
+
+  // Basename matching: allowed when pattern is a pure filename pattern (no '/')
+  if (!trimmedPattern.includes('/') && matchSegmentWildcard(trimmedPattern, basename)) {
+    return true;
+  }
+
+  // Segment & prefix matching for non-wildcard patterns (avoids false-positive substring collisions)
+  if (!trimmedPattern.includes('*') && !trimmedPattern.includes('?')) {
+    // A pattern is written by a person and a path comes off the volume, so the
+    // two arrive in different Unicode normalizations on APFS — `notes/café`
+    // excludes `notes/cafe` + U+0301 only if both sides fold the way the walked
+    // keys do. Case alone was already folded; this folds the other half.
+    const foldedPath = foldIdentity(normalizedPath);
+    const foldedPattern = foldIdentity(trimmedPattern);
+    const foldedBasename = foldIdentity(basename);
+
+    if (
+      foldedPath === foldedPattern ||
+      foldedBasename === foldedPattern ||
+      foldedPath.startsWith(`${foldedPattern}/`) ||
+      foldedPath.endsWith(`/${foldedPattern}`) ||
+      foldedPath.includes(`/${foldedPattern}/`)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * One supplied pattern and how much of the scope it actually reached.
+ */
+export interface PatternTally {
+  /** Pattern as supplied, after {@link normalizePattern} */
+  pattern: string;
+  /** How many of the tallied paths this pattern matched; `0` means it named no file */
+  matches: number;
+}
+
+/**
+ * Counts, per supplied pattern, how many of the given paths that pattern matched.
+ *
+ * @param paths - Vault-relative paths of the scanned scope
+ * @param patterns - Glob pattern or comma-separated/array pattern list
+ * @returns One entry per distinct normalized pattern, in the order supplied
+ *
+ * @remarks
+ * `matchesPattern` OR-folds its patterns, so a caller that printed only the
+ * aggregate ("Excluded (Pattern): 0 notes") could not tell a filter that worked
+ * and found nothing to exclude from a pattern that names no file in this scope at
+ * all (#312). This keeps the accounting per pattern instead: duplicate patterns
+ * collapse to one entry, an empty pattern list yields an empty result, and no
+ * short-circuiting means every pattern is measured against every path.
+ *
+ * @example
+ * ```typescript
+ * tallyPatterns(['a/x.md'], 'a/*.md, *zz*');
+ * // [{ pattern: 'a/*.md', matches: 1 }, { pattern: '*zz*', matches: 0 }]
+ * ```
+ */
+export function tallyPatterns(paths: readonly string[], patterns: string | string[]): PatternTally[] {
+  const tallies: PatternTally[] = [];
+  const seen = new Set<string>();
+  for (const raw of splitPatternList(patterns)) {
+    const trimmed = normalizePattern(raw);
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    tallies.push({ pattern: trimmed, matches: 0 });
+  }
+
+  const normalizedPaths = paths.map((filePath) => {
+    const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+    return { normalizedPath, basename: path.posix.basename(normalizedPath) };
+  });
+
+  for (const tally of tallies) {
+    for (const { normalizedPath, basename } of normalizedPaths) {
+      if (patternHitsFile(tally.pattern, normalizedPath, basename)) tally.matches += 1;
+    }
+  }
+
+  return tallies;
+}
+
+/**
  * Evaluates whether a file path or its basename matches any provided glob patterns.
  *
  * @remarks
  * Patterns can be passed as an array of strings or a comma-separated string (e.g. `"*.md, notes/**"`).
- * Matching modes:
- * 1. Full relative path matching via linear DP matcher (ReDoS-immune).
- * 2. Basename matching if pattern contains no `/`.
+ * Matching modes (see {@link patternHitsFile} for the whole dialect):
+ * 1. Full relative path matching via linear DP matcher (ReDoS-immune). A pattern
+ *    containing `/` is anchored at the vault root and has to name the whole path.
+ * 2. Basename matching if pattern contains no `/` — then it reaches the same name
+ *    in every directory.
  * 3. Exact segment and prefix matching for non-wildcard directory specifications.
+ * Matching is case-insensitive.
  *
  * @param filePath - File path to test
  * @param patterns - Glob pattern or array of glob patterns
@@ -277,12 +412,11 @@ export function matchPathGlob(glob: string, target: string): boolean {
  * ```typescript
  * matchesPattern('src/utils/math.ts', '*.ts');             // true
  * matchesPattern('notes/cs/algo.md', 'notes/**, docs/**');  // true
+ * matchesPattern('notes/cs/algo.md', 'cs/*.md');           // false — `/` anchors at the root
  * ```
  */
 export function matchesPattern(filePath: string, patterns: string | string[]): boolean {
-  const patternList = Array.isArray(patterns)
-    ? patterns
-    : patterns.split(',').map((p) => p.trim()).filter(Boolean);
+  const patternList = splitPatternList(patterns);
 
   if (patternList.length === 0) {
     return false;
@@ -293,38 +427,11 @@ export function matchesPattern(filePath: string, patterns: string | string[]): b
   const basename = path.posix.basename(normalizedPath);
 
   for (const pattern of patternList) {
-    const trimmedPattern = pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+    const trimmedPattern = normalizePattern(pattern);
     if (!trimmedPattern) continue;
 
-    // Linear DP glob match
-    if (matchPathGlob(trimmedPattern, normalizedPath)) {
+    if (patternHitsFile(trimmedPattern, normalizedPath, basename)) {
       return true;
-    }
-
-    // Basename matching: allowed when pattern is a pure filename pattern (no '/')
-    if (!trimmedPattern.includes('/') && matchSegmentWildcard(trimmedPattern, basename)) {
-      return true;
-    }
-
-    // Segment & prefix matching for non-wildcard patterns (avoids false-positive substring collisions)
-    if (!trimmedPattern.includes('*') && !trimmedPattern.includes('?')) {
-      // A pattern is written by a person and a path comes off the volume, so the
-      // two arrive in different Unicode normalizations on APFS — `notes/café`
-      // excludes `notes/cafe` + U+0301 only if both sides fold the way the walked
-      // keys do. Case alone was already folded; this folds the other half.
-      const foldedPath = foldIdentity(normalizedPath);
-      const foldedPattern = foldIdentity(trimmedPattern);
-      const foldedBasename = foldIdentity(basename);
-
-      if (
-        foldedPath === foldedPattern ||
-        foldedBasename === foldedPattern ||
-        foldedPath.startsWith(`${foldedPattern}/`) ||
-        foldedPath.endsWith(`/${foldedPattern}`) ||
-        foldedPath.includes(`/${foldedPattern}/`)
-      ) {
-        return true;
-      }
     }
   }
 

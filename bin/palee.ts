@@ -43,6 +43,27 @@ program
   .action(configCommand);
 
 // palee adopt
+
+/**
+ * Commander argument parser for the repeatable batch filter flags.
+ *
+ * @param value - The option-argument of this occurrence of the flag
+ * @param previous - Everything already accumulated for it, `undefined` on the first
+ * @returns The whole list as one comma-separated pattern string
+ *
+ * @remarks
+ * `--include`/`--exclude`/`--tag` were plain `<patterns>` strings, so a repeated
+ * flag let the last value silently win (#312): `--exclude '*draft*' --exclude
+ * '*template*'` dropped the first pattern and adopted the draft. Joining on commas
+ * keeps the accumulator in the shape the filters already read — `matchesPattern`
+ * and `matchesTags` both split a comma list and OR-fold it — so every value is
+ * consumed by the batch loop and a single comma-separated flag behaves exactly as
+ * before.
+ */
+function collectPatterns(value: string, previous?: string): string {
+  return previous ? `${previous},${value}` : value;
+}
+
 program
   .command('adopt')
   .description('Adopt existing notes as PALEE topics')
@@ -50,14 +71,31 @@ program
   .option('--all', 'Adopt all markdown files across the vault')
   .option('--difficulty <level>', 'Difficulty: beginner, intermediate, advanced')
   .option('--depends-on <ids>', 'Comma-separated topic IDs (single-file mode only)')
-  .option('--include <patterns>', 'Comma-separated inclusion glob patterns')
-  .option('--exclude <patterns>', 'Comma-separated exclusion glob patterns')
-  .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter')
+  .option('--include <patterns>', 'Comma-separated inclusion glob patterns (batch mode; repeatable)', collectPatterns)
+  .option('--exclude <patterns>', 'Comma-separated exclusion glob patterns (batch mode; repeatable)', collectPatterns)
+  .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter (batch mode; repeatable)', collectPatterns)
   .option('--dry-run', 'Simulate adoption and print summary without modifying files')
   .option('--verbose', 'Print detailed file-by-file inspection list')
   .option('--auto-chain', 'Auto-wire depends_on from a note\'s own prerequisites, else the numbered tree (batch mode only)')
   .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; toc/full add listing order, which never gates')
   .option('-y, --yes', 'Skip confirmation prompt')
+  // #312 — the glob dialect decides what a filter means and was never written
+  // down anywhere a learner reads: `palee adopt --help` now states it, because a
+  // pattern's `/` is the difference between "this directory tree" and "no file
+  // in this vault, ever".
+  .addHelpText(
+    'after',
+    `
+Pattern syntax for --include / --exclude (batch mode):
+  • A pattern with no "/" matches the note's filename in any directory: '*template*' catches MODULES/01/runbook-template.md.
+  • A pattern with a "/" is anchored at the vault root and must name the whole vault-relative path, segment by segment: 'a/*.md' matches a/x.md but never x.md, and never b/a/x.md.
+  • '*' stops at a directory boundary, '**' crosses it: '**/*.md' is every note in scope, 'MODULES/**' every note under MODULES/.
+  • '?' matches one character; '[0-9]' matches a class and '[!0-9]' a negated one.
+  • Matching ignores case.
+  • Repeat the flag, or separate patterns with commas, to filter on more than one; a pattern that matches no file in the scanned scope is named in a warning.
+  • --include, --exclude and --tag filter a scan, so they are batch mode only: with a single note path they exit 2.
+`
+  )
   .action(adoptCommand);
 
 // palee next
