@@ -5,7 +5,8 @@
 
 import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
-import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
+import { normalizeDueDate, partitionDue } from '../application/due-topics';
+import { getNextTopics } from '../application/get-next-topics';
 import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
@@ -115,11 +116,17 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
       advanced: activeTopics.filter(t => t.difficulty === 'advanced'),
     };
 
-    let next: DashboardTopic | null = null;
-    if (dueTopics.length > 0) {
-      dueTopics.sort((a, b) => compareDue(a.due_at, b.due_at));
-      next = dueTopics[0];
-    }
+    // `next_review` is "the review `palee next` would hand you now", so it draws
+    // from that command's own prerequisite-gated actionable set (#307 residue):
+    // a never-reviewed note is actionable for `next`, and reporting
+    // `next_review: null` while printing `Run "palee next" to start reviewing`
+    // contradicted the prompt two lines later. Archived topics stay hidden
+    // (BUG-002), while the graph the gate reads is the full loaded set — so a
+    // mastered archived prerequisite still satisfies its dependents. This does
+    // not touch the `reviews_due` backlog metric above, which counts elapsed
+    // scheduled reviews only.
+    const { dueTopics: actionable } = getNextTopics(loaded, now);
+    const next = actionable.find((t) => t.status !== 'archived') ?? null;
 
     if (jsonMode) {
       console.log(JSON.stringify({
@@ -152,7 +159,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
           title: next.title,
           mastery: next.mastery,
           repetition: next.repetition,
-          due_at: next.due_at ? next.due_at.toISOString() : null,
+          due_at: next.dueAt ? next.dueAt.toISOString() : null,
         } : null,
       }));
       return;

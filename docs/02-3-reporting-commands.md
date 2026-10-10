@@ -41,7 +41,8 @@ palee dashboard [flags]
 - **Mastered**: Topics with `topic_mastery >= 0.70`.
 - **Learning**: Topics actively in progress (`0.0 < topic_mastery < 0.70`).
 - **New**: Unreviewed topics with `topic_mastery === 0.0`.
-- **Reviews Due**: Topics where `due_at` is in the past or equal to the current system time.
+- **Reviews Due** (`Due for Review`, `reviews_due`): Topics where `due_at` is in the past or equal to the current system time. This is a review-**backlog** metric: never-reviewed notes (`due_at: null`) are deliberately excluded because they are already counted under **New**, so a freshly adopted vault reports `Due for Review: 0` while `palee plan` and `palee next` list those same notes as actionable (`Due: Never reviewed`). That divergence is intentional, not a mismatch.
+- **Next Review** (`next_review`): The review `palee next` would hand over right now — the first entry of that command's prerequisite-gated actionable set (never-reviewed notes included, ordered never-reviewed first then oldest `due_at`), with archived notes hidden. It is computed by the same `getNextTopics()` use-case `palee next` uses, so the dashboard can never print `next_review: null` in the same breath as `Run "palee next" to start reviewing` (#307), and it can never name a topic `palee plan` reports as blocked behind an unmet prerequisite (#305). It is not the same figure as `reviews_due`: on a fresh vault `reviews_due` is `0` while `next_review` names a note.
 - **Difficulty Tiers**: Aggregated counts and mastered subtotals across `beginner`, `intermediate`, and `advanced` tiers.
 
 ```mermaid
