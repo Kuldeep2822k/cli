@@ -124,13 +124,25 @@ function saveConfig(config: PaleeConfig): void {
   let fd: number | null = null;
   let success = false;
   try {
-    fd = fs.openSync(tempPath, 'w', 0o600);
+    // `wx` fails if `tempPath` already exists, so a pre-placed file or symlink at
+    // the temp name cannot be followed and written through — the random suffix
+    // makes a genuine collision near-impossible, and a collision that does happen
+    // is a signal, not something to overwrite.
+    fd = fs.openSync(tempPath, 'wx', 0o600);
     fs.writeSync(fd, payload, 0, 'utf8');
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;
     fs.renameSync(tempPath, configPath);
     success = true;
+    // Durability of the rename itself: without fsyncing the directory the entry
+    // can be lost on power loss even though the data fd was synced. Best-effort —
+    // a platform that refuses a directory fsync (some Windows configurations) is
+    // no worse off than before.
+    try {
+      const dirFd = fs.openSync(dir, 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    } catch {}
   } finally {
     if (fd !== null) {
       try { fs.closeSync(fd); } catch {}
@@ -320,6 +332,14 @@ async function configCommand(
       // keeping the key out of readable output. Reject it without echoing it.
       if (endpoint.username || endpoint.password) {
         console.error('Error: base URL must not embed a username or password; set the credential with set-api-key');
+        process.exitCode = 2;
+        return;
+      }
+      // A key can also ride in the query or fragment (…/v1?api_key=sk-…); that is
+      // stored and printed by `config show` just the same, so refuse it too — and
+      // without echoing the value. A provider endpoint has no use for either.
+      if (endpoint.search || endpoint.hash) {
+        console.error('Error: base URL must not carry a query or fragment; set the credential with set-api-key');
         process.exitCode = 2;
         return;
       }
