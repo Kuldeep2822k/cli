@@ -56,7 +56,11 @@ describe('CLI config provider credentials (#82)', () => {
     try {
       const stdout = execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: configDir, ...opts.env },
+        // These suites deliberately write to a throwaway temp dir, which on a
+        // Windows CI runner lives outside the user profile (and is reached via an
+        // 8.3 short name). That is exactly what the #316 guard refuses, so opt out
+        // of it here; the guard's own refusal is covered by `config dir guard (#316)`.
+        env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env },
         encoding: 'utf8',
         stdio: 'pipe',
         // Always a pipe, never a terminal: the interactive branch is the one a test
@@ -247,7 +251,7 @@ describe('config file mode (#82)', () => {
   function runConfig(args: string[], configDir: string): void {
     execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'sk-mode-check' },
+      env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'sk-mode-check' },
       encoding: 'utf8',
       stdio: 'pipe',
       input: '',
