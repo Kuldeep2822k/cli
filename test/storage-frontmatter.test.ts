@@ -62,8 +62,13 @@ completely broken: {{{
 Body content`;
 
     const result = parseFrontmatter(content);
-    // Parser may recover - just ensure it doesn't crash
-    assert.ok(result);
+    // Contract for malformed frontmatter YAML: the parse error is surfaced,
+    // frontmatter is null (never a half-parsed mapping), and the body is still
+    // split out verbatim. A regression that silently swallowed the YAML error
+    // and returned a recovered mapping would fail here.
+    assert.strictEqual(result.frontmatter, null);
+    assert.strictEqual(typeof result.error, 'string');
+    assert.ok(result.error!.length > 0, 'malformed YAML must surface an error message');
     assert.strictEqual(result.body, 'Body content');
   });
 });
