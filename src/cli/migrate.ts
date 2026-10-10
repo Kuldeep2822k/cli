@@ -674,7 +674,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }
