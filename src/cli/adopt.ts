@@ -433,7 +433,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         process.exitCode = 2;
         return;
       }
-      if (!fs.statSync(candidatePath).isDirectory()) {
+      const candidateStat = fs.statSync(candidatePath);
+      if (!candidateStat.isDirectory()) {
+        // A file lands in batch mode whenever it fails to qualify for single-file
+        // mode — a non-markdown name, or any note passed with `--all`. Naming a
+        // directory the user never typed hid the actual mistake.
+        if (candidateStat.isFile()) {
+          if (!targetPath.toLowerCase().endsWith('.md')) {
+            console.error(
+              `Error: Not a markdown note: ${targetPath} — pass a .md file or a directory to adopt`
+            );
+          } else {
+            console.error(
+              `Error: ${targetPath} is a file; drop --all to adopt it as a single note`
+            );
+          }
+          process.exitCode = 2;
+          return;
+        }
         console.error(`Error: Expected directory path for batch adoption: ${targetPath}`);
         process.exitCode = 2;
         return;
