@@ -193,6 +193,35 @@ export function describeForeignText(secret: string | undefined, text: string): s
   return printable.length > MAX_MESSAGE_CHARS ? `${printable.slice(0, MAX_MESSAGE_CHARS)}…` : printable;
 }
 
+/** The IPv4 rules, applied to a dotted-quad string. Never by name prefix. */
+function isReservedIPv4(host: string): boolean {
+  const quad = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!quad) return false;
+  const first = Number(quad[1]);
+  if (first === 0) return true;
+  if (first === 169 && Number(quad[2]) === 254) return true;
+  return first >= 224;
+}
+
+/**
+ * The dotted quad inside an IPv4-mapped IPv6 literal, if the host is one.
+ *
+ * @param bare - An IPv6 host with its brackets already removed
+ * @returns The embedded address as a dotted quad, or `undefined`
+ *
+ * @remarks
+ * Matched against Node's *serialised* form, which was measured rather than assumed:
+ * `https://[::ffff:169.254.169.254]/` reaches `URL.hostname` as `[::ffff:a9fe:a9fe]`, not
+ * as a dotted quad. A rule written against the spelling a caller types would never fire.
+ */
+function embeddedIPv4(bare: string): string | undefined {
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
+  if (!mapped) return undefined;
+  const hi = Number.parseInt(mapped[1], 16);
+  const lo = Number.parseInt(mapped[2], 16);
+  return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
+}
+
 /**
  * True for address ranges that are never a provider endpoint.
  *
@@ -208,23 +237,28 @@ export function describeForeignText(secret: string | undefined, text: string): s
  * legitimate lives at the unspecified or multicast addresses. Those are refused outright,
  * over https included, so a mistyped or planted endpoint cannot turn a `test-connection`
  * into a probe of the host's own network.
+ *
+ * IPv6 is decided on the canonical hextet prefixes the serializer produces: link-local is
+ * `fe80::/10`, which spans `fe80` through `febf` — not merely the `fe80` literal — while
+ * `fec0` (the retired site-local range) stays outside the refusal. `fc00::/7` and
+ * `ff00::/12` are unique-local and multicast. An IPv4-mapped literal is unwrapped and
+ * judged by the IPv4 rules, so `[::ffff:a9fe:a9fe]` is the metadata address it encodes.
+ * `::1` is exempt: it is loopback, and permitting it is what makes a local provider on
+ * IPv6 usable over http.
  */
 export function isReservedHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host.startsWith('[')) {
     const bare = host.slice(1, -1);
-    // IPv6 unspecified, link-local, unique-local and multicast.
-    return bare === '::' || /^(fe80|fc|fd|ff)/.test(bare);
+    if (bare === '::') return true;
+    if (bare === '::1') return false;
+    const embedded = embeddedIPv4(bare);
+    if (embedded !== undefined) return isReservedIPv4(embedded);
+    return /^fe[89ab]/.test(bare) || /^f[cd]/.test(bare) || /^ff/.test(bare);
   }
   // Matched by address shape, never by the start of a DNS name: `169.254.example.com` is a
   // hostname someone owns, `169.254.169.254` is the metadata service.
-  const quad = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (quad) {
-    const first = Number(quad[1]);
-    if (first === 0) return true;
-    if (first === 169 && Number(quad[2]) === 254) return true;
-    if (first >= 224) return true;
-  }
+  if (isReservedIPv4(host)) return true;
   // RFC 6762 special-use suffix: cloud and corporate metadata endpoints are named, not just
   // numbered (`metadata.google.internal`).
   return host.endsWith('.internal');
@@ -581,15 +615,56 @@ function maskSecret(secret: string | undefined, text: string): string {
   return secret && secret.length > 0 ? text.split(secret).join('***') : text;
 }
 
-/** Reads a body up to a byte bound, so a hostile or chatty gateway cannot allocate freely. */
+/**
+ * Reads a response body, refusing anything larger than {@link MAX_RESPONSE_BYTES}.
+ *
+ * @remarks
+ * The bound is enforced *while reading*, not after. Measuring a fully buffered
+ * `response.text()` would let an unbounded stream allocate freely and only then complain —
+ * the cap would describe the error message rather than the exposure. Chunks are collected
+ * until the limit is crossed, the reader is cancelled so the stream stops producing, and
+ * only then is the failure raised; the decode happens once, at the end, so a multi-byte
+ * character split across chunks is not corrupted.
+ */
 async function readCapped(response: Response, secret: string | undefined): Promise<string> {
-  const text = await response.text();
-  if (Buffer.byteLength(text, 'utf8') <= MAX_RESPONSE_BYTES) return text;
-  throw new ProviderError(
-    'provider',
-    `Provider response exceeded ${MAX_RESPONSE_BYTES} bytes at ${describeForeignText(secret, response.url || 'unknown endpoint')}.`,
-    response.status
-  );
+  const tooBig = (): ProviderError =>
+    new ProviderError(
+      'provider',
+      `Provider response exceeded ${MAX_RESPONSE_BYTES} bytes at ${describeForeignText(secret, response.url || 'unknown endpoint')}.`,
+      response.status
+    );
+
+  const stream = response.body;
+  if (!stream) {
+    // A synthetic or already-consumed body: nothing to stream, so fall back to the
+    // buffered read and still refuse an oversized payload.
+    const buffered = await response.text();
+    if (Buffer.byteLength(buffered, 'utf8') > MAX_RESPONSE_BYTES) throw tooBig();
+    return buffered;
+  }
+
+  const reader = stream.getReader();
+  const chunks: Buffer[] = [];
+  let received = 0;
+  let overflow = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      received += value.byteLength;
+      if (received > MAX_RESPONSE_BYTES) {
+        overflow = true;
+        break;
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    if (overflow) await reader.cancel().catch(() => undefined);
+  }
+
+  if (overflow) throw tooBig();
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** Parses only a whole JSON document, and says why anything else was rejected. */

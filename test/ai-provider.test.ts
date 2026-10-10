@@ -160,6 +160,15 @@ describe('provider endpoint validation (#24)', () => {
       'https://239.255.255.250/v1',
       'https://[fe80::1]/v1',
       'https://[fd00::1]/v1',
+      // fe80::/10 is the whole range, not the `fe80` literal: the prefix bits run to febf.
+      'https://[fe90::1]/v1',
+      'https://[fea1::2]/v1',
+      'https://[febf::]/v1',
+      'https://[ff02::1]/v1',
+      // IPv4-mapped literals must be judged as the addresses they encode. Node hands the
+      // checker `[::ffff:a9fe:a9fe]`, never the dotted spelling a rule would match naively.
+      'https://[::ffff:a9fe:a9fe]/v1',
+      'https://[::ffff:169.254.169.254]/v1',
       'https://metadata.google.internal/v1',
     ]) {
       assert.throws(() => normalizeProviderEndpoint(refused), /reserved address space/, refused);
@@ -169,8 +178,16 @@ describe('provider endpoint validation (#24)', () => {
       'https://224.example.com/v1',
       'https://api.internal-host.example/v1',
       'http://127.0.0.1:11434/v1',
+      // `::1` is loopback and has to stay usable for a local provider on an IPv6 stack.
+      'http://[::1]:11434/v1',
+      // Public and documentation space, and the retired fec0 site-local range, which
+      // fe80::/10 does not include.
+      'https://[2001:db8::1]/v1',
+      'https://[fec0::1]/v1',
+      // A mapped literal that encodes a public address is not reserved either.
+      'https://[::ffff:8.8.8.8]/v1',
     ]) {
-      assert.doesNotThrow(() => normalizeProviderEndpoint(allowed), `${allowed} is a hostname, not an address`);
+      assert.doesNotThrow(() => normalizeProviderEndpoint(allowed), `${allowed} should not be refused`);
     }
   });
 
@@ -324,6 +341,55 @@ describe('provider request shape (#24)', () => {
 });
 
 describe('provider reply handling (#24)', () => {
+  test('the byte bound stops the read instead of measuring what was already buffered', async () => {
+    // The first version read `response.text()` and *then* compared the length, which
+    // describes the error message rather than the exposure: an endless stream was fully
+    // allocated before anything was refused. This asserts the bound is enforced while
+    // reading, using a source that never ends and would otherwise never resolve.
+    let pulls = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        controller.enqueue(new Uint8Array(64 * 1024).fill(0x61));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const { p } = providerFor(() => new Response(stream, { status: 500 }));
+    await assert.rejects(
+      () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderError && err.kind === 'provider');
+        assert.match(err.message, /exceeded \d+ bytes/);
+        return true;
+      }
+    );
+    assert.ok(cancelled, 'the reader must be cancelled so the stream stops producing');
+    assert.ok(pulls <= 10, `read a bounded number of chunks, pulled ${pulls}`);
+  });
+
+  test('a multi-byte character split across chunks survives the read', async () => {
+    // Concatenate-then-decode is why the incremental reader collects chunks instead of
+    // decoding each one: a boundary falling inside a three-byte sequence would otherwise
+    // come back as replacement characters in the middle of a reply.
+    const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: '完成 ✅' } }] }), 'utf8');
+    const split = bytes.indexOf(0xe2) + 1;
+    const { p } = providerFor(() => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.subarray(0, split));
+          controller.enqueue(bytes.subarray(split));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const reply = await p.complete({ messages: [{ role: 'user', content: 'x' }] });
+    assert.strictEqual(reply.text, '完成 ✅');
+  });
+
   test('a normal completion returns the message text and the token accounting', async () => {
     const { p } = providerFor(() =>
       jsonResponse({
