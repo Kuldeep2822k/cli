@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { PALEE_CMD } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
@@ -26,7 +27,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
       const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
-      const stdout = execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" ${escapedArgs.join(' ')}`, {
+      const stdout = execSync(`${PALEE_CMD} ${escapedArgs.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },
         encoding: 'utf8',

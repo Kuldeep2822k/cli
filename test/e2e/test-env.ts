@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { parseFrontmatter, updateFrontmatter } from '../../src/storage';
+import { PALEE_ARGV } from '../palee-cli';
 
 export interface CLIResult {
   status: number;
@@ -28,7 +29,6 @@ export interface TestVaultEnv {
   cleanup: () => void;
 }
 
-const PALEE_BIN = path.resolve(__dirname, '../../dist/bin/palee.js');
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
 /**
@@ -44,7 +44,7 @@ export function runPalee(
   configDir: string,
   options?: { input?: string; env?: Record<string, string>; cwd?: string }
 ): CLIResult {
-  const result = spawnSync(process.execPath, [PALEE_BIN, ...args], {
+  const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
     cwd: options?.cwd || REPO_ROOT,
     env: {
       ...process.env,
@@ -95,7 +95,7 @@ function runPaleeInteractive(
   timeoutMs = 60000
 ): Promise<CLIResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [PALEE_BIN, ...args], {
+    const child = spawn(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: REPO_ROOT,
       env: { ...process.env, PALEE_CONFIG_DIR: configDir, NODE_ENV: 'test' },
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 
 /**
  * A roadmap import that fails partway still leaves the notes it *did* write
@@ -45,7 +46,7 @@ describe('roadmap import reports edges to notes that do not exist', () => {
   function runCLI(args: string[]): { status: number | null; stdout: string; stderr: string } {
     const result = spawnSync(
       process.execPath,
-      [path.resolve(__dirname, '../dist/bin/palee.js'), ...args],
+      [...PALEE_ARGV, ...args],
       {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },

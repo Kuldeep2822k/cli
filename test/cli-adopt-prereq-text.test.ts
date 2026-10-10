@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { PALEE_CMD } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 /**
@@ -27,7 +28,7 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
 
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
-      const stdout = execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" ${args.join(' ')}`, {
+      const stdout = execSync(`${PALEE_CMD} ${args.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },
         encoding: 'utf8',

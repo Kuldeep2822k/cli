@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 import type { AddressInfo } from 'node:net';
 
 /**
@@ -84,7 +85,7 @@ describe('CLI config test-connection (#24)', () => {
       // assertions. Strip it by default; the one test that needs it passes it explicitly.
       const env: NodeJS.ProcessEnv = { ...process.env, PALEE_CONFIG_DIR: configDir, ...extraEnv };
       if (!('PALEE_API_KEY' in extraEnv)) delete env.PALEE_API_KEY;
-      const child = spawn(process.execPath, [path.resolve(__dirname, '../dist/bin/palee.js'), 'config', ...args], {
+      const child = spawn(process.execPath, [...PALEE_ARGV, 'config', ...args], {
         cwd: path.resolve(__dirname, '..'),
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
