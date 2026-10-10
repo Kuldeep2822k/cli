@@ -352,7 +352,11 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
       return log;
     });
 
-    assert.ok(events.some(e => e.type === 'rename' && e.to === file), 'the write itself happened');
+    // `atomicWrite` renames to the containment-resolved path, so the recorded target is
+    // the realpath: on macOS `os.tmpdir()` is under `/var`, which is a symlink to
+    // `/private/var`, and comparing against the unresolved `file` would fail there only.
+    const realTarget = path.join(fs.realpathSync(vaultPath), 'instrumented-new.md');
+    assert.ok(events.some(e => e.type === 'rename' && e.to === realTarget), 'the write itself happened');
     assert.strictEqual(events.filter(e => e.type === 'fchmod').length, 0, 'a new file must keep the default mode');
   });
 
