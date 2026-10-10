@@ -143,3 +143,27 @@ describe('Pattern Validation', () => {
     assert.doesNotThrow(() => validatePattern('**/*.md, 01-*, [0-9]-*'));
   });
 });
+
+// #312 — the dialect `palee adopt --help` now documents. These hold at base and are
+// pinned so the written rule and the engine cannot drift apart: a `/` in the pattern
+// anchors it at the vault root, its absence matches the filename in any directory,
+// and folding is case-insensitive.
+describe('Glob dialect documented in adopt --help (#312)', () => {
+  test('a pattern containing / is anchored at the root and must name the whole path', () => {
+    assert.strictEqual(matchesPattern('a/x.md', 'a/*.md'), true);
+    assert.strictEqual(matchesPattern('x.md', 'a/*.md'), false, 'the directory the pattern names must exist');
+    assert.strictEqual(matchesPattern('b/a/x.md', 'a/*.md'), false, 'and it is not matched at a deeper level');
+  });
+
+  test('a pattern without / matches the filename in any directory', () => {
+    assert.strictEqual(matchesPattern('x-draft.md', '*draft*'), true);
+    assert.strictEqual(matchesPattern('MODULES/01/x-draft.md', '*draft*'), true);
+    assert.strictEqual(matchesPattern('MODULES/01/lesson.md', '*draft*'), false);
+  });
+
+  test('matching ignores case on both the anchored and the per-name forms', () => {
+    assert.strictEqual(matchesPattern('MODULES/01-LESSON.md', 'modules/01-lesson.md'), true);
+    assert.strictEqual(matchesPattern('MODULES/01-lesson.md', '*TEMPLATE*'), false);
+    assert.strictEqual(matchesPattern('MODULES/runbook-TEMPLATE.md', '*template*'), true);
+  });
+});
