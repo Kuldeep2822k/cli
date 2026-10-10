@@ -498,14 +498,20 @@ export class OpenAICompatibleProvider {
   }
 
   /**
-   * Masks the credential inside a parsed JSON reply by round-tripping through its
-   * serialization, so a caller that logs `reply.json` cannot leak a key an
-   * echo-back gateway reflected into the body — the same guarantee `redeemed`
-   * gives `reply.text`.
+   * Masks the credential inside a parsed JSON reply, so a caller that logs `reply.json`
+   * cannot leak a key an echo-back gateway reflected into the body — the same guarantee
+   * `redeemed` gives `reply.text`.
+   *
+   * @remarks
+   * The mask is applied to the parsed string values directly, not to a re-serialized
+   * blob. `JSON.stringify` escapes `"` and `\`, both of which `isSendable` permits in a
+   * key, so masking the serialized text would search for the raw key and miss its escaped
+   * spelling — the key would survive in `reply.json` while `reply.text` was clean.
    */
   private redeemedJson(value: unknown): unknown {
-    if (this.settings.apiKey === undefined) return value;
-    return JSON.parse(maskSecret(this.settings.apiKey, JSON.stringify(value)));
+    const secret = this.settings.apiKey;
+    if (secret === undefined || secret.length === 0) return value;
+    return maskJsonValue(secret, value);
   }
 
   /** One HTTP round trip. No retry logic lives here. */
@@ -655,6 +661,24 @@ export class OpenAICompatibleProvider {
 /** Masks every occurrence of the credential without otherwise altering the text. */
 function maskSecret(secret: string | undefined, text: string): string {
   return secret && secret.length > 0 ? text.split(secret).join('***') : text;
+}
+
+/**
+ * Masks the credential in every string a parsed JSON value contains — values and keys,
+ * at any depth. Operates on the parsed structure rather than its serialization so a key
+ * holding `"` or `\` is matched in its real spelling, not its JSON-escaped one.
+ */
+function maskJsonValue(secret: string, value: unknown): unknown {
+  if (typeof value === 'string') return maskSecret(secret, value);
+  if (Array.isArray(value)) return value.map((item) => maskJsonValue(secret, item));
+  if (value !== null && typeof value === 'object') {
+    const masked: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      masked[maskSecret(secret, key)] = maskJsonValue(secret, item);
+    }
+    return masked;
+  }
+  return value;
 }
 
 /**

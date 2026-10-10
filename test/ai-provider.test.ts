@@ -664,6 +664,23 @@ describe('redaction of every foreign string (#24)', () => {
     assert.match(reply.text, /your key is \*\*\*/);
   });
 
+  test('a key holding JSON-special characters is still masked inside reply.json', async () => {
+    // isSendable permits `"` and `\`, which JSON.stringify escapes. Masking a re-serialized
+    // reply would hunt for the raw key and miss its escaped spelling, so the key survived in
+    // reply.json. The mask now runs on the parsed string values, which carry the real key.
+    const trickyKey = 'testkey-"\\-leak-4b2e';
+    const body = JSON.stringify({ note: `echoed ${trickyKey} back`, nested: [trickyKey] });
+    const { transport } = recorder(() => completion(body));
+    const p = new OpenAICompatibleProvider(
+      resolveProviderSettings({ baseUrl: 'https://gw.example/v1', apiKey: trickyKey }, {}),
+      { transport }
+    );
+    const reply = await p.complete({ messages: [{ role: 'user', content: 'answer in json' }], expectJson: true });
+    const serialized = JSON.stringify(reply.json);
+    assert.ok(!serialized.includes('4b2e'), `the key survived in reply.json: ${serialized}`);
+    assert.ok(serialized.includes('***'), serialized);
+  });
+
   test('a transport exception message is never forwarded verbatim', async () => {
     const { transport } = recorder(() => {
       throw new TypeError(`connect ${KEY} refused`);
