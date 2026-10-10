@@ -53,9 +53,9 @@ palee config test-connection
 
 `set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
 argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
-is stored in the config file, written `0600` on POSIX — on Windows the mode is ignored and access is
-resolved through the directory ACL. `PALEE_API_KEY` in the environment outranks the stored key, for anyone
-who would rather never write it to disk.
+is stored in the config file, written `0600` on POSIX. On Windows that mode is ignored, so `set-api-key`
+instead refuses to store the key when the config directory is outside your user profile (see Windows Notes).
+`PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to disk.
 
 `test-connection` sends one short prompt and reports the URL it called, which key source won, how long
 the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
@@ -167,7 +167,9 @@ palee config set-api-key --from-env OPENCODE_API_KEY
 ```
 
 The key is kept in the config file, stored as plaintext at rest under a `0600` mode on POSIX, and no
-command prints it. `palee roadmap` and every offline command work without any of this.
+command prints it. On Windows the file mode does not apply, so the key's privacy rests on the config
+directory's ACL; see Windows Notes for how `set-api-key` guards that. `palee roadmap` and every offline
+command work without any of this.
 
 ### Vault Connection
 ```bash
@@ -247,6 +249,12 @@ PALEE uses standard exit codes to facilitate scripting:
 - **Path Normalization**: PALEE natively handles both forward slashes (`/`) and backslashes (`\`) for vault configuration and file references.
 - **Lock Timeouts**: On Windows, file locks become stale after 60 seconds (vs 120s on Unix) to accommodate aggressive process termination without `finally` blocks executing.
 - **Config Storage**: The config file on Windows is stored in `%LOCALAPPDATA%\palee\config.json`.
+- **API key privacy**: Because Windows ignores the POSIX `0600` file mode and resolves access through the
+  directory's inherited ACL, `palee config set-api-key` refuses to write the key when the config directory
+  resolves outside your user profile (`%USERPROFILE%` / `%LOCALAPPDATA%`) — a share or synced folder can grant
+  other principals read access. The refusal names the directory. To proceed anyway, pass the key at runtime
+  via the `PALEE_API_KEY` environment variable (never written to disk), move `PALEE_CONFIG_DIR` under your
+  profile, or set `PALEE_ALLOW_INSECURE_CONFIG_DIR=1` if you have secured the directory by other means.
 
 ## Contributing
 
