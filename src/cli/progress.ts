@@ -8,6 +8,7 @@ import { exitCodeFor } from './exit-codes';
 
 import { loadTopics, type LoadedTopic } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+import { summarizeMastery } from '../application/mastery-summary';
 import { Difficulty, ProgressOptions } from '../types';
 import { resolveTopicQuery } from './topic-query';
 
@@ -173,9 +174,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
       const total = topics.length;
       const activeCount = activeTopics.length;
-      const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
-      const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
-      const newTopics = activeTopics.filter(t => t.mastery === 0).length;
+      const { mastered, learning, new: newTopics } = summarizeMastery(activeTopics.map(t => t.mastery));
 
       const totalReps = activeTopics.reduce((sum, t) => sum + t.repetition, 0);
       const totalLapses = activeTopics.reduce((sum, t) => sum + t.lapses, 0);
