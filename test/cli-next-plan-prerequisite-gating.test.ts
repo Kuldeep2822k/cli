@@ -294,6 +294,78 @@ depends_on: []
       assert.strictEqual(data.status, 'blocked');
       assert.match(data.blocked[0].waiting_on[0], /T-bb is not in the vault \(run palee validate\)/);
     });
+
+    test('a long gated queue is truncated with a count, like plan truncates its blocked list', async () => {
+      for (const id of ['T-c', 'T-d', 'T-e', 'T-f', 'T-g']) {
+        writeNote(
+          `${id}.md`,
+          `palee_id: ${id}
+title: Child ${id}
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-bb
+`
+        );
+      }
+      asTTY();
+      try {
+        await nextCommand({});
+      } finally {
+        restoreTTY();
+      }
+      const text = allOutput();
+      assert.match(text, /Nothing to review — every due topic is blocked by prerequisites:/);
+      const bulletLines = text.split('\n').filter((line) => line.trimStart().startsWith('• '));
+      assert.strictEqual(
+        bulletLines.length,
+        5,
+        'the gated queue prints at most five blockers, matching plan\'s blocked section'
+      );
+      assert.match(text, /\.\.\. and 1 more/);
+    });
+
+    test('the trailing warning agrees on the withheld count in both singular and plural', async () => {
+      // Make the prerequisite itself actionable so the queue is not empty, which
+      // is the branch that appends the warning instead of the blocked report.
+      fs.writeFileSync(path.join(tmpDir, 'two.md'), `---
+palee_schema: 1
+palee_id: T-bb
+title: RootPrereq
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+---
+# RootPrereq
+`, 'utf8');
+      writeNote(
+        'child-c.md',
+        `palee_id: T-c
+title: ChildC
+difficulty: beginner
+topic_mastery: 0
+depends_on:
+  - T-bb
+`
+      );
+      asTTY();
+      try {
+        await nextCommand({});
+      } finally {
+        restoreTTY();
+      }
+      assert.match(allOutput(), /⚠ 2 due topics are waiting on prerequisites — see: palee plan/);
+
+      fs.unlinkSync(path.join(tmpDir, 'child-c.md'));
+      loggedOutputs = [];
+      asTTY();
+      try {
+        await nextCommand({});
+      } finally {
+        restoreTTY();
+      }
+      assert.match(allOutput(), /⚠ 1 due topic is waiting on a prerequisite — see: palee plan/);
+    });
   });
 
   // ─── the gate is about study order, not about re-reviewing what is learned ──
