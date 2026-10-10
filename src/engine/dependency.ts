@@ -6,7 +6,7 @@
  * verifies prerequisite satisfaction thresholds, and determines which topics are ready for study.
  */
 
-import { TopicNode, ValidationError, ValidationResult, isAdvisoryDependsOnSource } from '../types';
+import { TopicNode, ValidationError, MissingDependencyValidationError, ValidationResult, isAdvisoryDependsOnSource } from '../types';
 import { MASTERY_THRESHOLD } from './mastery';
 
 /**
@@ -859,8 +859,8 @@ function getReadyTopics(
  * }
  * ```
  */
-function findMissingDependencies(topics: Map<string, TopicNode>): ValidationError[] {
-  const errors: ValidationError[] = [];
+function findMissingDependencies(topics: Map<string, TopicNode>): MissingDependencyValidationError[] {
+  const errors: MissingDependencyValidationError[] = [];
   for (const [id, topic] of topics) {
     const deps = getTopicDependencies(topic);
     for (const depId of deps) {

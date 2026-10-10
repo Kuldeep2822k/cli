@@ -492,24 +492,52 @@ export interface ScannedNote {
 // ─── Validation ─────────────────────────────────────────────────────
 
 /**
- * Specific issue encountered during vault or dependency graph validation.
+ * A dangling prerequisite reference emitted by `findMissingDependencies`.
+ *
+ * @remarks Discriminated member (`type: 'missing_dependency'`): `topic` and
+ * `missing` are required because the only producer always knows both — the
+ * referencing topic and the absent prerequisite ID.
  */
-export interface ValidationError {
-  /** Error classification */
-  type: 'duplicate_id' | 'missing_dependency' | 'cycle';
+export interface MissingDependencyValidationError {
+  type: 'missing_dependency';
   /** Topic identifier where the issue was detected */
-  topic?: string;
-  /** Missing dependent topic ID (for `missing_dependency`) */
-  missing?: string;
-  /** Duplicate topic ID (for `duplicate_id`) */
-  id?: string;
-  /** File paths containing conflicting duplicate IDs */
-  files?: string[];
-  /** Cycle path sequence (for `cycle`) */
-  path?: string[];
+  topic: string;
+  /** Missing dependent topic ID */
+  missing: string;
   /** Descriptive explanation of the validation failure */
   message?: string;
 }
+
+/**
+ * A circular dependency emitted by `validateDependencyGraph`.
+ *
+ * @remarks Discriminated member (`type: 'cycle'`): `path` is required because
+ * the only producer always reports the canonicalized cycle sequence.
+ */
+export interface CycleValidationError {
+  type: 'cycle';
+  /** Cycle path sequence */
+  path: string[];
+  /** Descriptive explanation of the validation failure */
+  message?: string;
+}
+
+/**
+ * Specific issue encountered during dependency graph validation.
+ *
+ * @remarks
+ * A discriminated union keyed on `type`, so a producer cannot emit a
+ * `missing_dependency` without naming the missing ID or a `cycle` without a
+ * path and still type-check. Only the two variants the engine actually emits
+ * are modelled. The `duplicate_id` label is intentionally absent here: no
+ * producer constructs it — `palee validate` derives that wire label from the
+ * `no-duplicate-topic-id` rule's own `files` detail (the `ValidationIssue`
+ * path in `validation/format.ts`), not from this engine type. Its former
+ * `id`/`files` fields were dead as a producer path and are dropped.
+ */
+export type ValidationError =
+  | MissingDependencyValidationError
+  | CycleValidationError;
 
 /**
  * Outcome of validating the complete topic graph.
