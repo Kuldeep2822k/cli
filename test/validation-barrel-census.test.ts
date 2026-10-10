@@ -24,27 +24,9 @@ describe('Validation Barrel Census & Public Surface (#25)', () => {
     });
 
     it('exports all nineteen registered rules as ValidationRule objects in validate.ts registration order (#171.9)', () => {
-      const rules = [
-        validation.parseFrontmatterRule,
-        validation.readFailureRule,
-        validation.validManagedNoteKindRule,
-        validation.validPaleeSchemaRule,
-        validation.validTopicIdFormatRule,
-        validation.validTopicStatusRule,
-        validation.noDuplicateTopicIdRule,
-        validation.validDependencyListRule,
-        validation.noMissingDependencyRule,
-        validation.noDependencyCycleRule,
-        validation.validAssessmentFieldsRule,
-        validation.validTopicMasteryRule,
-        validation.validReviewFieldsRule,
-        validation.validReviewDatesRule,
-        validation.validSessionSchemaRule,
-        validation.noSessionUnknownTopicRule,
-        validation.validSessionIndexRule,
-        validation.validHotMemoryRule,
-        validation.safeVaultPathsRule,
-      ];
+      // Iterate the single canonical ordered catalog rather than a
+      // hand-maintained mirror — the CLI runner executes this exact array.
+      const rules = validation.VALIDATION_RULES;
       // Rules are object literals implementing ValidationRule — assert
       // presence (not undefined) and let the contract-shape test pin the rest.
       assert.strictEqual(rules.length, 19);
