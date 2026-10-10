@@ -5,6 +5,8 @@ import path from 'path';
 import os from 'os';
 import { parseFrontmatter, updateFrontmatter } from '../src/storage/frontmatter';
 import { loadTopics } from '../src/storage/loader';
+import { scanNotes } from '../src/storage/scanner';
+import { MAX_NOTE_SOURCE_BYTES } from '../src/storage/source-cap';
 import { rebuildHotAndIndex, getDrafts } from '../src/storage/memory';
 import { walkVault } from '../src/storage/vault-walker';
 
@@ -128,6 +130,53 @@ practical: -2.0
       assert.strictEqual(topic.practical, 0.0);
 
       fs.unlinkSync(weirdStatsNote);
+    });
+
+    test('a note whose frontmatter is full of YAML comments survives to the loader, and a pasted log is declined unread', () => {
+      // #319 end to end: hash-run comments are legal YAML, so the note must
+      // reach the loader as a topic with its metadata intact — the scanner used
+      // to read them as Markdown headings, throw the parsed frontmatter away and
+      // report a fatal "unclosed frontmatter block".
+      const commented = path.join(testVault, 'commented-topic.md');
+      fs.writeFileSync(
+        commented,
+        '---\npalee_id: T-commented\npalee_schema: 1\n## key points\n# plain hash line\ntitle: Commented\n#### reviewed 2026-01-01\n---\n# Commented\n',
+        'utf8'
+      );
+      // #332: a multi-megabyte document is not a note. It is declined stat-first
+      // by both readers, and the scan path carries the reason as a diagnostic.
+      const pastedLog = path.join(testVault, 'pasted-log.md');
+      fs.writeFileSync(
+        pastedLog,
+        `---\npalee_id: T-not-really\n---\n${'x'.repeat(MAX_NOTE_SOURCE_BYTES + 1024)}`,
+        'utf8'
+      );
+
+      const loaded = loadTopics(testVault);
+      assert.ok(
+        loaded.some((t) => t.palee_id === 'T-commented'),
+        'a commented frontmatter block still yields a topic'
+      );
+      assert.ok(
+        !loaded.some((t) => t.palee_id === 'T-not-really'),
+        'the oversized document is never loaded, so its `palee_id` is never trusted'
+      );
+
+      const scanned = scanNotes(testVault);
+      const scannedCommented = scanned.find((n) => n.relativePath === 'commented-topic.md');
+      const scannedLog = scanned.find((n) => n.relativePath === 'pasted-log.md');
+      assert.ok(scannedCommented && scannedLog);
+      assert.strictEqual(scannedCommented.parseError, undefined);
+      assert.strictEqual(
+        (scannedCommented.frontmatter as Record<string, unknown>).palee_id,
+        'T-commented'
+      );
+      assert.strictEqual(scannedCommented.readError, undefined);
+      assert.match(scannedLog.readError ?? '', /Oversized/);
+      assert.strictEqual(scannedLog.frontmatter, null);
+
+      fs.unlinkSync(commented);
+      fs.unlinkSync(pastedLog);
     });
   });
 
