@@ -33,6 +33,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { displayValue } from './diagnostic-value';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
@@ -41,22 +42,6 @@ const NUMERIC_FIELDS = [
   { field: 'repetition', min: 0, integer: true },
   { field: 'lapses', min: 0, integer: true },
 ] as const;
-
-/**
- * Renders a value for diagnostics without JSON.stringify's non-finite
- * quirk.
- *
- * @remarks `JSON.stringify(NaN)` and `JSON.stringify(Infinity)` both
- * produce `null` — an invalid non-finite number would be misreported as
- * a literal null (a DIFFERENT invalid value). Keep the spelling
- * explicit so the finding names what is actually stored.
- */
-function displayValue(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isFinite(value)) {
-    return String(value);
-  }
-  return value;
-}
 
 /**
  * SM-2 bounds check for one numeric review field (engine contract).
@@ -95,10 +80,12 @@ const SM2_REVIEW_DEFAULTS: Record<string, unknown> = {
  * Computes the `--fix` repair map for one raw frontmatter block.
  *
  * @param frontmatter - Raw (unnormalized) note frontmatter
- * @returns Field → adopt-default map for every invalid review field, or
- * `null` when nothing needs repair. An invalid value makes the whole SM-2
- * state untrustworthy, so each offending field is reset to the adopt
- * default rather than clamped.
+ * @returns A map carrying an entry for each INVALID review field only
+ * (field → its adopt default from `SM2_REVIEW_DEFAULTS`), or `null` when
+ * nothing needs repair. The reset is per-field: only offending fields are
+ * reset to their adopt default, while valid fields — and missing fields —
+ * are left untouched. `--fix` therefore never rewrites the whole SM-2
+ * block, only the individual fields that fail their bounds check.
  */
 function repairReviewFields(frontmatter: Record<string, unknown>): Record<string, unknown> | null {
   const fixes: Record<string, unknown> = {};

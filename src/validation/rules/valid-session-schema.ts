@@ -36,6 +36,7 @@
 import type { ValidationRule, ValidationIssue } from '../types';
 import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
 import { isRealCalendarDate } from './assessed-at';
+import { displayValue } from './diagnostic-value';
 import type { LoadedSession } from '../../storage/sessions';
 
 /** Required fields every session note must carry. */
@@ -43,12 +44,6 @@ const REQUIRED_FIELDS = ['session_id', 'topic_id', 'started_at'] as const;
 
 /** Allowed session statuses. */
 const ALLOWED_STATUSES = ['completed', 'draft'] as const;
-
-/** Renders a frontmatter value for diagnostics without JSON.stringify's non-finite quirk. */
-function displayValue(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
-  return value;
-}
 
 /**
  * True when a session note carries no OTHER schema defect besides its
