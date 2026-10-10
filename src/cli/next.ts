@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 import { exitCodeFor } from './exit-codes';
 /**
  * Next Command Handler
@@ -115,8 +115,12 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     return;
 
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`Error: ${err.message}`);
+    // #325: the documented machine-readable contract covers runtime errors too.
+    // `--json` (or a piped stdout) gets the same `{ error }` payload the exit-2
+    // vault path emits, on stderr; the exit code is unchanged. `options` is
+    // passed rather than the in-try `jsonMode`, which does not exist when the
+    // throw happens before it is assigned.
+    emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;
   }
