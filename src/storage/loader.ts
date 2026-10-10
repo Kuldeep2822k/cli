@@ -133,6 +133,38 @@ function parseInteger(val: unknown, fallback: number = 0): number {
 }
 
 /**
+ * Coerces an input value into an integer, or `null` when it is not a finite number.
+ *
+ * @remarks
+ * Mirrors {@link parseInteger}'s coercion (finite check, string parsing, flooring)
+ * but preserves the optional SM-2 "no value yet" state as `null` instead of a numeric
+ * fallback. Quoted YAML numbers (`last_quality: "4"`) therefore parse the same way the
+ * sibling integer fields (`interval_days`, `repetition`, `lapses`) already accept them.
+ *
+ * @param val - Numeric input
+ * @returns Integer value, or `null` if the value cannot be parsed into a finite integer
+ *
+ * @example
+ * ```typescript
+ * parseOptionalInteger(4.8);   // 4
+ * parseOptionalInteger('4');   // 4
+ * parseOptionalInteger('bad'); // null
+ * parseOptionalInteger(null);  // null
+ * ```
+ */
+function parseOptionalInteger(val: unknown): number | null {
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return null;
+    return Math.floor(val);
+  }
+  if (typeof val === 'string') {
+    const parsed = Number(val.trim());
+    if (Number.isFinite(parsed)) return Math.floor(parsed);
+  }
+  return null;
+}
+
+/**
  * Parses a floating-point number with fallback.
  *
  * @param val - Numeric input
@@ -270,9 +302,7 @@ export function loadTopics(
       interval_days: parseInteger(frontmatter.interval_days, 1),
       repetition: parseInteger(frontmatter.repetition, 0),
       lapses: parseInteger(frontmatter.lapses, 0),
-      last_quality: typeof frontmatter.last_quality === 'number' && Number.isFinite(frontmatter.last_quality)
-        ? Math.floor(frontmatter.last_quality)
-        : null,
+      last_quality: parseOptionalInteger(frontmatter.last_quality),
       assessed_at: normalizeAssessedAt(frontmatter.assessed_at),
       last_reviewed_at: frontmatter.last_reviewed_at ? String(frontmatter.last_reviewed_at) : null,
       due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
