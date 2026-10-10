@@ -8,14 +8,23 @@
  * — validation and migration must know WHAT KIND of managed note it
  * is before kind-specific rules run; guessing later is unsafe.
  *
- * Kind discrimination (identity KEYS, presence regardless of value
- * type — the same managed-marking policy as `valid-palee-schema`
- * #28, so the two rules can never disagree about what is managed):
+ * Kind discrimination (identity KEYS, presence regardless of value type —
+ * the SINGLE shared managed-key definition from `src/validation/managed-note.ts`
+ * #324, the same set `valid-palee-schema` #28 and `valid-topic-id-format` #29
+ * consume, so the three rules can never disagree about what is managed):
  * - `palee_id` → topic note
  * - `session_id` → session note
  * - `memory_id` → hot memory
  * - `type: "session_index"` → session index
  * - none of the above → ambiguous managed note (warning)
+ *
+ * #324 scope decision (deliberate): this rule's IN-SCOPE gate is the presence
+ * of `palee_schema`, which is BROADER than the schema/topic-id rules' identity
+ * gate on purpose. A `palee_schema`-only note (no identity key) counts as
+ * managed HERE — "PALEE wrote something here" — and is surfaced ONCE as the
+ * `palee_schema`-but-no-identity warning below; the same note is NOT a topic
+ * note for the ID-format rule, so it no longer raises the false-positive error
+ * that failed the vault at exit 3. No managed note escapes all three checks.
  *
  * Multiple identity keys on one note is ALSO ambiguous: a note
  * carrying both `palee_id` and `session_id` claims to be two kinds
@@ -36,18 +45,10 @@
  * still versioned data; a human decides its kind).
  */
 
-import type { ValidationRule, ValidationIssue } from '../types';
+import type { ValidationIssue, ValidationRule } from '../types';
+import { PALEE_IDENTITY_KEYS, SESSION_INDEX_TYPE, presentIdentityKeys } from '../managed-note';
 
-/** Identity keys that discriminate managed-note kinds (#28 parity). */
-const IDENTITY_KEYS = ['palee_id', 'session_id', 'memory_id'] as const;
-
-/** Index marker value that identifies the session index note. */
-const INDEX_TYPE = 'session_index';
-
-/**
- * Reports managed notes whose kind cannot be identified from their
- * identity fields.
- */
+/** Reports managed notes whose kind cannot be identified from their identity fields. */
 export const validManagedNoteKindRule: ValidationRule = {
   id: 'valid-managed-note-kind',
   description:
@@ -66,8 +67,8 @@ export const validManagedNoteKindRule: ValidationRule = {
       const hasSchema = Object.hasOwn(fm, 'palee_schema');
       if (!hasSchema) continue; // user-owned note, never reported
 
-      const identities = IDENTITY_KEYS.filter((key) => Object.hasOwn(fm, key));
-      const isIndex = fm.type === INDEX_TYPE;
+      const identities = presentIdentityKeys(fm);
+      const isIndex = fm.type === SESSION_INDEX_TYPE;
 
       if (identities.length === 1 && !isIndex) continue; // exactly one kind
       if (identities.length === 0 && isIndex) continue; // index marker only
@@ -118,7 +119,7 @@ export const validManagedNoteKindRule: ValidationRule = {
       internal.push({
         fm: session.frontmatter,
         path: session.path,
-        indexMarker: session.frontmatter.type === INDEX_TYPE,
+        indexMarker: session.frontmatter.type === SESSION_INDEX_TYPE,
       });
     }
     if (context.sessionIndex.state === 'ok' && context.sessionIndex.frontmatter) {
@@ -126,7 +127,7 @@ export const validManagedNoteKindRule: ValidationRule = {
       internal.push({
         fm: indexFm,
         path: '.palee/index.md',
-        indexMarker: indexFm.type === INDEX_TYPE,
+        indexMarker: indexFm.type === SESSION_INDEX_TYPE,
       });
     }
     if (context.hotMemory.state === 'ok' && context.hotMemory.frontmatter) {
@@ -137,7 +138,7 @@ export const validManagedNoteKindRule: ValidationRule = {
       internal.push({
         fm: hotFm,
         path: '.palee/hot.md',
-        indexMarker: hotFm.type === INDEX_TYPE,
+        indexMarker: hotFm.type === SESSION_INDEX_TYPE,
       });
     }
     for (const note of internal) {
@@ -149,7 +150,7 @@ export const validManagedNoteKindRule: ValidationRule = {
       // cross-kind claim that conflicts with the location.
       const isIndex = note.path === '.palee/index.md';
       const expectedKey = isIndex ? null : note.path === '.palee/hot.md' ? 'memory_id' : 'session_id';
-      const foreign = IDENTITY_KEYS.filter(
+      const foreign = PALEE_IDENTITY_KEYS.filter(
         (key) => Object.hasOwn(note.fm, key) && key !== expectedKey
       );
       if (isIndex) {
