@@ -10,6 +10,7 @@
  */
 
 import { isConflictError, isContainmentError } from '../storage';
+import { ProviderError } from '../ai';
 
 /** Documented CLI exit codes */
 export const ExitCode = {
@@ -41,8 +42,24 @@ export const ExitCode = {
  * what `ExitCode.Validation` (3) already reports for a roadmap topic path that
  * escapes the vault, and unlike `ECONFLICT` no retry can make it safe.
  */
-export function exitCodeFor(error: unknown): 3 | 4 | 5 {
+export function exitCodeFor(error: unknown): 2 | 3 | 4 | 5 {
   if (isConflictError(error)) return ExitCode.Conflict;
   if (isContainmentError(error)) return ExitCode.Validation;
+  if (error instanceof ProviderError) {
+    // Mapped here rather than at each call site, so the same provider refusal cannot
+    // exit 2 from `config set-base-url` and 5 from a command that read the same stored
+    // value. A bad endpoint or an unsupported provider is configuration (2); a reply
+    // that failed the output contract is validation (3); nothing reached the provider,
+    // or the provider refused, is the I/O class (5).
+    if (error.kind === 'config') return ExitCode.Usage;
+    if (error.kind === 'schema') return ExitCode.Validation;
+    // A 401/403 is a user-fixable credential problem, not a crash: `status` is carried
+    // precisely so it can be told apart from a 5xx or an unreachable endpoint, both of
+    // which stay in the I/O class (5).
+    if (error.kind === 'provider' && (error.status === 401 || error.status === 403)) {
+      return ExitCode.Usage;
+    }
+    return ExitCode.Unexpected;
+  }
   return ExitCode.Unexpected;
 }

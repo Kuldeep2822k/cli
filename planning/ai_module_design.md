@@ -48,10 +48,20 @@ Manages connection to LLM providers:
 - `base_url`: API endpoint (e.g., `https://opencode.ai/zen/v1`)
 - `api_key`: Authentication token
 - `model`: Specific model to use
-- Storage location:
-  - **Unix/macOS**: `~/.config/palee/ai_provider.json` (where `~` expands to `$HOME`)
-  - **Windows**: `%LOCALAPPDATA%\palee\ai_provider.json` (typically `C:\Users\<user>\AppData\Local\palee\ai_provider.json`)
-  - PALEE uses Node's `os.homedir()` + `.config/palee/` on Unix/macOS, and `process.env.LOCALAPPDATA` + `palee\` on Windows
+- Storage location: **the one `config.json`, not a separate `ai_provider.json`.** This design
+  originally specified a second file; #82 shipped `baseUrl` / `apiKey` / `model` as fields on
+  `PaleeConfig` in the existing config path (`%LOCALAPPDATA%\palee\config.json` on Windows,
+  `~/.config/palee/config.json` on Unix/macOS, `PALEE_CONFIG_DIR` overriding both), and that is
+  what the code does. Splitting them would have put two files in charge of one connection and
+  left `loadConfig`'s key whitelist with a second place to be wrong.
+  - The file is written `0600` in a `0700` directory, holds the credential as plaintext at rest,
+    and no command prints it — `config show` renders `••••••••`.
+  - `PALEE_API_KEY` in the environment outranks the stored key, and which source was used is
+    reported by `keySource` / printed by `palee config test-connection`.
+  - `normalizeProviderEndpoint()` in `src/ai/provider.ts` is the single gate for what a base URL
+    may be. `palee config set-base-url` and every request path call it, so a stored value cannot
+    pass one check and fail the other: https only, except http to a loopback host (local
+    providers), and never a query string, fragment, or embedded userinfo.
 
 ### 2. Session Manager
 
