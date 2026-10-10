@@ -739,4 +739,95 @@ ${body}
     assert.ok(fs.existsSync(zeroByteFile), '0-byte session file should survive rebuildHotAndIndex');
     assert.strictEqual(fs.statSync(zeroByteFile).size, 0);
   });
+
+  test('recoverDraft save clamps a >60s-future start to now but preserves a <60s-future start (#360)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+
+    // Case A: start timestamp 10 minutes in the future (>60s) — must clamp to now.
+    const farFutureIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const farDraftId = generateDraftId();
+    const farDraftPath = await writeDraftCheckpoint(testVaultPath, farDraftId, {
+      topic_id: 'T-far-future',
+      started_at: farFutureIso,
+    }, 'Far future draft.');
+    const beforeFarSave = Date.now();
+    await recoverDraft(testVaultPath, farDraftPath, 'save');
+    const afterFarSave = Date.now();
+
+    const farNote = fs.readdirSync(sessionsDir).find(f => {
+      if (!f.startsWith('S-') || f.startsWith('DRAFT-S-')) return false;
+      return fs.readFileSync(path.join(sessionsDir, f), 'utf8').includes('T-far-future');
+    });
+    assert.ok(farNote, 'recovered far-future session note should exist');
+    const farFm = parseFrontmatter(fs.readFileSync(path.join(sessionsDir, farNote!), 'utf8')).frontmatter;
+    const farStartMs = new Date(farFm!.started_at as string).getTime();
+    assert.ok(farStartMs < new Date(farFutureIso).getTime(), 'far-future start must be clamped below the original future value');
+    assert.ok(
+      farStartMs >= beforeFarSave - 1000 && farStartMs <= afterFarSave + 1000,
+      `far-future start should clamp to ~now, got ${farFm!.started_at}`
+    );
+
+    // Case B: start timestamp 30s in the future (<60s skew band) — must be preserved as-is.
+    const nearFutureIso = new Date(Date.now() + 30 * 1000).toISOString();
+    const nearDraftId = generateDraftId();
+    const nearDraftPath = await writeDraftCheckpoint(testVaultPath, nearDraftId, {
+      topic_id: 'T-near-future',
+      started_at: nearFutureIso,
+    }, 'Near future draft.');
+    await recoverDraft(testVaultPath, nearDraftPath, 'save');
+
+    const nearNote = fs.readdirSync(sessionsDir).find(f => {
+      if (!f.startsWith('S-') || f.startsWith('DRAFT-S-')) return false;
+      return fs.readFileSync(path.join(sessionsDir, f), 'utf8').includes('T-near-future');
+    });
+    assert.ok(nearNote, 'recovered near-future session note should exist');
+    const nearFm = parseFrontmatter(fs.readFileSync(path.join(sessionsDir, nearNote!), 'utf8')).frontmatter;
+    assert.strictEqual(
+      nearFm!.started_at,
+      nearFutureIso,
+      'a <60s-future start should be preserved as-is, not reset to now'
+    );
+
+    fs.unlinkSync(path.join(sessionsDir, farNote!));
+    fs.unlinkSync(path.join(sessionsDir, nearNote!));
+  });
+
+  test('regenerateIndex skips an unsupported palee_schema session instead of coercing it to 1 (#361)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const schemaFile = path.join(sessionsDir, 'S-unsupported-schema.md');
+    fs.writeFileSync(
+      schemaFile,
+      '---\npalee_schema: 2\nsession_id: S-unsupported-schema\ntopic_id: T-schema-skip\nstatus: completed\nstarted_at: 2026-08-30T10:00:00.000Z\nended_at: 2026-08-30T10:30:00.000Z\n---\nFuture-schema session body'
+    );
+
+    const indexPath = await regenerateIndex(testVaultPath);
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    assert.ok(!content.includes('S-unsupported-schema'), 'unsupported-schema session must not be indexed');
+    assert.ok(!content.includes('T-schema-skip'), 'unsupported-schema session must not be indexed');
+    assert.match(content, /Skipped \(unreadable or unsupported schema\): \d+/, 'skipped count must be surfaced in the report');
+
+    fs.unlinkSync(schemaFile);
+  });
+
+  test('regenerateIndex counts and surfaces an unreadable/corrupt session (#362)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Non-empty S- file whose YAML frontmatter fails to parse (unterminated flow collection).
+    const corruptFile = path.join(sessionsDir, 'S-corrupt-frontmatter.md');
+    fs.writeFileSync(corruptFile, '---\nsession_id: S-corrupt-frontmatter\ntopic_id: [unterminated\n---\nCorrupt body');
+
+    const indexPath = await regenerateIndex(testVaultPath);
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    const match = content.match(/Skipped \(unreadable or unsupported schema\): (\d+)/);
+    assert.ok(match, 'skipped count line must be present when a corrupt session is encountered');
+    assert.ok(Number(match![1]) >= 1, `skipped count should be at least 1, got ${match && match[1]}`);
+    assert.ok(!content.includes('S-corrupt-frontmatter]]'), 'corrupt session must not be listed as an indexed session');
+
+    fs.unlinkSync(corruptFile);
+  });
 });

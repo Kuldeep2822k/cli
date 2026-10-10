@@ -108,22 +108,37 @@ describe('CLI config provider credentials (#82)', () => {
     const configDir = freshConfigDir();
     // `config show` prints the base URL verbatim, so a key smuggled into the
     // authority (https://user:key@host) would leak the moment someone ran show.
-    const result = runConfig(['set-base-url', 'https://user:sk-in-url-9f2a@opencode.ai/v1'], configDir);
+    const result = runConfig(['set-base-url', 'https://user:testkey-in-url-9f2a@opencode.ai/v1'], configDir);
     assert.strictEqual(result.status, 2, `an embedded credential must be refused:\n${result.stdout}${result.stderr}`);
-    assert.ok(!result.stdout.includes('sk-in-url-9f2a') && !result.stderr.includes('sk-in-url-9f2a'),
+    assert.ok(!result.stdout.includes('testkey-in-url-9f2a') && !result.stderr.includes('testkey-in-url-9f2a'),
       'the rejection must not echo the smuggled credential');
+    assert.ok(!fs.existsSync(path.join(configDir, 'config.json')), 'a refused URL must not create a config');
+  });
+
+  test('a base URL carrying a key in the query or fragment is refused, not stored', () => {
+    const configDir = freshConfigDir();
+    // The authority is not the only place a key can hide: a query or fragment is
+    // stored verbatim and printed by `config show` just the same.
+    for (const value of ['https://opencode.ai/v1?api_key=testkey-query-7c1d', 'https://opencode.ai/v1#testkey-frag-7c1d']) {
+      const result = runConfig(['set-base-url', value], configDir);
+      assert.strictEqual(result.status, 2, `a key in the URL must be refused:\n${result.stdout}${result.stderr}`);
+      assert.ok(!result.stdout.includes('testkey-query-7c1d') && !result.stderr.includes('testkey-query-7c1d'),
+        'the rejection must not echo the query credential');
+      assert.ok(!result.stdout.includes('testkey-frag-7c1d') && !result.stderr.includes('testkey-frag-7c1d'),
+        'the rejection must not echo the fragment credential');
+    }
     assert.ok(!fs.existsSync(path.join(configDir, 'config.json')), 'a refused URL must not create a config');
   });
 
   test('set-api-key --from-env stores the key and never echoes it', () => {
     const configDir = freshConfigDir();
     const result = runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
-      env: { PALEE_TEST_KEY: 'sk-from-env-9b2c1d' },
+      env: { PALEE_TEST_KEY: 'testkey-from-env-9b2c1d' },
     });
     assert.strictEqual(result.status, 0, result.stderr);
-    assert.strictEqual(readStored(configDir).apiKey, 'sk-from-env-9b2c1d');
+    assert.strictEqual(readStored(configDir).apiKey, 'testkey-from-env-9b2c1d');
     assert.ok(
-      !result.stdout.includes('sk-from-env-9b2c1d'),
+      !result.stdout.includes('testkey-from-env-9b2c1d'),
       `the confirmation must not repeat the secret it read:\n${result.stdout}`
     );
   });
@@ -138,7 +153,7 @@ describe('CLI config provider credentials (#82)', () => {
 
   test('a key passed as an argument is refused, because argv is world-readable', () => {
     const configDir = freshConfigDir();
-    const result = runConfig(['set-api-key', 'sk-never-type-this'], configDir);
+    const result = runConfig(['set-api-key', 'testkey-never-type-this'], configDir);
     assert.strictEqual(result.status, 2, `the positional form must be refused:\n${result.stdout}${result.stderr}`);
     assert.match(result.stderr, /argv|process/i);
     assert.strictEqual(readStoredOrEmpty(configDir).apiKey, undefined, 'the refused key must not be on disk');
@@ -146,9 +161,9 @@ describe('CLI config provider credentials (#82)', () => {
 
   test('a piped key is stored with its trailing newline trimmed', () => {
     const configDir = freshConfigDir();
-    const result = runConfig(['set-api-key'], configDir, { input: 'sk-piped-4f4e\n' });
+    const result = runConfig(['set-api-key'], configDir, { input: 'testkey-piped-4f4e\n' });
     assert.strictEqual(result.status, 0, result.stderr);
-    assert.strictEqual(readStored(configDir).apiKey, 'sk-piped-4f4e');
+    assert.strictEqual(readStored(configDir).apiKey, 'testkey-piped-4f4e');
   });
 
   test('an empty pipe is refused rather than storing a blank credential', () => {
@@ -158,15 +173,30 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(readStoredOrEmpty(configDir).apiKey, undefined);
   });
 
+  test('a key with an embedded control character is refused, not stored to fail at call time', () => {
+    const configDir = freshConfigDir();
+    // A pasted key with a stray tab or DEL cannot go into an Authorization header. The
+    // provider refuses it at call time; set-api-key refuses it on the way in so a key that
+    // can never work is never stored. The trailing newline is trimmed, so the control
+    // character here is embedded in the middle.
+    const result = runConfig(['set-api-key'], configDir, { input: 'testkey-\tbroken-9a1f\n' });
+    assert.strictEqual(result.status, 2, `an unsendable key must be refused:\n${result.stdout}${result.stderr}`);
+    assert.ok(
+      !result.stdout.includes('testkey-') && !result.stderr.includes('testkey-'),
+      'the rejection must not echo the key'
+    );
+    assert.strictEqual(readStoredOrEmpty(configDir).apiKey, undefined, 'the unsendable key must not be on disk');
+  });
+
   test('config show redacts the key, and no field of it appears in the output', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
-      env: { PALEE_TEST_KEY: 'sk-leak-check-77aa' },
+      env: { PALEE_TEST_KEY: 'testkey-leak-check-77aa' },
     });
     const shown = runConfig(['show'], configDir);
     assert.strictEqual(shown.status, 0, shown.stderr);
     assert.match(shown.stdout, /API Key: •+/);
-    assert.ok(!shown.stdout.includes('sk-leak-check-77aa'), `config show leaked the key:\n${shown.stdout}`);
+    assert.ok(!shown.stdout.includes('testkey-leak-check-77aa'), `config show leaked the key:\n${shown.stdout}`);
     assert.ok(!shown.stdout.includes('77aa'), `even a suffix of the key must not print:\n${shown.stdout}`);
 
     // Before #82 the same assertion passed because no key could exist at all. With one
@@ -179,7 +209,7 @@ describe('CLI config provider credentials (#82)', () => {
     const configDir = freshConfigDir();
     runConfig(['set-base-url', 'https://opencode.ai/zen/v1'], configDir);
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
-      env: { PALEE_TEST_KEY: 'sk-json-leak-check-5c3a' },
+      env: { PALEE_TEST_KEY: 'testkey-json-leak-check-5c3a' },
     });
     const shown = runConfig(['show', '--json'], configDir);
     assert.strictEqual(shown.status, 0, shown.stderr);
@@ -188,7 +218,7 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(parsed.api_key_set, true, 'the boolean, not the key, carries the fact a key exists');
     assert.strictEqual(parsed.base_url, 'https://opencode.ai/zen/v1');
     assert.ok(!('api_key' in parsed) && !('apiKey' in parsed), 'the key value has no field at all in JSON');
-    assert.ok(!shown.stdout.includes('sk-json-leak-check-5c3a'), `JSON output leaked the key:\n${shown.stdout}`);
+    assert.ok(!shown.stdout.includes('testkey-json-leak-check-5c3a'), `JSON output leaked the key:\n${shown.stdout}`);
     assert.ok(!shown.stdout.includes('5c3a'), `even a suffix of the key must not print:\n${shown.stdout}`);
 
     const unset = freshConfigDir();
@@ -198,7 +228,7 @@ describe('CLI config provider credentials (#82)', () => {
   test('unset-api-key removes the secret from disk', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
-      env: { PALEE_TEST_KEY: 'sk-to-remove' },
+      env: { PALEE_TEST_KEY: 'testkey-to-remove' },
     });
     runConfig(['set-base-url', 'https://opencode.ai/zen/v1'], configDir);
     const removed = runConfig(['unset-api-key'], configDir);
@@ -251,7 +281,7 @@ describe('config file mode (#82)', () => {
   function runConfig(args: string[], configDir: string): void {
     execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'sk-mode-check' },
+      env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' },
       encoding: 'utf8',
       stdio: 'pipe',
       input: '',
@@ -327,7 +357,7 @@ describe('config dir guard (#316)', () => {
     try {
       execSync('npx tsx bin/palee.ts config set-api-key --from-env PALEE_TEST_KEY', {
         cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'sk-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
+        env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
         encoding: 'utf8',
         stdio: 'pipe',
         input: '',
@@ -341,7 +371,7 @@ describe('config dir guard (#316)', () => {
     assert.match(stderr, /outside your user profile/);
     assert.ok(stderr.includes(outside), 'the refusal must name the directory it objected to');
     assert.ok(!fs.existsSync(path.join(outside, 'config.json')), 'the refused key must not reach disk');
-    assert.ok(!stderr.includes('sk-win-acl-check'), 'the refusal must not echo the key');
+    assert.ok(!stderr.includes('testkey-win-acl-check'), 'the refusal must not echo the key');
   });
 
   test('an 8.3 short-name path inside the profile is reconciled, not falsely refused', () => {

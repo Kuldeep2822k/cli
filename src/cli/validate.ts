@@ -10,25 +10,10 @@ import { ValidateOptions } from '../types';
 import { collectVault } from '../validation/collect-vault';
 import { runRules } from '../validation/run-rules';
 import { formatHuman, formatJson } from '../validation/format';
-import { parseFrontmatterRule, readFailureRule } from '../validation/rules/parse-frontmatter';
-import { noDuplicateTopicIdRule } from '../validation/rules/no-duplicate-topic-id';
-import { noMissingDependencyRule } from '../validation/rules/no-missing-dependency';
-import { noDependencyCycleRule } from '../validation/rules/no-dependency-cycle';
-import { validPaleeSchemaRule } from '../validation/rules/valid-palee-schema';
-import { validTopicIdFormatRule } from '../validation/rules/valid-topic-id-format';
-import { validTopicStatusRule } from '../validation/rules/valid-topic-status';
-import { validAssessmentFieldsRule } from '../validation/rules/valid-assessment-fields';
-import { validTopicMasteryRule } from '../validation/rules/valid-topic-mastery';
-import { validReviewFieldsRule, repairReviewFields } from '../validation/rules/valid-review-fields';
-import { validReviewDatesRule } from '../validation/rules/valid-review-dates';
-import { validDependencyListRule } from '../validation/rules/valid-dependency-list';
-import { validManagedNoteKindRule } from '../validation/rules/valid-managed-note-kind';
-import { validSessionSchemaRule } from '../validation/rules/valid-session-schema';
-import { noSessionUnknownTopicRule } from '../validation/rules/no-session-unknown-topic';
-import { validSessionIndexRule } from '../validation/rules/valid-session-index';
-import { validHotMemoryRule } from '../validation/rules/valid-hot-memory';
-import { safeVaultPathsRule } from '../validation/rules/safe-vault-paths';
-import type { ValidationRule, ValidationIssue } from '../validation/types';
+import { VALIDATION_RULES } from '../validation';
+import { repairReviewFields } from '../validation/rules/valid-review-fields';
+import { displayValue } from '../validation/rules/diagnostic-value';
+import type { ValidationIssue } from '../validation/types';
 import {
   updateFrontmatter,
   computeFingerprint,
@@ -37,52 +22,6 @@ import {
 } from '../storage';
 import type { LoadedTopic } from '../storage';
 
-/**
- * Rules executed by `palee validate`, in registration order.
- *
- * @remarks
- * Parse and read warnings come first (they explain why a note may be
- * missing from the collected topic set), then identity and schema checks,
- * then graph checks, then field/assessment consistency checks. Rule order
- * is the deterministic output order.
- */
-const VALIDATION_RULES: ValidationRule[] = [
-  parseFrontmatterRule,
-  readFailureRule,
-  // Kind classification (#27) before the schema rule: it explains
-  // WHICH managed entity each note is; schema errors then read with
-  // the kind in hand.
-  validManagedNoteKindRule,
-  validPaleeSchemaRule,
-  validTopicIdFormatRule,
-  validTopicStatusRule,
-  noDuplicateTopicIdRule,
-  // Shape gate before the graph rules (#33): the graph rules receive
-  // whatever the loader normalized; this rule reports the raw-shape
-  // defects the loader's coercion would have hidden.
-  validDependencyListRule,
-  noMissingDependencyRule,
-  noDependencyCycleRule,
-  validAssessmentFieldsRule,
-  validTopicMasteryRule,
-  // SM-2 state after the assessment pair, in VERDICT tier order
-  // (R13 #38 → R14 #39): numeric shape first, then dates.
-  validReviewFieldsRule,
-  validReviewDatesRule,
-  // Memory subsystem (#41/#42/#44): schema shape first, then
-  // cross-references — #42 skips sessions #41 already reported, and
-  // the index rule never gates (derived view, ADR-0008 decision 4).
-  validSessionSchemaRule,
-  noSessionUnknownTopicRule,
-  validSessionIndexRule,
-  // Hot memory closes the memory cluster (#43): same derived-view
-  // policy as the index rule — never gates, rebuild restores it.
-  validHotMemoryRule,
-  // Path boundary audit (#45) last: it reads the collected paths of
-  // every managed entity (notes, topics, sessions) in one pass.
-  safeVaultPathsRule,
-];
-
 /** One field-level repair performed by `--fix` (additive JSON report entry). */
 interface Sm2RepairEntry {
   topic_id: string;
@@ -90,17 +29,6 @@ interface Sm2RepairEntry {
   field: string;
   from: unknown;
   to: unknown;
-}
-
-/**
- * Renders a value for repair reporting without JSON.stringify's
- * non-finite quirk (same policy as the `valid-review-fields` rule).
- */
-function displayForReport(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isFinite(value)) {
-    return String(value);
-  }
-  return value;
 }
 
 /**
@@ -144,7 +72,7 @@ async function applyReviewFieldRepairs(
           topic_id: topic.palee_id,
           file: topic.path,
           field,
-          from: displayForReport(topic.frontmatter[field]),
+          from: displayValue(topic.frontmatter[field]),
           to,
         });
       }

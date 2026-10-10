@@ -65,18 +65,18 @@ Invariants are non-negotiable rules that the codebase must satisfy to ensure dat
 
 ### 2.1 Storage Invariants
 
-- Frontmatter Preservation: Updating a PALEE field must preserve the Markdown body byte-for-byte [planning/invariants.md#7-8](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L7-L8)
-- Optimistic Concurrency Control (OCC): Any change in file fingerprint during an operation must trigger a conflict (Exit Code 4) and abort the write [planning/invariants.md#9-10](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L9-L10)
-- Atomic Writes: Temporary files and renames are used to prevent file truncation during failures [planning/invariants.md#14](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L14-L14)
-- Locking: Locks become stale after 60s on Windows and 120s elsewhere; heartbeats occur every 15s [planning/invariants.md#11](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L11-L11)
+- Frontmatter Preservation: Updating a PALEE field must preserve the Markdown body byte-for-byte [planning/invariants.md — INV-01](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Optimistic Concurrency Control (OCC): Any change in file fingerprint during an operation must trigger a conflict (Exit Code 4) and abort the write [planning/invariants.md — INV-03](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Atomic Writes: Temporary files and renames are used to prevent file truncation during failures [planning/invariants.md — INV-08](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Locking: Locks become stale after 60s on Windows and 120s elsewhere; heartbeats occur every 15s [planning/invariants.md — INV-05](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
 ### 2.2 SM-2 and Mastery Invariants
 
-- SM-2 Bounds: The `ease_factor` must never drop below `1.30`[planning/invariants.md#23](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L23-L23)
-- Interval Logic: A `quality < 3` result resets repetition to 0 and interval to 1 [planning/invariants.md#25](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L25-L25)
-- Mastery Calculation: `topic_mastery` is calculated as `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)`[planning/invariants.md#33](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L33-L33)
+- SM-2 Bounds: The `ease_factor` must never drop below `1.30`[planning/invariants.md — INV-14](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Interval Logic: A `quality < 3` result resets repetition to 0 and interval to 1 [planning/invariants.md — INV-16](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
+- Mastery Calculation: `topic_mastery` is calculated as `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)`[planning/invariants.md — INV-21](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
-Sources: [planning/invariants.md#5-39](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L5-L39)[planning/palee_cli_spec.md#149-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L149-L160)
+Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/palee_cli_spec.md#149-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L149-L160)
 
 ---
 
@@ -89,7 +89,7 @@ Phase 1 implements a set of deterministic commands designed for both human use a
 | `adopt` | Injects `palee_id` and schema into a note. | Adds `palee_schema: 1`[planning/palee_cli_spec.md#122-125](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L122-L125) |
 | `next` | Suggests the next topic based on due date and dependencies. | Supports `--json` for automation [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1) |
 | `plan` | Generates an ordered study session. | Respects `depends_on` graph [planning/palee_cli_spec.md#70](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L70-L70) |
-| `validate` | Checks for cycles and missing dependencies. | Reports exact cycle paths [planning/invariants.md#37](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L37-L37) |
+| `validate` | Checks for cycles and missing dependencies. | Reports exact cycle paths [planning/invariants.md — INV-25](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1) |
 
 ### Topic Identification Logic
 

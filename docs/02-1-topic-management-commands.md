@@ -55,7 +55,7 @@ palee adopt --all -y
 
 ### Options Reference for `palee adopt`
 
-The following table lists every supported option for `palee adopt` [src/types.ts#396-415](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L396-L415):
+The following table lists every supported option for `palee adopt` [src/types.ts `AdoptOptions`](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts):
 
 | Flag / Argument | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
@@ -246,7 +246,7 @@ Resolution is fail-closed (INV-48): exact vault-relative paths resolve first, th
 
 ### Options Reference for `palee roadmap`
 
-The following table lists all options for `palee roadmap` [src/types.ts#476-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L476-L484):
+The following table lists all options for `palee roadmap` [src/types.ts `RoadmapOptions`](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts):
 
 | Flag | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
@@ -322,9 +322,9 @@ flowchart TD
 
 ---
 
-## 3. Schema Migration (`palee migrate`)
+## 3. Schema Migration and Label Repair (`palee migrate`)
 
-The `palee migrate` command scans the vault and validates that all tracked topics adhere to the current schema specification (`palee_schema: 1`) [src/cli/migrate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts).
+The `palee migrate` command scans the vault and validates that all tracked topics adhere to the current schema specification (`palee_schema: 1`) [src/cli/migrate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts). It also repairs one specific historical wrong: prerequisite edges that were stored as gating when the numbering never decided them. The label audit runs first, over the same scan, before the schema report.
 
 ### Execution Flow
 1. Recursively discovers all Markdown files in the vault using `walkVault`.
@@ -343,6 +343,48 @@ Schema v1: 42 notes
 [OK] All notes are schema v1 - no migration needed
 ```
 
+### Relabelling stored ties (`--relabel-ties`)
+
+`palee adopt --auto-chain` used to record an alphabetical tiebreak — two same-rank siblings such as `02-a.md` and `02-b.md`, where the numbering decided nothing and the filenames did — as `depends_on_source: numbered`, and `numbered` **gates**. Since #234 that edge is written as `tie`, which is advisory: it ranks a note and takes part in cycle detection but never holds it off `palee plan` (INV-46). A vault adopted before #234 still stores the old label, and `adopt` deliberately never rewrites an adopted note, so a learner can stay locked behind an edge no plan ever authored (#237).
+
+`--relabel-ties` recomputes only the *provenance* of already-stored edges. It writes one key and nothing else.
+
+| Flag | Behaviour |
+| :--- | :--- |
+| `--relabel-ties` | Rewrite a demotable `numbered` label to `tie`. `depends_on` is never added to, dropped from, or reordered, and no other frontmatter is touched. |
+| `--include-unlabeled-ties` | Also reach notes carrying **no** `depends_on_source` key at all — the shape notes adopted before that label existed were left in. Opt-in because such a note is byte-identical whether the chain or a person wrote its list, so this writes a key that was never there rather than correcting one. |
+| `--dry-run` | With `--relabel-ties`, print every note it would touch and write nothing. Unlike the audit preview, a dry run is never truncated to five. |
+
+A note is demoted only when the numbered plan really could have produced its edge:
+
+1. exactly **one** stored prerequisite, pointing **backward** in filename order;
+2. that predecessor is a same-rank sibling in the **same directory** (`tiedByName` in `src/engine/auto-chain.ts`) — a cross-directory pair is not a claim the numbering made;
+3. **no same-rank sibling still on disk sits strictly between them**: such a skipping edge the chain never wrote, so it keeps gating (#251). Deleting the middle note is what makes the edge adjacent again, and then it demotes;
+4. the label is `numbered`, or absent with `--include-unlabeled-ties`. A label that is present but unrecognized (`depends_on_source: numbering`) is left alone — somebody edited it, and overwriting a typo is not this pass's call (#266).
+
+The pass re-reads each note and its predecessor immediately before writing, so a vault that moves underneath it is refused rather than rewritten from a stale decision. Running it twice finds nothing the second time.
+
+### What the report says
+
+The audit (bare `palee migrate`, or with `--relabel-ties`) separates three populations, and says which one each note is in:
+
+- **Demotable ties** — `Prerequisite labels: N note(s) gate behind a same-directory sibling`, with up to five paths (a dry run lists them all) and the tip naming the flag that actually reaches them, including `--include-unlabeled-ties` when unlabeled notes are present.
+- **Unresolvable predecessors** — notes whose stored `numbered` edge names an id the vault no longer contains. There is no pair left to rank, so nothing is guessed at; the count is reported and `palee validate` is named as the report that owns the missing id.
+- **Declined** — notes carrying a `numbered` label whose edge the numbered plan cannot produce: one storing more than one prerequisite, one pointing at the sibling the numbering puts *after* it, or one stepping over a sibling still in the directory. They stay gated, their labels stay exactly as stored, and they are **counted out loud** (#237) — a pass that declined and said nothing reads as a vault with nothing wrong in it.
+
+After a write: `✓ Relabelled N of M notes to depends_on_source: tie`, annotated with any notes skipped because they changed while the pass held them, refused by a lock or conflict (re-run to retry), no longer present, or failed to write.
+
+### Exit codes
+
+| Code | Meaning for `migrate` |
+| :--- | :--- |
+| 0 | Nothing to repair, or every candidate relabelled. |
+| 2 | Unconfigured or non-existent vault path. |
+| 3 | Unrecognized schema version found (`palee_schema` missing or not `1`). |
+| 4 | A write under `--fix` or `--relabel-ties` hit an OCC conflict or an active lock, or a note or its predecessor changed while the pass held it — re-run to retry. |
+| 5 | A relabel or migration write failed for another reason (permissions, disk), so a caller never sees success on a migration that did not finish. |
+
+
 ---
 
 ## 4. Topic Management Exit Codes
@@ -353,7 +395,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
-| `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | N/A | Unexpected runtime exception or YAML parsing error. |
+| `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". | Unexpected runtime exception or YAML parsing error. |
 
 ---
 

@@ -51,7 +51,14 @@ palee config set-model "nemotron-3-ultra-free"
 ```
 
 `set-api-key` reads the key from `--from-env`, from a pipe, or from an interactive prompt; passing it as an
-argument is refused so the secret never enters `argv`. `palee config unset-api-key` removes it again.
+argument is refused so the secret never enters `argv`. `palee config unset-api-key` removes it again. A
+`PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to
+disk.
+
+Confirm the whole path with `palee config test-connection`, which sends one short prompt and prints the URL
+it called, which key source was used, the latency and the token counts. It is the only command that reaches
+the network: `next`, `plan`, `review`, `validate`, `adopt` and `roadmap --from` remain offline by
+construction, and a test over `src/` fails if a second socket site is ever added.
 
 ### 3. Verifying Configuration
 

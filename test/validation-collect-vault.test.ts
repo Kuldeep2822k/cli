@@ -211,7 +211,7 @@ describe('Validation vault collection', () => {
       status: 'not_started',
     };
     class SeededCache extends FileCache<LoadedTopic> {
-      get(filePath: string): LoadedTopic | null {
+      override get(filePath: string): LoadedTopic | null {
         return filePath === lockedPath ? staleTopic : super.get(filePath);
       }
     }

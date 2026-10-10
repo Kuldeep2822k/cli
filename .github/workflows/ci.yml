@@ -106,6 +106,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
+      fail-fast: false
       # Same rule as the test matrix: the installed package is checked on every
       # platform it ships to, on the pull request rather than after the merge.
       matrix:

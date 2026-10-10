@@ -58,6 +58,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         title: t.title,
         path: t.path,
         topic_mastery: t.topic_mastery,
+        status: t.status,
         depends_on: t.depends_on,
         depends_on_source: t.depends_on_source,
         due_at: dueAt,
@@ -66,9 +67,17 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       });
     }
 
+    // Archived topics are excluded from every derived plan figure (BUG-002),
+    // matching `palee progress`. `total_topics` still counts all loaded notes.
+    // The archived nodes stay in the graph itself: an archived prerequisite
+    // that is already mastered must keep satisfying its dependents, whereas
+    // dropping it would make `areDependenciesSatisfied` read it as a *missing*
+    // dependency and silently hide ready topics.
+    const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
+    const archivedCount = topics.size - activeTopics.length;
 
     const dueTopics: PlanTopic[] = [];
-    for (const topic of topics.values()) {
+    for (const topic of activeTopics) {
       if (!topic.due_at || topic.due_at <= now) {
         dueTopics.push(topic);
       }
@@ -78,6 +87,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       if (jsonMode) {
         console.log(JSON.stringify({
           total_topics: 0,
+          active_topic_count: 0,
+          archived_topic_count: 0,
           reviews_due: [],
           ready_to_learn: [],
           quarantined_cycles: [],
@@ -107,6 +118,9 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // schedule is still real.
     const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(topics);
 
+    // Quarantine counter covers learnable topics only (BUG-002).
+    const quarantinedActiveCount = activeTopics.filter(t => !acyclicTopics.has(t.palee_id)).length;
+
     // Get ready to learn (deps satisfied, not mastered) — acyclic components only
     const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
 
@@ -121,9 +135,9 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
 
-    const masteredCount = Array.from(topics.values()).filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
-    const learningCount = Array.from(topics.values()).filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
-    const newCount = Array.from(topics.values()).filter(t => t.topic_mastery === 0).length;
+    const masteredCount = activeTopics.filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
+    const learningCount = activeTopics.filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
+    const newCount = activeTopics.filter(t => t.topic_mastery === 0).length;
 
     // A topic whose prerequisites are unmet is simply absent from the ready
     // list, which is indistinguishable from "nothing left to study" — and when
@@ -132,6 +146,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const readyIds = new Set(readyTopics.map((t) => t.palee_id));
     const blocked: { id: string; title: string; waiting_on: string[] }[] = [];
     for (const [id, topic] of acyclicTopics) {
+      // An archived note is not study material, so it cannot be "blocked by
+      // prerequisites" either — reporting it here would re-introduce the leak
+      // this change exists to close, through a section that did not exist when
+      // the branch was written.
+      if (topic.status === 'archived') continue;
       if ((topic.topic_mastery ?? 0) >= MASTERY_THRESHOLD) continue;
       if (readyIds.has(id)) continue;
       const waitingOn: string[] = [];
@@ -156,6 +175,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     if (jsonMode) {
       console.log(JSON.stringify({
         total_topics: topics.size,
+        active_topic_count: activeTopics.length,
+        archived_topic_count: archivedCount,
         reviews_due: sortedDue.map(t => ({
           id: t.palee_id,
           title: t.title,
@@ -178,7 +199,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
           due: dueTopics.length,
           ready: readyTopics.length,
           blocked: blocked.length,
-          quarantined: topics.size - acyclicTopics.size,
+          // `topics.size - acyclicTopics.size` would count an archived topic
+          // sitting on a cycle; BUG-002 is that archived notes are reported as
+          // if they were still study material, so the quarantined tally reads off
+          // the active set like every other number in this payload.
+          quarantined: quarantinedActiveCount,
           mastered: masteredCount,
           learning: learningCount,
           new: newCount,
@@ -244,9 +269,10 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       console.log();
     }
 
-    // Section 4: Summary stats
+    // Section 4: Summary stats — active topics only, archived called out
+    // separately (BUG-002), mirroring `palee progress`.
     console.log('Progress Summary:');
-    console.log(`  Total Topics: ${topics.size}`);
+    console.log(`  Total Topics: ${activeTopics.length}${archivedCount > 0 ? ` (${archivedCount} archived)` : ''}`);
     console.log(`  Mastered (≥70%): ${masteredCount}`);
     console.log(`  Learning: ${learningCount}`);
     console.log(`  New: ${newCount}`);

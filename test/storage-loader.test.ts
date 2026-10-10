@@ -24,7 +24,7 @@ class TrackingCache extends FileCache<LoadedTopic> {
    * @param filePath - Absolute path to cached file
    * @returns Cached topic if still valid, or null on miss/invalidation
    */
-  get(filePath: string): LoadedTopic | null {
+  override get(filePath: string): LoadedTopic | null {
     this.getCalls.push(filePath);
     return super.get(filePath);
   }
@@ -36,7 +36,7 @@ class TrackingCache extends FileCache<LoadedTopic> {
    * @param data - Parsed topic payload to store
    * @param fingerprint - Content SHA-256 hash of the file
    */
-  set(filePath: string, data: LoadedTopic, fingerprint?: string): void {
+  override set(filePath: string, data: LoadedTopic, fingerprint?: string): void {
     this.setCalls.push(filePath);
     super.set(filePath, data, fingerprint);
   }
@@ -57,6 +57,40 @@ describe('Storage Topic Loader', () => {
     fs.writeFileSync(path.join(tmpVault, 'regular.md'), '# Regular note without palee_id', 'utf8');
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 0);
+  });
+
+  test('loadTopics coerces a quoted numeric last_quality and nulls a genuinely invalid one (Issue #375)', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'quoted-quality.md'),
+      `---
+palee_schema: 1
+palee_id: T-quoted-quality
+title: Quoted Quality Topic
+last_quality: "4"
+---
+# Quoted Quality
+`,
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, 'invalid-quality.md'),
+      `---
+palee_schema: 1
+palee_id: T-invalid-quality
+title: Invalid Quality Topic
+last_quality: "not-a-number"
+---
+# Invalid Quality
+`,
+      'utf8'
+    );
+
+    const byId = new Map(loadTopics(tmpVault).map((t) => [t.palee_id, t]));
+
+    // Quoted numeric string is coerced the same way sibling SM-2 integer fields are
+    assert.strictEqual(byId.get('T-quoted-quality')!.last_quality, 4);
+    // A genuinely non-numeric value still falls back to null (no SM-2 history yet)
+    assert.strictEqual(byId.get('T-invalid-quality')!.last_quality, null);
   });
 
   test('loadTopics parses frontmatter, normalizes fields, and builds LoadedTopic objects', () => {

@@ -48,12 +48,24 @@ palee config set-provider opencode
 palee config set-base-url https://opencode.ai/zen/v1
 printf '%s' "$OPENCODE_API_KEY" | palee config set-api-key
 palee config set-model nemotron-3-ultra-free
+palee config test-connection
 ```
 
 `set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
 argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
 is stored in the config file, written `0600` on POSIX. On Windows that mode is ignored, so `set-api-key`
 instead refuses to store the key when the config directory is outside your user profile (see Windows Notes).
+`PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to disk.
+
+`test-connection` sends one short prompt and reports the URL it called, which key source won, how long
+the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
+in `palee next`, `plan`, `review`, `validate`, `adopt`, `roadmap --from` or `migrate` can do the same —
+`test/ai-network-boundary.test.ts` fails if a second socket site appears. It refuses plain HTTP to any
+host that is not loopback, refuses endpoints in reserved address space (link-local and the cloud metadata
+address, the unspecified and multicast ranges, IPv4-mapped literals, and `.internal` names), refuses
+redirects rather than re-sending the credential to a host nobody approved, reads no more than 256 KiB of a
+response before giving up on it, and exits `2` on a bad endpoint, `3` on a reply that broke the output
+contract, `5` when the provider could not be reached.
 
 ### Start Learning
 ```bash
@@ -140,6 +152,7 @@ palee progress
 | `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
 | `palee config unset-api-key` | Remove the stored key |
 | `palee config set-model <model>` | Set the model identifier |
+| `palee config test-connection` | Send one short prompt to verify the provider (the only command that reaches the network) |
 | `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
 
 ## Configuration

@@ -26,7 +26,7 @@ The `PaleeConfig` interface defines the core settings required for PALEE to oper
 | `vaultPath` | `string` (optional) | The absolute path to the Obsidian vault containing the Markdown notes. |
 | `aiProvider` | `string` (optional) | The LLM provider for AI-assisted features (e.g., "openai", "anthropic"). |
 | `model` | `string` (optional) | The specific model identifier to use for AI tasks. |
-| `baseUrl` | `string` (optional) | The OpenAI-compatible endpoint of the configured provider. Set with `palee config set-base-url`, which accepts only `http` / `https`. |
+| `baseUrl` | `string` (optional) | The OpenAI-compatible endpoint of the configured provider. Set with `palee config set-base-url`, which applies the same gate the caller does (`normalizeProviderEndpoint`): `http` is accepted only for a loopback host, reserved address space is refused whatever the scheme (link-local including the cloud metadata address, the unspecified and multicast ranges, IPv4-mapped literals, and `*.internal` names), and the URL may carry no userinfo, query string or fragment. Judged by address shape, so a hostname that merely starts with digits like `169.254.example.com` is not blocked. |
 | `apiKey` | `string` (optional) | The provider credential. Stored as plaintext at rest, never printed by any command, and accepted only from `--from-env`, a pipe, or a prompt — never from `argv`, which other processes can read. |
 
 ### Config File Resolution
