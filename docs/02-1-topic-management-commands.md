@@ -174,7 +174,7 @@ topics:
       - T-networking-basics
 ```
 
-The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on` (the first gets `[]`), and a topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone. An edge that would close a cycle against an authored dependency is dropped instead, warned about as `chain edge X -> Y skipped: would close a cycle`, and the topic starts a new chain there, so the rest of the roadmap still imports. The `Auto-chain: N chain edge(s) synthesized across M roadmap topics.` summary is printed only after graph validation passes, counting only edges actually synthesized (PAL-205-A6; INV-47).
+The optional `order` field is the input `palee roadmap --auto-chain` chains on (INV-47): topics are visited in ascending `order`, topics without one keep their file order and are appended after the ordered ones, each chained topic gets the previous topic's ID in `depends_on`, and the chain head is left with no synthesized list at all so the dependencies its note already carries on disk survive (#322). A topic that already declares a non-empty `depends_on` — or arrives pre-chained from the wikilink format — is left alone. An edge that would close a cycle against an authored dependency is dropped instead, warned about as `chain edge X -> Y skipped: would close a cycle`, and the topic starts a new chain there, so the rest of the roadmap still imports. The `Auto-chain: N chain edge(s) synthesized across M roadmap topics.` summary is printed only after graph validation passes, counting only edges actually synthesized (PAL-205-A6; INV-47).
 
 #### 2. Markdown with Frontmatter YAML (`.md`)
 ```markdown
@@ -251,7 +251,8 @@ The following table lists all options for `palee roadmap` [src/types.ts `Roadmap
 | Flag | Type | Required | Description | Example |
 | :--- | :--- | :---: | :--- | :--- |
 | `--from <file>` | `string` | **Yes** | Path to the roadmap definition file (`.yaml`, `.yml`, or `.md`). | `palee roadmap --from "curricula/devops.yaml"` |
-| `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
+| `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. The chain head receives nothing, so its note keeps its existing on-disk dependencies (#322). | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
+| `--dry-run` | `boolean` | No | Run the full pre-write validation, then print the per-note plan — each topic's id, target path, resolved `depends_on` (synthesized chain edges and preserved on-disk edges are labeled), and whether the note would be created or updated — and exit `0` without writing a single byte (#309). A plan the validator rejects still exits `3`; validation runs identically with or without this flag. | `palee roadmap --from "curricula/devops.yaml" --auto-chain --dry-run` |
 | `-y, --yes` | `boolean` | No | Automatically confirm creation/update of notes without interactive prompt. | `palee roadmap --from "curricula/devops.yaml" -y` |
 
 ---
@@ -296,7 +297,9 @@ flowchart TD
     GraphBuild --> CycleCheck{"detectCycle() Check"}
     
     CycleCheck -->|"Cycle Found / Missing Dep"| ErrCycle["Exit Code 3 (Cycle/Validation Error)"]
-    CycleCheck -->|"Graph Valid (DAG)"| PromptCheck{"-y / --yes OR User Confirms (y/N)?"}
+    CycleCheck -->|"Graph Valid (DAG)"| DryRun{"--dry-run?"}
+    DryRun -->|"Yes"| PlanPrint["Print per-note plan<br/>(Exit 0, zero writes)"]
+    DryRun -->|"No"| PromptCheck{"-y / --yes OR User Confirms (y/N)?"}
     
     PromptCheck -->|"Non-TTY without -y"| ErrTTY["Exit Code 2 (Non-interactive)"]
     PromptCheck -->|"Declined (N)"| Abort["Print 'Aborted.' & Exit 0"]
@@ -394,7 +397,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
-| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
+| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`. | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". | Unexpected runtime exception or YAML parsing error. |
 
 ---

@@ -116,7 +116,8 @@ program
   .command('roadmap')
   .description('Manage learning roadmaps')
   .option('--from <file>', 'Import roadmap from YAML file')
-  .option('--auto-chain', 'Chain imported topics by their order field')
+  .option('--auto-chain', 'Chain imported topics onto the previous one - ordered by ascending order field, topics without one follow in file order after all ordered ones; an explicit non-empty depends_on wins')
+  .option('--dry-run', 'Print the full per-note import plan (ids, paths, resolved depends_on, creates/updates) and write nothing')
   .option('-y, --yes', 'Skip confirmation prompt')
   .action(roadmapCommand);
 
