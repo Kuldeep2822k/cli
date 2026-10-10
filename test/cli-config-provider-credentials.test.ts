@@ -111,6 +111,21 @@ describe('CLI config provider credentials (#82)', () => {
     assert.ok(!fs.existsSync(path.join(configDir, 'config.json')), 'a refused URL must not create a config');
   });
 
+  test('a base URL carrying a key in the query or fragment is refused, not stored', () => {
+    const configDir = freshConfigDir();
+    // The authority is not the only place a key can hide: a query or fragment is
+    // stored verbatim and printed by `config show` just the same.
+    for (const value of ['https://opencode.ai/v1?api_key=sk-query-7c1d', 'https://opencode.ai/v1#sk-frag-7c1d']) {
+      const result = runConfig(['set-base-url', value], configDir);
+      assert.strictEqual(result.status, 2, `a key in the URL must be refused:\n${result.stdout}${result.stderr}`);
+      assert.ok(!result.stdout.includes('sk-query-7c1d') && !result.stderr.includes('sk-query-7c1d'),
+        'the rejection must not echo the query credential');
+      assert.ok(!result.stdout.includes('sk-frag-7c1d') && !result.stderr.includes('sk-frag-7c1d'),
+        'the rejection must not echo the fragment credential');
+    }
+    assert.ok(!fs.existsSync(path.join(configDir, 'config.json')), 'a refused URL must not create a config');
+  });
+
   test('set-api-key --from-env stores the key and never echoes it', () => {
     const configDir = freshConfigDir();
     const result = runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
