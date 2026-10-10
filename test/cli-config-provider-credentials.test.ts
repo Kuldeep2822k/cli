@@ -343,4 +343,31 @@ describe('config dir guard (#316)', () => {
     assert.ok(!fs.existsSync(path.join(outside, 'config.json')), 'the refused key must not reach disk');
     assert.ok(!stderr.includes('sk-win-acl-check'), 'the refusal must not echo the key');
   });
+
+  test('an 8.3 short-name path inside the profile is reconciled, not falsely refused', () => {
+    if (process.platform !== 'win32') return; // 8.3 reconciliation is a Windows-only concern
+    const profile = process.env.USERPROFILE;
+    if (!profile) return;
+    // A real dir inside the profile; its long name is obviously storable. The CI
+    // runner reached the same dir through an 8.3 alias (RUNNER~1), and the old
+    // lexical realpath left that spelling intact, so the containment check refused
+    // a directory genuinely inside the profile. Resolve the short name the way the
+    // shell does and assert the guard now accepts it.
+    const real = fs.mkdtempSync(path.join(profile, 'palee-83-'));
+    try {
+      const short = execSync(`for %I in ("${real}") do @echo %~sI`, {
+        shell: 'cmd.exe',
+        encoding: 'utf8',
+      }).trim();
+      if (!short || short.toLowerCase() === real.toLowerCase()) return; // 8.3 generation disabled on this volume
+      assert.notStrictEqual(short, real, 'the probe must have produced a distinct short name');
+      assert.strictEqual(
+        isConfigDirStorableForKey(short, [profile]),
+        true,
+        `a short-name path (${short}) inside the profile (${profile}) must reconcile to storable`
+      );
+    } finally {
+      fs.rmSync(real, { recursive: true, force: true });
+    }
+  });
 });

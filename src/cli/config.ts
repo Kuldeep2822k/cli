@@ -83,15 +83,31 @@ function isConfigDirStorableForKey(dir: string, roots: string[]): boolean {
 }
 
 /**
- * Collapses 8.3 short names and symlinks when the path exists; a path that is not
- * on disk yet (the config dir is created later, inside `saveConfig`) falls back to
- * a lexical resolve so the containment check still has an absolute path to compare.
+ * Canonicalizes a path for the containment check: collapses 8.3 short names
+ * (`RUNNER~1` → `runneradmin`) and symlinks. Only `fs.realpathSync.native`
+ * (GetFinalPathNameByHandle) does this — the JS `fs.realpathSync` preserves the
+ * input's short-name spelling, which would make the dir and the profile root fail
+ * to match even when one genuinely contains the other.
+ *
+ * The config dir usually does not exist yet (`saveConfig` creates it on first
+ * write), so we canonicalize the nearest existing ancestor and rejoin the
+ * not-yet-created tail; a path with no existing ancestor falls back to a lexical
+ * resolve so the check still has an absolute path to compare.
  */
 function realpathIfExists(p: string): string {
-  try {
-    return fs.realpathSync(path.win32.resolve(p));
-  } catch {
-    return path.win32.resolve(p);
+  const resolved = path.win32.resolve(p);
+  let existing = resolved;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync.native(existing);
+      return tail.length ? path.win32.join(real, ...tail) : real;
+    } catch {
+      const parent = path.win32.dirname(existing);
+      if (parent === existing) return resolved;
+      tail.unshift(path.win32.basename(existing));
+      existing = parent;
+    }
   }
 }
 
