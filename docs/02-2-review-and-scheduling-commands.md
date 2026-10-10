@@ -106,7 +106,7 @@ flowchart TD
 
 ## 2. Overdue Topic Selection (`palee next`)
 
-The `palee next` command surfaces topics currently due for review. It acts as the primary "what should I study right now?" entrypoint.
+The `palee next` command surfaces topics currently due for review whose prerequisites are satisfied. It acts as the primary "what should I study right now?" entrypoint.
 
 ### Syntax & Options
 
@@ -123,11 +123,42 @@ palee next [flags]
 
 ### Prioritization & Urgency Ranking
 
-`palee next` walks the vault, parses topic frontmatter, and sorts candidates using a strict priority order [src/cli/next.ts#89-95](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/next.ts#L89-L95):
+`palee next` walks the vault, parses topic frontmatter, and sorts candidates using a strict priority order:
 
 1. **Unreviewed Topics**: Notes with `due_at: null` or invalid dates are ranked first (highest urgency).
 2. **Overdue Topics**: Topics with `due_at <= now` are sorted chronologically by oldest `due_at` date first.
 3. **Future Topics**: Topics whose review date is in the future are excluded from the queue.
+
+### Prerequisite Gating
+
+The queue above is then filtered by the same dependency gate `palee plan` uses — the engine predicate `areDependenciesSatisfied()` [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) against `MASTERY_THRESHOLD` (`0.70`), shared through `findPrerequisiteBlocked()` in [src/application/get-next-topics.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/application/get-next-topics.ts). `palee next` is the command a learner obeys, so it can never recommend a topic that `palee plan` reports as blocked behind an unmet prerequisite.
+
+A due topic is withheld only when **all three** hold:
+
+1. It is not `archived`.
+2. Its own `topic_mastery` is below `0.70` — reviewing an already-mastered note breaks no prerequisite order, so such a note is always eligible.
+3. A prerequisite is unmet: it is missing from the vault (a dangling reference blocks, per invariant `INV-24`) or sits below `0.70`. Advisory edges (`depends_on_source: toc` or `tie`) never gate (`INV-47`).
+
+Topics on or downstream of a dependency cycle are **not** gated away (`INV-25`): the cycle is what got quarantined, so the gate is undefined for them, and both `next` and `plan` keep their review state real while `plan` reports the cycle under Quarantined Cycles.
+
+When the gate withholds a topic but the queue is not empty, human output ends with a warning naming the count:
+
+```text
+⚠ 1 due topic is waiting on a prerequisite — see: palee plan
+```
+
+When the gate leaves **nothing** actionable, `palee next` says exactly that and names each blocking prerequisite with its mastery against the threshold. It never silently returns a blocked topic, and it never prints `No topics due for review.` — those notes *are* due, they are gated:
+
+```bash
+$ palee next
+Nothing to review — every due topic is blocked by prerequisites:
+
+  • BlockedChild (T-aa) — waiting on RootPrereq (T-bb) at mastery 0.0000, needs 0.70
+
+Study the prerequisite first (see: palee plan).
+```
+
+This is a normal, empty result: exit code stays `0`.
 
 ### Example Outputs
 
@@ -171,9 +202,23 @@ $ palee next | jq .
     "repetition": 0
   },
   "due_count": 2,
-  "total_topics": 15
+  "total_topics": 15,
+  "status": "ready",
+  "blocked": [
+    {
+      "id": "T-20260814T120400-qrst",
+      "title": "Unsafe Abstractions",
+      "path": "Rust/04-unsafe.md",
+      "mastery": 0.0,
+      "waiting_on": [
+        "Memory Ownership (T-20260814T120100-efgh) at mastery 0.4500, needs 0.70"
+      ]
+    }
+  ]
 }
 ```
+
+`status` is the gating state (`INV-30`): `ready` when `next` names a topic, `blocked` when every candidate is waiting on a prerequisite (`next: null`, `due_count: 0`), and `nothing_due` when nothing is scheduled at all. `due_count` counts only gated-in topics, and `blocked` lists what was withheld; both keys are additive and present in every branch, including `next --all --json` and the empty vault.
 
 ---
 
@@ -195,17 +240,19 @@ palee plan [flags]
 
 ### Dependency-Aware Readiness Engine
 
-Unlike `palee next` (which checks SRS review timestamps), `palee plan` leverages the DAG Dependency Graph Engine via `getReadyTopics()` [src/engine/dependency.ts#67-83](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts#L67-L83).
+The plan and the review queue share one prerequisite gate. `palee plan` computes "Ready to Learn" through the DAG Dependency Graph Engine via `getReadyTopics()` [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts), and `palee next` filters its queue through `areDependenciesSatisfied()` on that same engine and the same `MASTERY_THRESHOLD` — never a second copy of the `0.70` comparison. A note the gate holds back is therefore held back by both commands.
 
 A topic is categorized as **"Ready to Learn"** if and only if:
 1. **Unmastered**: The topic's current `topic_mastery` is strictly below the mastery threshold (`< 0.70`).
 2. **Prerequisites Satisfied**: Every topic listed in its `depends_on` frontmatter array exists in the vault and has achieved `mastery >= 0.70` - unless the list is advisory, which `depends_on_source: toc` or `tie` marks: an edge that came from a README enumeration or from an equal-rank filename tie orders the plan and takes part in cycle detection, but never holds the topic out of this category.
 
-### 3-Tier Plan Structure
+### Plan Sections
 
-The plan is organized into three distinct sections:
-- **Reviews Due**: Topics requiring immediate spaced repetition recall, sorted chronologically by oldest `due_at`.
+The plan reports each note in exactly one category, in this order:
+- **Quarantined Cycles** (only when a cycle exists): the canonicalized cycle paths. Topics on or downstream of a cycle have no defined learning order, so they leave "Ready to Learn"; their review schedule is still real, so they stay in "Reviews Due" (`INV-25`).
+- **Reviews Due**: Topics requiring immediate spaced repetition recall **that the learner may actually study**, sorted chronologically by oldest `due_at`. A note held back by an unmet prerequisite is not reviewable and does not appear here, nor does it count in `counts.due` (#306) — a never-reviewed note with no prerequisites does appear, as `Due: Never reviewed`.
 - **Ready to Learn**: New or developing topics whose prerequisites are fully satisfied, sorted by difficulty: `beginner` $\to$ `intermediate` $\to$ `advanced`.
+- **Blocked by prerequisites** (only when something is blocked): every active, unmastered topic the gate withholds, each naming the prerequisite that blocks it and that prerequisite's mastery against the threshold — `• BlockedChild (T-aa) — waiting on RootPrereq (T-bb) at mastery 0.0000, needs 0.70`. A dangling reference reads `T-x is not in the vault (run palee validate)` (`INV-24`). This is the single home of a blocked note, and the same set `palee next` reports in its `blocked` field.
 - **Progress Summary**: Aggregate counts of Mastered ($\ge 0.70$), Learning ($0 < M < 0.70$), and New ($M = 0$) topics.
 
 ### Example Human-Readable Output
@@ -219,7 +266,10 @@ Reviews Due: 1
 
 Ready to Learn: 2
   • Borrowing and Lifetimes (T-20260814T120200-ijkl) - intermediate
-  • Smart Pointers (T-20260814T120300-mnop) - advanced
+  • Unsafe Abstractions (T-20260814T120400-qrst) - advanced
+
+Blocked by prerequisites: 1
+  • Zero-Copy FFI (T-20260814T120300-mnop) — waiting on Unsafe Abstractions (T-20260814T120400-qrst) at mastery 0.4000, needs 0.70
 
 Progress Summary:
   Total Topics: 12
@@ -227,6 +277,8 @@ Progress Summary:
   Learning: 5
   New: 3
 ```
+
+In `--json`, `reviews_due` and `counts.due` carry that same gated-in list, so `counts.due + counts.blocked` can no longer exceed the number of due notes; `blocked` keeps its `{ id, title, waiting_on }` item shape and its top-level key set is identical for an empty and a populated vault (INV-30).
 
 ---
 
@@ -295,5 +347,5 @@ The note is re-read immediately before the write and its fingerprint compared. A
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee review` | Successfully recorded SM-2 review and calculated next interval and due date. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
 | `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported. | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. | Unexpected runtime exception. |
-| `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
+| `palee next` | Successfully displayed next due topic, all due topics (`--all`), a fully prerequisite-gated queue (`status: "blocked"`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
