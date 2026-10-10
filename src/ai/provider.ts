@@ -200,6 +200,12 @@ function isReservedIPv4(host: string): boolean {
   const first = Number(quad[1]);
   if (first === 0) return true;
   if (first === 169 && Number(quad[2]) === 254) return true;
+  // Alibaba Cloud serves its instance metadata at a routable-looking address
+  // rather than the link-local one, so the same "surprising metadata target"
+  // rationale that refuses 169.254.169.254 refuses it too. The broader RFC1918
+  // and CGNAT ranges stay permitted on purpose: a provider on the LAN is a
+  // legitimate bring-your-own-endpoint, exactly like a loopback one.
+  if (host === '100.100.100.200') return true;
   return first >= 224;
 }
 
@@ -460,7 +466,7 @@ export class OpenAICompatibleProvider {
     if (!request.expectJson) return this.redeemed(first);
 
     const parsed = tryParseJson(first.text);
-    if (parsed.ok) return { ...this.redeemed(first), json: parsed.value };
+    if (parsed.ok) return { ...this.redeemed(first), json: this.redeemedJson(parsed.value) };
 
     let second: ChatReply;
     try {
@@ -479,7 +485,7 @@ export class OpenAICompatibleProvider {
     }
 
     const reparsed = tryParseJson(second.text);
-    if (reparsed.ok) return { ...this.redeemed(second), json: reparsed.value };
+    if (reparsed.ok) return { ...this.redeemed(second), json: this.redeemedJson(reparsed.value) };
     throw new ProviderError(
       'schema',
       `${parsed.reason}, and again after one retry: ${reparsed.reason}. The reply was not used.`
@@ -489,6 +495,17 @@ export class OpenAICompatibleProvider {
   /** Masks the credential in model output; leaves everything else byte-for-byte alone. */
   private redeemed(reply: ChatReply): ChatReply {
     return { ...reply, text: maskSecret(this.settings.apiKey, reply.text) };
+  }
+
+  /**
+   * Masks the credential inside a parsed JSON reply by round-tripping through its
+   * serialization, so a caller that logs `reply.json` cannot leak a key an
+   * echo-back gateway reflected into the body — the same guarantee `redeemed`
+   * gives `reply.text`.
+   */
+  private redeemedJson(value: unknown): unknown {
+    if (this.settings.apiKey === undefined) return value;
+    return JSON.parse(maskSecret(this.settings.apiKey, JSON.stringify(value)));
   }
 
   /** One HTTP round trip. No retry logic lives here. */
@@ -561,7 +578,12 @@ export class OpenAICompatibleProvider {
       );
     }
     const reason = err instanceof Error ? err.message : String(err);
-    const redirected = /redirect/i.test(reason);
+    // undici throws `TypeError: fetch failed` and puts the real reason (including the
+    // refused redirect) on `err.cause`, so the hint must look there, not only at the
+    // top-level message.
+    const causeReason =
+      err instanceof Error && err.cause instanceof Error ? err.cause.message : '';
+    const redirected = /redirect/i.test(reason) || /redirect/i.test(causeReason);
     return new ProviderError(
       'network',
       `Could not reach ${this.host}: ${describeForeignText(secret, reason)}` +

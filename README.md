@@ -53,8 +53,9 @@ palee config test-connection
 
 `set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
 argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
-is stored in the config file, which is written `0600`. `PALEE_API_KEY` in the environment outranks the
-stored key, for anyone who would rather never write it to disk.
+is stored in the config file, written `0600` on POSIX — on Windows the mode is ignored and access is
+resolved through the directory ACL. `PALEE_API_KEY` in the environment outranks the stored key, for anyone
+who would rather never write it to disk.
 
 `test-connection` sends one short prompt and reports the URL it called, which key source won, how long
 the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
@@ -151,6 +152,7 @@ palee progress
 | `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
 | `palee config unset-api-key` | Remove the stored key |
 | `palee config set-model <model>` | Set the model identifier |
+| `palee config test-connection` | Send one short prompt to verify the provider (the only command that reaches the network) |
 | `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
 
 ## Configuration

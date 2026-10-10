@@ -261,6 +261,12 @@ describe('provider request shape (#24)', () => {
     assert.ok(!('response_format' in call.body));
   });
 
+  test('maxTokens, when the caller sets it, is sent as the max_tokens field', async () => {
+    const { p, calls } = providerFor(() => completion('ok'));
+    await p.complete({ messages: [{ role: 'user', content: 'brief' }], maxTokens: 16 });
+    assert.strictEqual(calls[0].body.max_tokens, 16, 'the caller cap must reach the wire verbatim');
+  });
+
   test('no key means no authorization header at all', async () => {
     const { transport, calls } = recorder(() => completion('ok'));
     const p = new OpenAICompatibleProvider(
@@ -422,6 +428,30 @@ describe('provider reply handling (#24)', () => {
     assert.deepStrictEqual(reply.usage, { promptTokens: 11, completionTokens: 7, totalTokens: 18 });
   });
 
+  test('a usage object with no numeric field reports no accounting, not zero tokens', async () => {
+    // A proxy that echoes `usage: {}` (or stringified counts) has not told us the cost.
+    // Reporting `0 in / 0 out` there is a counterfeit total the CLI would print as fact.
+    const { p } = providerFor(() =>
+      jsonResponse({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: null, completion_tokens: '7', total_tokens: undefined },
+      })
+    );
+    const reply = await p.complete({ messages: [{ role: 'user', content: 'x' }] });
+    assert.strictEqual(reply.usage, undefined, 'all-non-numeric usage is absence, not zero');
+  });
+
+  test('a partial usage object keeps the numbers present and zero-fills the rest', async () => {
+    const { p } = providerFor(() =>
+      jsonResponse({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 5 },
+      })
+    );
+    const reply = await p.complete({ messages: [{ role: 'user', content: 'x' }] });
+    assert.deepStrictEqual(reply.usage, { promptTokens: 5, completionTokens: 0, totalTokens: 0 });
+  });
+
   test('a content parts array is read as one message', async () => {
     const { p } = providerFor(() => completion([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]));
     const reply = await p.complete({ messages: [{ role: 'user', content: 'x' }] });
@@ -575,13 +605,23 @@ describe('structured output contract: INV-38/39/40 (#24)', () => {
 describe('redaction of every foreign string (#24)', () => {
   test('describeForeignText masks before it truncates', () => {
     const key = 'testkey-abcdefghij0123456789';
-    const echoing = `${'noise '.repeat(80)}${key} trailing`;
-    const described = describeForeignText(key, echoing);
-    assert.ok(!described.includes(key.slice(0, 12)), 'a fragment of the key must not survive the cut');
-    assert.ok(!described.includes(key));
 
+    // The key sits wholly inside the printable window: masking must replace it with the
+    // marker. Asserting the marker is present — not merely that the key is absent — is what
+    // keeps this from passing against an implementation that never masked at all.
+    const inWindow = describeForeignText(key, `the provider said ${key} verbatim`);
+    assert.ok(inWindow.includes('***'), inWindow);
+    assert.ok(!inWindow.includes(key.slice(0, 4)), inWindow);
+
+    // The key straddles the truncation boundary: its first four chars fall inside the
+    // 300-char window, the rest past it. Truncating first would cut the key mid-token so
+    // `split(key)` no longer matches, leaking the four-char prefix; masking first turns the
+    // whole key into `***` before the cut. The surviving prefix is the discriminator, so the
+    // slice is exactly four chars — a wider slice would pass even on the leaking order.
     const straddling = `${'z'.repeat(MAX_MESSAGE_CHARS - 4)}${key}`;
-    assert.ok(!describeForeignText(key, straddling).includes(key.slice(0, 8)));
+    const described = describeForeignText(key, straddling);
+    assert.ok(!described.includes(key.slice(0, 4)), `a key prefix survived the cut: ${described}`);
+    assert.ok(described.includes('***'), described);
   });
 
   test('an ANSI escape from a provider body cannot forge terminal output (INV-30)', () => {
