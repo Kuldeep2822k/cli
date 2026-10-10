@@ -5,7 +5,7 @@
 
 import { loadConfig } from './config';
 import { isJsonOutput, validateVaultPath } from './onboarding';
-import { ExitCode } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import { ValidateOptions } from '../types';
 import { collectVault } from '../validation/collect-vault';
 import { runRules } from '../validation/run-rules';
@@ -184,7 +184,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }

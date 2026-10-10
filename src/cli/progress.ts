@@ -1,6 +1,6 @@
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { ExitCode } from './exit-codes';
+import { exitCodeFor } from './exit-codes';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -268,7 +268,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }
