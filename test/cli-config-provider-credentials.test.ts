@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { loadConfig } from '../src/cli/config';
+import { loadConfig, isConfigDirStorableForKey } from '../src/cli/config';
 
 /**
  * `palee config set-provider` could store a provider name and nothing else, so the
@@ -273,5 +273,70 @@ describe('config file mode (#82)', () => {
     assert.notStrictEqual(fs.statSync(file).mode & 0o077, 0, 'the fixture is world-readable first');
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir);
     assert.strictEqual(fs.statSync(file).mode & 0o077, 0);
+  });
+});
+
+/**
+ * On Windows the file mode is ignored, so a key is only as private as the ACL of
+ * the directory it lands in. The containment check is a dependency-free stand-in:
+ * a directory inside the user's profile inherits an owner-only ACL, one outside
+ * (a share, a synced folder) may not. These fixture-path cases run on every OS
+ * because `isConfigDirStorableForKey` uses `path.win32` regardless of host.
+ */
+describe('config dir guard (#316)', () => {
+  const ROOTS = ['C:\\Users\\fixture-alice', 'C:\\Users\\fixture-alice\\AppData\\Local'];
+
+  test('a directory nested in a profile root is storable', () => {
+    assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alice\\AppData\\Local\\palee', ROOTS), true);
+  });
+
+  test('a profile root itself is storable', () => {
+    assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alice', ROOTS), true);
+  });
+
+  test('comparison folds case, as Windows paths do', () => {
+    assert.strictEqual(isConfigDirStorableForKey('c:\\users\\FIXTURE-ALICE\\AppData\\local\\palee', ROOTS), true);
+  });
+
+  test('a shared location outside the profile is refused', () => {
+    assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\Public\\palee', ROOTS), false);
+  });
+
+  test('a sibling that merely shares a name prefix is refused, not swallowed', () => {
+    // `fixture-alicia` starts with `fixture-alice` as a string but is a different user.
+    assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alicia\\palee', ROOTS), false);
+  });
+
+  test('a UNC share is refused: it is under no profile root', () => {
+    assert.strictEqual(isConfigDirStorableForKey('\\\\server\\share\\palee', ROOTS), false);
+  });
+
+  test('empty roots refuses rather than assuming the location is safe', () => {
+    assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alice\\palee', []), false);
+  });
+
+  test('set-api-key refuses a config dir outside the profile on Windows', () => {
+    if (process.platform !== 'win32') return; // the live refusal only fires on win32
+    const outside = 'C:\\Users\\Public\\palee-fixture-316';
+    let status = 0;
+    let stderr = '';
+    try {
+      execSync('npx tsx bin/palee.ts config set-api-key --from-env PALEE_TEST_KEY', {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'sk-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        input: '',
+      });
+    } catch (e: unknown) {
+      const err = e as { status?: number; stderr?: string };
+      status = err.status ?? 1;
+      stderr = err.stderr ?? '';
+    }
+    assert.strictEqual(status, 2, 'storing a key outside the profile must be a usage refusal');
+    assert.match(stderr, /outside your user profile/);
+    assert.ok(stderr.includes(outside), 'the refusal must name the directory it objected to');
+    assert.ok(!fs.existsSync(path.join(outside, 'config.json')), 'the refused key must not reach disk');
+    assert.ok(!stderr.includes('sk-win-acl-check'), 'the refusal must not echo the key');
   });
 });

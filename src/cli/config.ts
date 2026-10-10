@@ -42,6 +42,60 @@ function getConfigPath(): string {
 }
 
 /**
+ * The directories a Windows user's own files live under — the roots a
+ * credential-bearing config may safely sit inside. Env-reading is kept here, at
+ * the edge, so {@link isConfigDirStorableForKey} stays a pure function the tests
+ * can drive with fixture roots.
+ */
+function profileRoots(): string[] {
+  const roots = [process.env.USERPROFILE ?? os.homedir(), process.env.LOCALAPPDATA];
+  return roots.filter((r): r is string => Boolean(r));
+}
+
+/**
+ * Decides whether a key may be stored in `dir` on Windows, where `fs` modes are a
+ * no-op and NTFS access is inherited from the directory's ACL. The accurate test
+ * is a Win32 security API, which needs a native dependency; this is the
+ * dependency-free, no-spawn stand-in: a directory inside the user's own profile
+ * roots inherits an owner-only ACL, one outside (a share, a synced folder, a
+ * clone on `D:`) may not. Location, not the ACL itself — hence the override.
+ *
+ * @param dir - The resolved config directory the key would be written into.
+ * @param roots - The profile roots to accept, from {@link profileRoots}.
+ * @returns `true` when `dir` is one of, or nested within, a root.
+ *
+ * @remarks
+ * Uses `path.win32` so the decision is identical on any OS the test runs on, and
+ * `path.win32.relative` so case folds and `C:\\Users\\bob` does not swallow
+ * `C:\\Users\\bobby`. Empty roots means the location cannot be verified, so it
+ * refuses rather than assuming safety.
+ */
+function isConfigDirStorableForKey(dir: string, roots: string[]): boolean {
+  if (roots.length === 0) return false;
+  const resolvedDir = realpathIfExists(dir);
+  for (const root of roots) {
+    const resolvedRoot = realpathIfExists(root);
+    const rel = path.win32.relative(resolvedRoot, resolvedDir);
+    if (rel === '') return true;
+    if (!rel.startsWith('..') && !path.win32.isAbsolute(rel)) return true;
+  }
+  return false;
+}
+
+/**
+ * Collapses 8.3 short names and symlinks when the path exists; a path that is not
+ * on disk yet (the config dir is created later, inside `saveConfig`) falls back to
+ * a lexical resolve so the containment check still has an absolute path to compare.
+ */
+function realpathIfExists(p: string): string {
+  try {
+    return fs.realpathSync(path.win32.resolve(p));
+  } catch {
+    return path.win32.resolve(p);
+  }
+}
+
+/**
  * Loads and parses the stored PALEE configuration from disk.
  *
  * @returns The parsed PaleeConfig object, or an empty object if no config file exists or content is malformed.
@@ -345,6 +399,22 @@ async function configCommand(
         return;
       }
 
+      // On Windows the 0600/0700 modes saveConfig sets are ignored, so a config
+      // directory outside the user's profile can inherit a readable ACL. Refuse
+      // to write the key there rather than store it where another principal can
+      // read it (#316). The override is for a directory the user has secured by
+      // other means, which this location heuristic cannot see.
+      if (process.platform === 'win32' && !process.env.PALEE_ALLOW_INSECURE_CONFIG_DIR) {
+        const dir = path.dirname(getConfigPath());
+        const roots = profileRoots();
+        if (!isConfigDirStorableForKey(dir, roots)) {
+          console.error(`Error: refusing to store the API key in ${dir}: it is outside your user profile (${roots.join(', ')}), where its file permissions cannot be guaranteed on Windows.`);
+          console.error('Use PALEE_API_KEY at runtime instead, point PALEE_CONFIG_DIR under %LOCALAPPDATA% or %USERPROFILE%, or set PALEE_ALLOW_INSECURE_CONFIG_DIR=1 to override.');
+          process.exitCode = 2;
+          return;
+        }
+      }
+
       const config = loadConfig();
       config.apiKey = key;
       saveConfig(config);
@@ -392,5 +462,5 @@ async function configCommand(
   }
 }
 
-export { loadConfig, saveConfig };
+export { loadConfig, saveConfig, isConfigDirStorableForKey };
 export default configCommand;
