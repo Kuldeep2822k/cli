@@ -138,14 +138,19 @@ export function globToRegex(glob: string): RegExp {
 }
 
 /**
- * Evaluates whether a single path segment matches a segment wildcard pattern.
+ * Compiles a single path-segment wildcard pattern into a RegExp.
+ *
+ * @remarks
+ * Separated from matching so callers that evaluate the same segment pattern
+ * repeatedly (e.g. the DP cells in {@link matchPathGlob}) can compile once and
+ * reuse the result rather than rebuilding an identical RegExp per comparison.
+ * The returned RegExp carries no stateful flags (`g`/`y`), so it is safe to
+ * `.test()` repeatedly.
  *
  * @param pattern - Segment pattern (e.g. `*.md`, `[a-z]*`, `?`)
- * @param str - Path segment string
- * @returns `true` if segment matches
+ * @returns Compiled anchored, case-insensitive RegExp
  */
-function matchSegmentWildcard(pattern: string, str: string): boolean {
-  if (pattern === str || pattern === '*') return true;
+function compileSegment(pattern: string): RegExp {
   let regStr = '';
   let inGroup = false;
   for (let i = 0; i < pattern.length; i++) {
@@ -182,7 +187,19 @@ function matchSegmentWildcard(pattern: string, str: string): boolean {
     else if (['.', '+', '^', '$', '(', ')', '{', '}', '|', '\\'].includes(c)) regStr += `\\${c}`;
     else regStr += c;
   }
-  return new RegExp(`^${regStr}$`, 'i').test(str);
+  return new RegExp(`^${regStr}$`, 'i');
+}
+
+/**
+ * Evaluates whether a single path segment matches a segment wildcard pattern.
+ *
+ * @param pattern - Segment pattern (e.g. `*.md`, `[a-z]*`, `?`)
+ * @param str - Path segment string
+ * @returns `true` if segment matches
+ */
+function matchSegmentWildcard(pattern: string, str: string): boolean {
+  if (pattern === str || pattern === '*') return true;
+  return compileSegment(pattern).test(str);
 }
 
 /**
@@ -210,6 +227,12 @@ export function matchPathGlob(glob: string, target: string): boolean {
   const gParts = gNorm.split('/').filter(Boolean);
   const tParts = tNorm.split('/').filter(Boolean);
 
+  // Precompile each distinct glob segment once (`**` has no RegExp) and reuse
+  // across every DP cell, instead of recompiling an identical RegExp per cell.
+  const compiledParts: (RegExp | null)[] = gParts.map((seg) =>
+    seg === '**' ? null : compileSegment(seg),
+  );
+
   const dp = Array.from({ length: gParts.length + 1 }, () => Array(tParts.length + 1).fill(false));
   dp[0][0] = true;
 
@@ -221,8 +244,14 @@ export function matchPathGlob(glob: string, target: string): boolean {
       }
     } else {
       dp[i][0] = false;
+      const seg = gParts[i - 1];
+      const re = compiledParts[i - 1] as RegExp;
       for (let j = 1; j <= tParts.length; j++) {
-        dp[i][j] = dp[i - 1][j - 1] && matchSegmentWildcard(gParts[i - 1], tParts[j - 1]);
+        const t = tParts[j - 1];
+        // Mirrors matchSegmentWildcard's fast-paths (literal and `*`) using the
+        // precompiled RegExp: `seg === t` is the literal match and the compiled
+        // RegExp subsumes the `*` case.
+        dp[i][j] = dp[i - 1][j - 1] && (seg === t || re.test(t));
       }
     }
   }
