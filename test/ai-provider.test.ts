@@ -529,6 +529,17 @@ describe('provider reply handling (#24)', () => {
       (err: unknown) => err instanceof ProviderError && err.kind === 'schema'
     );
   });
+
+  test('a body that is the JSON literal null is a schema failure, not a crash', async () => {
+    // `JSON.parse('null')` succeeds, so reaching for `.error` on it would throw a raw
+    // TypeError that escaped as Unexpected(5). It must land on the schema path like any
+    // other reply that is not a response envelope.
+    const { p } = providerFor(() => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } }));
+    await assert.rejects(
+      () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
+      (err: unknown) => err instanceof ProviderError && err.kind === 'schema'
+    );
+  });
 });
 
 describe('structured output contract: INV-38/39/40 (#24)', () => {

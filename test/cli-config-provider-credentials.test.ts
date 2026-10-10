@@ -154,6 +154,21 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(readStoredOrEmpty(configDir).apiKey, undefined);
   });
 
+  test('a key with an embedded control character is refused, not stored to fail at call time', () => {
+    const configDir = freshConfigDir();
+    // A pasted key with a stray tab or DEL cannot go into an Authorization header. The
+    // provider refuses it at call time; set-api-key refuses it on the way in so a key that
+    // can never work is never stored. The trailing newline is trimmed, so the control
+    // character here is embedded in the middle.
+    const result = runConfig(['set-api-key'], configDir, { input: 'testkey-\tbroken-9a1f\n' });
+    assert.strictEqual(result.status, 2, `an unsendable key must be refused:\n${result.stdout}${result.stderr}`);
+    assert.ok(
+      !result.stdout.includes('testkey-') && !result.stderr.includes('testkey-'),
+      'the rejection must not echo the key'
+    );
+    assert.strictEqual(readStoredOrEmpty(configDir).apiKey, undefined, 'the unsendable key must not be on disk');
+  });
+
   test('config show redacts the key, and no field of it appears in the output', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {

@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode, exitCodeFor } from './exit-codes';
-import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
+import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
  * Resolves the platform-specific path to the PALEE config JSON file.
@@ -333,6 +333,16 @@ async function configCommand(
 
       const key = await readApiKey(options?.fromEnv);
       if (key === null) {
+        process.exitCode = 2;
+        return;
+      }
+
+      // The provider refuses a key with a non-printable character at call time, because it
+      // cannot go into an Authorization header. Catch it here instead so a key that can
+      // never work is rejected on the way in rather than stored and failing on first use.
+      // The key is never echoed, so the message names the fault, not the value.
+      if (!isSendable(key)) {
+        console.error('Error: the API key contains a non-printable character and cannot be sent in an HTTP header; check for a stray control character or newline');
         process.exitCode = 2;
         return;
       }

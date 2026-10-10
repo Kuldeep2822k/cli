@@ -73,11 +73,20 @@ describe('CLI config test-connection (#24)', () => {
    * not theorised: awaiting the spawn is the difference between testing the client and
    * testing a timeout.
    */
-  async function run(args: string[], configDir: string): Promise<{ status: number; stdout: string; stderr: string }> {
+  async function run(
+    args: string[],
+    configDir: string,
+    extraEnv: Record<string, string> = {}
+  ): Promise<{ status: number; stdout: string; stderr: string }> {
     return await new Promise((resolve) => {
+      // PALEE_API_KEY outranks the stored key, so a value in the developer's own
+      // environment would silently flip the key source and break the config-file-source
+      // assertions. Strip it by default; the one test that needs it passes it explicitly.
+      const env: NodeJS.ProcessEnv = { ...process.env, PALEE_CONFIG_DIR: configDir, ...extraEnv };
+      if (!('PALEE_API_KEY' in extraEnv)) delete env.PALEE_API_KEY;
       const child = spawn('npx', ['tsx', 'bin/palee.ts', 'config', ...args], {
         cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        env,
         shell: process.platform === 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -149,18 +158,11 @@ describe('CLI config test-connection (#24)', () => {
       path.join(configDir, 'config.json'),
       JSON.stringify({ baseUrl: `${base}/v1`, apiKey: 'testkey-stored-not-used' })
     );
-    const previous = process.env.PALEE_API_KEY;
-    process.env.PALEE_API_KEY = 'testkey-from-env-used';
-    try {
-      const result = await run(['test-connection'], configDir);
-      assert.strictEqual(result.status, 0, `${result.stdout}${result.stderr}`);
-      assert.match(result.stdout, /PALEE_API_KEY/);
-      assert.ok(!result.stdout.includes('testkey-from-env-used'), result.stdout);
-      assert.ok(!result.stdout.includes('testkey-stored-not-used'), result.stdout);
-    } finally {
-      if (previous === undefined) delete process.env.PALEE_API_KEY;
-      else process.env.PALEE_API_KEY = previous;
-    }
+    const result = await run(['test-connection'], configDir, { PALEE_API_KEY: 'testkey-from-env-used' });
+    assert.strictEqual(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /PALEE_API_KEY/);
+    assert.ok(!result.stdout.includes('testkey-from-env-used'), result.stdout);
+    assert.ok(!result.stdout.includes('testkey-stored-not-used'), result.stdout);
   });
 
   test('a 401 from the provider is a credential usage error (2), not an unexpected crash (5)', async () => {

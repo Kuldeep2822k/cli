@@ -381,7 +381,7 @@ export function resolveProviderSettings(
 }
 
 /** Printable ASCII only: a control character in a field that reaches a wire or a log is a forgery vector. */
-function isSendable(value: string): boolean {
+export function isSendable(value: string): boolean {
   return /^[\x20-\x7e]*$/.test(value);
 }
 
@@ -610,6 +610,16 @@ export class OpenAICompatibleProvider {
       throw new ProviderError(
         'schema',
         `Provider at ${this.url} replied with a body that is not JSON (${envelope.reason}).`
+      );
+    }
+    // `JSON.parse('null')`, `'42'`, `'"ok"'` and `'[]'` all parse, but none is a
+    // response envelope. Reaching for `.error` on the literal `null` would throw a raw
+    // TypeError that escapes as an Unexpected(5); route every non-object through the same
+    // schema path a malformed body already takes.
+    if (envelope.value === null || typeof envelope.value !== 'object' || Array.isArray(envelope.value)) {
+      throw new ProviderError(
+        'schema',
+        `Provider at ${this.url} replied with a JSON value that is not a response object.`
       );
     }
     const value = envelope.value as Record<string, unknown>;
