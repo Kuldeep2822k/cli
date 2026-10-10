@@ -20,6 +20,17 @@ import { CacheEntry } from '../types';
 const UNSETTLED_HORIZON = 2000;
 
 /**
+ * Default maximum number of entries retained in a {@link FileCache} before
+ * least-recently-verified eviction kicks in.
+ *
+ * @remarks
+ * Bounds memory growth when scanning large vaults. When the cache exceeds this
+ * cap, the entry with the oldest `lastVerified` timestamp (the least recently
+ * read or written) is evicted first (LRU).
+ */
+const MAX_CACHE_ENTRIES = 2000;
+
+/**
  * Generic in-memory file cache keyed by filesystem path.
  *
  * @typeParam T - Type of cached payload (e.g. parsed topic AST, YAML document, or frontmatter dictionary)
@@ -41,9 +52,13 @@ const UNSETTLED_HORIZON = 2000;
  */
 class FileCache<T = unknown> {
   private cache: Map<string, CacheEntry<T>>;
+  private readonly maxEntries: number;
 
   /**
    * Initializes a new empty FileCache.
+   *
+   * @param maxEntries - Maximum number of entries to retain before
+   *   least-recently-verified (LRU) eviction. Defaults to {@link MAX_CACHE_ENTRIES}.
    *
    * @remarks
    * Creates an internal `Map` instance to hold path-to-entry associations.
@@ -53,8 +68,9 @@ class FileCache<T = unknown> {
    * const cache = new FileCache<Topic>();
    * ```
    */
-  constructor() {
+  constructor(maxEntries: number = MAX_CACHE_ENTRIES) {
     this.cache = new Map();
+    this.maxEntries = maxEntries > 0 ? maxEntries : MAX_CACHE_ENTRIES;
   }
 
   /**
@@ -114,6 +130,20 @@ class FileCache<T = unknown> {
 
       // Outside unsettled horizon and mtime matches - cache hit
       if (entry.mtime === mtime) {
+        // Same-second edits on filesystems with whole-second mtime resolution
+        // produce an identical mtime, so mtime equality alone cannot be trusted
+        // here. When the mtime carries no sub-second precision, fall back to a
+        // fingerprint check before trusting the cached entry (#367).
+        if (mtime % 1000 === 0) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          const fingerprint = computeFingerprint(content);
+
+          if (fingerprint !== entry.fingerprint) {
+            this.cache.delete(filePath);
+            return null;
+          }
+        }
+
         entry.lastVerified = now;
         return entry.data;
       }
@@ -167,8 +197,38 @@ class FileCache<T = unknown> {
         data,
         lastVerified: Date.now(),
       });
+      this.evictIfNeeded();
     } catch {
       // File doesn't exist - don't cache
+    }
+  }
+
+  /**
+   * Evicts the least-recently-verified entry while the cache exceeds its cap.
+   *
+   * @returns Void
+   *
+   * @remarks
+   * Enforces the LRU bound established by the constructor's `maxEntries`.
+   * The entry with the smallest `lastVerified` timestamp — the one least
+   * recently read (via {@link FileCache.get}) or written (via
+   * {@link FileCache.set}) — is removed first. Because `set` adds a single
+   * entry at a time, at most one entry is evicted per call (#368).
+   */
+  private evictIfNeeded(): void {
+    while (this.cache.size > this.maxEntries) {
+      let oldestKey: string | undefined;
+      let oldestVerified = Infinity;
+
+      for (const [key, entry] of this.cache) {
+        if (entry.lastVerified < oldestVerified) {
+          oldestVerified = entry.lastVerified;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey === undefined) break;
+      this.cache.delete(oldestKey);
     }
   }
 
@@ -208,4 +268,4 @@ class FileCache<T = unknown> {
   }
 }
 
-export { FileCache, UNSETTLED_HORIZON };
+export { FileCache, UNSETTLED_HORIZON, MAX_CACHE_ENTRIES };
