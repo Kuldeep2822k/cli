@@ -4,7 +4,7 @@
  */
 
 import { loadConfig } from './config';
-import { isJsonOutput, validateVaultPath } from './onboarding';
+import { emitError, isJsonOutput, validateVaultPath } from './onboarding';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import { ValidateOptions } from '../types';
 import { collectVault } from '../validation/collect-vault';
@@ -182,8 +182,9 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
       process.exitCode = ExitCode.Validation;
     }
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`Error: ${err.message}`);
+    // #325: `--json` / non-TTY gets the same `{ error }` stderr payload as the
+    // exit-2 vault path; the exit code is unchanged.
+    emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;
   }

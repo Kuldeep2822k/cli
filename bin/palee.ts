@@ -147,6 +147,29 @@ program
   .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 
+/**
+ * The raw options commander parsed for the command that is about to run, or
+ * `undefined` when no action ran. The catch below needs to know whether the
+ * user asked for JSON, but it sits outside the action's scope, so the only
+ * honest way to read the *parsed* `--json` option is to have commander hand it
+ * over at the moment it dispatches (#338).
+ */
+let parsedActionOptions: { json?: boolean } | undefined;
+
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  parsedActionOptions = actionCommand.opts() as { json?: boolean };
+});
+
+/**
+ * Whether `PALEE_DEBUG` opts the user into a raw stack trace. Read as an env
+ * var, the same way `src/cli/config.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
+ * flag is added to the documented option surface (#338).
+ */
+function isDebugEnabled(): boolean {
+  const value = process.env.PALEE_DEBUG;
+  return value !== undefined && value !== '' && value !== '0';
+}
+
 // Parse and execute
 program.parseAsync(process.argv).catch((err: unknown) => {
   const cmdErr = err as { code?: unknown; exitCode?: unknown };
@@ -166,7 +189,13 @@ program.parseAsync(process.argv).catch((err: unknown) => {
     return;
   }
 
-  const isJson = process.argv.includes('--json');
+  // JSON mode comes from the option commander parsed for the command that ran
+  // (#338) — a positional `process.argv.includes('--json')` also fires when
+  // `--json` is merely a *value* (`palee config -- --json`). Fall back to that
+  // sniff only when no action ran, so there is nothing parsed to consult.
+  const isJson = parsedActionOptions
+    ? Boolean(parsedActionOptions.json)
+    : process.argv.includes('--json');
   const message = err instanceof Error ? err.message : String(err);
   if (isJson) {
     console.log(JSON.stringify({
@@ -174,8 +203,19 @@ program.parseAsync(process.argv).catch((err: unknown) => {
       code: ExitCode.Unexpected,
       error: message,
     }));
+  } else if (isDebugEnabled() && err instanceof Error && err.stack) {
+    // The message is the user-facing diagnostic; the stack is a debugging
+    // artifact that #338 reports being dumped on every fatal error. It stays
+    // behind `PALEE_DEBUG`.
+    console.error(err.stack);
   } else {
-    console.error(err);
+    console.error(message);
   }
-  process.exit(ExitCode.Unexpected);
+  // #320: exiting through `process.exit` discards writes still queued to a
+  // redirected stdout, so the JSON payload above could arrive truncated for
+  // exactly the piped callers that read it. Setting the code and returning lets
+  // the event loop drain first — the same policy the Commander branch above
+  // follows.
+  process.exitCode = ExitCode.Unexpected;
+  return;
 });

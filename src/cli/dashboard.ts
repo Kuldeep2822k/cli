@@ -9,7 +9,7 @@ import { compareDue, normalizeDueDate, partitionDue } from '../application/due-t
 import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
-import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 import { exitCodeFor } from './exit-codes';
 import { Difficulty, DashboardOptions } from '../types';
 
@@ -196,8 +196,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     return;
 
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`Error: ${err.message}`);
+    // #325: `--json` / non-TTY gets the same `{ error }` stderr payload as the
+    // exit-2 vault path; the exit code is unchanged.
+    emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;
   }

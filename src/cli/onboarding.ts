@@ -30,6 +30,36 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
 }
 
 /**
+ * The single machine-readable error shape every command emits: a JSON object
+ * `{ error: string }` on `stderr` in JSON mode, `Error: <message>` otherwise.
+ *
+ * @param error - The caught value, or a ready-made diagnostic message
+ * @param options - Command options carrying the boolean `json` flag
+ * @returns Void
+ *
+ * @remarks
+ * One emitter, one shape: `validateVaultPath`'s exit-2 configuration path and
+ * the exit-5 runtime catches in the reading commands both go through here, so a
+ * tool that parses `stderr` as JSON under `--json` sees the same object either
+ * way (#325). The caller owns the exit code — this only formats and writes.
+ *
+ * @example
+ * ```typescript
+ * } catch (e: unknown) {
+ *   emitError(e, options);
+ *   process.exitCode = exitCodeFor(e);
+ * ```
+ */
+export function emitError(error: unknown, options?: { json?: boolean }): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isJsonOutput(options)) {
+    console.error(JSON.stringify({ error: message }));
+  } else {
+    console.error(`Error: ${message}`);
+  }
+}
+
+/**
  * Validates that the vault path is configured, exists, is a directory, and is readable.
  * Sets process.exitCode = 2 and prints error (as JSON if isJsonOutput is true) on any configuration/access failure.
  *
@@ -58,11 +88,7 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
    * ```
    */
   function reportError(msg: string): void {
-    if (isJsonOutput(options)) {
-      console.error(JSON.stringify({ error: msg }));
-    } else {
-      console.error(`Error: ${msg}`);
-    }
+    emitError(msg, options);
     process.exitCode = 2;
   }
 
