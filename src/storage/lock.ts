@@ -19,9 +19,13 @@ import { assertContainedInVault } from './containment';
 import { LockData, NodeError } from '../types';
 
 /**
- * Interval in milliseconds (15,000 ms) between periodic heartbeat mtime updates.
+ * Interval in milliseconds (15,000 ms) at which {@link Lock.startHeartbeat}
+ * touches the held lock file's `mtime` to advertise liveness, keeping other
+ * processes from reclaiming the lock as stale while this process still holds it.
  *
- * @remarks Internal lock tuning parameter. Removed from the public storage barrel per the #131 census (zero runtime consumers, no reservations); module-private export used internally and by storage-lock tests.
+ * @remarks Module-private: consumed by the heartbeat timer in {@link Lock} and
+ * by the storage-lock tests. Not re-exported on the public storage barrel per
+ * the #131 census.
  */
 const HEARTBEAT_INTERVAL = 15000;
 /** Stale lock expiration timeout in milliseconds for Windows environments (60,000 ms) */
@@ -30,9 +34,13 @@ const STALE_TIMEOUT_WINDOWS = 60000;
 const STALE_TIMEOUT_OTHER = 120000;
 
 /**
- * Active stale lock threshold for current runtime platform.
+ * Age in milliseconds past a lock file's last heartbeat after which the lock is
+ * considered stale and eligible for takeover: 60,000 ms on Windows, 120,000 ms
+ * on POSIX/macOS. Consulted by {@link isLockStale} and by the stale-lock
+ * quarantine/cleanup inside {@link createLock}.
  *
- * @remarks Internal lock tuning parameter. Removed from the public storage barrel per the #131 census (zero runtime consumers, no reservations); module-private export used internally and by storage-lock tests.
+ * @remarks Module-private: consumed internally and by the storage-lock tests.
+ * Not re-exported on the public storage barrel per the #131 census.
  */
 const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STALE_TIMEOUT_OTHER;
 
@@ -151,13 +159,22 @@ function getLockDir(vaultPath: string, targetPath: string): string {
 }
 
 /**
- * Checks whether an existing lock descriptor exceeds the platform's stale timeout threshold.
+ * Checks whether an existing lock descriptor is stale and eligible for recovery.
  *
  * @param lockInfo - Parsed lock record
  * @returns `true` if lock has expired and is eligible for stale recovery, otherwise `false`
  *
  * @remarks
- * Compares current epoch milliseconds against lock file modification time (`mtime`).
+ * Two independent staleness signals are applied:
+ * 1. **Same-host dead-process reclaim**: when the lock records this machine's
+ *    hostname, the holding PID is probed with `process.kill(pid, 0)`. A dead
+ *    PID (`ESRCH`) means the holder crashed without releasing, so the lock is
+ *    reclaimable immediately rather than waiting out {@link STALE_TIMEOUT}. A
+ *    live PID — including `EPERM`, meaning the process exists but is owned by
+ *    another user — is treated as alive and falls through to the timeout check.
+ * 2. **Timeout fallback**: compares current epoch milliseconds against the lock
+ *    file modification time (`mtime`). Used for cross-host or unknown-host
+ *    locks where PID liveness cannot be checked meaningfully.
  *
  * @example
  * ```typescript
@@ -166,6 +183,24 @@ function getLockDir(vaultPath: string, targetPath: string): string {
  */
 function isLockStale(lockInfo: ParsedLock): boolean {
   if (lockInfo.mtime === 0) return true; // File disappeared mid-read
+
+  // Same-host liveness probe. Only meaningful when the lock was written on this
+  // machine — a PID on a different host says nothing about our process table.
+  const data = lockInfo.data;
+  if (data && typeof data.pid === 'number' && data.pid > 0 && data.hostname === os.hostname()) {
+    try {
+      // Signal 0 runs the kernel's existence/permission checks without
+      // delivering a signal. No throw => the process is alive.
+      process.kill(data.pid, 0);
+    } catch (e: unknown) {
+      const code = (e as NodeError).code;
+      // ESRCH: no such process — holder is dead, reclaim immediately (#369).
+      if (code === 'ESRCH') return true;
+      // EPERM (or any other error): process exists but is owned by another
+      // user, so it is alive. Fall through to the timeout-based path.
+    }
+  }
+
   const now = Date.now();
   return now - lockInfo.mtime > STALE_TIMEOUT;
 }
@@ -283,10 +318,16 @@ function createLock(lockDir: string, targetPath: string): LockData {
           // a lock we are about to delete.
           fs.renameSync(filePath, quarantinePath);
           const stats = fs.statSync(quarantinePath);
-          if (Date.now() - stats.mtimeMs > STALE_TIMEOUT) {
+          // Re-confirm staleness on the quarantined copy using the SAME combined
+          // predicate as the conflict gate above: a dead same-host PID (ESRCH)
+          // is stale regardless of mtime (#369), otherwise fall back to the
+          // STALE_TIMEOUT age check. Using the raw timeout alone here would
+          // restore — and spin on — a fresh-mtime lock whose holder is dead.
+          const parsed = parsedLocks.find(l => l.filename === file);
+          if (isLockStale({ filename: file, data: parsed?.data ?? null, mtime: stats.mtimeMs })) {
             fs.unlinkSync(quarantinePath);
           } else {
-            // It was refreshed before we renamed it! Restore it.
+            // It was refreshed (or its holder is alive) before we renamed it! Restore it.
             fs.renameSync(quarantinePath, filePath);
           }
         } catch {}

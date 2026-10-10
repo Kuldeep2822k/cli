@@ -13,9 +13,11 @@ import { computeFingerprint } from './frontmatter';
 import { CacheEntry } from '../types';
 
 /**
- * Duration in milliseconds (2,000 ms) during which recent file modifications require full content SHA-256 hash re-verification.
- *
- * @remarks Reserved for cache tests and future cache-behavior validation (#131, #129).
+ * Window in milliseconds (2,000 ms) after a file's last modification during
+ * which {@link FileCache.get} re-reads the file and re-verifies its SHA-256
+ * fingerprint instead of trusting the cached `mtime`/`size`, so in-flight disk
+ * edits landing within the same filesystem-timestamp granularity are not served
+ * from a stale cache entry.
  */
 const UNSETTLED_HORIZON = 2000;
 
