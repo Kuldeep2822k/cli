@@ -26,7 +26,7 @@ The `palee review` command records active recall test results for a topic note, 
 ### Command Syntax
 
 ```bash
-palee review <topic> <quality>
+palee review <topic> <quality> [--force]
 ```
 
 ### Arguments
@@ -36,7 +36,41 @@ palee review <topic> <quality>
 | `<topic>` | `string` | Non-empty string | Topic ID (e.g. `T-20260814T120000-abcd`) or unique case-insensitive title query substring. | `"Recursion"` |
 | `<quality>` | `integer` | `0`, `1`, `2`, `3`, `4`, `5` | SuperMemo recall quality rating representing recall accuracy and effort. | `4` |
 
+### Options
+
+| Flag | Type | Default | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `--force` | `boolean` | `false` | Record the review without printing the early-review warning when the note's stored `due_at` is still in the future. The review is recorded and exits `0` either way; the flag only silences the notice. | `palee review "Recursion" 4 --force` |
+
 ---
+
+### Early Reviews (#301)
+
+`review` compares the review instant against the note's current `due_at` before
+recording. When the note carries a due date and the review happens before it,
+the review is **still recorded** (exit `0`), but the output names the date the
+note was actually due:
+
+```
+✓ Review recorded for Recursion
+  Quality: 5
+  New ease factor: 2.6
+  Next interval: 1 day(s)
+  Due: 2026-08-25
+  Repetitions: 2
+  ⚠ Reviewed early - this note was not due until 2026-09-30; counting it now compounds the interval off-schedule
+  Pass --force to record early reviews without this warning.
+```
+
+A note with `due_at: null` (never reviewed) has no schedule to precede and is
+never treated as early, and a review on the due date itself is on schedule.
+`--force` suppresses the two warning lines and nothing else. The comparison
+lives in the application layer (`src/application/record-review.ts`), never in
+`src/engine/sm2.ts` — `processReview` stays pure and its callers keep owning
+`last_reviewed_at`/`due_at`.
+
+---
+
 
 ### SuperMemo SM-2 Quality Scale
 
@@ -71,7 +105,7 @@ When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kulde
      - Repetition 2: `I(2) = 6` days
      - Repetition `n >= 3`: `I(n) = Math.max(1, Math.round(I(n-1) * EF))`
    - If `q < 3` (failed recall): resets interval to `1` day and increments `lapses`.
-3. **Mastery & Pillar Score Sync**: Normalizes conceptual, practical, debug, and Feynman pillar scores, recomputing `topic_mastery` via the 4-pillar mastery formula.
+3. **Mastery & Pillar Score Sync**: Recomputes `topic_mastery` via the 4-pillar mastery formula. Pillar scores already on the note are normalized and written back unchanged; a pillar the note does not carry is **not written** (#300) — a review records the SM-2 outcome, never an assessment score the learner never gave, the same rule roadmap import (#191) and adopt (#277) follow via the shared `carriedPillarScores()` helper in [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts).
 4. **Local Date Calculation**: Computes `due_at` by adding `interval_days` calendar days to current local date (`YYYY-MM-DD`).
 5. **OCC TOCTOU Race Elimination**: To eliminate Time-of-Check to Time-of-Use (TOCTOU) race windows between when the topic was initially loaded into memory and when the user finishes entering the review rating, `reviewCommand` re-reads the topic note from disk immediately prior to write:
    - Validates existence on disk.
@@ -293,7 +327,7 @@ The note is re-read immediately before the write and its fingerprint compared. A
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee review` | Successfully recorded SM-2 review and calculated next interval and due date. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
+| `palee review` | Successfully recorded SM-2 review and calculated next interval and due date; an early review (#301) also prints a warning naming the previous due date unless `--force` is given. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
 | `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported. | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. | Unexpected runtime exception. |
 | `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
