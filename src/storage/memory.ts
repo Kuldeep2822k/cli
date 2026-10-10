@@ -21,6 +21,7 @@ import crypto from 'crypto';
 import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
 import { atomicWrite } from './atomic-write';
 import { assertContainedInVault } from './containment';
+import { SUPPORTED_SCHEMA_VERSION } from '../engine/topic-id';
 import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
 
 /**
@@ -457,6 +458,10 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   const sessionsDir = getSessionsDir(vaultPath);
 
   const sessions: SessionRecord[] = [];
+  // Confirmed sessions skipped because they could not be read or carry an
+  // unsupported schema. Surfaced in the report so `Total Sessions` no longer
+  // silently undercounts reality (#361, #362).
+  let skippedCount = 0;
   if (fs.existsSync(sessionsDir)) {
     const files = fs.readdirSync(sessionsDir);
     for (const file of files) {
@@ -468,15 +473,27 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
             continue;
           }
           const content = fs.readFileSync(filePath, 'utf8');
-          const { frontmatter } = parseFrontmatter(content);
+          const { frontmatter, error } = parseFrontmatter(content);
+          // Corrupt frontmatter on a non-empty S- file: a session we cannot
+          // read. Count it rather than dropping it silently (#362).
+          if (error) {
+            skippedCount++;
+            continue;
+          }
           if (
             frontmatter &&
             frontmatter.session_id &&
             !String(frontmatter.session_id).startsWith('DRAFT-') &&
             frontmatter.status !== 'draft'
           ) {
+            // Strict schema gate mirroring readHotMemory (#361): do not coerce
+            // an unknown/missing palee_schema to 1. Skip and count instead.
+            if (frontmatter.palee_schema !== SUPPORTED_SCHEMA_VERSION) {
+              skippedCount++;
+              continue;
+            }
             sessions.push({
-              palee_schema: (frontmatter.palee_schema as number) || 1,
+              palee_schema: frontmatter.palee_schema as number,
               session_id: frontmatter.session_id as string,
               topic_id: (frontmatter.topic_id as string) || 'unknown',
               started_at: (frontmatter.started_at as string) || '',
@@ -485,7 +502,10 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
             });
           }
         } catch {
-          // Never delete or mutate session files during index rebuild.
+          // Unreadable session file (IO error). Count it so the total does not
+          // silently undercount, but never delete or mutate session files
+          // during index rebuild (#362).
+          skippedCount++;
         }
       }
     }
@@ -509,6 +529,9 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
       const dateStr = s.started_at ? s.started_at.split('T')[0] : 'Unknown date';
       indexBody += `- [[${s.session_id}]] - Topic: ${s.topic_id} (${dateStr})\n`;
     }
+  }
+  if (skippedCount > 0) {
+    indexBody += `\nSkipped (unreadable or unsupported schema): ${skippedCount}\n`;
   }
 
   const frontmatterObj: Record<string, unknown> = {
@@ -712,9 +735,11 @@ async function recoverDraft(
     const nowTime = new Date(nowIso).getTime();
     let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
 
-    // Clock skew tolerance: if within 60s in future, clamp to now;
-    // stale drafts (older than 24h) clamp to now - 24h per the documented recovery rule
-    if (parsedStart > nowTime) {
+    // Clock skew tolerance mirrors src/cli/session.ts: a start timestamp within
+    // 60s of now (future or past) is accepted as-is; more than 60s in the
+    // future clamps to now, and stale drafts (older than 24h) clamp to
+    // now - 24h per the documented recovery rule.
+    if (parsedStart > nowTime + 60000) {
       parsedStart = nowTime;
     } else if (nowTime - parsedStart > 24 * 60 * 60 * 1000) {
       parsedStart = nowTime - 24 * 60 * 60 * 1000;
