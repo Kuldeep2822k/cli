@@ -11,6 +11,7 @@ import {
 } from '../storage';
 import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../engine/mastery';
 import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
+import { matchesTopicQuery } from '../application/resolve-topic-query';
 import { AssessOptions, NodeError, type TopicNode } from '../types';
 
 /** The four pillar flags, in the order they are printed and validated. */
@@ -159,11 +160,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const exact = loaded.filter((t) => t.palee_id === topicQuery);
     const candidates = exact.length > 0
       ? exact
-      : loaded.filter(
-          (t) =>
-            t.palee_id.includes(topicQuery) ||
-            t.title.toLowerCase().includes(topicQuery.toLowerCase())
-        );
+      : loaded.filter((t) => matchesTopicQuery(t.palee_id, t.title, topicQuery));
 
     if (candidates.length === 0) {
       console.error(`Error: No topic found matching "${topicQuery}"`);

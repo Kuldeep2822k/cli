@@ -10,6 +10,7 @@ import { loadTopics } from '../storage';
 import { getReadyTopics, getTopicDependencies, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
+import { summarizeMastery } from '../application/mastery-summary';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
 
 
@@ -124,9 +125,8 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
 
-    const masteredCount = activeTopics.filter(t => t.topic_mastery >= MASTERY_THRESHOLD).length;
-    const learningCount = activeTopics.filter(t => t.topic_mastery > 0 && t.topic_mastery < MASTERY_THRESHOLD).length;
-    const newCount = activeTopics.filter(t => t.topic_mastery === 0).length;
+    const { mastered: masteredCount, learning: learningCount, new: newCount } =
+      summarizeMastery(activeTopics.map(t => t.topic_mastery));
 
     // A topic whose prerequisites are unmet is simply absent from the ready
     // list, which is indistinguishable from "nothing left to study" — and when

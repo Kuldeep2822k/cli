@@ -11,6 +11,7 @@ import {
 } from '../storage';
 import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
 import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
+import { matchesTopicQuery } from '../application/resolve-topic-query';
 import { NodeError } from '../types';
 
 /**
@@ -40,12 +41,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const vaultPath = validateVaultPath(config.vaultPath);
     if (!vaultPath) return;
     const loaded = loadTopics(vaultPath);
-    const candidates = loaded.filter(
-      (t) =>
-        t.palee_id === topicQuery ||
-        t.palee_id.includes(topicQuery) ||
-        t.title.toLowerCase().includes(topicQuery.toLowerCase())
-    );
+    const candidates = loaded.filter((t) => matchesTopicQuery(t.palee_id, t.title, topicQuery));
 
     if (candidates.length === 0) {
       console.error(`Error: No topic found matching "${topicQuery}"`);

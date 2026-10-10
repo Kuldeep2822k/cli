@@ -8,6 +8,8 @@ import { ExitCode } from './exit-codes';
 
 import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+import { summarizeMastery } from '../application/mastery-summary';
+import { matchesTopicQuery } from '../application/resolve-topic-query';
 import { Difficulty, ProgressOptions } from '../types';
 
 
@@ -91,10 +93,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
 
     if (options.topic) {
-      const match = topics.find(t =>
-        t.id === options.topic || t.id.includes(options.topic!) ||
-        t.title.toLowerCase().includes(options.topic!.toLowerCase())
-      );
+      const match = topics.find(t => matchesTopicQuery(t.id, t.title, options.topic!));
 
       if (!match) {
         if (jsonMode) {
@@ -149,9 +148,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
       const total = topics.length;
       const activeCount = activeTopics.length;
-      const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
-      const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
-      const newTopics = activeTopics.filter(t => t.mastery === 0).length;
+      const { mastered, learning, new: newTopics } = summarizeMastery(activeTopics.map(t => t.mastery));
 
       const totalReps = activeTopics.reduce((sum, t) => sum + t.repetition, 0);
       const totalLapses = activeTopics.reduce((sum, t) => sum + t.lapses, 0);

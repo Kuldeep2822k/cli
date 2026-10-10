@@ -6,6 +6,7 @@
 import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
+import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
@@ -97,9 +98,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const archivedCount = topics.length - activeTopics.length;
 
     const total = activeTopics.length;
-    const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
-    const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
-    const newTopics = activeTopics.filter(t => t.mastery === 0).length;
+    const { mastered, learning, new: newTopics } = summarizeMastery(activeTopics.map(t => t.mastery));
     // The dashboard's "Due for Review" is a review-backlog metric: never-reviewed
     // topics are reported separately as "New", so only elapsed scheduled reviews
     // count here (dueReviews), unlike `next`/`plan`.
