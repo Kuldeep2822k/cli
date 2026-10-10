@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { PALEE_CMD } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 describe('Roadmap import must not inherit a stale depends_on_source (#223 greptile P1)', () => {
@@ -21,7 +22,7 @@ describe('Roadmap import must not inherit a stale depends_on_source (#223 grepti
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
       const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
-      const stdout = execSync(`npx tsx bin/palee.ts ${escapedArgs.join(' ')}`, {
+      const stdout = execSync(`${PALEE_CMD} ${escapedArgs.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },
         encoding: 'utf8',

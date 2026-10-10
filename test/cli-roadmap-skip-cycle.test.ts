@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 
 /**
  * Issue #267 — a skipped topic can leave the vault in a cycle the validator rejected.
@@ -38,7 +39,7 @@ describe('a roadmap skip that closes a cycle writes nothing', () => {
   function runCLI(configDir: string, args: string[]): { status: number | null; out: string } {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args],
+      [...PALEE_ARGV, ...args],
       {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },

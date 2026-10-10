@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 import { Lock } from '../src/storage/lock';
 import { atomicWrite, isConflictError } from '../src/storage/atomic-write';
@@ -37,7 +38,7 @@ describe('CLI Commands', () => {
   });
 
   function runCLI(args: string[]): { status: number | null, stdout: string, stderr: string } {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args], {
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: path.resolve(__dirname, '..'),
       env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
       encoding: 'utf8',

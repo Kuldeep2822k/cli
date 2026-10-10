@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { PALEE_CMD } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import { resolveNoteTitle } from '../src/storage/note-title';
 
@@ -61,7 +62,7 @@ describe('CLI Adopt Batch Integration Tests', () => {
   function runCLI(args: string[]): { status: number; stdout: string; stderr: string } {
     try {
       const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
-      const stdout = execSync(`npx tsx bin/palee.ts ${escapedArgs.join(' ')}`, {
+      const stdout = execSync(`${PALEE_CMD} ${escapedArgs.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
         encoding: 'utf8',

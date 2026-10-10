@@ -21,6 +21,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawnSync } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 
 /** Symlink type that works on both POSIX and Windows without elevated rights. */
 const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
@@ -93,7 +94,7 @@ describe('palee session end containment', () => {
   ): { status: number | null; stdout: string; stderr: string } {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args],
+      [...PALEE_ARGV, ...args],
       {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },

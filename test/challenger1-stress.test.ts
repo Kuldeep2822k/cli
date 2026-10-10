@@ -3,13 +3,13 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { PALEE_ARGV } from './palee-cli';
 import {
   parseFrontmatter,
   Lock,
 } from '../src/storage';
 import { createTestVault, TestVaultEnv, CLIResult, runPaleeCli } from './e2e/test-env';
 
-const PALEE_BIN = path.resolve(__dirname, '../bin/palee.ts');
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 /**
@@ -26,7 +26,7 @@ function runPaleeCliAsync(
   options?: { env?: Record<string, string> }
 ): Promise<CLIResult> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', PALEE_BIN, ...args], {
+    const child = spawn(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: REPO_ROOT,
       env: {
         ...process.env,
