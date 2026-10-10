@@ -74,9 +74,8 @@ export function parseNumericPrefix(name: string): NumericPrefix | null {
     return null;
   }
   const n = parseInt(match[1], 10);
-  if (!Number.isSafeInteger(n)) {
-    return null;
-  }
+  // No range guard: NUMERIC_PREFIX caps the digit run at 3, so `n` is always
+  // 0..999 and `parseInt` of it can never be anything but a safe integer.
   return { n, rest: match[2] ?? '' };
 }
 

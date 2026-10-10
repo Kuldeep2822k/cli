@@ -425,15 +425,22 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         errors.push('Topic missing "path" field');
       }
 
-      if (seenIds.has(id)) {
-        errors.push(`Duplicate topic ID: ${id}`);
+      // Only a present id/path can duplicate anything. An id-less topic was
+      // still added to the seen-sets, so the second one was reported twice:
+      // once for the missing field, once as a phantom `Duplicate topic ID: undefined`.
+      if (id) {
+        if (seenIds.has(id)) {
+          errors.push(`Duplicate topic ID: ${id}`);
+        }
+        seenIds.add(id);
       }
-      seenIds.add(id);
 
-      if (seenPaths.has(relativePath)) {
-        errors.push(`Duplicate path: ${relativePath}`);
+      if (relativePath) {
+        if (seenPaths.has(relativePath)) {
+          errors.push(`Duplicate path: ${relativePath}`);
+        }
+        seenPaths.add(relativePath);
       }
-      seenPaths.add(relativePath);
 
       if (difficulty && !['beginner', 'intermediate', 'advanced'].includes(difficulty)) {
         errors.push(`Invalid difficulty for ${id}: ${difficulty}`);

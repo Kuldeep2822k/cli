@@ -143,6 +143,43 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(result.status, 2);
   });
 
+  test('palee adopt names a non-markdown file as such, not as a missing directory', () => {
+    // A `.txt` path cannot qualify for single-file mode, so it fell through to
+    // batch mode and was refused for not being a directory — the learner passed a
+    // file, and the error described a directory they never typed.
+    const dir = path.join(vaultDir, 'TXT');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'plain text, not a note\n');
+
+    const result = runCLI(['adopt', 'TXT/notes.txt', '--yes']);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /Not a markdown note: TXT[/\\]notes\.txt/);
+    assert.doesNotMatch(result.stderr, /Expected directory path/);
+  });
+
+  test('palee adopt --all on a single note says to drop --all', () => {
+    // `--all` disqualifies the explicit-file branch, and the batch branch then
+    // complained about the directory that was never asked for.
+    const result = runCLI(['adopt', 'MODULES/02-linux/rubric.md', '--all', '--yes']);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /--all adopts every note under a directory/);
+    assert.match(result.stderr, /drop --all/);
+    assert.doesNotMatch(result.stderr, /Expected directory path/);
+  });
+
+  test('palee adopt --all on a non-markdown file names the --all mismatch, not the extension', () => {
+    // With `--all` the fault is file-vs-directory, whatever the extension — a `.txt`
+    // path here used to report "Not a markdown note", hiding the flag the user misused.
+    const dir = path.join(vaultDir, 'TXT');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'plain text, not a note\n');
+
+    const result = runCLI(['adopt', 'TXT/notes.txt', '--all', '--yes']);
+    assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /--all adopts every note under a directory/);
+    assert.doesNotMatch(result.stderr, /Not a markdown note/);
+  });
+
   test('palee adopt <directory> scopes adoption strictly and resolves titles with fallbacks', () => {
     const result = runCLI(['adopt', 'MODULES/02-linux', '--difficulty', 'beginner', '--yes']);
     assert.strictEqual(result.status, 0, `Command failed: ${result.stderr}`);

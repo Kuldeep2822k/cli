@@ -1,16 +1,16 @@
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { ExitCode } from './exit-codes';
+import { exitCodeFor } from './exit-codes';
 /**
  * Progress Command Handler
  * Shows learning progress summary
  */
 
-import { loadTopics } from '../storage';
+import { loadTopics, type LoadedTopic } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { summarizeMastery } from '../application/mastery-summary';
-import { matchesTopicQuery } from '../application/resolve-topic-query';
 import { Difficulty, ProgressOptions } from '../types';
+import { resolveTopicQuery } from './topic-query';
 
 
 
@@ -27,13 +27,29 @@ interface ProgressTopic {
   difficulty: Difficulty;
 }
 
+/** Projects one loaded topic onto the fields `progress` reports. */
+function toProgressTopic(t: LoadedTopic): ProgressTopic {
+  return {
+    id: t.palee_id,
+    title: t.title,
+    path: t.path,
+    status: t.status ?? 'not_started',
+    mastery: t.topic_mastery,
+    repetition: t.repetition ?? 0,
+    lapses: t.lapses ?? 0,
+    assessed_at: t.assessed_at ?? null,
+    last_reviewed_at: t.last_reviewed_at ?? null,
+    difficulty: t.difficulty ?? 'intermediate',
+  };
+}
+
 /**
  * CLI command handler for displaying learning progress metrics and mastery.
  *
  * @param options - Progress options including `--tag`, `--difficulty`, and `--json`.
  * @returns Promise resolving when progress summary finishes.
- * @remarks Sets process.exitCode = 2 on missing/invalid vault path,
- * and process.exitCode = 5 on unexpected exceptions.
+ * @remarks Sets process.exitCode = 2 on missing/invalid vault path or a
+ * missing/ambiguous `--topic`, and process.exitCode = 5 on unexpected exceptions.
  *
  * @example
  * ```typescript
@@ -48,22 +64,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     if (!vaultPath) return;
 
     const loaded = loadTopics(vaultPath);
-    const topics: ProgressTopic[] = loaded.map((t) => ({
-      id: t.palee_id,
-      title: t.title,
-      path: t.path,
-      status: t.status ?? 'not_started',
-      mastery: t.topic_mastery,
-      repetition: t.repetition ?? 0,
-      lapses: t.lapses ?? 0,
-      assessed_at: t.assessed_at ?? null,
-      last_reviewed_at: t.last_reviewed_at ?? null,
-      difficulty: t.difficulty ?? 'intermediate',
-    }));
 
-
-
-    if (topics.length === 0 && !options.topic) {
+    if (loaded.length === 0 && !options.topic) {
       if (jsonMode) {
         console.log(JSON.stringify({
           active_topic_count: 0,
@@ -93,9 +95,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
 
     if (options.topic) {
-      const match = topics.find(t => matchesTopicQuery(t.id, t.title, options.topic!));
+      const resolution = resolveTopicQuery(loaded, options.topic);
 
-      if (!match) {
+      if (resolution.kind === 'none') {
         if (jsonMode) {
           console.error(JSON.stringify({ error: `Topic not found: ${options.topic}` }));
         } else {
@@ -105,6 +107,27 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         return;
       }
 
+      // Reading the wrong topic's progress is worse than refusing: `assess` and
+      // `review` already stop on an ambiguous query, and `progress` used to
+      // report whichever substring hit came first in load order.
+      if (resolution.kind === 'ambiguous') {
+        if (jsonMode) {
+          console.error(JSON.stringify({
+            error: `Multiple topics match: ${options.topic}`,
+            matches: resolution.candidates.map((c) => c.palee_id),
+          }));
+        } else {
+          console.error(`Error: Multiple topics match "${options.topic}":`);
+          for (const c of resolution.candidates) {
+            console.error(`  - ${c.palee_id}: ${c.title}`);
+          }
+          console.error('Please provide a more specific query.');
+        }
+        process.exitCode = 2;
+        return;
+      }
+
+      const match = toProgressTopic(resolution.topic);
       if (jsonMode) {
         console.log(JSON.stringify({
           id: match.id,
@@ -143,6 +166,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         console.log(`Last Reviewed: ${formatted}`);
       }
     } else {
+      // Only the aggregate path needs every topic projected; the `--topic` branch
+      // above reports a single resolved topic and never touches this array.
+      const topics: ProgressTopic[] = loaded.map(toProgressTopic);
       const activeTopics = topics.filter(t => t.status !== 'archived');
       const archivedTopics = topics.filter(t => t.status === 'archived');
 
@@ -241,7 +267,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }

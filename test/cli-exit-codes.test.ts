@@ -13,6 +13,8 @@ import progressCommand from '../src/cli/progress';
 import validateCommand from '../src/cli/validate';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import { RoadmapOptions } from '../src/types';
+import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
+import { ProviderError } from '../src/ai';
 
 describe('CLI Command In-Process Exit Codes & Coverage', () => {
   let tempDir: string;
@@ -628,5 +630,55 @@ depends_on: []
       await roadmapCommand({ from: validRoadmap });
       assert.strictEqual(process.exitCode, 5);
     });
+  });
+});
+
+/**
+ * The handler catches now all route through {@link exitCodeFor}, so the mapping it
+ * applies is the contract every command's exit code depends on. The in-process cases
+ * above only ever drive the generic → 5 path (nothing reachable there raises a
+ * conflict, containment or provider error), so without this the classifier's other
+ * branches — and the whole point of the refactor — would be unenforced: a change that
+ * reverted a handler to a hard-coded `5`, or that re-mapped a provider 401 to 5, would
+ * keep every test green.
+ */
+describe('exitCodeFor classification contract', () => {
+  /** An error carrying the `code` the storage layer tags conflict/containment with. */
+  function errWithCode(code: string): Error {
+    const e = new Error(code) as Error & { code?: string };
+    e.code = code;
+    return e;
+  }
+
+  test('an OCC/lock conflict is Conflict (4)', () => {
+    assert.strictEqual(exitCodeFor(errWithCode('ECONFLICT')), ExitCode.Conflict);
+  });
+
+  test('a vault-containment refusal is Validation (3), not a crash', () => {
+    assert.strictEqual(exitCodeFor(errWithCode('ECONTAINMENT')), ExitCode.Validation);
+  });
+
+  test('a provider config error is Usage (2)', () => {
+    assert.strictEqual(exitCodeFor(new ProviderError('config', 'bad base url')), ExitCode.Usage);
+  });
+
+  test('a provider schema error is Validation (3)', () => {
+    assert.strictEqual(exitCodeFor(new ProviderError('schema', 'reply broke the contract')), ExitCode.Validation);
+  });
+
+  test('a 401/403 from the provider is a credential Usage error (2), not Unexpected', () => {
+    assert.strictEqual(exitCodeFor(new ProviderError('provider', 'unauthorized', 401)), ExitCode.Usage);
+    assert.strictEqual(exitCodeFor(new ProviderError('provider', 'forbidden', 403)), ExitCode.Usage);
+  });
+
+  test('a 5xx or an unreachable provider stays in the I/O class, Unexpected (5)', () => {
+    assert.strictEqual(exitCodeFor(new ProviderError('provider', 'server error', 500)), ExitCode.Unexpected);
+    assert.strictEqual(exitCodeFor(new ProviderError('network', 'host unreachable')), ExitCode.Unexpected);
+  });
+
+  test('a generic error and a non-error value both fall through to Unexpected (5)', () => {
+    assert.strictEqual(exitCodeFor(new Error('boom')), ExitCode.Unexpected);
+    assert.strictEqual(exitCodeFor('a string, not an error'), ExitCode.Unexpected);
+    assert.strictEqual(exitCodeFor(undefined), ExitCode.Unexpected);
   });
 });

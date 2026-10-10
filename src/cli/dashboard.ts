@@ -10,7 +10,7 @@ import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { ExitCode } from './exit-codes';
+import { exitCodeFor } from './exit-codes';
 import { Difficulty, DashboardOptions } from '../types';
 
 
@@ -198,7 +198,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }

@@ -9,7 +9,7 @@ import os from 'os';
 import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
-import { ExitCode, exitCodeFor } from './exit-codes';
+import { exitCodeFor } from './exit-codes';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
@@ -539,7 +539,7 @@ async function configCommand(
   } catch (e: unknown) {
     const err = e as Error;
     console.error(`Error: ${err.message}`);
-    process.exitCode = ExitCode.Unexpected;
+    process.exitCode = exitCodeFor(e);
     return;
   }
 }
