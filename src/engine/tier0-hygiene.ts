@@ -340,7 +340,10 @@ export function classifyNoteForChain(relPath: string, paleeId?: unknown): Tier0D
     return { cls: 'excluded', reason: 'translation' };
   }
   if (stem.length === 0) {
-    return { cls: 'backbone' };
+    // A non-`.md` basename has no stem to rank, and the contract of this module is
+    // "demote to leaf, never chain" — promoting it to the gating backbone would let a
+    // file that can never be a lesson gate the lessons around it (#330).
+    return { cls: 'leaf' };
   }
   if (inList(REPO_META_STEMS, stem)) {
     return { cls: 'excluded', reason: 'repo-meta' };
