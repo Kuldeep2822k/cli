@@ -103,7 +103,8 @@ interface RoadmapChainResult {
  * Topics with an `order` sort first (ascending); topics without one keep
  * their file order and are appended after the ordered ones. A topic with no
  * (or an empty) `depends_on` is chained to the previous topic's ID — the
- * chain head gets an explicit `[]`. An explicit non-empty `depends_on`
+ * chain head receives nothing, so the dependencies its note already carries
+ * on disk stay (#322). An explicit non-empty `depends_on`
  * always wins over the synthesized chain, and a topic whose dependencies are
  * already final (`chained`) is left alone.
  *
@@ -156,7 +157,10 @@ function applyRoadmapAutoChain(topics: RoadmapTopic[]): RoadmapChainResult {
       return;
     }
     if (rank === 0) {
-      topic.depends_on = [];
+      // Left unassigned rather than set to `[]` (#322): the head note may
+      // already carry hand-authored dependencies on disk, and an explicit
+      // empty list wins over preservation in `resolveTopicUpdates`, erasing
+      // them. Same rule as the cycle-skip branch below.
       return;
     }
     const predecessorId = indexed[rank - 1].topic.id;
@@ -328,7 +332,9 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
 /**
  * CLI command handler for validating and importing learning roadmaps into the vault.
  *
- * @param options - Roadmap options including `--from` file path and `--yes` confirmation.
+ * @param options - Roadmap options including `--from` file path, `--dry-run`
+ * plan-only mode (prints the per-note write plan and writes nothing, exit `0`),
+ * and `--yes` confirmation.
  * @returns Promise resolving when roadmap validation and import complete.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
  * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
@@ -593,6 +599,63 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       console.log(`  • ${topic.path}`);
     }
     console.log();
+
+    // #309: this command rewrites `depends_on` across the vault, so `--dry-run`
+    // prints the full per-note plan — id, target path, resolved `depends_on`
+    // (chain synthesis and on-disk preservation made visible), create-vs-update
+    // from the same `lstat` existence test the import uses — and returns before
+    // the confirm gate. Zero bytes are written. The plan reads `effectiveDepsMap`,
+    // derived through `resolveTopicUpdates`, the single source of truth the
+    // writeback consumes, so the printed list is the list an import would write.
+    if (options.dryRun) {
+      let createCount = 0;
+      let updateCount = 0;
+      console.log('Dry-run plan (no files were written):');
+      for (const topic of roadmap.topics) {
+        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
+        let exists = true;
+        try {
+          fs.lstatSync(absolutePath);
+        } catch {
+          exists = false;
+        }
+        if (exists) {
+          updateCount++;
+        } else {
+          createCount++;
+        }
+        const noteState = exists ? 'update existing note' : 'create new note';
+        console.log(`  • ${topic.id} → ${topic.path} (${noteState})`);
+
+        const deps = effectiveDepsMap.get(topic.id) ?? [];
+        const shown = deps.map((dep) =>
+          chainResult !== null && chainResult.synthesizedEdges.has(`${topic.id}` + '\u0000' + dep)
+            ? `${dep} (synthesized by --auto-chain)`
+            : dep
+        );
+        let note = '';
+        if (topic.depends_on === undefined) {
+          note = exists
+            ? deps.length > 0
+              ? ' (entry declares no depends_on: the note keeps its own edges)'
+              : ' (entry declares no depends_on)'
+            : ' (new note, no dependencies)';
+        } else if (topic.depends_on.length === 0 && deps.length === 0) {
+          const held = existingTopicsById.get(topic.id)?.depends_on?.length ?? 0;
+          note =
+            held > 0
+              ? ` (explicit empty list: would clear ${held} existing dependenc${held === 1 ? 'y' : 'ies'})`
+              : ' (explicit empty list)';
+        }
+        console.log(`      depends_on: ${shown.length > 0 ? shown.join(', ') : '(none)'}${note}`);
+      }
+      console.log();
+      console.log(
+        `Dry-run complete. ${createCount} note(s) would be created, ${updateCount} updated. No files were modified.`
+      );
+      process.exitCode = ExitCode.Success;
+      return;
+    }
 
     /**
      * Inspects the note one topic would write over, without creating anything.

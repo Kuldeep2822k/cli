@@ -767,6 +767,13 @@ export interface RoadmapOptions {
    * ordered ones. An explicit non-empty `depends_on` wins over the chain.
    */
   autoChain?: boolean;
+  /**
+   * Print the full per-note import plan — ids, target paths, resolved
+   * `depends_on`, and which notes would be created — and write nothing (#309).
+   * The plan is printed after the same pre-write validation that gates a real
+   * import; a plan the validator rejects still exits `3`.
+   */
+  dryRun?: boolean;
 }
 
 /**
