@@ -6,13 +6,18 @@
  * 1. Asserts the resolved destination lies inside the vault (#264).
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
+ *    the destination's prior permission mode on the temp fd before rename (#318).
+ * 5. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
  * 6. Atomically renames temporary file over the destination file.
- * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 7. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
+ *    rename is not durable until the directory entry is flushed; platforms that refuse a
+ *    directory open or fsync (Windows raises `EPERM`/`EISDIR`) are ignored (#333).
+ * 8. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  */
 
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
@@ -85,7 +90,9 @@ export function isConflictError(e: unknown): boolean {
  * written, so the guard can never certify a file other than the one written
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
- * @returns Promise that resolves once data is fsync-flushed and renamed
+ * @returns Promise that resolves once data is fsync-flushed, renamed, and the containing
+ * directory is fsynced on a best-effort basis (the directory flush is skipped where the
+ * platform refuses it)
  * @throws {NodeError} If the destination resolves outside the vault (`ECONTAINMENT`, a
  * security refusal — never an `ECONFLICT`, because no retry makes an escaping path safe)
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
@@ -95,10 +102,30 @@ export function isConflictError(e: unknown): boolean {
  * 1. Asserts the resolved destination is still inside the vault (#264) and adopts that resolved path.
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
+ *    the destination's prior permission mode on the temp fd before rename (#318).
+ * 5. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
  * 6. Atomically renames temporary file over the destination file.
- * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 7. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
+ *    rename is not durable until the directory entry is flushed; platforms that refuse a
+ *    directory open or fsync (Windows raises `EPERM`/`EISDIR`) are ignored (#333).
+ * 8. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ *
+ * Two of those steps exist because the rename swaps the destination inode and the
+ * directory entry:
+ * - `openSync(tempPath, 'w')` creates the temp file with the umask default, so without
+ *   a prior `statSync` of the destination and `fchmodSync` on the temp fd, rewriting a
+ *   deliberately 0600 file would silently widen it to world-readable (#318). A missing
+ *   destination keeps the default mode; this primitive never tightens. The config
+ *   writer (`src/cli/config.ts`) has its own `openSync(tempPath, 'wx', 0o600)` path and
+ *   does not go through here, so that pin is untouched. On win32 POSIX mode bits are
+ *   decorative (NTFS resolves access via the directory ACL) — the preservation is
+ *   correct where the bits mean something and harmless where they do not.
+ * - fsyncing the file fd does not make the *rename* durable: on POSIX the new directory
+ *   entry lives in the directory's own metadata, so a crash right after a "successful"
+ *   write could roll the file back. The post-rename directory fsync closes that gap on
+ *   platforms that allow it; where they do not, the write still succeeds exactly as
+ *   before (#333).
  *
  * The containment assertion guards the destination rather than trusting the
  * spelling: until #264 only the *final* path component was ever questioned, so a
@@ -231,9 +258,27 @@ async function atomicWrite(
         }
 
         let fd: number | null = null;
+        // Permission mode of the destination that is about to be replaced (#318).
+        // Captured before the temp file is opened because `renameSync` swaps the
+        // inode: the temp file's umask default would otherwise become the
+        // destination's mode on every rewrite. `null` means no destination yet —
+        // a brand-new file keeps the default mode (this primitive preserves, it
+        // never tightens; tightening is `saveConfig`'s own job in `src/cli/config.ts`).
+        let priorMode: number | null = null;
         try {
+          try {
+            priorMode = fs.statSync(resolvedTarget).mode & 0o777;
+          } catch (e: unknown) {
+            const statErr = e as NodeError;
+            if (statErr.code !== 'ENOENT') throw statErr;
+          }
           fd = fs.openSync(tempPath, 'w');
           fs.writeSync(fd, newContent);
+          if (priorMode !== null) {
+            // Before the fsync so the flushed metadata already carries the mode;
+            // no-op on win32, where NTFS ignores these bits.
+            fs.fchmodSync(fd, priorMode);
+          }
           fs.fsyncSync(fd);
         } finally {
           if (fd !== null) {
@@ -242,6 +287,18 @@ async function atomicWrite(
         }
 
         fs.renameSync(tempPath, resolvedTarget);
+
+        // Durability of the rename itself (#333): on POSIX the directory entry is
+        // only on physical storage once the containing directory is fsynced, even
+        // though the data fd above was. Best-effort — a platform that refuses to
+        // open a directory or fsync the handle (win32 raises `EPERM`/`EISDIR`) is
+        // no worse off than before the flush existed, and the write still succeeds.
+        // Same shape and idiom as `saveConfig` in `src/cli/config.ts`.
+        try {
+          const dirFd = fs.openSync(path.dirname(resolvedTarget), 'r');
+          try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+        } catch {}
+
         break;
       } catch (e: unknown) {
         const err = e as NodeError;

@@ -162,3 +162,281 @@ describe('Atomic Write', () => {
     assert.strictEqual(isConflictError(123), false);
   });
 });
+
+/**
+ * #318 (mode preservation) and #333 (rename durability via directory fsync).
+ *
+ * POSIX-mode assertions guard-return on win32, the idiom this repo uses for
+ * filesystem semantics (see the platform guards in
+ * `test/cli-config-provider-credentials.test.ts`): NTFS resolves access through the
+ * directory ACL, so the bits only mean something elsewhere. The call-recording tests
+ * run on *every* platform because they assert which syscalls the primitive makes, not
+ * what the filesystem does with the result — they pin the behaviour change itself.
+ */
+describe('atomic write mode preservation and durability (#318, #333)', () => {
+  let vaultPath: string;
+
+  before(() => {
+    vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-write-mode-durability-'));
+    fs.mkdirSync(path.join(vaultPath, '.palee', 'locks'), { recursive: true });
+  });
+
+  after(() => {
+    fs.rmSync(vaultPath, { recursive: true, force: true });
+  });
+
+  type FsEvent =
+    | { type: 'open'; path: string; fd: number | null }
+    | { type: 'fsync'; fd: number }
+    | { type: 'fchmod'; fd: number; mode: number }
+    | { type: 'rename'; from: string; to: string };
+
+  /**
+   * Records every `openSync`/`fsyncSync`/`fchmodSync`/`renameSync` call made while
+   * `fn` runs (each wrapper delegates to the real implementation, so behaviour is
+   * unchanged), then restores the module. `atomicWrite` reaches `fs` through the
+   * module object at call time, so instrumenting it exercises the real code path.
+   */
+  async function withFsCallLog<T>(fn: (events: FsEvent[]) => Promise<T>): Promise<T> {
+    const events: FsEvent[] = [];
+    const originalOpen = fs.openSync;
+    const originalFsync = fs.fsyncSync;
+    const originalFchmod = fs.fchmodSync;
+    const originalRename = fs.renameSync;
+    Object.defineProperty(fs, 'openSync', {
+      configurable: true,
+      writable: true,
+      value: (target: fs.PathLike, flags: fs.OpenMode, mode?: number | string): number => {
+        const calledPath = target.toString();
+        try {
+          const fd = mode === undefined
+            ? originalOpen.call(fs, target, flags)
+            : originalOpen.call(fs, target, flags, mode);
+          events.push({ type: 'open', path: calledPath, fd });
+          return fd;
+        } catch (e: unknown) {
+          events.push({ type: 'open', path: calledPath, fd: null });
+          throw e;
+        }
+      },
+    });
+    Object.defineProperty(fs, 'fsyncSync', {
+      configurable: true,
+      writable: true,
+      value: (fd: number): void => {
+        events.push({ type: 'fsync', fd });
+        originalFsync.call(fs, fd);
+      },
+    });
+    Object.defineProperty(fs, 'fchmodSync', {
+      configurable: true,
+      writable: true,
+      value: (fd: number, mode: number): void => {
+        events.push({ type: 'fchmod', fd, mode });
+        originalFchmod.call(fs, fd, mode);
+      },
+    });
+    Object.defineProperty(fs, 'renameSync', {
+      configurable: true,
+      writable: true,
+      value: (from: fs.PathLike, to: fs.PathLike): void => {
+        events.push({ type: 'rename', from: from.toString(), to: to.toString() });
+        originalRename.call(fs, from, to);
+      },
+    });
+    try {
+      return await fn(events);
+    } finally {
+      Object.defineProperty(fs, 'openSync', { configurable: true, writable: true, value: originalOpen });
+      Object.defineProperty(fs, 'fsyncSync', { configurable: true, writable: true, value: originalFsync });
+      Object.defineProperty(fs, 'fchmodSync', { configurable: true, writable: true, value: originalFchmod });
+      Object.defineProperty(fs, 'renameSync', { configurable: true, writable: true, value: originalRename });
+    }
+  }
+
+  /** Permission bits of a path on disk (POSIX-only check). */
+  function modeOf(file: string): number {
+    return fs.statSync(file).mode & 0o777;
+  }
+
+  test('a rewrite preserves a 0600 destination mode (#318, POSIX)', async () => {
+    if (process.platform === 'win32') return; // NTFS resolves access through the directory ACL
+    const file = path.join(vaultPath, 'mode-600.md');
+    fs.writeFileSync(file, '# v1', 'utf8');
+    fs.chmodSync(file, 0o600);
+    assert.strictEqual(modeOf(file), 0o600, 'fixture starts owner-only');
+
+    await atomicWrite(vaultPath, file, '# v2');
+
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), '# v2');
+    const mode = modeOf(file);
+    assert.strictEqual(mode, 0o600, `rewrite widened the mode to 0o${mode.toString(8)}`);
+  });
+
+  test('a rewrite preserves a 0644 destination mode without tightening it (#318, POSIX)', async () => {
+    if (process.platform === 'win32') return;
+    const file = path.join(vaultPath, 'mode-644.md');
+    fs.writeFileSync(file, '# v1', 'utf8');
+    fs.chmodSync(file, 0o644);
+    assert.strictEqual(modeOf(file) & 0o077, 0o044, 'fixture starts world-readable');
+
+    await atomicWrite(vaultPath, file, '# v2');
+
+    // Preservation, not silently forcing 0600: the ordinary note mode must survive.
+    assert.strictEqual(modeOf(file), 0o644);
+  });
+
+  test('a rewrite preserves a 0640 destination mode (#318, POSIX)', async () => {
+    if (process.platform === 'win32') return;
+    const file = path.join(vaultPath, 'mode-640.md');
+    fs.writeFileSync(file, '# v1', 'utf8');
+    fs.chmodSync(file, 0o640);
+    const fingerprint = computeFingerprint('# v1');
+
+    await atomicWrite(vaultPath, file, '# v2', fingerprint);
+
+    assert.strictEqual(modeOf(file), 0o640);
+  });
+
+  test('a write to a fresh destination keeps the default umask mode (#318, POSIX)', async () => {
+    if (process.platform === 'win32') return;
+    const file = path.join(vaultPath, 'mode-new.md');
+    const control = path.join(vaultPath, 'mode-new-control.md');
+    fs.writeFileSync(control, 'x', 'utf8'); // baseline: plain open with no explicit mode
+
+    await atomicWrite(vaultPath, file, '# fresh');
+
+    // No prior mode to preserve, so behaviour is exactly what it was before #318:
+    // the temp file's umask-default mode becomes the file's mode.
+    assert.strictEqual(modeOf(file), modeOf(control));
+    assert.strictEqual(modeOf(file), 0o666 & ~process.umask());
+  });
+
+  test('the temp fd is fchmod-ed to the prior mode before the rename (#318)', async () => {
+    const file = path.join(vaultPath, 'instrumented-600.md');
+    fs.writeFileSync(file, '# v1', 'utf8');
+    fs.chmodSync(file, 0o600);
+    // Compare against what stat actually reports rather than a hardcoded 0600: on
+    // win32 Node synthesises the mode, but the primitive must still hand *that*
+    // value to fchmodSync, which is the behaviour the fix added.
+    const priorMode = modeOf(file);
+
+    const events = await withFsCallLog(async log => {
+      await atomicWrite(vaultPath, file, '# v2');
+      return log;
+    });
+
+    const renameIdx = events.findIndex(e => e.type === 'rename');
+    assert.ok(renameIdx >= 0, 'rename was not recorded');
+    const rename = events[renameIdx] as Extract<FsEvent, { type: 'rename' }>;
+    const chmods = events
+      .map((e, i) => ({ e, i }))
+      .filter(x => x.e.type === 'fchmod') as Array<{ e: Extract<FsEvent, { type: 'fchmod' }>; i: number }>;
+    assert.ok(chmods.length >= 1, 'no fchmodSync call before rename — the prior mode was discarded');
+    for (const { e, i } of chmods) {
+      assert.ok(i < renameIdx, 'fchmodSync must happen before the rename replaces the file');
+      assert.strictEqual(e.mode, modeOf(file), 'fchmod mode must match the destination mode');
+      assert.strictEqual(priorMode & 0o777, modeOf(file), 'mode stayed stable across the writes');
+      // The chmod must target the temp fd: the open recorded for `from` returned it.
+      const tempOpen = events.find(x => x.type === 'open' && x.path === rename.from) as Extract<FsEvent, { type: 'open' }>;
+      assert.ok(tempOpen, 'temp file open was recorded');
+      assert.strictEqual(e.fd, tempOpen.fd, 'fchmod must apply to the temp fd, not elsewhere');
+    }
+  });
+
+  test('no fchmod is issued when the destination does not exist (#318)', async () => {
+    const file = path.join(vaultPath, 'instrumented-new.md');
+
+    const events = await withFsCallLog(async log => {
+      await atomicWrite(vaultPath, file, '# fresh');
+      return log;
+    });
+
+    // `atomicWrite` renames to the containment-resolved path, so the recorded target is
+    // the realpath: on macOS `os.tmpdir()` is under `/var`, which is a symlink to
+    // `/private/var`, and comparing against the unresolved `file` would fail there only.
+    const realTarget = path.join(fs.realpathSync(vaultPath), 'instrumented-new.md');
+    assert.ok(events.some(e => e.type === 'rename' && e.to === realTarget), 'the write itself happened');
+    assert.strictEqual(events.filter(e => e.type === 'fchmod').length, 0, 'a new file must keep the default mode');
+  });
+
+  test('the containing directory is fsync-ed after the rename (#333)', async () => {
+    const file = path.join(vaultPath, 'dir-fsync.md');
+    fs.writeFileSync(file, '# v1', 'utf8');
+
+    const events = await withFsCallLog(async log => {
+      await atomicWrite(vaultPath, file, '# v2');
+      return log;
+    });
+
+    const renameIdx = events.findIndex(e => e.type === 'rename');
+    assert.ok(renameIdx >= 0);
+    const rename = events[renameIdx] as Extract<FsEvent, { type: 'rename' }>;
+    const dir = path.dirname(rename.to);
+    const dirOpenIdx = events.findIndex(
+      (e, i) => i > renameIdx && e.type === 'open' && e.path === dir
+    );
+    assert.ok(dirOpenIdx >= 0, `no open of the containing directory (${dir}) after the rename`);
+    const dirOpen = events[dirOpenIdx] as Extract<FsEvent, { type: 'open' }>;
+    if (dirOpen.fd !== null) {
+      assert.ok(
+        events.some((e, i) => i > dirOpenIdx && e.type === 'fsync' && e.fd === dirOpen.fd),
+        'the directory fd was opened but never fsync-ed'
+      );
+    }
+    // win32 note: the open itself may fail (or the fsync on the handle does); the
+    // fix swallows that, so recording the *attempt* is the platform-agnostic pin.
+  });
+
+  test('a refused directory fsync does not fail the write (#333)', async () => {
+    const file = path.join(vaultPath, 'dir-fsync-refused.md');
+    await atomicWrite(vaultPath, file, '# seed');
+
+    const realVault = fs.realpathSync(vaultPath);
+    const originalOpen = fs.openSync;
+    const originalFsync = fs.fsyncSync;
+    const dirFds = new Set<number>();
+    let refusalRaised = false;
+    try {
+      Object.defineProperty(fs, 'openSync', {
+        configurable: true,
+        writable: true,
+        value: (target: fs.PathLike, flags: fs.OpenMode, mode?: number | string): number => {
+          const fd = mode === undefined
+            ? originalOpen.call(fs, target, flags)
+            : originalOpen.call(fs, target, flags, mode);
+          // Only the post-rename durability open uses 'r' on the vault directory.
+          if (flags === 'r' && target.toString() === realVault) dirFds.add(fd);
+          return fd;
+        },
+      });
+      Object.defineProperty(fs, 'fsyncSync', {
+        configurable: true,
+        writable: true,
+        value: (fd: number): void => {
+          if (dirFds.has(fd)) {
+            refusalRaised = true;
+            const err = new Error('simulated: platform refuses directory fsync') as NodeJS.ErrnoException;
+            err.code = 'EPERM';
+            throw err;
+          }
+          originalFsync.call(fs, fd);
+        },
+      });
+
+      await atomicWrite(vaultPath, file, '# rewritten');
+
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), '# rewritten');
+      if (process.platform === 'win32') {
+        // Locally the directory fsync genuinely raises EPERM (the swallow branch fires
+        // for real); whether the forced refusal also ran is platform detail.
+        assert.ok(true);
+      } else {
+        assert.ok(refusalRaised, 'the forced refusal never reached the directory fd');
+      }
+    } finally {
+      Object.defineProperty(fs, 'openSync', { configurable: true, writable: true, value: originalOpen });
+      Object.defineProperty(fs, 'fsyncSync', { configurable: true, writable: true, value: originalFsync });
+    }
+  });
+});
