@@ -37,7 +37,7 @@ describe('CLI Commands', () => {
   });
 
   function runCLI(args: string[]): { status: number | null, stdout: string, stderr: string } {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args], {
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '../dist/bin/palee.js'), ...args], {
       cwd: path.resolve(__dirname, '..'),
       env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
       encoding: 'utf8',

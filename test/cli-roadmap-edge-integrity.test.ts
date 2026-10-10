@@ -45,7 +45,7 @@ describe('roadmap import reports edges to notes that do not exist', () => {
   function runCLI(args: string[]): { status: number | null; stdout: string; stderr: string } {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args],
+      [path.resolve(__dirname, '../dist/bin/palee.js'), ...args],
       {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: tempDir },

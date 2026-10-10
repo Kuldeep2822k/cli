@@ -38,7 +38,7 @@ describe('a roadmap skip that closes a cycle writes nothing', () => {
   function runCLI(configDir: string, args: string[]): { status: number | null; out: string } {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args],
+      [path.resolve(__dirname, '../dist/bin/palee.js'), ...args],
       {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },

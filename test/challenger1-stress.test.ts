@@ -9,7 +9,7 @@ import {
 } from '../src/storage';
 import { createTestVault, TestVaultEnv, CLIResult, runPaleeCli } from './e2e/test-env';
 
-const PALEE_BIN = path.resolve(__dirname, '../bin/palee.ts');
+const PALEE_BIN = path.resolve(__dirname, '../dist/bin/palee.js');
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 /**
@@ -26,7 +26,7 @@ function runPaleeCliAsync(
   options?: { env?: Record<string, string> }
 ): Promise<CLIResult> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', PALEE_BIN, ...args], {
+    const child = spawn(process.execPath, [PALEE_BIN, ...args], {
       cwd: REPO_ROOT,
       env: {
         ...process.env,

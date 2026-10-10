@@ -34,7 +34,7 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
    */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
-      const stdout = execSync(`npx tsx bin/palee.ts ${args.join(' ')}`, {
+      const stdout = execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" ${args.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },
         encoding: 'utf8',

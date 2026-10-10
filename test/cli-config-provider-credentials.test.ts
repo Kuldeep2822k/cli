@@ -54,7 +54,7 @@ describe('CLI config provider credentials (#82)', () => {
     opts: { input?: string; env?: Record<string, string> } = {}
   ): { status: number; stdout: string; stderr: string } {
     try {
-      const stdout = execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
+      const stdout = execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" config ${args.join(' ')}`, {
         cwd: path.resolve(__dirname, '..'),
         // These suites deliberately write to a throwaway temp dir, which on a
         // Windows CI runner lives outside the user profile (and is reached via an
@@ -279,7 +279,7 @@ describe('config file mode (#82)', () => {
 
   /** Runs `palee config` for the mode suite, with a key available in the env. */
   function runConfig(args: string[], configDir: string): void {
-    execSync(`npx tsx bin/palee.ts config ${args.join(' ')}`, {
+    execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),
       env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' },
       encoding: 'utf8',
@@ -355,7 +355,7 @@ describe('config dir guard (#316)', () => {
     let status = 0;
     let stderr = '';
     try {
-      execSync('npx tsx bin/palee.ts config set-api-key --from-env PALEE_TEST_KEY', {
+      execSync(`node "${path.resolve(__dirname, '../dist/bin/palee.js')}" config set-api-key --from-env PALEE_TEST_KEY`, {
         cwd: path.resolve(__dirname, '..'),
         env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
         encoding: 'utf8',

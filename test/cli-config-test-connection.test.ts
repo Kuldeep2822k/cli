@@ -84,10 +84,9 @@ describe('CLI config test-connection (#24)', () => {
       // assertions. Strip it by default; the one test that needs it passes it explicitly.
       const env: NodeJS.ProcessEnv = { ...process.env, PALEE_CONFIG_DIR: configDir, ...extraEnv };
       if (!('PALEE_API_KEY' in extraEnv)) delete env.PALEE_API_KEY;
-      const child = spawn('npx', ['tsx', 'bin/palee.ts', 'config', ...args], {
+      const child = spawn(process.execPath, [path.resolve(__dirname, '../dist/bin/palee.js'), 'config', ...args], {
         cwd: path.resolve(__dirname, '..'),
         env,
-        shell: process.platform === 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const timer = setTimeout(() => child.kill(), 90_000);
