@@ -676,6 +676,26 @@ topics:
       assert.match(res.stderr, /Duplicate topic ID: T-dup/);
     });
 
+    test('B7.3b: id-less roadmap topics report the missing field, not a phantom duplicate', () => {
+      // An id-less topic was still added to the seen-sets, so the second one was
+      // reported twice — once for the genuinely missing field, once as
+      // `Duplicate topic ID: undefined`, which is not a thing the learner typed.
+      const noIdRoadmap = path.join(env.tempDir, 'no-ids.yaml');
+      fs.writeFileSync(noIdRoadmap, `
+topics:
+  - title: No Id One
+    path: one.md
+  - title: No Id Two
+    path: two.md
+`, 'utf8');
+
+      const res = env.run(['roadmap', '--from', noIdRoadmap, '--yes']);
+      assert.strictEqual(res.status, 3);
+      assert.match(res.stderr, /Topic missing "id" field/);
+      assert.doesNotMatch(res.stderr, /Duplicate topic ID: undefined/);
+      assert.doesNotMatch(res.stderr, /Duplicate path: undefined/);
+    });
+
     test('B7.4: roadmap with duplicate file paths exits with code 3', () => {
       const dupPathRoadmap = path.join(env.tempDir, 'duplicate-paths.yaml');
       fs.writeFileSync(dupPathRoadmap, `
