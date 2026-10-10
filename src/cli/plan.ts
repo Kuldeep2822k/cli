@@ -9,6 +9,7 @@ import { ExitCode } from './exit-codes';
 import { loadTopics } from '../storage';
 import { getReadyTopics, getTopicDependencies, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
 
 
@@ -48,11 +49,6 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const now = new Date();
 
     for (const t of loaded) {
-      let dueAt = t.due_at ? new Date(t.due_at) : null;
-      if (dueAt && Number.isNaN(dueAt.getTime())) {
-        dueAt = null;
-      }
-
       topics.set(t.palee_id, {
         palee_id: t.palee_id,
         title: t.title,
@@ -61,7 +57,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         status: t.status,
         depends_on: t.depends_on,
         depends_on_source: t.depends_on_source,
-        due_at: dueAt,
+        due_at: normalizeDueDate(t.due_at),
         repetition: t.repetition ?? 0,
         difficulty: t.difficulty ?? 'intermediate',
       });
@@ -76,12 +72,10 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
     const archivedCount = topics.size - activeTopics.length;
 
-    const dueTopics: PlanTopic[] = [];
-    for (const topic of activeTopics) {
-      if (!topic.due_at || topic.due_at <= now) {
-        dueTopics.push(topic);
-      }
-    }
+    // `next`/`plan` treat a never-scheduled topic as actionable now, so the due
+    // list is both elapsed reviews and never-reviewed topics (see partitionDue).
+    const { dueReviews, neverReviewed } = partitionDue(activeTopics, now, t => t.due_at);
+    const dueTopics: PlanTopic[] = [...neverReviewed, ...dueReviews];
 
     if (topics.size === 0) {
       if (jsonMode) {
@@ -125,12 +119,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const readyTopics = getReadyTopics(acyclicTopics, MASTERY_THRESHOLD) as PlanTopic[];
 
     const diffOrder: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
-    const sortedDue = dueTopics.slice().sort((a, b) => {
-      if (!a.due_at && !b.due_at) return 0;
-      if (!a.due_at) return -1;
-      if (!b.due_at) return 1;
-      return a.due_at.getTime() - b.due_at.getTime();
-    });
+    const sortedDue = dueTopics.slice().sort((a, b) => compareDue(a.due_at, b.due_at));
     const sortedReady = readyTopics.slice().sort((a, b) => {
       return (diffOrder[a.difficulty] ?? 1) - (diffOrder[b.difficulty] ?? 1);
     });
