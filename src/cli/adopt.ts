@@ -189,6 +189,8 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
  * - Applies `--include`, `--exclude`, and `--tag` filters.
  * - Displays adoption preview and asks for confirmation (unless `--yes` is specified).
  * - Executes two-phase adoption with optimistic concurrency control and rollback journal.
+ * Single-file mode takes no filter: an explicit path plus `--include`, `--exclude` or
+ * `--tag` is a contradiction, and exits `2` rather than adopting the excluded note (#303).
  *
  * @example
  * ```typescript
@@ -283,6 +285,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Single-file adoption mode
       if (options.autoChain) {
         console.error('Error: --auto-chain is batch-only; it cannot be used with a single note path');
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+      // #303 — `--include`, `--exclude` and `--tag` select notes out of a directory
+      // walk, and single-file mode has no walk: the learner already named the one
+      // note. Validating their syntax upstream and then dropping them meant
+      // `palee adopt "a/fresh.md" --exclude 'a/*.md'` exited 0 having adopted
+      // exactly the note the flag excluded. An explicit path plus a filter is a
+      // contradiction, and silently writing is the one outcome the user cannot
+      // detect after the fact — so refuse, naming the flag and the mode. (The
+      // absence of a Tier-0 hygiene pass here is a separate, deliberate choice;
+      // see the note in the batch scan loop below.)
+      for (const filterFlag of ['include', 'exclude', 'tag'] as const) {
+        if (options[filterFlag] === undefined) continue;
+        console.error(
+          `Error: --${filterFlag} does not apply when a single path is given; it filters batch adoption — drop it, or pass a directory / use --all`
+        );
         process.exitCode = ExitCode.Usage;
         return;
       }
