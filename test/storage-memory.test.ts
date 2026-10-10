@@ -500,6 +500,34 @@ ${body}
     assert.ok(drafts.includes(draftPath));
   });
 
+  test('getDrafts returns DRAFT-S files in ascending filename order, independent of creation order', () => {
+    // The recovery prompt walks this list; without the sort it followed readdir
+    // order, so which unfinished draft a user was offered first differed between
+    // OSes and runs. Written out of creation order on purpose — the sort, not the
+    // directory listing, must decide.
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-drafts-order-'));
+    try {
+      const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      const names = [
+        'DRAFT-S-20260101T000000-cccc.md',
+        'DRAFT-S-20260101T000000-aaaa.md',
+        'DRAFT-S-20260101T000000-bbbb.md',
+      ];
+      for (const name of names) {
+        fs.writeFileSync(
+          path.join(sessionsDir, name),
+          '---\npalee_schema: 1\nstatus: draft\nended_at: null\n---\nDraft body.\n',
+          'utf8'
+        );
+      }
+      const got = getDrafts(vaultPath).map((p) => path.basename(p));
+      assert.deepStrictEqual(got, [...names].sort(), 'drafts must return lexically sorted, not in creation order');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('recoverDraft handles discard action', async () => {
     const draftId = generateDraftId();
     const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
