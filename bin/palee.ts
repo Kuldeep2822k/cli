@@ -36,8 +36,10 @@ program
 program
   .command('config')
   .description('Manage PALEE configuration')
-  .argument('[action]', 'Action: show, set-vault, set-provider, set-model')
-  .argument('[value]', 'Value for set-* actions')
+  .argument('[action]', 'Action: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model')
+  .argument('[value]', 'Value for set-* actions (never the API key)')
+  .option('--from-env <var>', 'environment variable to read the API key from (set-api-key)')
+  .option('--json', 'Output in JSON format (config show)')
   .action(configCommand);
 
 // palee adopt

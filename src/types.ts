@@ -372,6 +372,13 @@ export interface PaleeConfig {
   aiProvider?: string;
   /** Specific LLM model identifier */
   model?: string;
+  /** OpenAI-compatible endpoint of the configured provider (e.g., `https://opencode.ai/zen/v1`) */
+  baseUrl?: string;
+  /**
+   * Provider credential, stored as plaintext at rest in the config file, which is
+   * written `0600` and whose value `palee config show` never prints.
+   */
+  apiKey?: string;
 }
 
 // ─── Lock ───────────────────────────────────────────────────────────

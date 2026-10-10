@@ -7,8 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
-import { ExitCode } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
+import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
  * Resolves the platform-specific path to the PALEE config JSON file.
@@ -70,6 +72,8 @@ function loadConfig(): PaleeConfig {
     if (typeof (parsed as PaleeConfig).vaultPath === 'string') validConfig.vaultPath = (parsed as PaleeConfig).vaultPath;
     if (typeof (parsed as PaleeConfig).aiProvider === 'string') validConfig.aiProvider = (parsed as PaleeConfig).aiProvider;
     if (typeof (parsed as PaleeConfig).model === 'string') validConfig.model = (parsed as PaleeConfig).model;
+    if (typeof (parsed as PaleeConfig).baseUrl === 'string') validConfig.baseUrl = (parsed as PaleeConfig).baseUrl;
+    if (typeof (parsed as PaleeConfig).apiKey === 'string') validConfig.apiKey = (parsed as PaleeConfig).apiKey;
     return validConfig;
   } catch (e: unknown) {
     const err = e as NodeError;
@@ -92,6 +96,10 @@ function loadConfig(): PaleeConfig {
  *
  * @remarks
  * Writes configuration to a unique temporary file, fsyncs data, and atomically renames.
+ * The file holds a provider credential, so it is created `0600` inside a `0700`
+ * directory: the mode is set when the temp file is opened, before a byte of the
+ * payload exists, and `renameSync` carries it onto the config path. Windows
+ * ignores the mode argument and resolves access through the directory's ACL.
  *
  * @example
  * ```typescript
@@ -103,7 +111,7 @@ function saveConfig(config: PaleeConfig): void {
   const dir = path.dirname(configPath);
 
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 
   // `pid + Date.now()` is not a unique name: two processes that fork from the
@@ -117,7 +125,7 @@ function saveConfig(config: PaleeConfig): void {
   let fd: number | null = null;
   let success = false;
   try {
-    fd = fs.openSync(tempPath, 'w');
+    fd = fs.openSync(tempPath, 'w', 0o600);
     fs.writeSync(fd, payload, 0, 'utf8');
     fs.fsyncSync(fd);
     fs.closeSync(fd);
@@ -135,26 +143,115 @@ function saveConfig(config: PaleeConfig): void {
 }
 
 /**
- * CLI command handler for managing configuration (show, set-vault, set-provider, set-model).
+ * Reads the API key a `set-api-key` should store.
  *
- * @param action - Optional configuration action (show, set-vault, set-provider, set-model).
- * @param value - Optional value to set for the given action.
+ * @param fromEnv - Optional environment variable name to read it from.
+ * @returns The trimmed key, or `null` when nothing usable was obtained.
+ *
+ * @remarks
+ * The key never arrives as a command-line argument: `argv` is readable by every
+ * process on the machine (`ps`, `/proc/<pid>/cmdline`) and lands in shell history.
+ * Precedence is `--from-env`, then a piped stdin, then an interactive prompt that
+ * does not echo the key and keeps it out of line history. Each failure says why on
+ * `stderr`.
+ */
+async function readApiKey(fromEnv?: string): Promise<string | null> {
+  if (fromEnv) {
+    const stored = process.env[fromEnv];
+    if (!stored || !stored.trim()) {
+      console.error(`Error: environment variable ${fromEnv} is not set`);
+      return null;
+    }
+    return stored.trim();
+  }
+
+  if (!process.stdin.isTTY) {
+    process.stdin.setEncoding('utf8');
+    let piped = '';
+    for await (const chunk of process.stdin) piped += chunk;
+    piped = piped.trim();
+    if (!piped) {
+      console.error('Error: no API key read from stdin');
+      return null;
+    }
+    return piped;
+  }
+
+  const typed = await promptHidden('API key: ');
+  if (!typed.trim()) {
+    console.error('Error: no API key entered');
+    return null;
+  }
+  return typed.trim();
+}
+
+/**
+ * Prompts on a TTY for a secret without echoing it. The prompt text is written,
+ * then every keystroke is swallowed, so the key never reaches terminal scrollback
+ * or a session recording; `historySize: 0` keeps it out of line-editing history.
+ */
+function promptHidden(query: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+      historySize: 0,
+    });
+    let muted = false;
+    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => {
+      if (!muted) process.stdout.write(s);
+    };
+    rl.question(query, (answer) => {
+      process.stdout.write('\n');
+      rl.close();
+      resolve(answer);
+    });
+    muted = true;
+  });
+}
+
+/**
+ * CLI command handler for managing configuration.
+ *
+ * @param action - Optional action: show, set-vault, set-provider, set-base-url, set-api-key,
+ * unset-api-key, test-connection, set-model.
+ * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
+ * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
+ * `json` makes `show` emit machine-readable output.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
- * and process.exitCode = 5 on unexpected exceptions.
+ * and process.exitCode = 5 on unexpected exceptions. `show --json` reports whether a key
+ * is stored (`api_key_set`) and never the key itself.
  *
  * @example
  * ```typescript
  * await configCommand('set-vault', '/Users/alex/Vault');
  * ```
  */
-async function configCommand(action?: string, value?: string): Promise<void> {
+async function configCommand(
+  action?: string,
+  value?: string,
+  options?: { fromEnv?: string; json?: boolean }
+): Promise<void> {
   try {
     if (!action || action === 'show') {
       const config = loadConfig();
+      if (options?.json) {
+        console.log(JSON.stringify({
+          vault_path: config.vaultPath ?? null,
+          ai_provider: config.aiProvider ?? null,
+          base_url: config.baseUrl ?? null,
+          model: config.model ?? null,
+          api_key_set: Boolean(config.apiKey),
+        }));
+        return;
+      }
       console.log('PALEE Configuration:');
       console.log(`  Vault Path: ${config.vaultPath || '(not set)'}`);
       console.log(`  AI Provider: ${config.aiProvider || '(not set)'}`);
+      console.log(`  Base URL: ${config.baseUrl || '(not set)'}`);
+      console.log(`  API Key: ${config.apiKey ? '••••••••' : '(not set)'}`);
       console.log(`  Model: ${config.model || '(not set)'}`);
       return;
     }
@@ -199,6 +296,121 @@ async function configCommand(action?: string, value?: string): Promise<void> {
       return;
     }
 
+    if (action === 'set-base-url') {
+      if (!value) {
+        console.error('Error: base URL required');
+        process.exitCode = 2;
+        return;
+      }
+
+      // The same rule the provider applies when it calls out. Validating here with a
+      // different rule set would let a user store an endpoint that every later command
+      // refuses with a different message — and a `?token=` in the value would be stored
+      // and then folded into the middle of the request path.
+      let endpoint: URL;
+      try {
+        endpoint = normalizeProviderEndpoint(value);
+      } catch (err: unknown) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = exitCodeFor(err);
+        return;
+      }
+
+      const config = loadConfig();
+      config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
+      saveConfig(config);
+      console.log(`AI base URL set to: ${config.baseUrl}`);
+      return;
+    }
+
+    if (action === 'set-api-key') {
+      if (value) {
+        console.error('Error: the API key cannot be an argument — argv is readable by other processes and lands in shell history');
+        console.error('Run with --from-env VAR, pipe the key on stdin, or run with no input to be prompted');
+        process.exitCode = 2;
+        return;
+      }
+
+      const key = await readApiKey(options?.fromEnv);
+      if (key === null) {
+        process.exitCode = 2;
+        return;
+      }
+
+      // The provider refuses a key with a non-printable character at call time, because it
+      // cannot go into an Authorization header. Catch it here instead so a key that can
+      // never work is rejected on the way in rather than stored and failing on first use.
+      // The key is never echoed, so the message names the fault, not the value.
+      if (!isSendable(key)) {
+        console.error('Error: the API key contains a non-printable character and cannot be sent in an HTTP header; check for a stray control character or newline');
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = loadConfig();
+      config.apiKey = key;
+      saveConfig(config);
+      console.log('API key stored. `palee config show` does not print it.');
+      return;
+    }
+
+    if (action === 'unset-api-key') {
+      const config = loadConfig();
+      if (config.apiKey === undefined) {
+        console.log('No API key is stored.');
+        return;
+      }
+
+      delete config.apiKey;
+      saveConfig(config);
+      console.log('API key removed.');
+      return;
+    }
+
+    if (action === 'test-connection') {
+      if (value) {
+        console.error('Error: test-connection takes no argument');
+        process.exitCode = 2;
+        return;
+      }
+      // The one place a stored credential can prove itself. It sends the shortest
+      // possible prompt and reports reachability, the URL actually called, which key
+      // source won, and what came back — because a Phase-2 feature spending real tokens
+      // to discover a bad base URL is the expensive way to learn the same thing.
+      //
+      // The default timeout is kept rather than shortened: a local server cold-loading a
+      // model can take tens of seconds, and failing that early would report a working
+      // provider as broken.
+      try {
+        const settings = resolveProviderSettings(loadConfig());
+        const provider = new OpenAICompatibleProvider(settings);
+        const started = process.hrtime.bigint();
+        const reply = await provider.complete({
+          messages: [{ role: 'user', content: 'Reply with exactly the word OK.' }],
+          temperature: 0,
+        });
+        const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+        const keyLabel =
+          settings.keySource === 'env' ? `from $${API_KEY_ENV}`
+            : settings.keySource === 'config' ? 'from the config file'
+              : 'none configured';
+        console.log('✓ Provider reachable');
+        console.log(`  Endpoint: ${provider.url}`);
+        console.log(`  Model:    ${provider.model}`);
+        console.log(`  Key:      ${keyLabel}`);
+        console.log(`  Reply:    ${describeForeignText(settings.apiKey, reply.text)} (${elapsed.toFixed(0)} ms)`);
+        if (reply.usage) {
+          console.log(`  Tokens:   ${reply.usage.promptTokens} in / ${reply.usage.completionTokens} out`);
+        }
+        return;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        process.exitCode = exitCodeFor(err);
+        return;
+      }
+    }
+
     if (action === 'set-model') {
       if (!value) {
         console.error('Error: model name required');
@@ -214,7 +426,7 @@ async function configCommand(action?: string, value?: string): Promise<void> {
     }
 
     console.error(`Error: unknown action '${action}'`);
-    console.error('Valid actions: show, set-vault, set-provider, set-model');
+    console.error('Valid actions: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model');
     process.exitCode = 2;
     return;
 

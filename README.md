@@ -44,11 +44,28 @@ palee config set-vault ~/Documents/Obsidian/Learning
 
 ### Configure Free AI (Optional)
 ```bash
-palee config set-provider
-# base_url: https://opencode.ai/zen/v1
-# api_key: YOUR_FREE_TIER_KEY
-# model: nemotron-3-ultra-free
+palee config set-provider opencode
+palee config set-base-url https://opencode.ai/zen/v1
+printf '%s' "$OPENCODE_API_KEY" | palee config set-api-key
+palee config set-model nemotron-3-ultra-free
+palee config test-connection
 ```
+
+`set-api-key` takes the key on stdin, via `--from-env <VAR>`, or as an interactive prompt — never as an
+argument, because `argv` is readable by every other process. `palee config show` never prints it; the key
+is stored in the config file, written `0600` on POSIX — on Windows the mode is ignored and access is
+resolved through the directory ACL. `PALEE_API_KEY` in the environment outranks the stored key, for anyone
+who would rather never write it to disk.
+
+`test-connection` sends one short prompt and reports the URL it called, which key source won, how long
+the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
+in `palee next`, `plan`, `review`, `validate`, `adopt`, `roadmap --from` or `migrate` can do the same —
+`test/ai-network-boundary.test.ts` fails if a second socket site appears. It refuses plain HTTP to any
+host that is not loopback, refuses endpoints in reserved address space (link-local and the cloud metadata
+address, the unspecified and multicast ranges, IPv4-mapped literals, and `.internal` names), refuses
+redirects rather than re-sending the credential to a host nobody approved, reads no more than 256 KiB of a
+response before giving up on it, and exits `2` on a bad endpoint, `3` on a reply that broke the output
+contract, `5` when the provider could not be reached.
 
 ### Start Learning
 ```bash
@@ -130,17 +147,27 @@ palee progress
 | `palee dashboard` | Show system status |
 | `palee validate` | Check data integrity |
 | `palee config set-vault <path>` | Set the Obsidian vault path |
-| `palee config set-provider` | Configure AI provider (base_url, api_key, model) |
-| `palee config show` | Display current config — vault path, provider endpoint, model; never prints api_key |
+| `palee config set-provider <name>` | Name the AI provider |
+| `palee config set-base-url <url>` | Set the OpenAI-compatible endpoint (`http` / `https` only) |
+| `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
+| `palee config unset-api-key` | Remove the stored key |
+| `palee config set-model <model>` | Set the model identifier |
+| `palee config test-connection` | Send one short prompt to verify the provider (the only command that reaches the network) |
+| `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
 
 ## Configuration
 
 ### Provider Setup
 ```bash
-palee config set-provider
+palee config set-provider opencode
+palee config set-base-url https://opencode.ai/zen/v1
+palee config set-api-key --from-env OPENCODE_API_KEY
 # Supports any OpenAI-compatible endpoint
 # Recommended free option: OpenCode Zen
 ```
+
+The key is kept in the config file, stored as plaintext at rest under a `0600` mode on POSIX, and no
+command prints it. `palee roadmap` and every offline command work without any of this.
 
 ### Vault Connection
 ```bash

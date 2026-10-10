@@ -19,13 +19,15 @@ PALEE uses a JSON-based configuration file to store user preferences. The config
 
 ### PaleeConfig Interface
 
-The `PaleeConfig` interface defines the core settings required for PALEE to operate [src/types.ts#104-108](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L108)
+The `PaleeConfig` interface defines the core settings required for PALEE to operate [src/types.ts#L368-L382](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L368-L382)
 
 | Property | Type | Description |
 | --- | --- | --- |
 | `vaultPath` | `string` (optional) | The absolute path to the Obsidian vault containing the Markdown notes. |
 | `aiProvider` | `string` (optional) | The LLM provider for AI-assisted features (e.g., "openai", "anthropic"). |
 | `model` | `string` (optional) | The specific model identifier to use for AI tasks. |
+| `baseUrl` | `string` (optional) | The OpenAI-compatible endpoint of the configured provider. Set with `palee config set-base-url`, which applies the same gate the caller does (`normalizeProviderEndpoint`): `http` is accepted only for a loopback host, reserved address space is refused whatever the scheme (link-local including the cloud metadata address, the unspecified and multicast ranges, IPv4-mapped literals, and `*.internal` names), and the URL may carry no userinfo, query string or fragment. Judged by address shape, so a hostname that merely starts with digits like `169.254.example.com` is not blocked. |
+| `apiKey` | `string` (optional) | The provider credential. Stored as plaintext at rest, never printed by any command, and accepted only from `--from-env`, a pipe, or a prompt — never from `argv`, which other processes can read. |
 
 ### Config File Resolution
 
@@ -37,12 +39,14 @@ The location of `config.json` is determined by the `getConfigPath` function [src
 
 ### Configuration Flow
 
-The `loadConfig` function reads the JSON file and returns a `PaleeConfig` object. If the file does not exist (`ENOENT`), it returns an empty object [src/cli/config.ts#27-39](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L27-L39) The `saveConfig` function ensures the directory exists before writing the updated configuration back to disk [src/cli/config.ts#41-50](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L41-L50)
+The `loadConfig` function reads the JSON file and returns a `PaleeConfig` object. If the file does not exist (`ENOENT`), it returns an empty object [src/cli/config.ts#58-88](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L58-L88) Keys are admitted one at a time and only when their value is a string, so a hand-edited `apiKey: 20240115` is dropped rather than carried as a credential. The `saveConfig` function ensures the directory exists before writing the updated configuration back to disk [src/cli/config.ts#108-142](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L108-L142) Because the file can hold a provider credential, the temp file is opened `0600` inside a `0700` directory before any byte is written, and the atomic rename carries that mode onto `config.json` — including for a file that predates the credential field. Windows ignores the mode and resolves access through the directory ACL.
+
+`palee config show --json` emits the configuration as a single JSON object with `vault_path`, `ai_provider`, `base_url`, `model`, and a boolean `api_key_set`. The credential itself has no field in that output: the boolean reports only whether a key is stored, so redirecting `config show` into a tool can never leak the key.
 
 Sources:
 
-- [src/types.ts#104-108](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L108)
-- [src/cli/config.ts#11-50](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L11-L50)
+- [src/types.ts#368-382](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L368-L382)
+- [src/cli/config.ts#28-142](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L28-L142)
 - [test/cli-commands.test.ts#23-35](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts#L23-L35)
 
 ## Difficulty Normalization
