@@ -21,6 +21,7 @@ import {
   getTopicDrafts,
   deleteTopicDrafts,
   deleteSessionNote,
+  Lock,
   recoverDraft,
   parseFrontmatter,
   MAX_HOT_WORDS,
@@ -40,7 +41,10 @@ describe('Memory System', () => {
   test('generateSessionId produces valid S- prefix format', () => {
     const id = generateSessionId();
     assert.ok(id.startsWith('S-'));
-    assert.match(id, /^S-\d{8}T\d{6}-[a-f0-9]{4}$/);
+    // Four bytes of entropy, not two: the timestamp only carries whole seconds, so
+    // this suffix is the only thing separating two sessions started in the same
+    // second, and a repeated id silently replaces the earlier session note.
+    assert.match(id, /^S-\d{8}T\d{6}-[a-f0-9]{8}$/);
   });
 
   test('generateDraftId produces valid DRAFT-S- prefix format', () => {
@@ -448,6 +452,37 @@ ${body}
     }
   });
 
+  test('rebuildHotAndIndex resolves a tie on started_at to the same session every run', async () => {
+    // Two confirmed sessions with byte-identical `started_at` — what a bulk import
+    // or a restored vault produces. The scan is sorted and stays `>=`, so the last
+    // filename in ascending order wins on every OS; under readdir order the winner
+    // differs between platforms and between runs.
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-memory-tie-'));
+    try {
+      writeRawSession(vaultPath, 'S-20260101T000000-aaaa.md', 'S-20260101T000000-aaaa', 'T-earlier', '2026-01-01T00:00:00.000Z', 'First of the tie.');
+      writeRawSession(vaultPath, 'S-20260101T000000-zzzz.md', 'S-20260101T000000-zzzz', 'T-later', '2026-01-01T00:00:00.000Z', 'Second of the tie.');
+
+      await rebuildHotAndIndex(vaultPath);
+      const first = parseFrontmatter(fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8')).frontmatter;
+      const indexAfterFirst = fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8');
+
+      await rebuildHotAndIndex(vaultPath);
+      const second = parseFrontmatter(fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8')).frontmatter;
+
+      assert.strictEqual(first!.last_session, 'S-20260101T000000-zzzz',
+        'the ascending scan leaves the greatest filename as the newest');
+      assert.strictEqual(first!.active_topic, 'T-later');
+      assert.strictEqual(second!.last_session, first!.last_session, 'two rebuilds of the same data agree');
+      assert.strictEqual(
+        fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8'),
+        indexAfterFirst,
+        'index.md is rebuilt from the same order hot.md used'
+      );
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('writeDraftCheckpoint writes DRAFT-S-*.md file', async () => {
     const draftId = generateDraftId();
     const draftPath = await writeDraftCheckpoint(testVaultPath, draftId, {
@@ -502,6 +537,26 @@ ${body}
 
     // Idempotent: resetting when not existing should not throw
     await resetHotMemory(testVaultPath);
+  });
+
+  test('resetHotMemory yields to a live lock instead of unlinking under it', async () => {
+    // The reset is the recovery step for a corrupt `hot.md`. A held lock means
+    // another process is maintaining that file right now, so the reset must neither
+    // race its rename nor raise `ECONFLICT` — the caller turns that into exit 4,
+    // and a recoverable vault would be reported as a concurrency failure.
+    await updateHotMemory(testVaultPath, 'S-under-lock', 'T-lock', 'Body owned elsewhere.');
+    const hotPath = path.join(testVaultPath, '.palee', 'hot.md');
+    const lock = new Lock(testVaultPath, hotPath);
+    await lock.acquire();
+    try {
+      await resetHotMemory(testVaultPath);
+      assert.ok(fs.existsSync(hotPath), 'the file another writer holds must survive the reset');
+    } finally {
+      lock.release();
+    }
+
+    await resetHotMemory(testVaultPath);
+    assert.strictEqual(fs.existsSync(hotPath), false, 'once the lock is gone the reset deletes it');
   });
 
   test('updateHotMemory persists started_at timestamp when provided', async () => {

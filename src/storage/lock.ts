@@ -92,19 +92,23 @@ interface ParsedLock {
 /**
  * Generates a unique lock identifier string with timestamp and random entropy.
  *
- * @returns Lock ID in format `L-YYYYMMDDTHHMMSS-XXXX`
+ * @returns Lock ID in format `L-YYYYMMDDTHHMMSS-XXXXXXXX`
  *
  * @remarks
- * Uses ISO timestamp segments and 2 bytes of random hex entropy.
+ * Uses ISO timestamp segments and 4 bytes of random hex entropy. The id names the
+ * acquisition's own file inside the lockdir and `releaseLock` unlinks exactly that
+ * file, so two acquisitions in the same second drawing the same entropy would let
+ * one process delete another's live lock — the precise failure the lockdir exists
+ * to prevent. `generateSessionId` and `generateDraftId` draw the same width.
  *
  * @example
  * ```typescript
- * const lockId = generateLockId(); // "L-20260830T120000-abcd"
+ * const lockId = generateLockId(); // "L-20260830T120000-abcd1234"
  * ```
  */
 function generateLockId(): string {
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
-  const random = crypto.randomBytes(2).toString('hex');
+  const random = crypto.randomBytes(4).toString('hex');
   return `L-${timestamp}-${random}`;
 }
 
