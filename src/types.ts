@@ -668,8 +668,16 @@ export interface TopicNode {
   last_reviewed_at?: string | null;
   /** Due date for next review */
   due_at?: string | Date | null;
-  /** Dynamic properties from frontmatter */
-  [key: string]: unknown;
+  /**
+   * Extra frontmatter keys not covered by the enumerated fields above.
+   *
+   * @remarks Replaces the former `[key: string]: unknown` catch-all index
+   * signature. Removing the signature means typos on the *known* fields (e.g.
+   * `node.feyman` for `feynman`) now fail to compile instead of resolving to
+   * `unknown`. Arbitrary untyped reads move one level down into `extra` — a
+   * deliberate hole, but the enumerated SM-2/assessment fields are now guarded.
+   */
+  extra?: Record<string, unknown>;
 }
 
 // ─── CLI Options ────────────────────────────────────────────────────
