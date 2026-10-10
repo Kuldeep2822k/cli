@@ -2,6 +2,7 @@ import fs from 'fs';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
 import { exitCodeFor } from './exit-codes';
+import { resolveTopicQuery } from './topic-query';
 import {
   loadTopics,
   parseFrontmatter,
@@ -40,22 +41,17 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const vaultPath = validateVaultPath(config.vaultPath);
     if (!vaultPath) return;
     const loaded = loadTopics(vaultPath);
-    const candidates = loaded.filter(
-      (t) =>
-        t.palee_id === topicQuery ||
-        t.palee_id.includes(topicQuery) ||
-        t.title.toLowerCase().includes(topicQuery.toLowerCase())
-    );
+    const resolution = resolveTopicQuery(loaded, topicQuery);
 
-    if (candidates.length === 0) {
+    if (resolution.kind === 'none') {
       console.error(`Error: No topic found matching "${topicQuery}"`);
       process.exitCode = 2;
       return;
     }
 
-    if (candidates.length > 1) {
+    if (resolution.kind === 'ambiguous') {
       console.error(`Error: Multiple topics match "${topicQuery}":`);
-      for (const c of candidates) {
+      for (const c of resolution.candidates) {
         console.error(`  - ${c.palee_id}: ${c.title}`);
       }
       console.error('Please provide a more specific query.');
@@ -63,7 +59,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
       return;
     }
 
-    const topic = candidates[0];
+    const topic = resolution.topic;
     const { filePath } = topic;
     const initialFingerprint = computeFingerprint(topic.content);
 
