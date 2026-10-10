@@ -37,7 +37,7 @@ SM-2 (`src/engine/sm2.ts`):
 - `computeDueDate` uses local-calendar `setDate` math (DST-safe) — never switch to UTC ms math.
 
 Dependencies (`src/engine/dependency.ts`):
-- Input is `Map<string, TopicNode>` keyed by `palee_id`; `TopicNode = { palee_id, depends_on, topic_mastery, [key]: unknown }`. `depends_on` = prerequisite IDs.
+- Input is `Map<string, TopicNode>` keyed by `palee_id`; `TopicNode = { palee_id, depends_on, topic_mastery, extra?: Record<string, unknown> }` (no catch-all index signature — typos on known fields fail to compile, unknown frontmatter keys live under `extra`; `dependencies?: never` keeps the #140 rejection). `depends_on` = prerequisite IDs.
 - `detectCycle` = 3-color DFS returning the exact repeated-start path or `null`. `validateDependencyGraph` emits `missing_dependency` errors then one `cycle` error with `path`; `valid = errors.length === 0`. Error `type` stays in `'duplicate_id'|'missing_dependency'|'cycle'`.
 - Missing dep **blocks** (returns false / emits error), never throws, never crashes the scan.
 - Readiness gate: `getReadyTopics(topics, threshold = 0.7)` keeps topics with `mastery < threshold` whose every dep has `mastery >= threshold`. The `0.7` constant is duplicated in `plan.ts` — keep aligned.
