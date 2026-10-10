@@ -21,13 +21,29 @@ describe('buildReviewUpdate', () => {
     assert.strictEqual(newState.repetition, 0);
   });
 
-  test('empty frontmatter yields zeroed pillars and zero mastery', () => {
+  test('empty frontmatter yields no pillar keys and zero mastery (#300)', () => {
     const { updates } = buildReviewUpdate({}, 4, reviewedAt);
-    assert.strictEqual(updates.conceptual, 0);
-    assert.strictEqual(updates.practical, 0);
-    assert.strictEqual(updates.debug, 0);
-    assert.strictEqual(updates.feynman, 0);
+    // A review records the SM-2 outcome, not an assessment the learner never
+    // made: minting `conceptual: 0` & co. made the note look assessed-but-zero
+    // while `assessed_at` stayed null, and pinned mastery against a computed 0.
+    assert.ok(!('conceptual' in updates), 'absent conceptual must not be written');
+    assert.ok(!('practical' in updates), 'absent practical must not be written');
+    assert.ok(!('debug' in updates), 'absent debug must not be written');
+    assert.ok(!('feynman' in updates), 'absent feynman must not be written');
     assert.strictEqual(updates.topic_mastery, 0);
+  });
+
+  test('present pillars pass through unchanged while absent ones stay omitted', () => {
+    const { updates } = buildReviewUpdate({ conceptual: 0.5, feynman: 0.25 }, 4, reviewedAt);
+    assert.strictEqual(updates.conceptual, 0.5);
+    assert.strictEqual(updates.feynman, 0.25);
+    assert.ok(!('practical' in updates), 'absent practical must not be written');
+    assert.ok(!('debug' in updates), 'absent debug must not be written');
+  });
+
+  test('a pillar written explicitly as null is treated as absent, not zeroed (#300)', () => {
+    const { updates } = buildReviewUpdate({ conceptual: null }, 4, reviewedAt);
+    assert.ok(!('conceptual' in updates));
   });
 
   test('existing pillar scores are preserved into the update and drive mastery', () => {

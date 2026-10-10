@@ -23,7 +23,7 @@ import {
   deriveTocEnumeration,
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
-import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
+import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
@@ -117,34 +117,6 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
       console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
     }
   }
-}
-
-/** The four assessment pillars `topic_mastery` is computed from (INV-21). */
-const PILLAR_KEYS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
-
-/**
- * The pillar scores a note already carries, with the ones it does not omit.
- *
- * @param frontmatter - Parsed frontmatter of the note about to be adopted
- * @returns Only the pillar keys present in the note, each normalized to `[0.0, 1.0]`
- *
- * @remarks
- * Adoption used to write `0` for every pillar the note lacked. That is minted
- * assessment data — the same defect #191 removed from roadmap import — and it
- * corrupts the note: `valid-topic-mastery` computes `0` from four real zeros and
- * reports the preserved `topic_mastery` as drift, while `validate --fix` has no
- * mastery repairer and answers "Nothing to repair". An absent pillar stays
- * absent, which is the condition that rule skips on.
- */
-function carriedPillarScores(frontmatter: Record<string, unknown> | null | undefined): Record<string, number> {
-  const scores: Record<string, number> = {};
-  for (const key of PILLAR_KEYS) {
-    const raw = frontmatter?.[key];
-    if (raw !== undefined && raw !== null) {
-      scores[key] = normalizeScore(raw);
-    }
-  }
-  return scores;
 }
 
 /**
