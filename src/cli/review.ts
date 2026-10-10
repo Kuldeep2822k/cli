@@ -10,8 +10,8 @@ import {
   computeFingerprint,
   atomicWrite,
 } from '../storage';
-import { processReview, computeDueDate, formatLocalDateOnly } from '../engine/sm2';
-import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
+import { formatLocalDateOnly } from '../engine/sm2';
+import { buildReviewUpdate } from '../application/record-review';
 import { NodeError } from '../types';
 
 /**
@@ -91,51 +91,8 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
 
     const { frontmatter: rawFm } = parseFrontmatter(freshContent);
     const frontmatter = rawFm || {};
-
-    // Explicit null/undefined checks; literal 0 is preserved.
-    const currentState = {
-      ease_factor: frontmatter.ease_factor !== undefined && frontmatter.ease_factor !== null
-        ? (frontmatter.ease_factor as number)
-        : 2.5,
-      interval_days: frontmatter.interval_days !== undefined && frontmatter.interval_days !== null
-        ? (frontmatter.interval_days as number)
-        : 1,
-      repetition: frontmatter.repetition !== undefined && frontmatter.repetition !== null
-        ? (frontmatter.repetition as number)
-        : 0,
-      lapses: frontmatter.lapses !== undefined && frontmatter.lapses !== null
-        ? (frontmatter.lapses as number)
-        : 0,
-    };
-
-    const newState = processReview(currentState, quality);
     const reviewedAt = new Date();
-    const dueDate = computeDueDate(reviewedAt, newState.interval_days!);
-
-    const topicMastery = resolveTopicMastery({
-      conceptual: frontmatter.conceptual,
-      practical: frontmatter.practical,
-      debug: frontmatter.debug,
-      feynman: frontmatter.feynman,
-      existing: frontmatter.topic_mastery,
-      precedence: 'pillars-first',
-    });
-
-    const conceptual = normalizeScore(frontmatter.conceptual);
-    const practical = normalizeScore(frontmatter.practical);
-    const debug = normalizeScore(frontmatter.debug);
-    const feynman = normalizeScore(frontmatter.feynman);
-
-    const updates: Record<string, unknown> = {
-      ...newState,
-      conceptual,
-      practical,
-      debug,
-      feynman,
-      topic_mastery: topicMastery,
-      last_reviewed_at: formatLocalDateOnly(reviewedAt),
-      due_at: formatLocalDateOnly(dueDate),
-    };
+    const { updates, newState, dueDate } = buildReviewUpdate(frontmatter, quality, reviewedAt);
 
     const updatedContent = updateFrontmatter(freshContent, updates);
 
