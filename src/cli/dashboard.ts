@@ -5,6 +5,7 @@
 
 import { loadTopics } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
 
 import { loadConfig } from './config';
 import { isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
@@ -47,10 +48,6 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const now = new Date();
 
     const topics: DashboardTopic[] = loaded.map((t) => {
-      let dueAt = t.due_at ? new Date(t.due_at) : null;
-      if (dueAt && Number.isNaN(dueAt.getTime())) {
-        dueAt = null;
-      }
       return {
         id: t.palee_id,
         title: t.title,
@@ -59,7 +56,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
         lapses: t.lapses ?? 0,
         difficulty: t.difficulty ?? 'intermediate',
         status: typeof t.status === 'string' ? t.status : 'not_started',
-        due_at: dueAt,
+        due_at: normalizeDueDate(t.due_at),
       };
     });
 
@@ -103,7 +100,10 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const mastered = activeTopics.filter(t => t.mastery >= MASTERY_THRESHOLD).length;
     const learning = activeTopics.filter(t => t.mastery > 0 && t.mastery < MASTERY_THRESHOLD).length;
     const newTopics = activeTopics.filter(t => t.mastery === 0).length;
-    const dueTopics = activeTopics.filter(t => t.due_at && t.due_at <= now);
+    // The dashboard's "Due for Review" is a review-backlog metric: never-reviewed
+    // topics are reported separately as "New", so only elapsed scheduled reviews
+    // count here (dueReviews), unlike `next`/`plan`.
+    const dueTopics = partitionDue(activeTopics, now, t => t.due_at).dueReviews;
     const due = dueTopics.length;
 
     const masteredPct = total > 0 ? (mastered / total * 100).toFixed(1) : '0.0';
@@ -118,11 +118,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
 
     let next: DashboardTopic | null = null;
     if (dueTopics.length > 0) {
-      dueTopics.sort((a, b) => {
-        if (!a.due_at) return -1;
-        if (!b.due_at) return 1;
-        return a.due_at.getTime() - b.due_at.getTime();
-      });
+      dueTopics.sort((a, b) => compareDue(a.due_at, b.due_at));
       next = dueTopics[0];
     }
 

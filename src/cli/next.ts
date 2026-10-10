@@ -7,18 +7,8 @@ import { ExitCode } from './exit-codes';
  */
 
 import { loadTopics } from '../storage';
-import { Difficulty, NextOptions } from '../types';
-
-
-interface DueTopic {
-  id: string;
-  title: string;
-  path: string;
-  dueAt: Date | null;
-  mastery: number;
-  repetition: number;
-  difficulty?: Difficulty;
-}
+import { getNextTopics } from '../application/get-next-topics';
+import { NextOptions } from '../types';
 
 /**
  * CLI command handler for showing the next due topics for review.
@@ -41,30 +31,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     if (!vaultPath) return;
 
     const topics = loadTopics(vaultPath);
-    const totalTopics = topics.length;
-    const dueTopics: DueTopic[] = [];
-    const now = new Date();
-
-    for (const t of topics) {
-      let dueAt = t.due_at ? new Date(t.due_at) : null;
-      if (dueAt && Number.isNaN(dueAt.getTime())) {
-        dueAt = null; // Treat invalid dates as null (due immediately)
-      }
-
-      // Topics without due_at (or with invalid dates) are new and always ready
-      if (!dueAt || dueAt <= now) {
-        dueTopics.push({
-          id: t.palee_id,
-          title: t.title,
-          path: t.path,
-          dueAt: dueAt,
-          mastery: t.topic_mastery,
-          repetition: t.repetition ?? 0,
-          difficulty: t.difficulty,
-        });
-      }
-    }
-
+    const { dueTopics, totalTopics } = getNextTopics(topics, new Date());
 
     if (totalTopics === 0) {
       if (jsonMode) {
@@ -91,14 +58,6 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       console.log('No topics due for review.');
       return;
     }
-
-    // Sort by due date (null first, then oldest)
-    dueTopics.sort((a, b) => {
-      if (!a.dueAt && !b.dueAt) return 0;
-      if (!a.dueAt) return -1;
-      if (!b.dueAt) return 1;
-      return a.dueAt.getTime() - b.dueAt.getTime();
-    });
 
     if (jsonMode) {
       const serializedDue = dueTopics.map(t => ({
