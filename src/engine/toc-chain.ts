@@ -915,12 +915,10 @@ export function planTocChain(documentOrderPaths: string[]): TocChainPlan {
     if (ra.rank !== rb.rank) return ra.rank - rb.rank;
     if (ra.rank === 1 && ra.n !== rb.n) return ra.n - rb.n;
     if (ra.rank === 2 && ra.phase !== rb.phase) return ra.phase - rb.phase;
-    if (ra.rank === 4 || ra.rank === 2 || ra.rank === 3) {
-      // Same intent class: the author's own document order is the tiebreak —
-      // alphabetical would be exactly the arbitrary chaining this ticket was
-      // opened to remove.
-      return docIndex.get(a)! - docIndex.get(b)!;
-    }
+    // Same intent class: the author's own document order is the tiebreak —
+    // alphabetical would be exactly the arbitrary chaining this ticket was
+    // opened to remove. Every rank still standing at this point shares that
+    // tiebreak, which is why nothing branches on `ra.rank` here.
     return docIndex.get(a)! - docIndex.get(b)!;
   });
 

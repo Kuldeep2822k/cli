@@ -1,5 +1,5 @@
 /**
- * PALEE (Personal Adaptive Learning Environment Engine)
+ * PALEE (Personal Active Learning & Evaluation Engine)
  *
  * @remarks
  * A smart, AI-powered study tracker that optimizes learning with spaced repetition (SuperMemo SM-2)
