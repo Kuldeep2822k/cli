@@ -127,12 +127,6 @@ describe('palee adopt --undo reverses adoption without touching authored content
     'last_reviewed_at',
     'due_at',
     'depends_on_source',
-    'topic',
-    'track',
-    'status',
-    'dependencies',
-    'assessment',
-    'review',
   ];
 
   const HUMAN_NOTE = [
@@ -319,6 +313,45 @@ describe('palee adopt --undo reverses adoption without touching authored content
     assert.strictEqual(dropped.status, 0, dropped.stdout + dropped.stderr);
     assert.deepStrictEqual(frontmatterKeys(readNote('probe.md')), beforeKeys);
     assert.match(dropped.stdout, /Keys removed: .*title/, dropped.stdout);
+  });
+
+  test('--undo keeps frontmatter keys adoption never writes (status, topic, dependencies)', () => {
+    // A note adopted earlier, then hand-annotated with keys adoption does not
+    // write. Reversal restores only what adoption added, so these survive —
+    // the old owned-key list over-reached and deleted them (#299).
+    const annotated = [
+      '---',
+      'author: human',
+      'status: in-progress',
+      'topic: Algebra',
+      'dependencies:',
+      '  - hand-written-one',
+      '  - hand-written-two',
+      '---',
+      '# Probe',
+      '',
+    ].join('\n');
+    writeNote('probe.md', annotated);
+
+    const adopt = runCLI(['adopt', 'probe.md', '--yes']);
+    assert.strictEqual(adopt.status, 0, adopt.stdout + adopt.stderr);
+    assert.match(readNote('probe.md'), /palee_id: T-/, 'adoption ran');
+
+    const undo = runCLI(['adopt', 'probe.md', '--undo', '--yes']);
+    assert.strictEqual(undo.status, 0, undo.stdout + undo.stderr);
+    const after = readNote('probe.md');
+
+    assert.doesNotMatch(after, /^palee_id:/m, 'the owned keys adoption added are gone');
+    assert.doesNotMatch(after, /^depends_on:/m, 'the adopted depends_on is gone');
+    for (const kept of ['status: in-progress', 'topic: Algebra']) {
+      assert.ok(after.includes(kept), `--undo wrongly removed the hand-authored "${kept}"`);
+    }
+    assert.match(
+      after,
+      /dependencies:\r?\n {2}- hand-written-one\r?\n {2}- hand-written-two/,
+      'the hand-authored legacy dependencies list survived'
+    );
+    assert.ok(after.includes('author: human'), 'other authored keys survive too');
   });
 
   test('a chained batch undo removes the edges and the provenance label too', () => {

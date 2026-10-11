@@ -31,18 +31,23 @@ import { AdoptOptions } from '../types';
  * The frontmatter keys `--undo` removes, in the order `adopt.ts` writes them.
  *
  * @remarks
- * This set is read off the code, not off the prose. The first fifteen entries are
- * exactly what the two adoption paths in `src/cli/adopt.ts` hand to
- * `updateFrontmatter` (`palee_id`, `palee_schema`, `difficulty`, `depends_on`,
- * `topic_mastery`, `assessed_at`, the four pillars, `ease_factor`,
- * `interval_days`, `repetition`, `lapses`, `last_quality`, `last_reviewed_at`,
- * `due_at`), which is also the order documented for the flat topic note, plus
- * `depends_on_source`, the provenance label adoption writes whenever it lays an
- * edge and `migrate --relabel-ties` rewrites. `topic`, `track`, `status`,
- * `dependencies`, `assessment` and `review` are the remaining names on the
- * PALEE-owned key list; `dependencies` is also the legacy prerequisite list
- * `normalizeDependencies()` still reads, so a note that keeps it stays gated by a
- * key PALEE put there.
+ * This set is read off the code, not off the prose. The entries are exactly what
+ * the two adoption paths in `src/cli/adopt.ts` hand to `updateFrontmatter`
+ * (`palee_id`, `palee_schema`, `difficulty`, `depends_on`, `topic_mastery`,
+ * `assessed_at`, the four pillars, `ease_factor`, `interval_days`, `repetition`,
+ * `lapses`, `last_quality`, `last_reviewed_at`, `due_at`), which is also the order
+ * documented for the flat topic note, plus `depends_on_source`, the provenance
+ * label adoption writes whenever it lays an edge and `migrate --relabel-ties`
+ * rewrites. Keys adoption never writes — `topic`, `track`, `status`,
+ * `dependencies`, `assessment`, `review` — are deliberately NOT on this list:
+ * reversal must restore only what adoption added, so a note the learner later
+ * hand-annotated with any of those keeps them byte-for-byte (#299).
+ *
+ * The SM-2 scheduling keys (`ease_factor` … `due_at`) are adoption-written
+ * scaffolding, so `--undo` removes them to restore the pre-adoption note. A note
+ * reviewed since adoption therefore loses that accumulated review state on undo —
+ * that is intrinsic to reversing the adoption, not a leak of a key PALEE did not
+ * own; `--undo --dry-run` previews exactly what will go first.
  *
  * `title` is absent from the list above and is kept by default. Adoption writes
  * it, but it is not on the owned list, it is a key Obsidian authors write by hand,
@@ -71,12 +76,6 @@ const PALEE_OWNED_KEYS: readonly string[] = [
   'last_reviewed_at',
   'due_at',
   'depends_on_source',
-  'topic',
-  'track',
-  'status',
-  'dependencies',
-  'assessment',
-  'review',
 ];
 
 /** The display title `adopt` minted but does not own; removed only on request. */
