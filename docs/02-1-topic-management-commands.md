@@ -37,6 +37,8 @@ Adopts an individual Markdown file, allowing manual assignment of difficulty and
 palee adopt "Data-Structures/Recursion.md" --difficulty advanced --depends-on "T-01-basics"
 ```
 
+`--include`, `--exclude` and `--tag` filter a directory scan, and single-file mode has no scan — the note is the one the learner named. Passing any of them with an explicit path exits `2` and writes nothing (#303), rather than validating the pattern and silently adopting the note it excluded.
+
 #### Mode 2: Scoped Directory Batch Adoption
 Recursively scans and adopts all untracked Markdown notes located within a specific directory subtree:
 ```bash
@@ -63,14 +65,41 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | `--all` | `boolean` | `false` | Scan and adopt all untracked Markdown files across the entire vault. | `palee adopt --all` |
 | `--difficulty <level>` | `string` | the note's own `difficulty`, else `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1` $\to$ beginner, `2-3` $\to$ intermediate, `4-5` $\to$ advanced). Absent, a hand-authored `difficulty` on the note is preserved. | `--difficulty advanced` |
 | `--depends-on <ids>` | `string` | `""` | Comma-separated list of prerequisite topic IDs (available in single-file mode only). | `--depends-on "T-01-basics,T-02-memory"` |
-| `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. | `--include "0[1-4]-*,lab-*,deep-dive*"` |
-| `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. | `--exclude "*template*,*rubric*,*draft*"` |
-| `--tag <tags>` | `string` | `undefined` | Comma-separated Obsidian frontmatter tags to filter. Supports hierarchical matching. | `--tag "type/concept,status/ready"` |
+| `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included. Repeat the flag to add patterns — every occurrence is applied (#312). Batch modes only; with a single note path it exits `2` (#303). | `--include "0[1-4]-*,lab-*,deep-dive*"` |
+| `--exclude <patterns>` | `string` | `undefined` | Comma-separated exclusion glob patterns. Files matching any pattern are skipped. Repeat the flag to add patterns — every occurrence is applied (#312). Batch modes only; with a single note path it exits `2` (#303). | `--exclude "*template*,*rubric*"` |
+| `--tag <tags>` | `string` | `undefined` | Comma-separated Obsidian frontmatter tags to filter. Supports hierarchical matching, and the flag may be repeated (#312). Batch modes only; with a single note path it exits `2` (#303). | `--tag "type/concept,status/ready"` |
 | `--auto-chain` | `boolean` | `false` | Batch-only: derive each note's `depends_on` from the numbered tree and, when `--chain-tier toc|full` is asked for, the repo's README/SUMMARY enumeration (see §4). Takes no value, so the adoption path may follow it. Conflicts with `--depends-on` and single-file mode. | `palee adopt "MODULES" --auto-chain -y` |
 | `--chain-tier <tier>` | `string` | unset (⇒ `strict`) | Which order signal `--auto-chain` may consume: `strict`, `toc`, or `full`. An unknown value exits `2`, and using it without `--auto-chain` exits `2`. | `palee adopt "MODULES" --auto-chain --chain-tier strict -y` |
 | `--dry-run` | `boolean` | `false` | Simulate adoption, print summary preview, and exit with code 0 without modifying any files. | `palee adopt --all --dry-run` |
 | `--verbose` | `boolean` | `false` | Output detailed file-by-file status list with indicator prefixes (`+`, `=`, `-`, `~`, `!` for Tier-0 hygiene skips). | `palee adopt "MODULES" --verbose` |
 | `-y, --yes` | `boolean` | `false` | Automatically confirm adoption prompt without interactive terminal confirmation. | `palee adopt --all -y` |
+
+---
+
+### Filter Pattern Syntax (`--include` / `--exclude`)
+
+The dialect is dialect-dependent: what a pattern *means* changes on whether it contains a `/`. `palee adopt --help` prints the same rules [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts):
+
+| Form | Matches | Example |
+| :--- | :--- | :--- |
+| No `/` | The note's **filename, in any directory**. | `*template*` catches `MODULES/01/runbook-template.md`; `0[1-4]-*` catches `01-intro.md` at any depth. |
+| Contains `/` | **Anchored at the vault root**, matched against the whole vault-relative path segment by segment. | `a/*.md` matches `a/x.md` but never `x.md`, and never `b/a/x.md`. |
+| `*` | Any characters up to a directory boundary. | `MODULES/*.md` stays inside `MODULES/`. |
+| `**` | Any characters across directory boundaries. | `**/*.md` is every note in scope; `MODULES/**` every note under `MODULES/`. |
+| `?`, `[0-9]`, `[!0-9]` | One character, a character class, a negated class. | `note-?.md` matches `note-1.md`, not `note-12.md`. |
+| Literal directory (no wildcards) | Exact segment and prefix match, so `MODULES` selects that subtree and not `MODULES-BACKUP`. | `--exclude "MODULES"` |
+
+Matching is **case-insensitive**, and one flag may carry several patterns either comma-separated or by repetition (`--exclude '*draft*' --exclude '*template*'`), all of which are applied.
+
+Because the anchored form can name a path that does not exist, a batch run counts each supplied pattern against the whole scanned scope and warns about any that reached nothing (#312):
+
+```
+  Excluded (Pattern): 0 notes
+⚠ Warning: --exclude 'a/*.md' matched no file in this scope; check the pattern.
+    It contains `/`, so it is matched against the whole vault-relative path from the root, not against a filename — see `palee adopt --help`.
+```
+
+`--verbose` prints the same accounting per pattern (`--exclude '*draft*': 1 of 3 files`), and a pattern that matched at least one file produces no warning.
 
 ---
 
@@ -88,7 +117,8 @@ When adopting a note, PALEE resolves a human-readable title via `resolveNoteTitl
 3. **Tier 3: Filename Basename**: Falls back to the filename without the `.md` extension.
 
 #### 3. Pattern Matching & Hierarchical Tag Filtering
-- **Glob Matching**: The pattern engine [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts) supports prefix wildcards, infix wildcards (`0[1-4]-*`), and recursive subtree traversal (`**/*.md`).
+- **Glob Matching**: The pattern engine [src/storage/pattern-matcher.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/pattern-matcher.ts) supports prefix wildcards, infix wildcards (`0[1-4]-*`), and recursive subtree traversal (`**/*.md`). A pattern containing `/` is anchored at the vault root and must name the whole vault-relative path; one without it matches the filename in any directory; matching is case-insensitive (see **Filter Pattern Syntax** above).
+- **Per-pattern accounting (#312)**: the OR-fold in `matchesPattern` yields one aggregate per run, so `tallyPatterns` measures each supplied pattern against every file in the scanned scope. The batch summary keeps its `Excluded (Pattern): N` line and adds a warning naming any pattern that reached nothing — a filter that found no file to filter and a pattern that can never match one are no longer the same output. `--verbose` lists each pattern's own count.
 - **3-Tier Tag Hierarchy**: Matches nested Obsidian tags. Filtering by `--tag "devops"` matches `#devops`, `#devops/k8s`, and `#devops/k8s/networking`. Both `#tag` and `tag` syntax are normalized automatically.
 
 #### 4. Dependency Auto-Chaining (`--auto-chain`)
@@ -393,7 +423,7 @@ Topic management commands follow the standardized PALEE exit code contract:
 
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
+| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`). | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
 | `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". | Unexpected runtime exception or YAML parsing error. |
 
