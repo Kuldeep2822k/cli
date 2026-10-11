@@ -86,6 +86,12 @@ interface RollbackRecord {
   absolutePath: string;
   relativePath: string;
   originalContent: string;
+  /**
+   * Fingerprint of the content this process wrote while adopting, i.e. what the note
+   * should hold right now. Reverting is an overwrite of that, so it is the value the
+   * restore is verified against (#334).
+   */
+  writtenFingerprint: string;
 }
 
 /**
@@ -111,7 +117,18 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
   console.error('\nRolling back adopted notes...');
   for (const item of [...journal].reverse()) {
     try {
-      await atomicWrite(vaultPath, item.absolutePath, item.originalContent);
+      // #334: this restore used to be the one unguarded vault write in the CLI — three
+      // arguments, so `expectedFingerprint` defaulted to null and nothing could tell
+      // that the note had been adopted, reverted, or rewritten by a process that took
+      // the lock over while this one was stalled. The revert now states its expectation:
+      // the note exists, and it must still hold exactly what our adoption wrote.
+      await atomicWrite(
+        vaultPath,
+        item.absolutePath,
+        item.originalContent,
+        item.writtenFingerprint,
+        { expectExists: true }
+      );
     } catch (err: unknown) {
       const e = err as Error;
       console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
@@ -1324,6 +1341,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           absolutePath: item.absolutePath,
           relativePath: item.relativePath,
           originalContent: item.originalContent,
+          writtenFingerprint: computeFingerprint(item.updatedContent),
         });
       }
 
