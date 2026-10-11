@@ -8,6 +8,7 @@
 import { program } from 'commander';
 import packageJson from '../package.json';
 import { ExitCode } from '../src/cli/exit-codes';
+import { deriveProgramName } from '../src/cli/program-name';
 
 // Command handlers
 import configCommand from '../src/cli/config';
@@ -24,7 +25,13 @@ import sessionCommand from '../src/cli/session';
 import dashboardCommand from '../src/cli/dashboard';
 
 program
-  .name('palee')
+  // The name the process was invoked as, not the published bin: a parallel or
+  // renamed install (`palee-test`) has to print usage its learner can copy
+  // back. Pinned here rather than left to Commander's own derivation, which
+  // only runs inside `parse()` and falls back to the literal `'program'` when
+  // `argv[1]` is missing. Handlers read it back through `programName()` so a
+  // hint can never disagree with this usage line (#314).
+  .name(deriveProgramName())
   .description('Personal Active Learning & Evaluation Engine')
   .version(packageJson.version)
   // Commander exits the process directly for usage errors, which bypasses the

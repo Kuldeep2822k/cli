@@ -3,6 +3,7 @@ import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
 import { exitCodeFor } from './exit-codes';
 import { resolveTopicQuery } from './topic-query';
+import { programName } from './program-name';
 import {
   loadTopics,
   parseFrontmatter,
@@ -126,7 +127,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
     // Corrupted on-disk SM-2 state is user-recoverable: point at the
     // repair path instead of leaving exit 5 as a dead end (BUG-003).
     if (/^Invalid (ease_factor|interval_days|repetition):/.test(err.message)) {
-      console.error('Hint: this note\'s SM-2 review state is invalid. Run "palee validate --fix" to repair it.');
+      console.error(`Hint: this note's SM-2 review state is invalid. Run "${programName()} validate --fix" to repair it.`);
     }
     process.exitCode = exitCodeFor(e);
   }
