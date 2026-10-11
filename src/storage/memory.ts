@@ -888,7 +888,16 @@ async function recoverDraft(
             alreadySavedSessionId = fm.session_id;
             break;
           }
+          // Empty notes carry no identifying signal: `notesOf === ''` would
+          // match any no-notes completed session of this topic in the window,
+          // so with drafts scanned in filename order (not creation order) an
+          // older draft could be read as "already saved" by a newer draft's
+          // session and silently dropped (#329). Require non-empty notes here;
+          // a no-notes retry is still caught by the draft-id heading match above,
+          // and the only cost is a possible duplicate for a hand-edited,
+          // headingless, note-less draft — never a lost session.
           if (
+            draftNotes !== '' &&
             !Number.isNaN(draftMtimeMs) &&
             notesOf(candidate.body) === draftNotes &&
             candidateStat.mtimeMs >= draftMtimeMs

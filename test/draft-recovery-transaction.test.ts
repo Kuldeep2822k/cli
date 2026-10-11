@@ -173,6 +173,48 @@ describe('Draft recovery transaction ordering (#328)', () => {
     }
   });
 
+  test('a note-less draft is not dropped by another note-less draft of the same topic (#329)', async () => {
+    const vaultPath = freshVault('empty-notes-not-dropped');
+    try {
+      // Two drafts of one topic, both with EMPTY notes bodies. The weak
+      // "already saved" match keys on the notes body, so an empty body used to
+      // match any no-notes session of the topic — and with drafts scanned in
+      // filename order (not creation order) the older draft could be read as
+      // already saved by the newer draft's session and silently dropped.
+      const startedAt = new Date(Date.now() - 10 * 60000).toISOString();
+      const firstDraft = await writeDraftCheckpoint(
+        vaultPath,
+        'DRAFT-S-aaaa1111',
+        { topic_id: 'T-no-notes', started_at: startedAt },
+        ''
+      );
+      await recoverDraft(vaultPath, firstDraft, 'save');
+      assert.strictEqual(sessionFiles(vaultPath).length, 1);
+
+      const secondDraft = await writeDraftCheckpoint(
+        vaultPath,
+        'DRAFT-S-bbbb2222',
+        { topic_id: 'T-no-notes', started_at: startedAt },
+        ''
+      );
+      // Make the second draft OLDER than the first draft's session so the buggy
+      // weak match (session mtime >= draft mtime) would have fired.
+      const earlier = new Date(Date.now() - 30000);
+      fs.utimesSync(secondDraft, earlier, earlier);
+
+      await recoverDraft(vaultPath, secondDraft, 'save');
+
+      assert.strictEqual(
+        sessionFiles(vaultPath).length,
+        2,
+        'a note-less draft must still become its own session, not be absorbed by another draft'
+      );
+      assert.deepStrictEqual(draftFiles(vaultPath), []);
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('recovery still retires the draft when a stale one is re-run after the 24h clamp', async () => {
     const vaultPath = freshVault('stale-retry');
     try {
