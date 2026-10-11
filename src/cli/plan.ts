@@ -7,9 +7,10 @@ import { exitCodeFor } from './exit-codes';
  */
 
 import { loadTopics } from '../storage';
-import { getReadyTopics, getTopicDependencies, quarantineCyclicTopics } from '../engine/dependency';
+import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
+import { findPrerequisiteBlocked } from '../application/get-next-topics';
 import { summarizeMastery } from '../application/mastery-summary';
 import { Difficulty, PlanOptions, TopicNode } from '../types';
 
@@ -73,10 +74,21 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
     const archivedCount = topics.size - activeTopics.length;
 
+    // The one prerequisite gate, shared with `next` and `dashboard` through the
+    // `get-next-topics` use-case: a topic is blocked when it is active, not yet
+    // mastered, and holds a prerequisite below `MASTERY_THRESHOLD` (or a
+    // dangling one). It is computed over the full graph — archived nodes
+    // included, so a mastered archived prereq keeps satisfying its dependents —
+    // and drives BOTH sections below, which is what keeps a blocked note out of
+    // "Reviews Due" (#306) instead of listing it twice.
+    const blockedGate = findPrerequisiteBlocked(Array.from(topics.values()), MASTERY_THRESHOLD);
+
     // `next`/`plan` treat a never-scheduled topic as actionable now, so the due
-    // list is both elapsed reviews and never-reviewed topics (see partitionDue).
+    // list is both elapsed reviews and never-reviewed topics (see partitionDue),
+    // minus the gated ones above.
     const { dueReviews, neverReviewed } = partitionDue(activeTopics, now, t => t.due_at);
-    const dueTopics: PlanTopic[] = [...neverReviewed, ...dueReviews];
+    const dueTopics: PlanTopic[] = [...neverReviewed, ...dueReviews]
+      .filter(t => !blockedGate.has(t.palee_id));
 
     if (topics.size === 0) {
       if (jsonMode) {
@@ -131,35 +143,14 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // A topic whose prerequisites are unmet is simply absent from the ready
     // list, which is indistinguishable from "nothing left to study" — and when
     // the prerequisite id no longer resolves, no amount of reviewing will ever
-    // make it appear. Name the blocker and what would clear it.
-    const readyIds = new Set(readyTopics.map((t) => t.palee_id));
-    const blocked: { id: string; title: string; waiting_on: string[] }[] = [];
-    for (const [id, topic] of acyclicTopics) {
-      // An archived note is not study material, so it cannot be "blocked by
-      // prerequisites" either — reporting it here would re-introduce the leak
-      // this change exists to close, through a section that did not exist when
-      // the branch was written.
-      if (topic.status === 'archived') continue;
-      if ((topic.topic_mastery ?? 0) >= MASTERY_THRESHOLD) continue;
-      if (readyIds.has(id)) continue;
-      const waitingOn: string[] = [];
-      for (const depId of getTopicDependencies(topic)) {
-        const dep = topics.get(depId);
-        if (!dep) {
-          waitingOn.push(`${depId} is not in the vault (run palee validate)`);
-          continue;
-        }
-        const depMastery = dep.topic_mastery ?? 0;
-        if (depMastery < MASTERY_THRESHOLD) {
-          waitingOn.push(
-            `${dep.title ?? depId} (${depId}) at mastery ${depMastery.toFixed(4)}, needs ${MASTERY_THRESHOLD.toFixed(2)}`
-          );
-        }
-      }
-      if (waitingOn.length > 0) {
-        blocked.push({ id, title: topic.title ?? id, waiting_on: waitingOn });
-      }
-    }
+    // make it appear. Name the blocker and what would clear it. The set comes
+    // from the same gate that trimmed "Reviews Due" above, so a blocked note is
+    // reported exactly once, here (#306).
+    const blocked = Array.from(blockedGate.values()).map((t) => ({
+      id: t.id,
+      title: t.title,
+      waiting_on: t.waiting_on,
+    }));
 
     if (jsonMode) {
       console.log(JSON.stringify({
