@@ -152,7 +152,14 @@ export default withMermaid(
             { text: 'ADR-0016: Frontmatter Fidelity & Unicode Fold', link: '/adr/0016-frontmatter-fidelity-and-unicode-fold' },
             { text: 'ADR-0017: Roadmap Import Safety', link: '/adr/0017-roadmap-import-safety' },
             { text: 'ADR-0018: Read Path, Caching & Locking', link: '/adr/0018-read-path-caching-and-locking' },
-            { text: 'ADR-0019: Session-Memory Lifecycle', link: '/adr/0019-session-memory-lifecycle' }
+            { text: 'ADR-0019: Session-Memory Lifecycle', link: '/adr/0019-session-memory-lifecycle' },
+            { text: 'ADR-0020: Readiness & Scheduling Contracts', link: '/adr/0020-readiness-and-scheduling-contracts' },
+            { text: 'ADR-0021: The Assessment Surface', link: '/adr/0021-assessment-surface' },
+            { text: 'ADR-0022: Adoption Contracts', link: '/adr/0022-adoption-contracts' },
+            { text: 'ADR-0023: migrate --relabel-ties', link: '/adr/0023-migrate-relabel-ties' },
+            { text: 'ADR-0024: Exit Codes & Error Contract', link: '/adr/0024-exit-codes-and-error-contract' },
+            { text: 'ADR-0025: The Application Layer', link: '/adr/0025-application-layer' },
+            { text: 'ADR-0026: Test Discipline', link: '/adr/0026-test-discipline' }
           ]
         },
         {
