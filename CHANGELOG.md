@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`palee adopt --undo`** ([#299](https://github.com/Kuldeep2822k/cli/issues/299)): reverses an adoption by stripping only the frontmatter keys adoption writes, leaving every other key byte-for-byte and previewable with `--dry-run`.
+- **Every mutating command names the vault it writes to** ([#311](https://github.com/Kuldeep2822k/cli/issues/311)).
+
+### Changed
+
+- **`ValidationError` is a discriminated union and `TopicNode` drops its catch-all index signature** ([#337](https://github.com/Kuldeep2822k/cli/issues/337)).
+- **`prepublishOnly` rebuilds `dist/` on publish** ([#336](https://github.com/Kuldeep2822k/cli/issues/336)) so a manual `npm publish` cannot ship a stale build.
+- **README no longer advertises commands that are not implemented** ([#321](https://github.com/Kuldeep2822k/cli/issues/321)).
+
+### Fixed
+
+- **`palee review` never mints pillar scores and names an off-schedule (early) review** ([#300](https://github.com/Kuldeep2822k/cli/issues/300), [#301](https://github.com/Kuldeep2822k/cli/issues/301)).
+- **`atomicWrite` preserves the destination's permission mode and fsyncs the parent directory** ([#318](https://github.com/Kuldeep2822k/cli/issues/318), [#333](https://github.com/Kuldeep2822k/cli/issues/333)).
+- **The machine-readable error contract holds on every failure path** ([#320](https://github.com/Kuldeep2822k/cli/issues/320), [#325](https://github.com/Kuldeep2822k/cli/issues/325), [#326](https://github.com/Kuldeep2822k/cli/issues/326), [#338](https://github.com/Kuldeep2822k/cli/issues/338)): JSON mode and exit codes stay consistent, no raw error object is dumped, and `process.exit()` no longer truncates output.
+- **An empty-stem or non-`.md` path classifies as a leaf, not the gating backbone** ([#330](https://github.com/Kuldeep2822k/cli/issues/330)).
+- **Topic-note eligibility is unified across the three managed-note validation gates** ([#324](https://github.com/Kuldeep2822k/cli/issues/324)).
+- **`next` gates on prerequisites, lists a blocked note once, and excludes archived topics** ([#305](https://github.com/Kuldeep2822k/cli/issues/305), [#306](https://github.com/Kuldeep2822k/cli/issues/306)) — consistent with `plan` and `dashboard`.
+- **`roadmap` gains `--dry-run`, corrects its `--auto-chain` help, and preserves a chain head's existing `depends_on`** ([#309](https://github.com/Kuldeep2822k/cli/issues/309), [#310](https://github.com/Kuldeep2822k/cli/issues/310), [#322](https://github.com/Kuldeep2822k/cli/issues/322)).
+- **The note read path accepts `##` YAML comments in frontmatter, caches non-topics, and caps note size** ([#319](https://github.com/Kuldeep2822k/cli/issues/319), [#331](https://github.com/Kuldeep2822k/cli/issues/331), [#332](https://github.com/Kuldeep2822k/cli/issues/332)).
+- **`validate --fix` honours each rule's `fixable` metadata and completes both repairs on one note in a single pass** ([#323](https://github.com/Kuldeep2822k/cli/issues/323)).
+- **`adopt` refuses batch filters in single-file mode and names a pattern that matched nothing** ([#303](https://github.com/Kuldeep2822k/cli/issues/303), [#312](https://github.com/Kuldeep2822k/cli/issues/312)).
+- **`roadmap` enforces the topic ID format before any write** ([#308](https://github.com/Kuldeep2822k/cli/issues/308)).
+- **Draft recovery rebuilds before retiring the draft, keeps hot `started_at`, and never dedupes on an empty notes body** ([#328](https://github.com/Kuldeep2822k/cli/issues/328), [#329](https://github.com/Kuldeep2822k/cli/issues/329)).
+- **`session` resolves `--topic` against the vault and still ends a session whose note was deleted mid-flight** ([#302](https://github.com/Kuldeep2822k/cli/issues/302), [#313](https://github.com/Kuldeep2822k/cli/issues/313)).
+- **A first-creation write and a lost lock are detectable, so concurrent `hot.md`/`index.md` writes cannot silently clobber** ([#327](https://github.com/Kuldeep2822k/cli/issues/327), [#334](https://github.com/Kuldeep2822k/cli/issues/334)).
+- **`palee` usage text prints the program name the process was actually invoked as** ([#314](https://github.com/Kuldeep2822k/cli/issues/314)).
+
+### Security
+
+- **`ensureVaultDirectory` is contained before it creates** ([#335](https://github.com/Kuldeep2822k/cli/issues/335)): the target is checked against the vault root before any `mkdir`, blocking a mid-path symlink escape.
+
 ## [1.0.0] - 2026-10-11
 
 First stable release. 1.0.0 marks API stability for the deterministic core — SM-2 scheduling, the dependency graph, and the storage/atomic-write (OCC) layer — and ships the AI provider foundation. No breaking changes from 0.6.0: the AI additions are additive, and the 0.6.0 prerequisite-label migration below still applies to vaults built under 0.5.x. Higher-level AI features (Feynman testing, tutoring) ship in later releases.
