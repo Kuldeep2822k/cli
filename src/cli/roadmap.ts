@@ -24,6 +24,7 @@ import {
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
 import { detectCyclesBounded } from '../engine/dependency';
+import { isValidTopicId } from '../engine/topic-id';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
 /**
@@ -448,6 +449,28 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
       if (order !== undefined && typeof order !== 'number') {
         errors.push(`Invalid order for ${id}: must be a number`);
+      }
+
+      // ID format (#308). The checks above this line are all all-or-nothing: a
+      // roadmap holding any of them exits 3 with zero bytes written. A malformed
+      // id was the one defect this gate passed — `if (!id)` asks only that the
+      // field is non-empty, so `T-Alpha`, `bad-noprefix` and `T-bad_slug` were
+      // written into the vault under a `Roadmap validated successfully.` line and
+      // met by `palee validate` afterwards, at which point the notes, and every
+      // edge naming those ids, were already on disk. Same policy, same gate:
+      // `isValidTopicId` is the single source of truth the validate side uses
+      // (`valid-topic-id-format`), so import and validate cannot disagree. It
+      // also refuses a non-string `id`, which YAML produces for `id: 20240115` and
+      // `id: [T-a]` — values the loader treats as no identity at all.
+      // Checked on the parsed topic list, so all four input formats (pure YAML,
+      // Markdown frontmatter, fenced YAML block, wikilink) are covered: the
+      // wikilink resolver inherits a note's stored `palee_id`, so a bad id living
+      // in the vault is refused here rather than rewritten around.
+      if (id && !isValidTopicId(id)) {
+        errors.push(
+          `Invalid topic ID format: ${JSON.stringify(id)} (expected T- plus lowercase ` +
+            'kebab-case slug, e.g. T-git-rebase)'
+        );
       }
 
       // Path boundary validation: ensure topic path does not escape vault
