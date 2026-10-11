@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **ADR-0009 through ADR-0013** ([#434](https://github.com/Kuldeep2822k/cli/issues/434)): the auto-chain inference policy and gating model are recorded as architecture decision records — the `depends_on_source` advisory/gating split, Tier-0 hygiene classification, tiered `strict|toc|full` composition, declared prerequisites read from a note's own text, and the proposed per-edge blocking policy. First ADRs since ADR-0008.
+- **ADR-0014 through ADR-0019** ([#435](https://github.com/Kuldeep2822k/cli/issues/435)): the storage layer's contracts are recorded — atomic-write durability and vault containment (mode preservation, directory fsync, the existence-expectation API), identity preservation on import, frontmatter byte fidelity and Unicode fold discipline, roadmap import safety (pre-write graph re-check, ID-format gate, full dry-run), the note read path (comment tolerance, negative caching, size cap, fingerprint-verified staleness, lock liveness, 4-byte id entropy), and session-memory lifecycle (rebuild-before-retire, the 24h clamp as a recorded policy, counted unreadable sessions).
 - **`palee adopt --undo`** ([#299](https://github.com/Kuldeep2822k/cli/issues/299)): reverses an adoption by stripping only the frontmatter keys adoption writes, leaving every other key byte-for-byte and previewable with `--dry-run`.
 - **Every mutating command names the vault it writes to** ([#311](https://github.com/Kuldeep2822k/cli/issues/311)).
 

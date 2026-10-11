@@ -147,6 +147,12 @@ export default withMermaid(
             { text: 'ADR-0011: Tiered Auto-Chain', link: '/adr/0011-tiered-auto-chain' },
             { text: 'ADR-0012: Declared Prerequisites', link: '/adr/0012-declared-prerequisites' },
             { text: 'ADR-0013: Per-Edge Blocking Policy', link: '/adr/0013-per-edge-blocking-policy' },
+            { text: 'ADR-0014: Atomic-Write Durability & Containment', link: '/adr/0014-atomic-write-durability-and-containment' },
+            { text: 'ADR-0015: Identity Preservation', link: '/adr/0015-identity-preservation' },
+            { text: 'ADR-0016: Frontmatter Fidelity & Unicode Fold', link: '/adr/0016-frontmatter-fidelity-and-unicode-fold' },
+            { text: 'ADR-0017: Roadmap Import Safety', link: '/adr/0017-roadmap-import-safety' },
+            { text: 'ADR-0018: Read Path, Caching & Locking', link: '/adr/0018-read-path-caching-and-locking' },
+            { text: 'ADR-0019: Session-Memory Lifecycle', link: '/adr/0019-session-memory-lifecycle' }
           ]
         },
         {

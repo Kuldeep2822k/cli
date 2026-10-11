@@ -17,4 +17,10 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0011: Tiered Auto-Chain — strict | toc | full](./0011-tiered-auto-chain.md)
 - [ADR-0012: Declared Prerequisites — Reading a Note's Own Text](./0012-declared-prerequisites.md)
 - [ADR-0013: Per-Edge Blocking Policy and OR-Groups](./0013-per-edge-blocking-policy.md)
+- [ADR-0014: Atomic-Write Durability and Vault Containment](./0014-atomic-write-durability-and-containment.md)
+- [ADR-0015: Identity Preservation — An Identity on Disk Is Not a Command's to Invent](./0015-identity-preservation.md)
+- [ADR-0016: Frontmatter Byte Fidelity and Unicode Fold Discipline](./0016-frontmatter-fidelity-and-unicode-fold.md)
+- [ADR-0017: Roadmap Import Safety](./0017-roadmap-import-safety.md)
+- [ADR-0018: Note Read Path, Caching, and Locking](./0018-read-path-caching-and-locking.md)
+- [ADR-0019: Session-Memory Lifecycle and Staleness Clamps](./0019-session-memory-lifecycle.md)
 
