@@ -30,4 +30,6 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0024: Exit Codes and the Machine-Readable Error Contract](./0024-exit-codes-and-error-contract.md)
 - [ADR-0025: The Application Layer and the CLI Boundary](./0025-application-layer.md)
 - [ADR-0026: Test Discipline — Falsifiability Over Ceremony](./0026-test-discipline.md)
+- [ADR-0027: The AI Provider Adapter and Its Network Boundary](./0027-ai-provider-boundary.md)
+- [ADR-0028: Phase-2 Design Directions (Proposed)](./0028-phase-2-design-directions.md)
 
