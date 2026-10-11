@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   updateFrontmatter,
@@ -348,9 +348,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     const config = loadConfig();
-    const validatedVault = validateVaultPath(config.vaultPath);
-    if (!validatedVault) return;
-    const vaultPath = validatedVault;
+    // The roadmap's own source file is printed later; this names the vault those
+    // notes are written into, which is the fact a mis-scoped run never reported (#311).
+    const target = resolveVaultTarget(config);
+    if (!target) return;
+    const vaultPath = target.vaultPath;
     const roadmapPath = path.resolve(options.from);
 
     if (!fs.existsSync(roadmapPath)) {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   loadTopics,
@@ -542,8 +542,12 @@ async function reportStoredTies(
 async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
-    if (!vaultPath) return;
+    // A bare `migrate` only scans, so the echo is gated on the flags that actually
+    // write: `--fix` always, `--relabel-ties` unless `--dry-run` (#311).
+    const willWrite = options.fix === true || (options.relabelTies === true && options.dryRun !== true);
+    const target = resolveVaultTarget(config, { echo: willWrite });
+    if (!target) return;
+    const vaultPath = target.vaultPath;
     const loaded = loadTopics(vaultPath);
 
     // The label audit comes before the schema report and reports its own exit

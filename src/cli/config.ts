@@ -544,5 +544,5 @@ async function configCommand(
   }
 }
 
-export { loadConfig, saveConfig, isConfigDirStorableForKey };
+export { loadConfig, saveConfig, isConfigDirStorableForKey, getConfigPath };
 export default configCommand;

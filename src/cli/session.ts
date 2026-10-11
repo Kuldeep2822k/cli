@@ -1,6 +1,7 @@
 import readline from 'readline';
 import { loadConfig } from './config';
-import { isJsonOutput, validateVaultPath } from './onboarding';
+import { isJsonOutput } from './onboarding';
+import { resolveVaultTarget, vaultTargetFields } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
@@ -71,8 +72,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
   try {
     const config = loadConfig();
     const jsonMode = isJsonOutput(options);
-    const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
-    if (!vaultPath) return;
+    // `list` only reads, so it gets no echo. A write names its vault: as a line in
+    // human mode, as payload fields in JSON mode, where a bare line above the
+    // object would break the callers that parse stdout (#311).
+    const target = resolveVaultTarget(config, { json: jsonMode, echo: action !== 'list' });
+    if (!target) return;
+    const vaultPath = target.vaultPath;
 
     if (action === 'start') {
       const drafts = getDrafts(vaultPath);
@@ -83,6 +88,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             status: 'drafts_pending',
             draft_count: drafts.length,
             drafts: drafts.map((d) => path.basename(d)),
+            ...vaultTargetFields(target),
             message: 'Unconfirmed draft checkpoints detected. Run with --interactive to resolve.',
           }));
           process.exitCode = 2;

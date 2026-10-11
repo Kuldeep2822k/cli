@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
@@ -198,8 +198,11 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
 async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
-    if (!vaultPath) return;
+    // Names the vault before the first note is touched: with PALEE_CONFIG_DIR
+    // unset this run silently acts on the machine-global config's vault (#311).
+    const target = resolveVaultTarget(config);
+    if (!target) return;
+    const vaultPath = target.vaultPath;
 
     const resolvedVault = fs.realpathSync(vaultPath);
 
