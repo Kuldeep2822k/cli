@@ -342,18 +342,22 @@ async function writeSessionNote(
     frontmatterObj.duration_minutes = fullData.duration_minutes;
   }
   const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Absence is an expectation the write carries, not a null fingerprint: a null
+  // fingerprint skipped `atomicWrite`'s whole OCC block, so a concurrent creator's
+  // fresh file was overwritten with no conflict (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
   return filePath;
 }
 
@@ -405,18 +409,23 @@ async function updateHotMemory(
   };
 
   const content = updateFrontmatter(truncatedBody, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Absence is an expectation the write carries, not a null fingerprint — a null
+  // fingerprint disabled `atomicWrite`'s OCC block entirely, so two concurrent
+  // `session start` invocations each expecting no `hot.md` let the loser silently
+  // overwrite the winner's just-created file (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, hotPath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, hotPath, content, expectedFingerprint, { expectExists });
   return hotPath;
 }
 
@@ -576,18 +585,22 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   };
 
   const content = updateFrontmatter(indexBody, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Same modelling as `updateHotMemory`: a missing `index.md` is an expectation of
+  // absence, so a concurrent rebuild that created it in the meantime conflicts
+  // instead of being overwritten (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, indexPath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, indexPath, content, expectedFingerprint, { expectExists });
   return indexPath;
 }
 
@@ -700,18 +713,22 @@ async function writeDraftCheckpoint(
   };
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // A draft checkpoint is written twice for the same id (first checkpoint, then
+  // refresh), so absence is only the first case; stating it keeps the OCC guard on
+  // in both (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
   return filePath;
 }
 

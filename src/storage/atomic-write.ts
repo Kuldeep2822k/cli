@@ -76,6 +76,48 @@ export function isConflictError(e: unknown): boolean {
 }
 
 /**
+ * The expectation a caller states about its destination, alongside the fingerprint.
+ *
+ * @remarks
+ * Both fields exist because "I have no fingerprint" and "the file did not exist when I
+ * read it" are different claims, and `expectedFingerprint = null` used to mean the
+ * second one (#327). It silently disabled the whole OCC block — including the existence
+ * check — so the second of two concurrent creators of `.palee/hot.md` or
+ * `.palee/index.md` overwrote the first's brand-new file and nobody could tell.
+ * Non-existence is now a statement the guard re-tests instead of an absence of one.
+ *
+ * @example
+ * ```typescript
+ * // first creation: fails with ECONFLICT if someone else created the file first
+ * await atomicWrite(vault, target, content, null, { expectExists: false });
+ * // overwrite: the fingerprint of the content that was read is mandatory
+ * await atomicWrite(vault, target, content, fingerprint, { expectExists: true });
+ * ```
+ */
+export interface AtomicWriteOptions {
+  /**
+   * `false` asserts the destination was absent when the caller looked, and the write
+   * must therefore still find it absent; `true` asserts it was there, which makes
+   * `expectedFingerprint` mandatory (#334). Omitted makes no claim and keeps the
+   * pre-#327 behaviour: a fingerprint is verified when given, nothing otherwise.
+   */
+  expectExists?: boolean;
+}
+
+/**
+ * Builds the retryable conflict error every guard in {@link atomicWrite} throws.
+ *
+ * @param message - Conflict message, prefixed with `OCC conflict:` so
+ * {@link isConflictError} recognises it by text as well as by `code`
+ * @returns The error to throw, carrying `code = 'ECONFLICT'`
+ */
+function occConflict(message: string): NodeError {
+  const err = new Error(`OCC conflict: ${message}`) as NodeError;
+  err.code = 'ECONFLICT';
+  return err;
+}
+
+/**
  * Atomically writes content to a target file within a vault with OCC verification and lock synchronization.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
@@ -85,10 +127,17 @@ export function isConflictError(e: unknown): boolean {
  * written, so the guard can never certify a file other than the one written
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
+ * @param options - The caller's expectation about the destination's existence, stated
+ * when it read the destination before taking the lock (`expectExists: false` is what a
+ * first creation passes, so a file that appeared meanwhile is a conflict rather than a
+ * silent overwrite — #327)
  * @returns Promise that resolves once data is fsync-flushed and renamed
  * @throws {NodeError} If the destination resolves outside the vault (`ECONTAINMENT`, a
  * security refusal — never an `ECONFLICT`, because no retry makes an escaping path safe)
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
+ * @throws {NodeError} If a stated expectation is violated — the destination exists on a
+ * first-creation write, or an overwrite declares `expectExists: true` with no fingerprint
+ * to attribute it with (both `ECONFLICT`, both retryable by re-reading)
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
@@ -139,7 +188,8 @@ async function atomicWrite(
   vaultPath: string,
   targetPath: string,
   newContent: string,
-  expectedFingerprint: string | null = null
+  expectedFingerprint: string | null = null,
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   // Containment first, before anything is written — including before the `Lock`
   // is constructed: `getLockDir` creates `.palee/locks` the moment it runs, so a
@@ -170,8 +220,30 @@ async function atomicWrite(
     await lock.acquire();
     lockAcquired = true;
 
-    // OCC: Check fingerprint against disk state
-    if (expectedFingerprint !== null) {
+    // OCC: re-test what the caller saw, from inside the lock.
+    //
+    // #327 — a caller that read the destination as absent passes
+    // `{ expectExists: false }` rather than a null fingerprint, so its claim is checked
+    // instead of silently disabling this whole block. Absence was the one case the lock
+    // could not cover: `createLock` serialises the two writers, so the loser reaches here
+    // *after* the winner's rename, and the file it expected to create already holds
+    // someone else's bytes. Failing now is what turns that lost update into a retryable
+    // conflict. An uncontested first creation still succeeds — nothing raced it.
+    if (options.expectExists === false) {
+      if (fs.existsSync(resolvedTarget)) {
+        throw occConflict(`${resolvedTarget} was created by another process`);
+      }
+
+      // A caller that expected absence cannot also hold a fingerprint of it, and one
+      // that expected an overwrite cannot be relying on nothing to attribute it with
+      // (#334): either combination is a caller bug, and refusing it keeps a guard from
+      // degrading back into the silent overwrite the stale-lock rollback used to be.
+      if (expectedFingerprint !== null) {
+        throw occConflict(`${resolvedTarget} cannot both be absent and carry a fingerprint`);
+      }
+    } else if (options.expectExists === true && expectedFingerprint === null) {
+      throw occConflict(`${resolvedTarget} exists and this overwrite carries no expectedFingerprint`);
+    } else if (expectedFingerprint !== null) {
       if (!fs.existsSync(resolvedTarget)) {
         const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist (was deleted or missing)`) as NodeError;
         conflictErr.code = 'ECONFLICT';
