@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
@@ -23,7 +23,8 @@ import {
   deriveTocEnumeration,
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
-import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
+import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
+import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
@@ -87,6 +88,12 @@ interface RollbackRecord {
   absolutePath: string;
   relativePath: string;
   originalContent: string;
+  /**
+   * Fingerprint of the content this process wrote while adopting, i.e. what the note
+   * should hold right now. Reverting is an overwrite of that, so it is the value the
+   * restore is verified against (#334).
+   */
+  writtenFingerprint: string;
 }
 
 /**
@@ -112,40 +119,23 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
   console.error('\nRolling back adopted notes...');
   for (const item of [...journal].reverse()) {
     try {
-      await atomicWrite(vaultPath, item.absolutePath, item.originalContent);
+      // #334: this restore used to be the one unguarded vault write in the CLI — three
+      // arguments, so `expectedFingerprint` defaulted to null and nothing could tell
+      // that the note had been adopted, reverted, or rewritten by a process that took
+      // the lock over while this one was stalled. The revert now states its expectation:
+      // the note exists, and it must still hold exactly what our adoption wrote.
+      await atomicWrite(
+        vaultPath,
+        item.absolutePath,
+        item.originalContent,
+        item.writtenFingerprint,
+        { expectExists: true }
+      );
     } catch (err: unknown) {
       const e = err as Error;
       console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
     }
   }
-}
-
-/** The four assessment pillars `topic_mastery` is computed from (INV-21). */
-const PILLAR_KEYS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
-
-/**
- * The pillar scores a note already carries, with the ones it does not omit.
- *
- * @param frontmatter - Parsed frontmatter of the note about to be adopted
- * @returns Only the pillar keys present in the note, each normalized to `[0.0, 1.0]`
- *
- * @remarks
- * Adoption used to write `0` for every pillar the note lacked. That is minted
- * assessment data — the same defect #191 removed from roadmap import — and it
- * corrupts the note: `valid-topic-mastery` computes `0` from four real zeros and
- * reports the preserved `topic_mastery` as drift, while `validate --fix` has no
- * mastery repairer and answers "Nothing to repair". An absent pillar stays
- * absent, which is the condition that rule skips on.
- */
-function carriedPillarScores(frontmatter: Record<string, unknown> | null | undefined): Record<string, number> {
-  const scores: Record<string, number> = {};
-  for (const key of PILLAR_KEYS) {
-    const raw = frontmatter?.[key];
-    if (raw !== undefined && raw !== null) {
-      scores[key] = normalizeScore(raw);
-    }
-  }
-  return scores;
 }
 
 /**
@@ -190,6 +180,10 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
  * - Applies `--include`, `--exclude`, and `--tag` filters.
  * - Displays adoption preview and asks for confirmation (unless `--yes` is specified).
  * - Executes two-phase adoption with optimistic concurrency control and rollback journal.
+ * - Measures each supplied filter pattern against the scanned scope and warns when one
+ *   matched no file at all (#312).
+ * Single-file mode takes no filter: an explicit path plus `--include`, `--exclude` or
+ * `--tag` is a contradiction, and exits `2` rather than adopting the excluded note (#303).
  *
  * @example
  * ```typescript
@@ -199,8 +193,11 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
 async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
   try {
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
-    if (!vaultPath) return;
+    // Names the vault before the first note is touched: with PALEE_CONFIG_DIR
+    // unset this run silently acts on the machine-global config's vault (#311).
+    const target = resolveVaultTarget(config);
+    if (!target) return;
+    const vaultPath = target.vaultPath;
 
     const resolvedVault = fs.realpathSync(vaultPath);
 
@@ -284,6 +281,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Single-file adoption mode
       if (options.autoChain) {
         console.error('Error: --auto-chain is batch-only; it cannot be used with a single note path');
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+      // #303 — `--include`, `--exclude` and `--tag` select notes out of a directory
+      // walk, and single-file mode has no walk: the learner already named the one
+      // note. Validating their syntax upstream and then dropping them meant
+      // `palee adopt "a/fresh.md" --exclude 'a/*.md'` exited 0 having adopted
+      // exactly the note the flag excluded. An explicit path plus a filter is a
+      // contradiction, and silently writing is the one outcome the user cannot
+      // detect after the fact — so refuse, naming the flag and the mode. (The
+      // absence of a Tier-0 hygiene pass here is a separate, deliberate choice;
+      // see the note in the batch scan loop below.)
+      for (const filterFlag of ['include', 'exclude', 'tag'] as const) {
+        if (options[filterFlag] === undefined) continue;
+        console.error(
+          `Error: --${filterFlag} does not apply when a single path is given; it filters batch adoption — drop it, or pass a directory / use --all`
+        );
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -481,6 +495,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
+    /**
+     * #312 — every vault-relative path the scan looked at, which is the scope a
+     * supplied `--include`/`--exclude` pattern is measured against. The aggregate
+     * `Excluded (Pattern)` count alone cannot tell "the filter worked and there was
+     * nothing to filter" from "this pattern names no file here", so the per-pattern
+     * tallies below are computed over this list.
+     */
+    const scannedPaths: string[] = [];
     /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
     const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
     /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
@@ -509,6 +531,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     for (const filePath of allFiles) {
       const relPath = relativeVaultPath(vaultPath, filePath);
+      // #312 — the denominator for per-pattern accounting: every file in the scanned
+      // scope. A filter is a statement about *paths*, so a note the scan later drops
+      // for an unreadable frontmatter or an unusable `palee_id` is still a file the
+      // pattern could name, and a pattern that reached one of them is not dead.
+      scannedPaths.push(relPath);
       const content = fs.readFileSync(filePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
 
@@ -1001,6 +1028,21 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       );
     }
 
+    // #312 — measure each supplied pattern against the whole scanned scope before
+    // reporting on it. `matchesPattern` OR-folds, so the run could only ever print
+    // one aggregate number; this keeps the accounting per pattern, in the order the
+    // learner listed them, so a pattern that named no file at all can be named back.
+    const filterTallies: { flag: string; tallies: PatternTally[] }[] = [
+      {
+        flag: '--include',
+        tallies: options.include ? tallyPatterns(scannedPaths, options.include) : [],
+      },
+      {
+        flag: '--exclude',
+        tallies: options.exclude ? tallyPatterns(scannedPaths, options.exclude) : [],
+      },
+    ];
+
     // Display summary preview
     const scanLabel = targetPath ? targetPath.replace(/\\/g, '/') : '(Entire Vault)';
     console.log('=== PALEE Batch Adoption ===');
@@ -1013,6 +1055,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     }
     if (options.tag) {
       console.log(`Excluded (Tag):     ${skippedByTag.length} notes`);
+    }
+    // #312 — `Excluded (Pattern): 0` reads the same whether the filter worked on an
+    // empty inbox or the pattern can never match a file here, and only the second
+    // one is a mistake the learner has to fix. Name the pattern, and name the rule
+    // that usually causes it: a pattern carrying `/` is anchored at the vault root,
+    // so `a/*.md` addressed a path this scope does not hold.
+    for (const { flag, tallies } of filterTallies) {
+      for (const tally of tallies) {
+        if (tally.matches > 0) continue;
+        console.log(`⚠ Warning: ${flag} '${tally.pattern}' matched no file in this scope; check the pattern.`);
+        console.log(
+          tally.pattern.includes('/')
+            ? '    It contains `/`, so it is matched against the whole vault-relative path from the root, not against a filename — see `palee adopt --help`.'
+            : '    It has no `/`, so it matches a filename in any directory — check its spelling and wildcards.'
+        );
+      }
     }
     if (skippedUnreadable.size > 0) {
       console.log(
@@ -1148,6 +1206,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (skippedByPattern.length > 0) {
         console.log('\nSkipped by pattern filter:');
         skippedByPattern.forEach((f) => console.log(`  - ${f}`));
+      }
+      // #312 — the per-pattern numbers behind the aggregate count above, so a run
+      // can be audited pattern by pattern rather than guessed at from one total.
+      if (filterTallies.some((filter) => filter.tallies.length > 0)) {
+        console.log('\nPattern filter accounting:');
+        for (const { flag, tallies } of filterTallies) {
+          for (const tally of tallies) {
+            console.log(`  ${flag} '${tally.pattern}': ${tally.matches} of ${scannedPaths.length} files`);
+          }
+        }
       }
       if (skippedByTag.length > 0) {
         console.log('\nSkipped by tag filter:');
@@ -1325,6 +1393,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           absolutePath: item.absolutePath,
           relativePath: item.relativePath,
           originalContent: item.originalContent,
+          writtenFingerprint: computeFingerprint(item.updatedContent),
         });
       }
 

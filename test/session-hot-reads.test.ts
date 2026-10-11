@@ -27,6 +27,28 @@ describe('Session hot.md read characterization', () => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
     process.env.PALEE_CONFIG_DIR = tempDir;
     saveConfig({ vaultPath: vaultDir });
+
+    // #302: `session` resolves an explicit `--topic` against the vault, so the
+    // ids these characterization tests pass have to be real adopted notes.
+    // Seeded once here — `beforeEach` wipes only `.palee/`, never the notes.
+    seedTopicNotes([
+      'T-vanish-post',
+      'T-corrupt-post',
+      'T-draft-24h',
+      'T-draft-stale',
+      'T-draft-future',
+      'T-draft-mismatch',
+      'T-draft-bad-date',
+      'T-padded',
+      'T-end-48h',
+      'T-end-skew',
+      'T-end-future',
+      'T-end-mismatch',
+      'T-end-corrupt',
+      'T-end-num',
+      'T-draft-eacces',
+      'T-end-eacces',
+    ]);
   });
 
   after(() => {
@@ -51,6 +73,32 @@ describe('Session hot.md read characterization', () => {
   afterEach(() => {
     process.exitCode = undefined;
   });
+
+  /**
+   * Writes one minimal adopted note per id, so `--topic` has something to resolve
+   * to (#302). The title mirrors the id: an exact `palee_id` wins outright in
+   * `resolveTopicQuery`, so no seeded neighbour can make these queries ambiguous.
+   */
+  function seedTopicNotes(ids: string[]): void {
+    for (const id of ids) {
+      fs.writeFileSync(
+        path.join(vaultDir, `${id}.md`),
+        [
+          '---',
+          'palee_schema: 1',
+          `palee_id: ${id}`,
+          `title: ${id}`,
+          'depends_on: []',
+          'topic_mastery: 0',
+          '---',
+          '',
+          `# ${id}`,
+          '',
+        ].join('\n'),
+        'utf8'
+      );
+    }
+  }
 
   /** Writes hot.md with the given frontmatter lines (schema included unless caller omits). */
   function writeHot(frontmatterLines: string[], body = '# Working Memory\n'): string {
