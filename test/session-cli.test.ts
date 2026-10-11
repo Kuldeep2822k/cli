@@ -344,10 +344,15 @@ describe('Session CLI In-Process Coverage', () => {
     assert.strictEqual(frontmatter?.started_at, pastTime);
     assert.strictEqual(frontmatter?.duration_minutes, 3);
 
-    // Hot memory started_at should now be cleared after session end
+    // Re-pinned for #329: `session end` regenerates the derived views from the note it
+    // just wrote, so `hot.md.started_at` now carries that session's start. It used to
+    // read `null` here only because `rebuildHotAndIndex` dropped the value — nothing in
+    // the CLI ever cleared it, and working memory must agree with the session it derives
+    // from. Asserted against the session note itself, which is the contract.
     const refreshedHot = fs.readFileSync(hotPath, 'utf8');
     const parsedHot = parseFrontmatter(refreshedHot);
-    assert.strictEqual(parsedHot.frontmatter?.started_at, null);
+    assert.strictEqual(parsedHot.frontmatter?.started_at, frontmatter?.started_at);
+    assert.strictEqual(parsedHot.frontmatter?.started_at, pastTime);
 
     // Cleanup session file
     fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));

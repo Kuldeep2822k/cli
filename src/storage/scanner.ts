@@ -6,11 +6,15 @@
  * frontmatter parse outcomes for the validation framework (#25).
  * A file with malformed YAML yields an entry with `parseError` set —
  * reading never throws, so one bad note cannot abort a vault scan.
+ * Every note read is bounded first by the stat-first size guard in
+ * `./source-cap` (#332): a document over the cap is declined with a
+ * `readError` diagnostic instead of being read and line-scanned whole.
  */
 
 import fs from 'fs';
 import { walkVault, relativeVaultPath } from './vault-walker';
 import { parseFrontmatter } from './frontmatter';
+import { MAX_NOTE_SOURCE_BYTES, oversizedNoteDiagnostic } from './source-cap';
 import { ScannedNote } from '../types';
 
 /**
@@ -31,22 +35,101 @@ export interface ScanNotesOptions {
 
 
 /**
+ * True when a line opens with indentation (a space or a tab).
+ *
+ * @remarks
+ * Indented lines are YAML continuations — a block-scalar body (`description: |`
+ * followed by `  ## Details`) or a nested collection — so only column-0 lines
+ * are candidates for Markdown body-text detection.
+ */
+function isIndentedLine(line: string): boolean {
+  return line.startsWith(' ') || line.startsWith('\t');
+}
+
+/**
+ * True when a column-0 line continues the block's YAML *data*: a top-level
+ * sequence item or a mapping entry.
+ *
+ * @remarks
+ * Deliberately lenient about quoted keys: `"custom: property": value` finds a
+ * separator colon and counts as data, which is what it is. A comment is YAML
+ * *syntax*, not data, so it never counts — the boundary this feeds has to stay
+ * where the entries stop.
+ */
+function isTopLevelYamlData(trimmed: string): boolean {
+  if (trimmed.startsWith('-')) return true;
+  const colonIndex = trimmed.indexOf(':');
+  if (colonIndex === -1) return false;
+  const afterColon = trimmed.slice(colonIndex + 1);
+  return afterColon.startsWith(' ') || afterColon.startsWith('\t') || afterColon === '';
+}
+
+/**
+ * Index of the last column-0 line that carries YAML data, or `-1` when the
+ * block holds none. Blank and comment lines are stepped over: they neither end
+ * nor extend the data region.
+ */
+function lastYamlDataIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (isIndentedLine(line)) continue;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (isTopLevelYamlData(trimmed)) return i;
+  }
+  return -1;
+}
+
+/**
  * Checks whether raw frontmatter text contains lines that look like Markdown body text
  * rather than YAML key-value pairs or comments (#171.11).
+ *
+ * @remarks
+ * In YAML a `#` starts a comment regardless of how many hashes follow it, so
+ * `## key points` inside a frontmatter block is legal YAML that parses cleanly —
+ * it is never body text and must never cost the note its metadata (#319).
+ *
+ * The Markdown-heading shape still has to stay fatal where it is not a comment
+ * but a swallowed paragraph, and the two cases are the same bytes, so the
+ * decision is made by *position*: a heading line counts as body text only when
+ * (a) a column-0 blank line already ended the mapping and (b) no YAML data line
+ * follows it — i.e. it sits in the trailing region directly against the closing
+ * `---`. That is the signature of a frontmatter block whose real closing fence
+ * is missing, where the `---` is a thematic break and the "frontmatter" is the
+ * note's body (#171.11). Pinned by the
+ * `unclosed fence followed by body thematic break with markdown subheadings`
+ * case in test/storage-scanner.test.ts, against its mirror pair where the same
+ * heading is adjacent to the entries and therefore legal.
+ *
+ * Residual limits of the heuristic, accepted on purpose and in both directions:
+ * a note that puts a blank line before a *trailing* `##` comment — the one shape
+ * byte-for-byte identical to a swallowed heading — is still reported; and a
+ * swallowed heading followed by a line that merely looks like `key: value` is
+ * no longer reported, because the data-shaped line says the block kept running.
+ * The second gap is the cheaper failure: the note still parses, the leak costs a
+ * warning rather than the note's metadata. Comments attached to the entries they
+ * document, which is how frontmatter comments are written, are never affected.
  */
 function hasBodyTextLines(raw: string): boolean {
   const lines = raw.split(/\r?\n/);
-  for (const line of lines) {
+  const dataEndsAt = lastYamlDataIndex(lines);
+  // True once a column-0 blank line has ended the mapping region. An indented
+  // blank does not count: it belongs to a block scalar or a nested collection.
+  let mappingEnded = false;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Skip indented lines — they can be YAML block-scalar continuations
-    // (e.g. `description: |\n  ## Details`). Only unindented lines are
-    // candidates for Markdown body-text detection.
-    const isIndented = line.startsWith(' ') || line.startsWith('\t');
-    if (!isIndented) {
-      // Markdown headings (## Heading, ### Heading, etc.)
-      if (/^#{2,6}\s+\S/.test(trimmed)) {
-        return true;
+    if (!trimmed) {
+      if (!isIndentedLine(line)) mappingEnded = true;
+      continue;
+    }
+    if (!isIndentedLine(line)) {
+      // YAML comment (`#`, `##`, `####`, …): legal anywhere the data still runs.
+      if (trimmed.startsWith('#')) {
+        if (mappingEnded && index > dataEndsAt && /^#{2,6}\s+\S/.test(trimmed)) {
+          return true;
+        }
+        continue;
       }
       // Markdown blockquotes (> quote)
       if (/^>\s+\S/.test(trimmed)) {
@@ -56,10 +139,8 @@ function hasBodyTextLines(raw: string): boolean {
       if (/^[*+]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) {
         return true;
       }
-      if (trimmed.startsWith('#')) {
-        // Single # comment
-        continue;
-      }
+      // Any data line below this point keeps the mapping open.
+      mappingEnded = false;
       if (trimmed.startsWith('-')) {
         // Top-level sequence item
         continue;
@@ -154,6 +235,20 @@ function scanNotes(vaultPath: string, options: ScanNotesOptions = {}): ScannedNo
   for (const filePath of scanFiles) {
     let content: string;
     try {
+      // Stat first (#332): a document over the read cap is declined without
+      // being read at all, so the bound covers the IO and the line scan, not
+      // only the parse — the same shape the TOC reader uses for oversized
+      // documents (src/storage/toc.ts, issue #263).
+      const sizeInBytes = fs.statSync(filePath).size;
+      if (sizeInBytes > MAX_NOTE_SOURCE_BYTES) {
+        notes.push({
+          absolutePath: filePath,
+          relativePath: relativeVaultPath(vaultPath, filePath),
+          frontmatter: null,
+          readError: oversizedNoteDiagnostic(sizeInBytes),
+        });
+        continue;
+      }
       content = fs.readFileSync(filePath, 'utf8');
     } catch (e: unknown) {
       // Retain the note with a read error so rules can warn that

@@ -6,13 +6,18 @@
  * 1. Asserts the resolved destination lies inside the vault (#264).
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
+ *    the destination's prior permission mode on the temp fd before rename (#318).
+ * 5. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
  * 6. Atomically renames temporary file over the destination file.
- * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 7. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
+ *    rename is not durable until the directory entry is flushed; platforms that refuse a
+ *    directory open or fsync (Windows raises `EPERM`/`EISDIR`) are ignored (#333).
+ * 8. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  */
 
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { computeFingerprint } from './frontmatter';
 import { Lock } from './lock';
@@ -76,6 +81,48 @@ export function isConflictError(e: unknown): boolean {
 }
 
 /**
+ * The expectation a caller states about its destination, alongside the fingerprint.
+ *
+ * @remarks
+ * Both fields exist because "I have no fingerprint" and "the file did not exist when I
+ * read it" are different claims, and `expectedFingerprint = null` used to mean the
+ * second one (#327). It silently disabled the whole OCC block — including the existence
+ * check — so the second of two concurrent creators of `.palee/hot.md` or
+ * `.palee/index.md` overwrote the first's brand-new file and nobody could tell.
+ * Non-existence is now a statement the guard re-tests instead of an absence of one.
+ *
+ * @example
+ * ```typescript
+ * // first creation: fails with ECONFLICT if someone else created the file first
+ * await atomicWrite(vault, target, content, null, { expectExists: false });
+ * // overwrite: the fingerprint of the content that was read is mandatory
+ * await atomicWrite(vault, target, content, fingerprint, { expectExists: true });
+ * ```
+ */
+export interface AtomicWriteOptions {
+  /**
+   * `false` asserts the destination was absent when the caller looked, and the write
+   * must therefore still find it absent; `true` asserts it was there, which makes
+   * `expectedFingerprint` mandatory (#334). Omitted makes no claim and keeps the
+   * pre-#327 behaviour: a fingerprint is verified when given, nothing otherwise.
+   */
+  expectExists?: boolean;
+}
+
+/**
+ * Builds the retryable conflict error every guard in {@link atomicWrite} throws.
+ *
+ * @param message - Conflict message, prefixed with `OCC conflict:` so
+ * {@link isConflictError} recognises it by text as well as by `code`
+ * @returns The error to throw, carrying `code = 'ECONFLICT'`
+ */
+function occConflict(message: string): NodeError {
+  const err = new Error(`OCC conflict: ${message}`) as NodeError;
+  err.code = 'ECONFLICT';
+  return err;
+}
+
+/**
  * Atomically writes content to a target file within a vault with OCC verification and lock synchronization.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
@@ -85,20 +132,49 @@ export function isConflictError(e: unknown): boolean {
  * written, so the guard can never certify a file other than the one written
  * @param newContent - Complete text content to persist
  * @param expectedFingerprint - Optional expected SHA-256 fingerprint; if provided, ensures the file has not changed since last read
- * @returns Promise that resolves once data is fsync-flushed and renamed
+ * @param options - The caller's expectation about the destination's existence, stated
+ * when it read the destination before taking the lock (`expectExists: false` is what a
+ * first creation passes, so a file that appeared meanwhile is a conflict rather than a
+ * silent overwrite — #327)
+ * @returns Promise that resolves once data is fsync-flushed, renamed, and the containing
+ * directory is fsynced on a best-effort basis (the directory flush is skipped where the
+ * platform refuses it)
  * @throws {NodeError} If the destination resolves outside the vault (`ECONTAINMENT`, a
  * security refusal — never an `ECONFLICT`, because no retry makes an escaping path safe)
  * @throws {NodeError} If an OCC fingerprint mismatch is detected (`ECONFLICT`) or lock cannot be acquired
+ * @throws {NodeError} If a stated expectation is violated — the destination exists on a
+ * first-creation write, or an overwrite declares `expectExists: true` with no fingerprint
+ * to attribute it with (both `ECONFLICT`, both retryable by re-reading)
  *
  * @remarks
  * Implements crash-resilient atomic file overwriting:
  * 1. Asserts the resolved destination is still inside the vault (#264) and adopts that resolved path.
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`).
- * 5. Calls `fsyncSync` to flush data and metadata to physical storage.
+ * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
+ *    the destination's prior permission mode on the temp fd before rename (#318).
+ * 5. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
  * 6. Atomically renames temporary file over the destination file.
- * 7. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 7. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
+ *    rename is not durable until the directory entry is flushed; platforms that refuse a
+ *    directory open or fsync (Windows raises `EPERM`/`EISDIR`) are ignored (#333).
+ * 8. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ *
+ * Two of those steps exist because the rename swaps the destination inode and the
+ * directory entry:
+ * - `openSync(tempPath, 'w')` creates the temp file with the umask default, so without
+ *   a prior `statSync` of the destination and `fchmodSync` on the temp fd, rewriting a
+ *   deliberately 0600 file would silently widen it to world-readable (#318). A missing
+ *   destination keeps the default mode; this primitive never tightens. The config
+ *   writer (`src/cli/config.ts`) has its own `openSync(tempPath, 'wx', 0o600)` path and
+ *   does not go through here, so that pin is untouched. On win32 POSIX mode bits are
+ *   decorative (NTFS resolves access via the directory ACL) — the preservation is
+ *   correct where the bits mean something and harmless where they do not.
+ * - fsyncing the file fd does not make the *rename* durable: on POSIX the new directory
+ *   entry lives in the directory's own metadata, so a crash right after a "successful"
+ *   write could roll the file back. The post-rename directory fsync closes that gap on
+ *   platforms that allow it; where they do not, the write still succeeds exactly as
+ *   before (#333).
  *
  * The containment assertion guards the destination rather than trusting the
  * spelling: until #264 only the *final* path component was ever questioned, so a
@@ -139,7 +215,8 @@ async function atomicWrite(
   vaultPath: string,
   targetPath: string,
   newContent: string,
-  expectedFingerprint: string | null = null
+  expectedFingerprint: string | null = null,
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   // Containment first, before anything is written — including before the `Lock`
   // is constructed: `getLockDir` creates `.palee/locks` the moment it runs, so a
@@ -170,8 +247,30 @@ async function atomicWrite(
     await lock.acquire();
     lockAcquired = true;
 
-    // OCC: Check fingerprint against disk state
-    if (expectedFingerprint !== null) {
+    // OCC: re-test what the caller saw, from inside the lock.
+    //
+    // #327 — a caller that read the destination as absent passes
+    // `{ expectExists: false }` rather than a null fingerprint, so its claim is checked
+    // instead of silently disabling this whole block. Absence was the one case the lock
+    // could not cover: `createLock` serialises the two writers, so the loser reaches here
+    // *after* the winner's rename, and the file it expected to create already holds
+    // someone else's bytes. Failing now is what turns that lost update into a retryable
+    // conflict. An uncontested first creation still succeeds — nothing raced it.
+    if (options.expectExists === false) {
+      if (fs.existsSync(resolvedTarget)) {
+        throw occConflict(`${resolvedTarget} was created by another process`);
+      }
+
+      // A caller that expected absence cannot also hold a fingerprint of it, and one
+      // that expected an overwrite cannot be relying on nothing to attribute it with
+      // (#334): either combination is a caller bug, and refusing it keeps a guard from
+      // degrading back into the silent overwrite the stale-lock rollback used to be.
+      if (expectedFingerprint !== null) {
+        throw occConflict(`${resolvedTarget} cannot both be absent and carry a fingerprint`);
+      }
+    } else if (options.expectExists === true && expectedFingerprint === null) {
+      throw occConflict(`${resolvedTarget} exists and this overwrite carries no expectedFingerprint`);
+    } else if (expectedFingerprint !== null) {
       if (!fs.existsSync(resolvedTarget)) {
         const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist (was deleted or missing)`) as NodeError;
         conflictErr.code = 'ECONFLICT';
@@ -231,9 +330,27 @@ async function atomicWrite(
         }
 
         let fd: number | null = null;
+        // Permission mode of the destination that is about to be replaced (#318).
+        // Captured before the temp file is opened because `renameSync` swaps the
+        // inode: the temp file's umask default would otherwise become the
+        // destination's mode on every rewrite. `null` means no destination yet —
+        // a brand-new file keeps the default mode (this primitive preserves, it
+        // never tightens; tightening is `saveConfig`'s own job in `src/cli/config.ts`).
+        let priorMode: number | null = null;
         try {
+          try {
+            priorMode = fs.statSync(resolvedTarget).mode & 0o777;
+          } catch (e: unknown) {
+            const statErr = e as NodeError;
+            if (statErr.code !== 'ENOENT') throw statErr;
+          }
           fd = fs.openSync(tempPath, 'w');
           fs.writeSync(fd, newContent);
+          if (priorMode !== null) {
+            // Before the fsync so the flushed metadata already carries the mode;
+            // no-op on win32, where NTFS ignores these bits.
+            fs.fchmodSync(fd, priorMode);
+          }
           fs.fsyncSync(fd);
         } finally {
           if (fd !== null) {
@@ -242,6 +359,18 @@ async function atomicWrite(
         }
 
         fs.renameSync(tempPath, resolvedTarget);
+
+        // Durability of the rename itself (#333): on POSIX the directory entry is
+        // only on physical storage once the containing directory is fsynced, even
+        // though the data fd above was. Best-effort — a platform that refuses to
+        // open a directory or fsync the handle (win32 raises `EPERM`/`EISDIR`) is
+        // no worse off than before the flush existed, and the write still succeeds.
+        // Same shape and idiom as `saveConfig` in `src/cli/config.ts`.
+        try {
+          const dirFd = fs.openSync(path.dirname(resolvedTarget), 'r');
+          try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+        } catch {}
+
         break;
       } catch (e: unknown) {
         const err = e as NodeError;
