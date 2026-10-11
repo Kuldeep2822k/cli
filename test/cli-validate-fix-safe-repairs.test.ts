@@ -550,6 +550,45 @@ describe('#323 validate --fix: dispatch is authorized by rule metadata', () => {
       assert.strictEqual(readFrontmatter(vaultPath, 'alpha.md').topic_mastery, 0.1);
     });
   });
+
+  test('a single note with both drifted mastery and corrupt review fields is fully fixed in one pass (#323)', async () => {
+    await runInTempVault(async (vaultPath) => {
+      writeTopic(vaultPath, 'both.md', {
+        palee_id: 'T-both',
+        conceptual: 0.8,
+        practical: 0.7,
+        debug: 0.9,
+        feynman: 0.85,
+        assessed_at: null,
+        topic_mastery: 0.1,
+        ease_factor: 1.0,
+        interval_days: 0,
+      });
+
+      const report = parseReport(
+        (await captureOutput(() => validateCommand({ fix: true, json: true }))).out
+      );
+      // The mastery pass writes first; the review-field pass must see those
+      // bytes, not the stale snapshot, so neither write hits a spurious OCC
+      // conflict and the note is fully repaired in one run.
+      assert.deepStrictEqual(conflictsOf(report), [], JSON.stringify(report.repair_conflicts));
+      const fields = repairsOf(report).map((r) => `${r.topic_id}:${r.field}`);
+      assert.deepStrictEqual(
+        fields,
+        ['T-both:topic_mastery', 'T-both:ease_factor', 'T-both:interval_days'],
+        JSON.stringify(report.repairs)
+      );
+      assert.strictEqual(process.exitCode, 0);
+
+      const fm = readFrontmatter(vaultPath, 'both.md');
+      assert.strictEqual(fm.topic_mastery, PILLAR_EXPECTED, 'mastery repair survived');
+      assert.strictEqual(fm.ease_factor, 2.5, 'review-field repair applied in the same pass');
+      assert.strictEqual(fm.interval_days, 1);
+
+      const after = await captureOutput(() => validateCommand({ json: true }));
+      assert.strictEqual(parseReport(after.out).warning_count, 0, after.out);
+    });
+  });
 });
 
 describe('#323 validate --fix: payload and exit-code split is unchanged', () => {

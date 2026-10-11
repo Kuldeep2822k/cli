@@ -290,6 +290,11 @@ async function applyMasteryRepairs(
     try {
       const updatedContent = updateFrontmatter(topic.content, { topic_mastery: expected });
       await atomicWrite(vaultPath, topic.filePath, updatedContent, computeFingerprint(topic.content));
+      // A later repair pass (reset_review_fields) over this same snapshot must
+      // see the bytes we just wrote: otherwise it rebuilds from the pre-mastery
+      // content and its OCC fingerprint no longer matches disk, so the note is
+      // left half-fixed with a spurious conflict in a single --fix run (#323).
+      topic.content = updatedContent;
       repairs.push({
         topic_id: topic.palee_id,
         file: topic.path,
