@@ -10,6 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { WalkOptions } from '../types';
+import { assertContainedInVault } from './containment';
 
 /** Specific top-level directory names permanently excluded from scanning */
 const EXCLUDED_DIRS = new Set([
@@ -232,15 +233,35 @@ function walkVault(vaultPath: string, options: WalkOptions = {}): string[] {
  * @param vaultPath - Absolute path to the Obsidian vault root
  * @param targetPath - Absolute or relative path to target directory or file within the vault
  * @returns Canonical path to the ensured directory
- * @throws {Error} If targetPath escapes vault boundary or resolves outside vault via symlinks
+ * @throws {Error} With code `ECONTAINMENT` if targetPath resolves outside the vault through a
+ * link — the same refusal surface as `atomicWrite` and the `.palee` tree (#335)
+ * @throws {Error} If the lexical target path traverses out of the vault (`Path escapes vault boundary`)
  *
  * @remarks
  * Performs rigorous security and normalization checks:
  * 1. Resolves canonical vault root via `fs.realpathSync`.
  * 2. Normalizes relative target paths against `resolvedVault`.
  * 3. Validates boundary containment across relative traversal (`..`) and Windows drive roots.
- * 4. Checks pre-creation ancestor paths to prevent symlink escape outside the vault.
- * 5. Recursively creates the directory and asserts final canonical path containment.
+ * 4. Asserts the *missing-leaf* path is contained via `assertContainedInVault` before creating it.
+ * 5. Recursively creates the directory and re-asserts the canonical path it landed on.
+ *
+ * Step 4 replaced a bespoke pre-creation ancestor check (#335). The old shape was
+ * create-then-verify: it canonicalised the first *existing* ancestor, ran
+ * `mkdirSync(…, { recursive: true })`, and only then re-canonicalised the result and
+ * refused. A link planted in the window between that ancestor read and the `mkdir`
+ * therefore made the recursive create materialise directories outside the vault, and
+ * the refusal — while it did fail closed — arrived after the damage. Certifying the
+ * path that is about to be created, before creating it, is what `atomicWrite` and the
+ * `.palee` tree sites already do with the one shared predicate (`isWithinVault`), so
+ * this path now shares that refusal surface instead of a second prefix comparison
+ * that could disagree with it.
+ *
+ * What this does NOT do, stated plainly: the window between the last `realpathSync`
+ * of the certification and `mkdirSync` is a TOCTOU gap that is not closable from JS —
+ * `src/storage/atomic-write.ts` records the same limit for the write path. Re-asserting
+ * after the create (step 5) keeps that residual race failing closed, and a link that
+ * is already resolvable out of the vault is now refused before anything is created;
+ * neither makes a symlink race unexploitable.
  *
  * @example
  * ```typescript
@@ -264,30 +285,22 @@ function ensureVaultDirectory(vaultPath: string, targetPath: string): string {
     throw new Error(`Path escapes vault boundary: ${targetPath}`);
   }
 
-  // Pre-creation ancestor symlink validation: ensure existing parent paths do not resolve outside the vault
-  let existingAncestor = targetDir;
-  while (!fs.existsSync(existingAncestor)) {
-    const parent = path.dirname(existingAncestor);
-    if (parent === existingAncestor) break;
-    existingAncestor = parent;
-  }
-  if (fs.existsSync(existingAncestor)) {
-    const canonicalAncestor = fs.realpathSync(existingAncestor);
-    if (canonicalAncestor !== resolvedVault && !canonicalAncestor.startsWith(resolvedVault + path.sep)) {
-      throw new Error(`Symlink escape detected: ${targetPath} resolves outside vault`);
-    }
+  // Pre-creation containment assertion (#335): canonicalise the path that is about to
+  // be made — existing prefix resolved, missing leaf re-attached — and refuse it here,
+  // before any `mkdirSync` runs. Creating first and checking the result afterwards
+  // left the out-of-vault directories on disk for a refusal that came too late.
+  const certified = assertContainedInVault(resolvedVault, targetDir);
+
+  if (!fs.existsSync(certified)) {
+    fs.mkdirSync(certified, { recursive: true });
   }
 
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  const canonicalDir = fs.realpathSync(targetDir);
-  if (canonicalDir !== resolvedVault && !canonicalDir.startsWith(resolvedVault + path.sep)) {
-    throw new Error(`Symlink escape detected: ${targetPath} resolves outside vault`);
-  }
-
-  return canonicalDir;
+  // Re-asserted on the created path, the way `atomicWrite` re-asserts before it
+  // renames: the certification describes the vault as it was when it ran, and a link
+  // installed between it and the `mkdir` above still resolves out. That gap is one
+  // syscall wide and cannot be closed from JS; this only narrows it, and it keeps the
+  // narrowed race failing closed instead of returning an escaping path.
+  return assertContainedInVault(resolvedVault, certified);
 }
 
 /**
