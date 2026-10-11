@@ -319,6 +319,66 @@ describe('Memory System', () => {
     assert.strictEqual(frontmatter!.active_topic, 'T-docker-basics');
   });
 
+  // #329: `rebuildHotAndIndex` ran `updateHotMemory` without its fifth argument, so
+  // the default (`null`) blanked `hot.md.started_at` on every rebuild — including the
+  // one that closes every session — leaving working memory contradicting the very
+  // session note it was derived from.
+  test('rebuildHotAndIndex carries started_at from the newest session into hot.md (#329)', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-329-hot-start-'));
+    try {
+      const startedAt = '2026-09-12T08:30:15.000Z';
+      const sessionId = generateSessionId();
+      await writeSessionNote(vaultPath, {
+        session_id: sessionId,
+        topic_id: 'T-carries-start',
+        started_at: startedAt,
+        ended_at: '2026-09-12T09:15:15.000Z',
+      }, 'Session whose start must survive the rebuild.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotPath = path.join(vaultPath, '.palee', 'hot.md');
+      const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+      assert.ok(frontmatter);
+      assert.strictEqual(frontmatter!.last_session, sessionId);
+      assert.strictEqual(
+        frontmatter!.started_at,
+        startedAt,
+        'hot.md.started_at must equal the newest session note started_at'
+      );
+      // Sessions/hot use full ISO with ms + `Z`; the `YYYY-MM-DD` review/due shape
+      // must never leak in through the rebuild.
+      assert.match(String(frontmatter!.started_at), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      // Rebuild again: the carried value must be stable, not re-blanked.
+      await rebuildHotAndIndex(vaultPath);
+      const reread = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+      assert.strictEqual(reread.frontmatter!.started_at, startedAt);
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
+  test('rebuildHotAndIndex keeps hot.md started_at null when the session has none (#329)', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-329-hot-null-'));
+    try {
+      // Unparseable start: the session is still selected (BUG-005) but must not put
+      // a bogus or stringified timestamp into working memory.
+      writeRawSession(vaultPath, 'S-blank-start.md', 'S-blank-start', 'T-null-start', 'not-a-date', 'Body with an unreadable start.');
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hotRaw = fs.readFileSync(path.join(vaultPath, '.palee', 'hot.md'), 'utf8');
+      const { frontmatter } = parseFrontmatter(hotRaw);
+      assert.ok(frontmatter);
+      assert.strictEqual(frontmatter!.last_session, 'S-blank-start');
+      assert.strictEqual(frontmatter!.started_at, null, 'absent start stays null, never coerced');
+      assert.ok(/^started_at: null$/m.test(hotRaw), `started_at must be a bare YAML null, got:\n${hotRaw}`);
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('rebuildHotAndIndex excludes draft sessions from newest selection', async () => {
     // Create a confirmed session and a draft-status session (stored under an
     // S-* file name with status: draft). The draft has a NEWER timestamp.
