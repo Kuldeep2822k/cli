@@ -102,7 +102,7 @@ palee progress [flags]
 
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `--topic <id>` | `string` | `undefined` | Inspect a specific topic by ID (e.g. `T-20260814T120000-abcd`) or unique title substring. | `palee progress --topic "Recursion"` |
+| `--topic <query>` | `string` | `undefined` | Inspect a specific topic by ID (e.g. `T-20260814T120000-abcd`), a unique title substring, or the exact vault path shown by `next`/`plan`. | `palee progress --topic "Recursion"` |
 | `--json` | `boolean` | `false` | Output progress metrics as structured JSON (auto-activated in non-TTY environments). | `palee progress --json` |
 
 ---

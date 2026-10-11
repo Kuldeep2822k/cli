@@ -33,7 +33,7 @@ palee review <topic> <quality>
 
 | Argument | Type | Valid Values | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `<topic>` | `string` | Non-empty string | Topic ID (e.g. `T-20260814T120000-abcd`) or unique case-insensitive title query substring. | `"Recursion"` |
+| `<topic>` | `string` | Non-empty string | Topic ID (e.g. `T-20260814T120000-abcd`), a unique case-insensitive title query substring, or the exact vault path the tool displayed for the note (e.g. `w/one.md`). | `"Recursion"` |
 | `<quality>` | `integer` | `0`, `1`, `2`, `3`, `4`, `5` | SuperMemo recall quality rating representing recall accuracy and effort. | `4` |
 
 ---
@@ -57,7 +57,7 @@ PALEE implements the standard 6-point SuperMemo recall grading scale [src/cli/re
 
 When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L58-L115):
 
-1. **Fuzzy Topic Resolution**: Discovers candidate notes by checking exact ID matches, ID substring matches, and case-insensitive title substring matches. If multiple notes match, it lists all candidates and exits with code `2` to prevent ambiguous writes.
+1. **Topic Resolution**: Discovers candidate notes by checking exact ID matches, ID substring matches, and case-insensitive title substring matches. If multiple notes match, it lists all candidates and exits with code `2` to prevent ambiguous writes. If *nothing* matched, the query is compared once against each note's vault-relative path — `next` and `plan` print that path, so feeding the displayed identifier back is a valid lookup, not a refusal. The path comparison is exact after folding `\` to `/` (and case on Windows, where the filesystem does the same); because an ID or title hit is settled first, the path reading can never dislodge a match the learner already had (#313).
 2. **SM-2 State Calculation**:
    - **Ease Factor Delta**:
 
@@ -244,7 +244,7 @@ palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]
 
 | Argument / Option | Type | Valid Values | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `<topic>` | `string` | an exact `palee_id`, or a substring of one, or a case-insensitive fragment of a title | The topic being assessed. An exact ID wins outright, so a note called `T-math-2` cannot turn `T-math` into an ambiguity error. | `"Recursion"` |
+| `<topic>` | `string` | an exact `palee_id`, or a substring of one, or a case-insensitive fragment of a title, or the note's exact vault path | The topic being assessed. An exact ID wins outright, so a note called `T-math-2` cannot turn `T-math` into an ambiguity error; the path is consulted only when nothing matched by ID or title. | `"Recursion"` |
 | `--conceptual <N>` | `number` | `0`..`1` | Understanding of the idea itself. | `0.8` |
 | `--practical <N>` | `number` | `0`..`1` | Ability to apply it. | `0.7` |
 | `--debug <N>` | `number` | `0`..`1` | Troubleshooting a broken case. | `0.6` |
