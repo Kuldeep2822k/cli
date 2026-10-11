@@ -546,19 +546,25 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
 
     it('keeps a same-dir lesson spine intact when the dir is nested under unnumbered parents', () => {
       // The Class-1 rule must not damage real within-dir ordering.
+      // Re-pinned for #330: this fixture used to chain two `.ts` paths behind a
+      // `README.md`, which only "worked" because a non-`.md` basename was promoted
+      // to the backbone — the exact defect #330 removes. The intent (a numbered
+      // spine inside a directory whose *parents* are unnumbered) is unchanged; the
+      // paths are now the notes a real adopt scan can produce, and `README.md` is
+      // replaced by a numbered head because repo-meta names are excluded by design.
       const collection = planAutoChainWithHygiene([
-        'src/data-structures/linked-list/README.md',
-        'src/data-structures/linked-list/01-singly.ts',
-        'src/data-structures/linked-list/02-doubly.ts',
+        'src/data-structures/linked-list/00-overview.md',
+        'src/data-structures/linked-list/01-singly.md',
+        'src/data-structures/linked-list/02-doubly.md',
       ]);
-      assert.strictEqual(collection.predecessorOf.get('src/data-structures/linked-list/README.md'), null);
+      assert.strictEqual(collection.predecessorOf.get('src/data-structures/linked-list/00-overview.md'), null);
       assert.strictEqual(
-        collection.predecessorOf.get('src/data-structures/linked-list/01-singly.ts'),
-        'src/data-structures/linked-list/README.md'
+        collection.predecessorOf.get('src/data-structures/linked-list/01-singly.md'),
+        'src/data-structures/linked-list/00-overview.md'
       );
       assert.strictEqual(
-        collection.predecessorOf.get('src/data-structures/linked-list/02-doubly.ts'),
-        'src/data-structures/linked-list/01-singly.ts'
+        collection.predecessorOf.get('src/data-structures/linked-list/02-doubly.md'),
+        'src/data-structures/linked-list/01-singly.md'
       );
     });
 

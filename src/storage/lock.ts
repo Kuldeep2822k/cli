@@ -414,25 +414,37 @@ function createLock(lockDir: string, targetPath: string): LockData {
  *
  * @param lockDir - Lock directory path
  * @param expectedLockId - Lock ID held by this process
- * @returns Void
+ * @returns `'held'` while this process still owns the lock, `'lost'` once its own lock
+ * record is gone — meaning a stale takeover quarantined it and another process holds the
+ * lock now (#334)
  *
  * @remarks
  * Touches `mtime` using `fs.utimesSync` without modifying file content.
+ *
+ * `ENOENT` on our own record is the takeover signal, and the only one available: the
+ * quarantine renames `<lockId>.json` to `<lockId>.json.quarantine` and then deletes it,
+ * so the path this holder renews no longer exists. Any other failure is a transient
+ * error and reports `'held'` — one failed `utimes` on a live record must not abdicate
+ * the lock, or a brief `EPERM` from an antivirus handle would turn a healthy holder into
+ * a self-evicted one and hand the target to the next process.
  *
  * @example
  * ```typescript
  * updateHeartbeat('/vault/.palee/locks/hash.lockdir', 'L-1');
  * ```
  */
-function updateHeartbeat(lockDir: string, expectedLockId: string): void {
+function updateHeartbeat(lockDir: string, expectedLockId: string): 'held' | 'lost' {
   const lockFile = path.join(lockDir, `${expectedLockId}.json`);
   try {
     const now = new Date();
     // utimesSync updates mtime/atime natively without modifying file contents.
     // Throws ENOENT if file was quarantined (unlinked) by a stale takeover.
     fs.utimesSync(lockFile, now, now);
-  } catch {
-    // If ENOENT, we lost the lock. Stop updating.
+    return 'held';
+  } catch (e: unknown) {
+    // ENOENT: our record is gone, so this process no longer holds the lock (#334).
+    // Anything else says nothing about ownership.
+    return (e as NodeError).code === 'ENOENT' ? 'lost' : 'held';
   }
 }
 
@@ -490,6 +502,31 @@ class Lock {
   readonly lockPath: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null;
   private lockData: LockData | null = null;
+  /**
+   * Set by the heartbeat when this process's own lock record has disappeared — another
+   * process treated the lock as stale, quarantined it, and holds the target now (#334).
+   * Read through {@link Lock.lockLost}.
+   */
+  private lostLock = false;
+
+  /**
+   * Whether this lock has been taken over since it was acquired.
+   *
+   * @remarks
+   * The heartbeat used to swallow the takeover silently: the interval kept firing, the
+   * dead record stayed in place, and a holder that had lost the target went on writing
+   * as if it still owned it. The flag is the answer to "do I still hold it?" — a holder
+   * that spans more than one heartbeat can check it before doing anything that assumes
+   * exclusivity.
+   *
+   * @example
+   * ```typescript
+   * if (lock.lockLost) throw new Error('lost the target, reload and retry');
+   * ```
+   */
+  get lockLost(): boolean {
+    return this.lostLock;
+  }
 
   /**
    * Initializes a Lock instance for a target file.
@@ -527,6 +564,8 @@ class Lock {
    */
   async acquire(): Promise<void> {
     this.lockData = createLock(this.lockPath, this.targetPath);
+    // A fresh record means a fresh claim: clear the loss the previous hold observed.
+    this.lostLock = false;
     this.startHeartbeat();
   }
 
@@ -538,6 +577,15 @@ class Lock {
    * @remarks
    * Spawns an unreferenced interval that updates heartbeat every 15,000ms.
    *
+   * A touch that finds its own record gone (`'lost'`) is a takeover, and the holder
+   * abdicates rather than carrying on as the lock's owner: the timer stops, the dead
+   * record is dropped so {@link release} cannot touch the new holder's directory, and
+   * {@link Lock.lockLost} goes true for the holder to query (#334). The comment that
+   * claimed "we lost the lock. Stop updating" did none of that until now — it is the
+   * detectability half of #334, not its prevention half: a holder suspended long enough
+   * to be reclaimed can still be mid-rename when it resumes, and no heartbeat state can
+   * close that window from JS.
+   *
    * @example
    * ```typescript
    * lock.startHeartbeat();
@@ -545,12 +593,18 @@ class Lock {
    */
   startHeartbeat(): void {
     if (this.heartbeatTimer) return;
-    this.heartbeatTimer = setInterval(() => {
+    const timer = setInterval(() => {
       if (this.lockData) {
-        updateHeartbeat(this.lockPath, this.lockData.lock_id);
+        if (updateHeartbeat(this.lockPath, this.lockData.lock_id) === 'lost') {
+          this.lostLock = true;
+          this.lockData = null;
+          clearInterval(timer);
+          this.heartbeatTimer = null;
+        }
       }
     }, HEARTBEAT_INTERVAL);
-    this.heartbeatTimer.unref();
+    this.heartbeatTimer = timer;
+    timer.unref();
   }
 
   /**
@@ -560,6 +614,11 @@ class Lock {
    *
    * @remarks
    * Stops interval timer and removes session file from disk.
+   *
+   * A holder whose lock was already reclaimed (#334) has dropped its record, so release
+   * is a no-op by design: it must not unlink or `rmdir` a lock directory the takeover now
+   * owns. `releaseLock` guarded against that by id anyway; clearing the state on loss
+   * removes the chance entirely.
    *
    * @example
    * ```typescript

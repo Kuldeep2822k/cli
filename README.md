@@ -91,10 +91,14 @@ palee progress
 - **Frontmatter metadata**: Study data stored in note frontmatter
 - **Zero duplication**: Vault IS the data store
 
-### AI-Powered Testing
+### AI-Powered Testing *(Phase 2 — not yet available)*
 - **Feynman method**: AI tests your ability to explain concepts
 - **Multi-dimensional grading**: Conceptual, practical, debug, teaching scores
 - **Tool-constrained**: AI receives read-only validated context tools; PALEE owns confirmed writes
+
+Neither `palee test` nor `palee tutor` is implemented yet, so the commands below do not
+run. The four-pillar scores they would write are already stored and read by
+`palee assess` and `palee review` today.
 
 ### Progress Tracking
 - **Mastery visualization**: Track mastery across all topics
@@ -116,12 +120,9 @@ palee adopt "Docker Fundamentals.md"
 palee next
 # → Learn: Pod Lifecycle in Kubernetes
 
-# 3. Test your understanding
-palee test T-pod-lifecycle-k8s
-# → AI asks you to explain the concept
-# → You write your answer
-# → AI grades and suggests scores
-# → You confirm and record mastery
+# 3. Record a review after studying it
+palee review T-pod-lifecycle-k8s --quality 4
+# → SM-2 reschedules the next review date
 
 # 4. Track progress
 palee progress
@@ -135,15 +136,12 @@ palee progress
 | `palee next` | Show next recommended action |
 | `palee plan` | Build study session plan |
 | `palee progress` | View mastery statistics |
-| `palee test <topic>` | AI-powered Feynman test |
-| `palee tutor <topic>` | Interactive tutoring session |
 | `palee review <topic> --quality N` | Record review result (0-5) |
 | `palee session start` | Resume learning from hot memory; starts AI tutor if provider is configured |
 | `palee session end` | Save a confirmed session summary and refresh hot memory |
 | `palee migrate` | Upgrade versioned PALEE data safely |
 | `palee adopt <note>` | Adopt Obsidian note into PALEE |
 | `palee roadmap --from <file>` | Validate and import a user-provided roadmap (no AI, no network) |
-| `palee roadmap` | Build a personalized roadmap through a guided AI interview |
 | `palee dashboard` | Show system status |
 | `palee validate` | Check data integrity |
 | `palee config set-vault <path>` | Set the Obsidian vault path |
@@ -154,6 +152,10 @@ palee progress
 | `palee config set-model <model>` | Set the model identifier |
 | `palee config test-connection` | Send one short prompt to verify the provider (the only command that reaches the network) |
 | `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
+
+*Phase 2 will add `palee test` and `palee tutor`, and a `palee roadmap` interview mode.
+None of the three is implemented: `palee test` and `palee tutor` are not registered commands,
+and `palee roadmap` without `--from` exits `2` rather than starting an interview.*
 
 ## Configuration
 
