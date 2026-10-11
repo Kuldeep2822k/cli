@@ -303,11 +303,15 @@ topics:
     // The due_at should be a date-only string YYYY-MM-DD
     assert.match(parsed.frontmatter!.due_at as string, /^\d{4}-\d{2}-\d{2}$/);
     
-    // Mastery fields should NOT be overwritten by review
-    assert.strictEqual(parsed.frontmatter!.conceptual, 0); // Unchanged from init
-    assert.strictEqual(parsed.frontmatter!.practical, 0);
-    assert.strictEqual(parsed.frontmatter!.debug, 0);
-    assert.strictEqual(parsed.frontmatter!.feynman, 0);
+    // Mastery fields should NOT be overwritten by review. This note was
+    // roadmap-imported with no pillars and never assessed, so the pillar keys
+    // must stay absent — `review` used to mint `0` for each one here (#300),
+    // which made the note look assessed-but-zero while `assessed_at` stayed
+    // null and pinned mastery comparisons against a score nobody gave.
+    assert.strictEqual(parsed.frontmatter!.conceptual, undefined);
+    assert.strictEqual(parsed.frontmatter!.practical, undefined);
+    assert.strictEqual(parsed.frontmatter!.debug, undefined);
+    assert.strictEqual(parsed.frontmatter!.feynman, undefined);
     assert.strictEqual(parsed.frontmatter!.topic_mastery, 0.8); // We set this to 0.8 in the roadmap test manually
   });
 

@@ -12,23 +12,26 @@ import {
 } from '../storage';
 import { formatLocalDateOnly } from '../engine/sm2';
 import { buildReviewUpdate } from '../application/record-review';
-import { NodeError } from '../types';
+import { NodeError, ReviewOptions } from '../types';
 
 /**
  * CLI command handler for recording a spaced repetition (SM-2) review for a topic.
  *
  * @param topicQuery - The palee_id or title substring matching the target topic.
  * @param qualityStr - The SM-2 recall quality rating as a string ('0' through '5').
+ * @param options - CLI flags; `force` records an early review without the #301 warning.
  * @returns Promise resolving when the review state is updated and saved.
  * @remarks Sets process.exitCode = 2 on invalid quality, missing vault, or missing/ambiguous topic,
  * process.exitCode = 4 on OCC lock conflicts, and process.exitCode = 5 on unexpected exceptions.
+ * A review recorded before the note's stored `due_at` is still recorded and exits 0, but prints
+ * an early-review warning unless `--force` is given.
  *
  * @example
  * ```typescript
  * await reviewCommand('topic-calculus', '5');
  * ```
  */
-async function reviewCommand(topicQuery: string, qualityStr: string): Promise<void> {
+async function reviewCommand(topicQuery: string, qualityStr: string, options: ReviewOptions = {}): Promise<void> {
   try {
     if (!/^[0-5]$/.test(qualityStr)) {
       console.error('Error: Quality must be an integer from 0 to 5');
@@ -92,7 +95,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
     const { frontmatter: rawFm } = parseFrontmatter(freshContent);
     const frontmatter = rawFm || {};
     const reviewedAt = new Date();
-    const { updates, newState, dueDate } = buildReviewUpdate(frontmatter, quality, reviewedAt);
+    const { updates, newState, dueDate, early, currentDueAt } = buildReviewUpdate(frontmatter, quality, reviewedAt);
 
     const updatedContent = updateFrontmatter(freshContent, updates);
 
@@ -107,6 +110,14 @@ async function reviewCommand(topicQuery: string, qualityStr: string): Promise<vo
 
     if (quality < 3) {
       console.log('  ⚠ Review failed - interval reset to 1 day');
+    }
+
+    // #301: the review is recorded either way (exit stays 0), but compounding
+    // the interval on a note that was not due is schedule damage the learner
+    // should see named. `--force` silences the notice, not the record.
+    if (early && !options.force) {
+      console.log(`  ⚠ Reviewed early - this note was not due until ${currentDueAt}; counting it now compounds the interval off-schedule`);
+      console.log('  Pass --force to record early reviews without this warning.');
     }
 
   } catch (e: unknown) {

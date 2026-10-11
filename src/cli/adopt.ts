@@ -24,7 +24,7 @@ import {
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
-import { resolveTopicMastery, normalizeScore } from '../engine/mastery';
+import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
@@ -87,6 +87,12 @@ interface RollbackRecord {
   absolutePath: string;
   relativePath: string;
   originalContent: string;
+  /**
+   * Fingerprint of the content this process wrote while adopting, i.e. what the note
+   * should hold right now. Reverting is an overwrite of that, so it is the value the
+   * restore is verified against (#334).
+   */
+  writtenFingerprint: string;
 }
 
 /**
@@ -112,40 +118,23 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
   console.error('\nRolling back adopted notes...');
   for (const item of [...journal].reverse()) {
     try {
-      await atomicWrite(vaultPath, item.absolutePath, item.originalContent);
+      // #334: this restore used to be the one unguarded vault write in the CLI — three
+      // arguments, so `expectedFingerprint` defaulted to null and nothing could tell
+      // that the note had been adopted, reverted, or rewritten by a process that took
+      // the lock over while this one was stalled. The revert now states its expectation:
+      // the note exists, and it must still hold exactly what our adoption wrote.
+      await atomicWrite(
+        vaultPath,
+        item.absolutePath,
+        item.originalContent,
+        item.writtenFingerprint,
+        { expectExists: true }
+      );
     } catch (err: unknown) {
       const e = err as Error;
       console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
     }
   }
-}
-
-/** The four assessment pillars `topic_mastery` is computed from (INV-21). */
-const PILLAR_KEYS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
-
-/**
- * The pillar scores a note already carries, with the ones it does not omit.
- *
- * @param frontmatter - Parsed frontmatter of the note about to be adopted
- * @returns Only the pillar keys present in the note, each normalized to `[0.0, 1.0]`
- *
- * @remarks
- * Adoption used to write `0` for every pillar the note lacked. That is minted
- * assessment data — the same defect #191 removed from roadmap import — and it
- * corrupts the note: `valid-topic-mastery` computes `0` from four real zeros and
- * reports the preserved `topic_mastery` as drift, while `validate --fix` has no
- * mastery repairer and answers "Nothing to repair". An absent pillar stays
- * absent, which is the condition that rule skips on.
- */
-function carriedPillarScores(frontmatter: Record<string, unknown> | null | undefined): Record<string, number> {
-  const scores: Record<string, number> = {};
-  for (const key of PILLAR_KEYS) {
-    const raw = frontmatter?.[key];
-    if (raw !== undefined && raw !== null) {
-      scores[key] = normalizeScore(raw);
-    }
-  }
-  return scores;
 }
 
 /**
@@ -1400,6 +1389,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           absolutePath: item.absolutePath,
           relativePath: item.relativePath,
           originalContent: item.originalContent,
+          writtenFingerprint: computeFingerprint(item.updatedContent),
         });
       }
 
