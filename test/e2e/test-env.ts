@@ -21,6 +21,7 @@ export interface TestVaultEnv {
     steps: Array<{ waitFor: RegExp; write: string }>
   ) => Promise<CLIResult>;
   createTopic: (filename: string, frontmatter: Record<string, unknown>, body?: string) => string;
+  createTopics: (ids: string[]) => void;
   updateTopic: (filename: string, updates: Record<string, unknown>, body?: string) => string;
   readTopic: (filename: string) => { frontmatter: Record<string, unknown> | null; body: string; raw: string };
   readHotMemory: () => { frontmatter: Record<string, unknown> | null; body: string; raw: string } | null;
@@ -217,6 +218,22 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     return fullPath;
   };
 
+  /**
+   * Seeds one minimal adopted note per `palee_id`.
+   *
+   * @remarks
+   * `session`, `review` and `assess` resolve a topic argument against the vault, so
+   * a test that names a topic has to own the note carrying that id. The title
+   * mirrors the id because an exact `palee_id` wins outright in `resolveTopicQuery`,
+   * which keeps a seeded neighbour from turning the query ambiguous. Notes go under
+   * `seed/` so they cannot collide with files a test writes itself.
+   */
+  const createTopics = (ids: string[]): void => {
+    for (const id of ids) {
+      createTopic(path.join('seed', `${id}.md`), { palee_id: id, title: id });
+    }
+  };
+
   const updateTopic = (filename: string, updates: Record<string, unknown>, body?: string): string => {
     const fullPath = path.isAbsolute(filename) ? filename : path.join(vaultDir, filename);
     if (!fs.existsSync(fullPath)) {
@@ -300,6 +317,7 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     run,
     runInteractive,
     createTopic,
+    createTopics,
     updateTopic,
     readTopic,
     readHotMemory,

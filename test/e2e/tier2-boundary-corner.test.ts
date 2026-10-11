@@ -126,6 +126,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
   // =========================================================================
   describe('Session Duration & Timestamp Edge Cases', () => {
     test('B3.1: instantaneous session start and end generates valid session record', () => {
+      env.createTopics(['T-instant']);
       const res = env.run(['session', 'end', '--topic', 'T-instant']);
       assert.strictEqual(res.status, 0);
 
@@ -138,6 +139,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B3.2: session draft then immediate end preserves draft timestamp', () => {
+      env.createTopics(['T-quick']);
       env.run(['session', 'draft', '--topic', 'T-quick']);
       const draftName = env.listSessions().drafts[0];
       const draftContent = env.readTopic(path.join('.palee', 'sessions', draftName));
@@ -202,6 +204,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
   // =========================================================================
   describe('Multiple Drafts & Checkpoint Resilience', () => {
     test('B4.1: session start in non-interactive mode warns when drafts exist and exits with code 2', () => {
+      env.createTopics(['T-pending-1', 'T-pending-2']);
       env.run(['session', 'draft', '--topic', 'T-pending-1']);
       env.run(['session', 'draft', '--topic', 'T-pending-2']);
 
@@ -212,6 +215,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.2: session start --json reports draft_count and draft names when drafts exist', () => {
+      env.createTopics(['T-json-draft']);
       env.run(['session', 'draft', '--topic', 'T-json-draft']);
 
       const res = env.run(['session', 'start', '--json']);
@@ -233,6 +237,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.4: draft recovery ignore preserves draft without converting to session', () => {
+      env.createTopics(['T-ignore-test']);
       env.run(['session', 'draft', '--topic', 'T-ignore-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
@@ -260,6 +265,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const hotBefore = env.readHotMemory();
       assert.ok(hotBefore, 'hot.md should exist after the baseline start');
 
+      env.createTopics(['T-resume-test']);
       env.run(['session', 'draft', '--topic', 'T-resume-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
@@ -292,6 +298,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.6: draft recovery save via interactive menu converts draft to session inheriting started_at', () => {
+      env.createTopics(['T-save-test']);
       env.run(['session', 'draft', '--topic', 'T-save-test']);
       const draftName = env.listSessions().drafts[0];
       assert.strictEqual(env.listSessions().drafts.length, 1);
@@ -345,6 +352,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
+      env.createTopics(['T-mixed-first', 'T-mixed-second']);
       env.run(['session', 'draft', '--topic', 'T-mixed-first']);
       env.run(['session', 'draft', '--topic', 'T-mixed-second']);
       const draftsBefore = env.listSessions().drafts;
@@ -403,6 +411,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.8: unmatched draft recovery input re-prompts the menu without resolving the draft', async () => {
+      env.createTopics(['T-reprompt-test']);
       env.run(['session', 'draft', '--topic', 'T-reprompt-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
@@ -424,6 +433,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.9: EOF reached mid-menu exits 2 and leaves the never-answered draft pending', async () => {
+      env.createTopics(['T-eof-partial', 'T-eof-unanswered']);
       env.run(['session', 'draft', '--topic', 'T-eof-partial']);
       env.run(['session', 'draft', '--topic', 'T-eof-unanswered']);
       const draftsBefore = env.listSessions().drafts;
@@ -466,6 +476,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     });
 
     test('B4.10: stdin closing before any answer leaves every draft pending and exits 2', async () => {
+      env.createTopics(['T-eof-none-1', 'T-eof-none-2']);
       env.run(['session', 'draft', '--topic', 'T-eof-none-1']);
       env.run(['session', 'draft', '--topic', 'T-eof-none-2']);
       const draftsBefore = env.listSessions().drafts;

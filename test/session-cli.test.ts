@@ -22,6 +22,29 @@ describe('Session CLI In-Process Coverage', () => {
 
     // Set config vaultPath
     saveConfig({ vaultPath: vaultDir });
+
+    // #302: `session` resolves an explicit `--topic` against the vault, so every id
+    // the actions below pass has to be a real adopted note. Seeded once here;
+    // `beforeEach` wipes only `.palee/`, never these notes.
+    for (const id of [
+      'T-draft-test',
+      'T-pending-draft',
+      'T-start-topic',
+      'T-inherited-topic',
+      'T-multi-draft',
+      'T-stale-tier1',
+      'T-stale-hot',
+      'T-hot-recover',
+      'T-adhoc-end',
+      'T-corrupt-draft',
+      'T-future-test',
+      'T-ongoing-topic',
+    ]) {
+      seedTopic(id);
+    }
+    // Carries a title that is not its id, so resolution is observable: the query
+    // and the answer differ.
+    seedTopic('T-kubernetes-basics', 'Kubernetes Basics');
   });
 
   after(() => {
@@ -51,9 +74,46 @@ describe('Session CLI In-Process Coverage', () => {
     }
   });
 
-  test('resolveSessionTopic returns explicit topic if given', () => {
-    const topic = resolveSessionTopic(vaultDir, 'T-kubernetes-basics');
-    assert.strictEqual(topic, 'T-kubernetes-basics');
+  /**
+   * Writes one minimal adopted topic note into the fixture vault.
+   *
+   * @param id - The `palee_id` to write
+   * @param title - Optional title, defaulting to the id
+   * @remarks
+   * `resolveTopicQuery` lets an exact `palee_id` win outright, so keeping the ids
+   * distinct means a query copied from a test can never turn ambiguous by another
+   * seeded note.
+   */
+  function seedTopic(id: string, title = id): void {
+    fs.writeFileSync(
+      path.join(vaultDir, `${id}.md`),
+      [
+        '---',
+        'palee_schema: 1',
+        `palee_id: ${id}`,
+        `title: ${title}`,
+        'depends_on: []',
+        'topic_mastery: 0',
+        '---',
+        '',
+        `# ${title}`,
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+  }
+
+  test('resolveSessionTopic resolves an explicit query to the vault topic it names', () => {
+    // #302. This test used to pin the bug: it handed back any non-empty string
+    // verbatim, which is why `session start --topic T-does-not-exist-999` wrote real
+    // session files for a topic the vault has never heard of. The fixture now owns
+    // the adopted note, so the proof is resolution, not passthrough — a title query
+    // returns the canonical `palee_id` (a different string than the one passed in),
+    // and an id no note carries returns no topic at all.
+    assert.strictEqual(resolveSessionTopic(vaultDir, 'T-kubernetes-basics'), 'T-kubernetes-basics');
+    assert.strictEqual(resolveSessionTopic(vaultDir, 'Kubernetes Basics'), 'T-kubernetes-basics');
+    assert.strictEqual(resolveSessionTopic(vaultDir, 'kubernetes'), 'T-kubernetes-basics');
+    assert.strictEqual(resolveSessionTopic(vaultDir, 'T-does-not-exist-999'), null);
   });
 
   test('resolveSessionTopic returns null for explicit (none) or whitespace (none)', () => {

@@ -55,6 +55,33 @@ describe('palee session end containment', () => {
   });
 
   /**
+   * Writes the adopted note `--topic T-264` needs to resolve to.
+   *
+   * @remarks #302 made `session` resolve its topic against the vault before it
+   * writes anything, so an empty vault now exits 2 on a phantom ID and never reaches
+   * the write guard these tests exist to pin. The note keeps the repro honest: the
+   * topic is real, only its destination escapes.
+   */
+  function writeTopicNote(vault: string): void {
+    fs.writeFileSync(
+      path.join(vault, 't264.md'),
+      [
+        '---',
+        'palee_schema: 1',
+        'palee_id: T-264',
+        'title: Containment Fixture Topic',
+        'depends_on: []',
+        'topic_mastery: 0',
+        '---',
+        '',
+        '# Containment Fixture Topic',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+  }
+
+  /**
    * Builds a fresh vault + config dir. With `junctionSessions`, the vault's
    * `.palee/sessions` is a link to a directory that sits outside the vault.
    */
@@ -76,6 +103,7 @@ describe('palee session end containment', () => {
       JSON.stringify({ vaultPath: vault }, null, 2),
       'utf8'
     );
+    writeTopicNote(vault);
 
     const sessionsDir = path.join(vault, '.palee', 'sessions');
     if (junctionSessions) {
@@ -163,6 +191,7 @@ describe('palee session end containment', () => {
     const paleeDir = path.join(vault, '.palee');
     fs.symlinkSync(outsidePalee, paleeDir, LINK_TYPE);
     createdLinks.push(paleeDir);
+    writeTopicNote(vault);
 
     const result = runCLI(configDir, ['session', 'end', '--topic', 'T-264']);
 
@@ -178,6 +207,10 @@ describe('palee session end containment', () => {
       [],
       'the refusal must create nothing outside the vault, not even .palee/sessions'
     );
-    assert.deepStrictEqual(fs.readdirSync(vault), ['.palee'], 'the vault gains no directory either');
+    assert.deepStrictEqual(
+      fs.readdirSync(vault).sort(),
+      ['.palee', 't264.md'],
+      'the vault gains no directory either — only the fixture note it started with'
+    );
   });
 });

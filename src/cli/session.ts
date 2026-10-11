@@ -11,6 +11,7 @@ import { ExitCode, exitCodeFor } from './exit-codes';
 import fs from 'fs';
 import path from 'path';
 import {
+  loadTopics,
   getDrafts,
   getTopicDrafts,
   deleteTopicDrafts,
@@ -25,35 +26,170 @@ import {
   generateDraftId,
   recoverDraft,
 } from '../storage';
+import type { LoadedTopic } from '../storage';
+import { resolveTopicQuery } from './topic-query';
 import { DraftRecoveryAction, SessionOptions } from '../types';
+
+/**
+ * The outcome of deciding which topic a session action belongs to.
+ *
+ * @remarks
+ * `not-found` and `ambiguous` are separate kinds because the learner needs a
+ * different remedy for each: a typo is retyped, while a substring that several
+ * topics share has to be narrowed to one of the listed candidates.
+ */
+export type SessionTopicOutcome =
+  | { kind: 'topic'; topicId: string }
+  | { kind: 'none' }
+  | { kind: 'not-found'; query: string }
+  | { kind: 'ambiguous'; query: string; candidates: LoadedTopic[] };
+
+/** The two outcomes that are a refused `--topic` argument rather than a decision. */
+type SessionTopicFailure = Extract<SessionTopicOutcome, { kind: 'not-found' | 'ambiguous' }>;
+
+/**
+ * Narrows a {@link SessionTopicOutcome} to the two kinds that must stop the action.
+ *
+ * @param outcome - The resolution to classify
+ * @returns `true` when the argument named no topic or several of them
+ */
+function isSessionTopicFailure(outcome: SessionTopicOutcome): outcome is SessionTopicFailure {
+  return outcome.kind === 'not-found' || outcome.kind === 'ambiguous';
+}
+
+/**
+ * Resolves the active topic identifier for a study session, against the vault.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param explicitTopic - Optional topic query passed explicitly via `--topic`
+ * @returns The full resolution: a topic ID, or the reason the argument could not
+ * be turned into one
+ * @remarks
+ * An explicit `--topic` is resolved the same way `review` and `assess` resolve
+ * their topic argument — through {@link resolveTopicQuery} — so the session is
+ * recorded against the topic's canonical `palee_id` and a query naming nothing
+ * (or several things) is refused instead of being written out verbatim (#302).
+ * A query matching one topic exactly also matches a title, so
+ * `session start --topic "Recursion"` records whatever ID that title resolves to.
+ *
+ * When `--topic` is omitted, the fallback stays hot memory's `active_topic` and is
+ * *not* re-resolved: `hot.md` is canonical, and refusing to end a session because
+ * the note was deleted or renamed since the session started would destroy real
+ * work. That fallback is only reachable through a value the learner was allowed to
+ * store, which is exactly what the explicit path above now guarantees.
+ * @example
+ * ```typescript
+ * const outcome = resolveSessionTopicResolution('/vault', 'topic-linear-algebra');
+ * if (outcome.kind === 'topic') console.log(outcome.topicId);
+ * ```
+ */
+export function resolveSessionTopicResolution(
+  vaultPath: string,
+  explicitTopic?: string,
+  options: { tolerateActiveTopic?: boolean } = {}
+): SessionTopicOutcome {
+  const trimmed = typeof explicitTopic === 'string' ? explicitTopic.trim() : '';
+  if (trimmed.length > 0) {
+    if (trimmed.toLowerCase() === '(none)') return { kind: 'none' };
+    const resolution = resolveTopicQuery(loadTopics(vaultPath), trimmed);
+    if (resolution.kind === 'none') {
+      // #313: an explicit `--topic` that names the in-flight session's stored
+      // `active_topic` is tolerated for end/draft even when the note was
+      // deleted or renamed since the session started. Refusing would discard
+      // recorded work for the exact reason the omit path trusts `hot.md`
+      // verbatim — and the match is only against a value the learner was
+      // already allowed to store, so it cannot resurrect a phantom `start`.
+      if (options.tolerateActiveTopic) {
+        try {
+          const active = resolveActiveTopic(readHotMemory(vaultPath));
+          if (active && active === trimmed) return { kind: 'topic', topicId: active };
+        } catch {
+          // fall through to not-found
+        }
+      }
+      return { kind: 'not-found', query: trimmed };
+    }
+    if (resolution.kind === 'ambiguous') {
+      return { kind: 'ambiguous', query: trimmed, candidates: resolution.candidates };
+    }
+    return { kind: 'topic', topicId: resolution.topic.palee_id };
+  }
+
+  // Check .palee/hot.md for active_topic; read/parse failures mean no active topic
+  try {
+    const active = resolveActiveTopic(readHotMemory(vaultPath));
+    return active ? { kind: 'topic', topicId: active } : { kind: 'none' };
+  } catch {
+    return { kind: 'none' };
+  }
+}
 
 /**
  * Resolves the active topic identifier for a study session.
  *
  * @param vaultPath - Absolute path to Obsidian vault root
- * @param explicitTopic - Optional topic ID passed explicitly via `--topic`
- * @returns The resolved topic ID, or `null` if none active
- * @remarks Prioritizes explicit topic override before falling back to `hot.md` active topic.
+ * @param explicitTopic - Optional topic query passed explicitly via `--topic`
+ * @returns The resolved topic ID, or `null` if none
+ * @remarks Convenience wrapper over {@link resolveSessionTopicResolution} for
+ * callers that only need the ID; use that function when the reason a `null` came
+ * back has to be reported (a phantom `--topic` and a missing `active_topic` are
+ * both `null` here but exit with different messages).
  * @example
  * ```typescript
  * const topic = resolveSessionTopic('/vault', 'topic-linear-algebra');
  * ```
  */
 export function resolveSessionTopic(vaultPath: string, explicitTopic?: string): string | null {
-  if (explicitTopic && explicitTopic.trim().length > 0) {
-    const trimmed = explicitTopic.trim();
-    if (trimmed.toLowerCase() !== '(none)') {
-      return trimmed;
+  const outcome = resolveSessionTopicResolution(vaultPath, explicitTopic);
+  return outcome.kind === 'topic' ? outcome.topicId : null;
+}
+
+/**
+ * Reports a `--topic` argument that could not be resolved to one topic.
+ *
+ * @param outcome - The failed {@link SessionTopicOutcome}
+ * @param jsonMode - Whether to emit the machine-readable form
+ * @returns `true`; the caller returns after calling this
+ * @remarks
+ * Sets {@link ExitCode.Usage} (2) — a wrong or ambiguous argument is usage, not a
+ * crash, and the same class `review`/`assess` already exit 2 for. Wording matches
+ * `review` so the identical string produces the identical complaint whichever
+ * command the learner typed it into; in JSON mode the same sentence travels in the
+ * `error` field, as `progress --json` does.
+ * @example
+ * ```typescript
+ * if (isSessionTopicFailure(outcome)) {
+ *   reportUnresolvedSessionTopic(outcome, false);
+ *   return;
+ * }
+ * ```
+ */
+function reportUnresolvedSessionTopic(outcome: SessionTopicFailure, jsonMode: boolean): true {
+  if (outcome.kind === 'ambiguous') {
+    const matches = outcome.candidates.map((c) => c.palee_id);
+    if (jsonMode) {
+      console.error(JSON.stringify({
+        error: `Multiple topics match: ${outcome.query}`,
+        matches,
+      }));
+    } else {
+      console.error(`Error: Multiple topics match "${outcome.query}":`);
+      for (const candidate of outcome.candidates) {
+        console.error(`  - ${candidate.palee_id}: ${candidate.title}`);
+      }
+      console.error('Please provide a more specific query.');
     }
-    return null;
+    process.exitCode = ExitCode.Usage;
+    return true;
   }
 
-  // Check .palee/hot.md for active_topic; read/parse failures mean no active topic
-  try {
-    return resolveActiveTopic(readHotMemory(vaultPath));
-  } catch {
-    return null;
+  if (jsonMode) {
+    console.error(JSON.stringify({ error: `No topic found matching "${outcome.query}"` }));
+  } else {
+    console.error(`Error: No topic found matching "${outcome.query}"`);
   }
+  process.exitCode = ExitCode.Usage;
+  return true;
 }
 
 /**
@@ -184,6 +320,20 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
       }
 
+      // #302: an explicit `--topic` is resolved against the vault before anything is
+      // written, so a phantom ID cannot even leave the derived views pointing at it.
+      // Without the flag there is nothing to validate yet: the hot-memory fallback
+      // stays where it is below, so the `hot.md` read order that
+      // `test/session-hot-reads.test.ts` characterizes is untouched.
+      const explicitOutcome =
+        options.topic && options.topic.trim().length > 0
+          ? resolveSessionTopicResolution(vaultPath, options.topic)
+          : null;
+      if (explicitOutcome && isSessionTopicFailure(explicitOutcome)) {
+        reportUnresolvedSessionTopic(explicitOutcome, jsonMode);
+        return;
+      }
+
       // Check / rebuild hot memory
       const hotPath = path.join(vaultPath, '.palee', 'hot.md');
       if (!fs.existsSync(hotPath)) {
@@ -211,7 +361,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         throw new Error('.palee/hot.md disappeared during session start');
       }
 
-      const resolvedTopic = resolveSessionTopic(vaultPath, options.topic);
+      const resolvedTopic = explicitOutcome
+        ? explicitOutcome.kind === 'topic'
+          ? explicitOutcome.topicId
+          : null
+        : resolveSessionTopic(vaultPath, options.topic);
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
       if (resolvedTopic) {
@@ -262,7 +416,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'draft') {
-      const topicId = resolveSessionTopic(vaultPath, options.topic);
+      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic, { tolerateActiveTopic: true });
+      if (isSessionTopicFailure(topicOutcome)) {
+        reportUnresolvedSessionTopic(topicOutcome, jsonMode);
+        return;
+      }
+      const topicId = topicOutcome.kind === 'topic' ? topicOutcome.topicId : null;
       if (!topicId) {
         console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
         process.exitCode = 2;
@@ -307,7 +466,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'end') {
-      const topicId = resolveSessionTopic(vaultPath, options.topic);
+      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic, { tolerateActiveTopic: true });
+      if (isSessionTopicFailure(topicOutcome)) {
+        reportUnresolvedSessionTopic(topicOutcome, jsonMode);
+        return;
+      }
+      const topicId = topicOutcome.kind === 'topic' ? topicOutcome.topicId : null;
       if (!topicId) {
         console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
         process.exitCode = 2;
