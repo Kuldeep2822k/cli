@@ -237,14 +237,17 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
       write(`n${i}.md`, ADOPTED.replace('T-alpha', `T-n${i}`).replace('# My own key: 17', ''));
     }
 
-    const paths = Array.from({ length: 6 }, (_, i) => path.join(vaultDir, `n${i}.md`));
+    const driftNames = new Set(Array.from({ length: 6 }, (_, i) => `n${i}.md`));
     const realRead = fs.readFileSync;
     const seen = new Map<string, number>();
     // Every note is modified after the plan read, so the refusal must list five and
     // summarise the sixth rather than truncate silently or dump the whole set.
+    // Matched on basename: the CLI canonicalises the vault, so on macOS these paths
+    // arrive as `/private/var/...` while the suite's are `/var/...`, and a path
+    // comparison would silently never fire there.
     (fs as any).readFileSync = (...args: unknown[]): unknown => {
       const target = args[0];
-      if (typeof target === 'string' && paths.includes(target)) {
+      if (typeof target === 'string' && driftNames.has(path.basename(target))) {
         const n = (seen.get(target) ?? 0) + 1;
         seen.set(target, n);
         if (n >= 2) return Buffer.from(`${realRead(target).toString('utf8')}\n<!-- drifted -->\n`, 'utf8');
@@ -268,11 +271,18 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
     const exit = process.exitCode;
     process.exitCode = priorExit;
 
+    // The stub must have actually fired, or this test proves nothing: on a platform
+    // where the CLI's canonical path differs from the suite's, a path-keyed match
+    // would leave every read untouched and the exit code would be 0 for the wrong
+    // reason.
+    assert.equal(seen.size, 6, `expected all six notes re-read, saw ${[...seen.keys()].join(', ')}`);
+    assert.ok([...seen.values()].every((n) => n >= 2), 'each note must be read at plan time and again before commit');
     assert.equal(exit, 4, logged.join(' | '));
     assert.ok(logged.some((l) => /OCC conflict: 6 note\(s\) were modified/.test(l)), logged.join(' | '));
     assert.ok(logged.some((l) => /… and 1 more/.test(l)), logged.join(' | '));
-    for (const p of paths) {
-      assert.doesNotMatch(fs.readFileSync(p, 'utf8'), /drifted/, `${p} must be untouched`);
+    for (const name of driftNames) {
+      const p = path.join(vaultDir, name);
+      assert.doesNotMatch(fs.readFileSync(p, 'utf8'), /drifted/, `${name} must be untouched`);
     }
   });
 
@@ -295,7 +305,8 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
       'utf8',
     );
     (fs as any).readFileSync = (...args: unknown[]): unknown => {
-      if (args[0] === alphaPath) {
+      // Basename-keyed, for the same macOS canonical-path reason as the test above.
+      if (typeof args[0] === 'string' && path.basename(args[0]) === path.basename(alphaPath)) {
         readsOfAlpha += 1;
         if (readsOfAlpha >= 2) return tampered;
       }
@@ -318,6 +329,10 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
     const exit = process.exitCode;
     process.exitCode = priorExit;
 
+    assert.ok(
+      readsOfAlpha >= 2,
+      `expected the note to be read at plan time and again before commit, got ${readsOfAlpha} reads`,
+    );
     assert.equal(exit, 4, `expected the OCC exit code, logged: ${logged.join(' | ')}`);
     assert.ok(
       logged.some((line) => /OCC conflict: 1 note\(s\) were modified while this run was planning; nothing was un-adopted\./.test(line)),
