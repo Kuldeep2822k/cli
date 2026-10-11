@@ -47,10 +47,21 @@ describe('program name follows the invoked bin (#314)', () => {
    */
   function runAs(invokedName: string, args: string[], env?: Record<string, string>): Run {
     const realEntry = path.resolve(ROOT, PALEE_ARGV[PALEE_ARGV.length - 1]);
-    const entry = path.join(path.dirname(realEntry), invokedName);
+    // Everything after the entry must be loaded the same way the real entry is.
+    // Under coverage (`npm run test:coverage`, which is what CI's test matrix
+    // runs) PALEE_ARGV points at the TypeScript source behind `--import tsx`;
+    // a copy named `palee-test.js` there is TypeScript handed to bare `node`,
+    // which dies at exit 1 — that is why this file passed locally on the `dist`
+    // path and failed on every CI leg. So: reuse the parent's loader flags, and
+    // when the parent loads TypeScript, keep that extension on the copy.
+    const loaderFlags = PALEE_ARGV.slice(0, -1);
+    const entryExt = path.extname(realEntry);
+    const underTsx = entryExt === '.ts' || entryExt === '.tsx';
+    const copyName = underTsx ? `${invokedName.replace(/\.[A-Za-z]+$/, '')}${entryExt}` : invokedName;
+    const entry = path.join(path.dirname(realEntry), copyName);
     fs.copyFileSync(realEntry, entry);
     try {
-      const result = spawnSync(process.execPath, [entry, ...args], {
+      const result = spawnSync(process.execPath, [...loaderFlags, entry, ...args], {
         cwd: ROOT,
         env: { ...process.env, PALEE_CONFIG_DIR: configDir, ...(env || {}) },
         encoding: 'utf8',
