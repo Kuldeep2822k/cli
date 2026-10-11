@@ -32,10 +32,27 @@ program
   // those into `CommanderError` throws so the catch below can map them (#192).
   .exitOverride();
 
+// The one per-run config override, in the place a user looks for how the run is
+// scoped. `PALEE_CONFIG_DIR` was documented in the guides and in no help text, so
+// nothing told a scripted run that omitting it silently re-targets every command
+// at the machine-global config and the vault it names (#311). `afterAll` is what
+// makes it reach `palee <command> --help` too, not just `palee --help`.
+program.addHelpText('afterAll', `
+
+Environment:
+  PALEE_CONFIG_DIR  Directory holding config.json. Unset, palee reads and writes the
+                    machine-global config (%LOCALAPPDATA%\\palee on Windows,
+                    ~/.config/palee elsewhere), so every command on this machine
+                    shares one config and the vault it names. Mutating commands
+                    (adopt, roadmap, review, assess, session, migrate) print the
+                    resolved vault and config path; set PALEE_CONFIG_DIR per run to
+                    isolate them.
+`);
+
 // palee config
 program
   .command('config')
-  .description('Manage PALEE configuration')
+  .description('Manage PALEE configuration (reads $PALEE_CONFIG_DIR/config.json; unset means the machine-global config)')
   .argument('[action]', 'Action: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model')
   .argument('[value]', 'Value for set-* actions (never the API key)')
   .option('--from-env <var>', 'environment variable to read the API key from (set-api-key)')

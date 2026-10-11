@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { loadConfig } from './config';
-import { validateVaultPath } from './onboarding';
+import { resolveVaultTarget } from './vault-echo';
 import { exitCodeFor } from './exit-codes';
 import { resolveTopicQuery } from './topic-query';
 import {
@@ -92,8 +92,10 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     }
 
     const config = loadConfig();
-    const vaultPath = validateVaultPath(config.vaultPath);
-    if (!vaultPath) return;
+    // An assessment rewrites the note it scores, so it names the vault it wrote into (#311).
+    const target = resolveVaultTarget(config);
+    if (!target) return;
+    const vaultPath = target.vaultPath;
     const loaded = loadTopics(vaultPath);
     const resolution = resolveTopicQuery(loaded, topicQuery);
 
