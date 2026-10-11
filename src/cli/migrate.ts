@@ -11,6 +11,7 @@ import {
   type LoadedTopic,
 } from '../storage';
 import { tiedByName, compareLessonOrderTier0 } from '../engine/auto-chain';
+import { programName } from './program-name';
 import { classifyNoteForChain } from '../engine/tier0-hygiene';
 import { MigrateOptions } from '../types';
 
@@ -444,7 +445,7 @@ async function reportStoredTies(
       // told to run `--relabel-ties` against unlabeled notes would get the same
       // silent exit 0 that #266 is about.
       const hint = unlabeledCount > 0 ? '--relabel-ties --include-unlabeled-ties' : '--relabel-ties';
-      console.log(`Tip: Run "palee migrate ${hint}" to rewrite the label. \`depends_on\` is`);
+      console.log(`Tip: Run "${programName()} migrate ${hint}" to rewrite the label. \`depends_on\` is`);
       console.log('     never touched, and a relabelled note is no longer held off `palee plan`.');
       if (unlabeledCount > 0) {
         console.log(`     Add "--dry-run" first: these ${unlabeledCount} note(s) have no label, so the`);
@@ -660,7 +661,7 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       }
       console.log();
       if (missingSchema.length > 0 && !options.fix) {
-        console.log('Tip: Run "palee migrate --fix" to automatically upgrade notes missing palee_schema to Schema v1.');
+        console.log(`Tip: Run "${programName()} migrate --fix" to automatically upgrade notes missing palee_schema to Schema v1.`);
       }
       console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
       process.exitCode = ExitCode.Validation;
