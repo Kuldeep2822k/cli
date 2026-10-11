@@ -579,10 +579,29 @@ Body content.
   test('session end records session when explicit topic is provided', () => {
     const sessionTestVault = path.join(tempDir, 'session-vault-explicit');
     fs.mkdirSync(sessionTestVault, { recursive: true });
+    // #302: `--topic` is resolved against the vault now, so the topic this test ends
+    // has to be an adopted note. It is written by hand rather than via `palee adopt`
+    // to keep the fixture free of the network/provider path.
+    fs.writeFileSync(
+      path.join(sessionTestVault, 'docker.md'),
+      [
+        '---',
+        'palee_schema: 1',
+        'palee_id: T-docker-basics',
+        'title: Docker Basics',
+        'depends_on: []',
+        'topic_mastery: 0',
+        '---',
+        '',
+        '# Docker Basics',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
     runCLI(['config', 'set-vault', sessionTestVault]);
 
     const result = runCLI(['session', 'end', '--topic', 'T-docker-basics']);
-    assert.strictEqual(result.status, 0);
+    assert.strictEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /Session recorded/);
 
     // Verify session note exists and has T-docker-basics topic_id
