@@ -11,6 +11,7 @@ import {
   atomicWrite,
 } from '../storage';
 import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../engine/mastery';
+import { programName } from './program-name';
 import {
   PILLARS,
   Pillar,
@@ -74,7 +75,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const given = PILLARS.filter((p) => options[p] !== undefined);
     if (given.length === 0) {
       console.error('Error: assess needs at least one pillar score');
-      console.error('Usage: palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]');
+      console.error(`Usage: ${programName()} assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]`);
       console.error('Each score is a number from 0 to 1.');
       process.exitCode = 2;
       return;

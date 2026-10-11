@@ -5,6 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { programName } from './program-name';
 
 export interface VaultValidationOptions {
   json?: boolean;
@@ -67,7 +68,7 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
   }
 
   if (!vaultPath) {
-    reportError('Vault path not configured. Run: palee config set-vault <path>');
+    reportError(`Vault path not configured. Run: ${programName()} config set-vault <path>`);
     return null;
   }
 
@@ -113,10 +114,11 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
  * ```
  */
 export function printEmptyVaultOnboarding(): void {
+  const bin = programName();
   console.log('No topics found in vault.\n');
   console.log('To get started:');
   console.log('  • Adopt an existing note:');
-  console.log('    palee adopt "path/to/note.md"\n');
+  console.log(`    ${bin} adopt "path/to/note.md"\n`);
   console.log('  • Import a curriculum roadmap:');
-  console.log('    palee roadmap --from <file.yaml>\n');
+  console.log(`    ${bin} roadmap --from <file.yaml>\n`);
 }
