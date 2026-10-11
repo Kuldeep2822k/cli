@@ -113,7 +113,7 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
   // Challenge Area 2: Non-ENOENT Pre-Read Error Handling in memory.ts
   // =========================================================================
   describe('Area 2: Non-ENOENT Error Handling in memory.ts', () => {
-    test('writeSessionNote rethrows non-ENOENT errors (e.g. EACCES / EBUSY) and does NOT set expectedFingerprint = null', async () => {
+    test('writeSessionNote rethrows non-ENOENT errors (e.g. EACCES / EBUSY) instead of stating an expectExists: false creation claim', async () => {
       const targetPath = path.join(env.vaultDir, '.palee', 'sessions', 'S-test-eacces.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
@@ -153,13 +153,21 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
         }
 
         assert.strictEqual(threwEACCES, true, 'writeSessionNote must rethrow non-ENOENT EACCES error');
+        // #327 re-pin: only `ENOENT` may state the absence expectation. A permission
+        // error must not be downgraded into `{ expectExists: false }`, which would let
+        // the write go ahead and mint a session note over a file it could not read.
+        assert.strictEqual(
+          originalExistsSync(targetPath),
+          false,
+          'the rethrown EACCES must not have produced a first-creation write'
+        );
       } finally {
         (fs as any).readFileSync = originalReadFileSync;
         (fs as any).existsSync = originalExistsSync;
       }
     });
 
-    test('updateHotMemory rethrows EBUSY / EPERM and does NOT bypass OCC', async () => {
+    test('updateHotMemory rethrows EBUSY / EPERM instead of stating an expectExists: false creation claim', async () => {
       const targetPath = path.join(env.vaultDir, '.palee', 'hot.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
@@ -187,13 +195,21 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
           assert.strictEqual(err.code, 'EBUSY');
         }
         assert.strictEqual(threwEBUSY, true, 'updateHotMemory must rethrow EBUSY error');
+        // #327 re-pin: `EBUSY` is not absence. Downgrading it to the creation
+        // expectation would let `hot.md` be minted from a summary the reader never
+        // actually got, with no OCC left in the write to notice.
+        assert.strictEqual(
+          originalExistsSync(targetPath),
+          false,
+          'the rethrown EBUSY must not have produced a first-creation write'
+        );
       } finally {
         (fs as any).readFileSync = originalReadFileSync;
         (fs as any).existsSync = originalExistsSync;
       }
     });
 
-    test('regenerateIndex rethrows EPERM and does NOT downgrade expectedFingerprint', async () => {
+    test('regenerateIndex rethrows EPERM instead of stating an expectExists: false creation claim', async () => {
       const targetPath = path.join(env.vaultDir, '.palee', 'index.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
@@ -221,13 +237,21 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
           assert.strictEqual(err.code, 'EPERM');
         }
         assert.strictEqual(threwEPERM, true, 'regenerateIndex must rethrow EPERM error');
+        // #327 re-pin: the rethrow is what keeps a rebuild from replacing an
+        // unreadable `index.md` with a fresh one. The absence expectation it did NOT
+        // take is the one that would have disabled the write's OCC guard.
+        assert.strictEqual(
+          originalExistsSync(targetPath),
+          false,
+          'the rethrown EPERM must not have produced a first-creation write'
+        );
       } finally {
         (fs as any).readFileSync = originalReadFileSync;
         (fs as any).existsSync = originalExistsSync;
       }
     });
 
-    test('writeDraftCheckpoint rethrows EACCES without bypassing OCC', async () => {
+    test('writeDraftCheckpoint rethrows EACCES instead of stating an expectExists: false creation claim', async () => {
       const targetPath = path.join(env.vaultDir, '.palee', 'sessions', 'DRAFT-S-err.md');
       const originalReadFileSync = fs.readFileSync;
       const originalExistsSync = fs.existsSync;
@@ -255,6 +279,14 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
           assert.strictEqual(err.code, 'EACCES');
         }
         assert.strictEqual(threwEACCES, true, 'writeDraftCheckpoint must rethrow EACCES error');
+        // #327 re-pin: with absence encoded as `{ expectExists: false }` rather than a
+        // null fingerprint, an unreadable draft is still not a creation the writer is
+        // allowed to claim. Nothing was written here.
+        assert.strictEqual(
+          originalExistsSync(targetPath),
+          false,
+          'the rethrown EACCES must not have produced a first-creation write'
+        );
       } finally {
         (fs as any).readFileSync = originalReadFileSync;
         (fs as any).existsSync = originalExistsSync;
