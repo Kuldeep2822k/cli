@@ -554,4 +554,49 @@ depends_on: []
       assert.strictEqual(dash.next_review.id, 'T-b', 'the oldest scheduled review still wins the slot');
     });
   });
+
+  // ─── BUG-002: `next` must omit archived notes, like plan and dashboard ──────
+
+  describe('next excludes archived topics, matching plan and dashboard (BUG-002)', () => {
+    beforeEach(() => {
+      writeNote(
+        'active.md',
+        `palee_id: T-active
+title: Active
+difficulty: beginner
+topic_mastery: 0
+depends_on: []
+`
+      );
+      writeNote(
+        'archived.md',
+        `palee_id: T-arch
+title: Archived
+difficulty: beginner
+topic_mastery: 0
+status: archived
+depends_on: []
+`
+      );
+    });
+
+    test('next --all --json never lists an archived due topic', async () => {
+      await nextCommand({ all: true, json: true });
+      const data = lastJson();
+      const ids = data.due_topics.map((t: any) => t.id);
+      assert.ok(!ids.includes('T-arch'), `archived topic must not be due in next: ${JSON.stringify(ids)}`);
+      assert.deepStrictEqual(ids, ['T-active']);
+    });
+
+    test('an archived-only vault reports nothing due, agreeing with dashboard', async () => {
+      fs.unlinkSync(path.join(tmpDir, 'active.md'));
+      await nextCommand({ json: true });
+      const next = lastJson();
+      assert.strictEqual(next.next, null, 'next must not recommend an archived note');
+      assert.strictEqual(next.due_count, 0);
+      await dashboardCommand({ json: true });
+      const dash = lastJson();
+      assert.strictEqual(dash.reviews_due, 0, 'dashboard also omits the archived note');
+    });
+  });
 });

@@ -45,7 +45,13 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     if (!vaultPath) return;
 
     const topics = loadTopics(vaultPath);
-    const { dueTopics, totalTopics, blockedTopics } = getNextTopics(topics, new Date());
+    const { dueTopics: actionableDue, totalTopics, blockedTopics } = getNextTopics(topics, new Date());
+    // An archived note is never "next to review". `plan` (activeTopics) and
+    // `dashboard` (status !== 'archived') already exclude archived topics from
+    // Reviews Due, so `next` must agree or it recommends a note the other two
+    // omit (BUG-002). The gate carries `status` precisely so this filter needs
+    // no re-derivation of the ordering rules.
+    const dueTopics = actionableDue.filter((t) => t.status !== 'archived');
 
     const status: NextStatus = dueTopics.length > 0 ? 'ready' :
       blockedTopics.length > 0 ? 'blocked' : 'nothing_due';
