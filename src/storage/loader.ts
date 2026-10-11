@@ -11,6 +11,7 @@ import path from 'path';
 import { walkVault, relativeVaultPath, stemOfNote } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
+import { MAX_NOTE_SOURCE_BYTES } from './source-cap';
 import { normalizeDependencies } from './dependencies';
 import { TopicNode, normalizeDifficulty, normalizeAssessedAt, normalizeDependsOnSource } from '../types';
 
@@ -28,6 +29,57 @@ const topicCache = new FileCache<LoadedTopic>();
  */
 export function getTopicCache(): FileCache<LoadedTopic> {
   return topicCache;
+}
+
+/**
+ * Cached verdict for a file that is not a PALEE topic note.
+ *
+ * @remarks
+ * `FileCache.get` returns `T | null` where `null` already means "not cached",
+ * so a negative verdict needs its own value shape — a marker object the loader
+ * recognizes — rather than a falsy payload (Issue #331).
+ */
+export interface NonTopicNote {
+  /** Discriminant: this path was parsed and carries no usable `palee_id` */
+  readonly palee_non_topic: true;
+}
+
+/** Single shared marker payload: the path is the state, the value never varies. */
+const NON_TOPIC: NonTopicNote = { palee_non_topic: true };
+
+/**
+ * Cap on negatively cached non-topic verdicts (Issue #331).
+ *
+ * @remarks
+ * Non-topic markers live in their own {@link FileCache} rather than sharing the
+ * topic cache, because topic lookups must keep their hit rate: in a vault of
+ * several thousand ordinary notes, markers written into the topic cache would
+ * push every real topic past `MAX_CACHE_ENTRIES` on each scan and turn the fix
+ * into a re-parse of the topics it was meant to protect. Separating the caches
+ * bounds the markers on their own cap and leaves topic eviction exactly as it
+ * was. Markers hold no content — path, `mtime`, `size` and a fingerprint each —
+ * so the cap costs well under a megabyte of resident state.
+ */
+export const MAX_NON_TOPIC_CACHE_ENTRIES = 2000;
+
+/** Module-level negative cache: paths known not to be topic notes */
+const nonTopicCache = new FileCache<NonTopicNote>(MAX_NON_TOPIC_CACHE_ENTRIES);
+
+/**
+ * Returns the module-level negative ("not a topic") cache.
+ *
+ * @returns FileCache instance holding non-topic verdicts
+ * @remarks
+ * Companion of {@link getTopicCache} for Issue #331: it exists so a caller or a
+ * test can inspect and clear the negative half of the loader's state. Entries
+ * are fingerprint/mtime-validated exactly like topic entries, so an edited file
+ * that gains a `palee_id` is loaded on the next pass without any clearing.
+ * Unlike the topic cache, it is never injected per call: a snapshot-injected
+ * load (`{ contents }`) reads bytes the disk does not have, so it neither reads
+ * nor writes either cache.
+ */
+export function getNonTopicCache(): FileCache<NonTopicNote> {
+  return nonTopicCache;
 }
 
 /**
@@ -200,6 +252,14 @@ function parseNumber(val: unknown, fallback: number = 0): number {
  * Normalizes all frontmatter fields, sets default SM-2 values if omitted,
  * and extracts prerequisite dependencies from `depends_on` or `dependencies` arrays.
  *
+ * Two bounds keep a repeated load cheap:
+ * - Non-topic verdicts are negatively cached by path in
+ *   {@link getNonTopicCache}, fingerprint-validated like every other entry, so
+ *   an ordinary note costs one `stat` rather than a read plus a YAML parse on
+ *   each scan (#331).
+ * - A file larger than `MAX_NOTE_SOURCE_BYTES` is declined stat-first and never
+ *   read (#332); `scanNotes` reports the same decline as a per-file diagnostic.
+ *
  * Overloads:
  * - `loadTopics(vaultPath, files?)` — legacy positional form; uses the shared topic cache.
  * - `loadTopics(vaultPath, options?)` — options form; pass `{ cache }` to inject a dedicated
@@ -257,7 +317,23 @@ export function loadTopics(
         continue;
       }
 
+      // Negative cache (#331): a path already known not to be a topic note.
+      // The hit costs one `stat`, not a read plus a YAML parse, so scan cost
+      // tracks the topic count instead of the total vault size.
+      if (nonTopicCache.get(filePath)) {
+        continue;
+      }
+
       try {
+        // Stat first (#332): a document over the shared read cap is never
+        // loaded — an exported log or generated index in the vault is not a
+        // note, and reading it whole on every scan made scan cost unbounded.
+        // The scan path reports the same decline as a per-file diagnostic;
+        // here the file simply is not a topic, exactly as an unreadable one is
+        // not, so the skip is silent by design.
+        if (fs.statSync(filePath).size > MAX_NOTE_SOURCE_BYTES) {
+          continue;
+        }
         content = fs.readFileSync(filePath, 'utf8');
       } catch {
         continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
@@ -266,6 +342,11 @@ export function loadTopics(
     const { frontmatter } = parseFrontmatter(content);
 
     if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {
+      // Record the verdict for the next scan. Snapshot bytes are excluded for
+      // the same reason topics are: they are not what the disk holds.
+      if (!fromSnapshot) {
+        nonTopicCache.set(filePath, NON_TOPIC, computeFingerprint(content));
+      }
       continue;
     }
 

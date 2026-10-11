@@ -43,6 +43,27 @@ program
   .action(configCommand);
 
 // palee adopt
+
+/**
+ * Commander argument parser for the repeatable batch filter flags.
+ *
+ * @param value - The option-argument of this occurrence of the flag
+ * @param previous - Everything already accumulated for it, `undefined` on the first
+ * @returns The whole list as one comma-separated pattern string
+ *
+ * @remarks
+ * `--include`/`--exclude`/`--tag` were plain `<patterns>` strings, so a repeated
+ * flag let the last value silently win (#312): `--exclude '*draft*' --exclude
+ * '*template*'` dropped the first pattern and adopted the draft. Joining on commas
+ * keeps the accumulator in the shape the filters already read — `matchesPattern`
+ * and `matchesTags` both split a comma list and OR-fold it — so every value is
+ * consumed by the batch loop and a single comma-separated flag behaves exactly as
+ * before.
+ */
+function collectPatterns(value: string, previous?: string): string {
+  return previous ? `${previous},${value}` : value;
+}
+
 program
   .command('adopt')
   .description('Adopt existing notes as PALEE topics')
@@ -50,14 +71,31 @@ program
   .option('--all', 'Adopt all markdown files across the vault')
   .option('--difficulty <level>', 'Difficulty: beginner, intermediate, advanced')
   .option('--depends-on <ids>', 'Comma-separated topic IDs (single-file mode only)')
-  .option('--include <patterns>', 'Comma-separated inclusion glob patterns')
-  .option('--exclude <patterns>', 'Comma-separated exclusion glob patterns')
-  .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter')
+  .option('--include <patterns>', 'Comma-separated inclusion glob patterns (batch mode; repeatable)', collectPatterns)
+  .option('--exclude <patterns>', 'Comma-separated exclusion glob patterns (batch mode; repeatable)', collectPatterns)
+  .option('--tag <tags>', 'Comma-separated Obsidian frontmatter tags to filter (batch mode; repeatable)', collectPatterns)
   .option('--dry-run', 'Simulate adoption and print summary without modifying files')
   .option('--verbose', 'Print detailed file-by-file inspection list')
   .option('--auto-chain', 'Auto-wire depends_on from a note\'s own prerequisites, else the numbered tree (batch mode only)')
   .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; toc/full add listing order, which never gates')
   .option('-y, --yes', 'Skip confirmation prompt')
+  // #312 — the glob dialect decides what a filter means and was never written
+  // down anywhere a learner reads: `palee adopt --help` now states it, because a
+  // pattern's `/` is the difference between "this directory tree" and "no file
+  // in this vault, ever".
+  .addHelpText(
+    'after',
+    `
+Pattern syntax for --include / --exclude (batch mode):
+  • A pattern with no "/" matches the note's filename in any directory: '*template*' catches MODULES/01/runbook-template.md.
+  • A pattern with a "/" is anchored at the vault root and must name the whole vault-relative path, segment by segment: 'a/*.md' matches a/x.md but never x.md, and never b/a/x.md.
+  • '*' stops at a directory boundary, '**' crosses it: '**/*.md' is every note in scope, 'MODULES/**' every note under MODULES/.
+  • '?' matches one character; '[0-9]' matches a class and '[!0-9]' a negated one.
+  • Matching ignores case.
+  • Repeat the flag, or separate patterns with commas, to filter on more than one; a pattern that matches no file in the scanned scope is named in a warning.
+  • --include, --exclude and --tag filter a scan, so they are batch mode only: with a single note path they exit 2.
+`
+  )
   .action(adoptCommand);
 
 // palee next
@@ -89,6 +127,7 @@ program
   .description('Record a manual review for a topic')
   .argument('<topic>', 'Topic ID or unique name fragment')
   .argument('<quality>', 'Quality rating (0-5)')
+  .option('--force', 'Record a review before the topic is due without printing the early-review warning')
   .action(reviewCommand);
 
 // palee assess
@@ -148,6 +187,29 @@ program
   .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 
+/**
+ * The raw options commander parsed for the command that is about to run, or
+ * `undefined` when no action ran. The catch below needs to know whether the
+ * user asked for JSON, but it sits outside the action's scope, so the only
+ * honest way to read the *parsed* `--json` option is to have commander hand it
+ * over at the moment it dispatches (#338).
+ */
+let parsedActionOptions: { json?: boolean } | undefined;
+
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  parsedActionOptions = actionCommand.opts() as { json?: boolean };
+});
+
+/**
+ * Whether `PALEE_DEBUG` opts the user into a raw stack trace. Read as an env
+ * var, the same way `src/cli/config.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
+ * flag is added to the documented option surface (#338).
+ */
+function isDebugEnabled(): boolean {
+  const value = process.env.PALEE_DEBUG;
+  return value !== undefined && value !== '' && value !== '0';
+}
+
 // Parse and execute
 program.parseAsync(process.argv).catch((err: unknown) => {
   const cmdErr = err as { code?: unknown; exitCode?: unknown };
@@ -167,7 +229,13 @@ program.parseAsync(process.argv).catch((err: unknown) => {
     return;
   }
 
-  const isJson = process.argv.includes('--json');
+  // JSON mode comes from the option commander parsed for the command that ran
+  // (#338) — a positional `process.argv.includes('--json')` also fires when
+  // `--json` is merely a *value* (`palee config -- --json`). Fall back to that
+  // sniff only when no action ran, so there is nothing parsed to consult.
+  const isJson = parsedActionOptions
+    ? Boolean(parsedActionOptions.json)
+    : process.argv.includes('--json');
   const message = err instanceof Error ? err.message : String(err);
   if (isJson) {
     console.log(JSON.stringify({
@@ -175,8 +243,19 @@ program.parseAsync(process.argv).catch((err: unknown) => {
       code: ExitCode.Unexpected,
       error: message,
     }));
+  } else if (isDebugEnabled() && err instanceof Error && err.stack) {
+    // The message is the user-facing diagnostic; the stack is a debugging
+    // artifact that #338 reports being dumped on every fatal error. It stays
+    // behind `PALEE_DEBUG`.
+    console.error(err.stack);
   } else {
-    console.error(err);
+    console.error(message);
   }
-  process.exit(ExitCode.Unexpected);
+  // #320: exiting through `process.exit` discards writes still queued to a
+  // redirected stdout, so the JSON payload above could arrive truncated for
+  // exactly the piped callers that read it. Setting the code and returning lets
+  // the event loop drain first — the same policy the Commander branch above
+  // follows.
+  process.exitCode = ExitCode.Unexpected;
+  return;
 });

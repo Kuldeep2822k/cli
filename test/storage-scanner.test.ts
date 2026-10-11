@@ -14,6 +14,39 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { scanNotes } from '../src/storage/scanner';
+import { MAX_NOTE_SOURCE_BYTES } from '../src/storage/source-cap';
+import type { ScannedNote } from '../src/types';
+
+/**
+ * Counts `fs.readFileSync` calls for one path while `body` runs.
+ *
+ * @remarks
+ * The storage readers reach the filesystem through the shared `fs` module
+ * object, so replacing the method for the duration of the callback observes
+ * their IO without changing it. Restored in a `finally`, so a failing assertion
+ * cannot leak the patch into the next test. Used to prove the #332 guard is
+ * stat-first: a declined document is never read, not read-then-rejected.
+ *
+ * @param target - Absolute path whose reads are counted
+ * @param body - Code under observation
+ * @returns Number of `readFileSync` calls made for `target`
+ */
+function countReadsOf(target: string, body: () => void): number {
+  const original = fs.readFileSync;
+  const callOriginal = original as unknown as (...args: unknown[]) => unknown;
+  const holder = fs as unknown as { readFileSync: typeof fs.readFileSync };
+  let count = 0;
+  holder.readFileSync = ((...args: unknown[]): unknown => {
+    if (args[0] === target) count++;
+    return callOriginal.apply(fs, args);
+  }) as typeof fs.readFileSync;
+  try {
+    body();
+  } finally {
+    holder.readFileSync = original;
+  }
+  return count;
+}
 
 describe('Storage Note Scanner', () => {
   let tmpVault: string;
@@ -271,6 +304,13 @@ describe('Storage Note Scanner', () => {
     });
 
     test('unclosed fence followed by body thematic break with markdown subheadings is reported as parse error', () => {
+      // Load-bearing shape: the blank line before `## Subheading`. In YAML that
+      // heading would be an ordinary comment (#319), so the scanner keeps it
+      // fatal by position — a heading-shaped line that is separated from the
+      // mapping by a blank line AND has no data line after it sits in the
+      // trailing paragraph against the `---`, which only a missing closing
+      // fence can produce. Its mirror pair, where the same heading is adjacent
+      // to the entries, is asserted legal in the `#319` block below.
       fs.writeFileSync(
         path.join(tmpVault, 'body-break-headings.md'),
         '---\npalee_id: T-unclosed\ntitle: Unclosed\n\n## Subheading\n---\n# Real Body\n',
@@ -362,6 +402,165 @@ describe('Storage Note Scanner', () => {
       assert.strictEqual(notes[0].frontmatter, null);
       assert.ok(notes[0].parseError, 'expected a parse error');
       assert.match(notes[0].parseError!, /(unclosed|implicit map keys)/i);
+    });
+  });
+
+  // Issue #319: in YAML a `#` starts a comment no matter how many hashes
+  // follow it, so a `## key points` line inside a frontmatter block parses
+  // cleanly. Classifying it as Markdown body text discarded the successfully
+  // parsed metadata and raised a fatal "unclosed frontmatter block" for a note
+  // that was never unclosed — the note silently stopped being a topic.
+  describe('YAML comment lines inside a frontmatter block (#319)', () => {
+    test('a hash-run comment between mapping entries keeps the metadata and reports no error', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'comment-between-keys.md'),
+        '---\npalee_id: T-319-between\ntitle: Comments are YAML\n## key points\ndifficulty: beginner\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined, 'a YAML comment is not leaked body text');
+      assert.ok(notes[0].frontmatter, 'the parsed frontmatter must survive');
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm.palee_id, 'T-319-between');
+      assert.strictEqual(fm.difficulty, 'beginner');
+    });
+
+    test('a hash-run comment as the last entry of a closed block is a comment too', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'comment-last-entry.md'),
+        '---\npalee_id: T-319-last\ntitle: Trailing comment\n#### reviewed 2026-01-01\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-319-last');
+    });
+
+    test('a comment after a blank line while the mapping continues is legal', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'comment-after-blank-then-keys.md'),
+        '---\npalee_id: T-319-blank\n\n## key points\ndifficulty: advanced\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined, 'the entries after it keep the mapping open');
+      const fm = notes[0].frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm['## key points'], undefined, 'the comment must not become a key');
+      assert.strictEqual(fm.difficulty, 'advanced');
+    });
+
+    test('a comment with no space after the hashes is a comment, not a heading', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'comment-no-space.md'),
+        '---\npalee_id: T-319-nospace\n##tagged\n#plain-hash\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].parseError, undefined);
+      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-319-nospace');
+    });
+
+    test('the heading shape is fatal only in the trailing paragraph, not adjacent to the entries', () => {
+      // The pair that pins the #319 / #171.11 distinction: identical heading
+      // text, different position. The blank-line-separated trailing heading is
+      // the swallowed-body signature the heuristic exists for (see the
+      // `body-break-headings` case above); the adjacent one is YAML syntax.
+      fs.writeFileSync(
+        path.join(tmpVault, 'heading-adjacent.md'),
+        '---\npalee_id: T-heading-legal\ntitle: Legal\n## Subheading\n---\n# Real Body\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpVault, 'heading-trailing.md'),
+        '---\npalee_id: T-heading-leaked\ntitle: Leaked\n\n## Subheading\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+      assert.strictEqual(notes.length, 2);
+      const legal = notes.find((n) => n.relativePath === 'heading-adjacent.md');
+      const leaked = notes.find((n) => n.relativePath === 'heading-trailing.md');
+      assert.ok(legal && leaked);
+
+      assert.strictEqual(legal.parseError, undefined, 'a comment among the entries is legal YAML');
+      assert.strictEqual(
+        (legal.frontmatter as Record<string, unknown>).palee_id,
+        'T-heading-legal'
+      );
+
+      assert.strictEqual(leaked.frontmatter, null);
+      assert.ok(leaked.parseError, 'a trailing paragraph before the fence is leaked body text');
+      assert.match(leaked.parseError!, /unclosed/i);
+    });
+  });
+
+  // Issue #332: the note readers used to hand readFileSync an unbounded path,
+  // so one multi-megabyte document (exported log, pasted diff, generated index)
+  // was read whole and line-scanned on every scan. The guard is stat-first,
+  // exactly like the TOC reader's `oversized` decline (src/storage/toc.ts,
+  // issue #263): the cap covers the IO, not only the parse.
+  describe('Note read size guard (#332)', () => {
+    test('a document above the cap is declined without being read, and reported', () => {
+      const bigPath = path.join(tmpVault, 'exported-log.md');
+      fs.writeFileSync(bigPath, `${'x'.repeat(MAX_NOTE_SOURCE_BYTES)}y`, 'utf8');
+
+      let notes: ScannedNote[] = [];
+      const reads = countReadsOf(bigPath, () => {
+        notes = scanNotes(tmpVault);
+      });
+
+      assert.strictEqual(reads, 0, 'the file must never be read — the guard stats first');
+      assert.strictEqual(notes.length, 1, 'the declined file still gets one entry');
+      assert.strictEqual(notes[0].frontmatter, null);
+      assert.match(notes[0].readError ?? '', /Oversized/);
+      assert.ok(
+        (notes[0].readError ?? '').includes(String(MAX_NOTE_SOURCE_BYTES)),
+        'the diagnostic names the ceiling the reader applied'
+      );
+      assert.strictEqual(notes[0].parseError, undefined, 'a declined read is not a parse failure');
+
+      // `includeContent` must not smuggle the bytes back into the snapshot.
+      const snapshot = scanNotes(tmpVault, { includeContent: true });
+      assert.strictEqual(snapshot[0].content, undefined);
+    });
+
+    test('a note at exactly the cap is still read and parsed', () => {
+      const edgePath = path.join(tmpVault, 'edge.md');
+      const body = 'x'.repeat(MAX_NOTE_SOURCE_BYTES - '# Note\n'.length - '\n'.length);
+      fs.writeFileSync(edgePath, `# Note\n${body}\n`, 'utf8');
+      assert.strictEqual(fs.statSync(edgePath).size, MAX_NOTE_SOURCE_BYTES, 'edge is exactly the cap');
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].readError, undefined, 'the cap is inclusive, not exclusive');
+      assert.strictEqual(notes[0].frontmatter, null, 'a large note without frontmatter is simply not a topic');
+    });
+
+    test('a legal topic note below the cap is unaffected by the guard', () => {
+      fs.writeFileSync(
+        path.join(tmpVault, 'long-topic.md'),
+        `---\npalee_id: T-long\n---\n${'# Body\n'.repeat(1024)}`,
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      assert.strictEqual(notes[0].readError, undefined);
+      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-long');
     });
   });
 });
