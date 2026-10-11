@@ -1,35 +1,40 @@
 /**
- * `ensureVaultDirectory` asserts containment before it creates (#335)
+ * `ensureVaultDirectory` asserts containment with the shared guard (#335)
  *
- * The guard used to be create-then-verify: it canonicalised the first *existing*
+ * The guard was create-then-verify in shape: it canonicalised the first *existing*
  * ancestor, ran `fs.mkdirSync(…, { recursive: true })`, and only then re-canonicalised
- * the result and refused. Any refusal therefore spoke a bespoke error — a plain
- * `Error` with no `code` and a message `isContainmentError` does not recognise — so
- * the same planted link that `atomicWrite` refuses with `ECONTAINMENT` (and the CLI
- * maps to exit 3, vault integrity) read here as an unclassified exception, and the
- * two containment checks (`startsWith(resolvedVault + path.sep)`, twice) were a second
- * predicate that could disagree with `isWithinVault`.
+ * the result and refused — with two bespoke `startsWith(resolvedVault + path.sep)`
+ * comparisons that were a second containment predicate beside `isWithinVault`, and a
+ * refusal that spoke a plain `Error` with no `code`. `isContainmentError` did not
+ * recognise it, so `exitCodeFor` classified the same vault-integrity condition that
+ * `atomicWrite` reports as exit 3 as an unexpected exception (exit 5) instead.
  *
  * It now runs the shared `assertContainedInVault` on the path it is about to create —
  * existing prefix resolved, missing leaf re-attached — before any `mkdir`, and
- * re-asserts the same predicate on what was created. So:
+ * re-asserts that same predicate on what was created, the way `atomicWrite` re-asserts
+ * before it renames. So:
+ * - one predicate decides, for notes, the `.palee` tree and created directories alike;
  * - the refusal is the layer's one refusal surface: `ECONTAINMENT`, the
  *   `Security error: refusing to write outside the vault:` message family, and
  *   never an `ECONFLICT` (nothing about an escaping path is retryable);
- * - a planted link the guard can see is refused with nothing created anywhere
- *   outside the vault, and no `mkdirSync` call issued at all;
+ * - a planted link is refused with nothing created outside the vault and no
+ *   `mkdirSync` issued at all. Measured against `dc86077`, that last property holds at
+ *   base too for a link that already resolves out of the vault when the guard looks
+ *   (its ancestor read stops at the live link and canonicalises it) — the delta these
+ *   tests turn red on is the refusal surface, and they pin the ordering as an invariant
+ *   so it cannot silently regress back to verify-after-create;
  * - the lexical traversal refusal (`Path escapes vault boundary`) is unchanged,
  *   because `palee roadmap` / `adopt` print it verbatim.
  *
  * What this does NOT close, stated plainly: between the certification's last
  * `realpathSync` and the `mkdirSync` there is still a TOCTOU window, and it is not
- * closable from JS — the same limit `src/storage/atomic-write.ts` records for the
- * write path. A link that appears inside that window still gets its directory
- * materialised outside the vault by the recursive create; what the re-assertion
- * guarantees is that the call then refuses instead of returning the escaping path.
- * The last test in this file opens that window deterministically (the technique
- * `test/storage-atomic-write-containment-window.test.ts` uses) and pins exactly that
- * narrower claim — refusal, not prevention.
+ * closable from JS — the same limit `src/storage/atomic-write.ts:211-225` records for
+ * the write path. A link that appears inside that window still has its directory
+ * materialised outside the vault by the recursive create, at base and after this
+ * change alike; what the re-assertion guarantees is that the call then refuses instead
+ * of handing the caller the escaping path. The last test in this file opens that window
+ * deterministically (the technique `test/storage-atomic-write-containment-window.test.ts`
+ * uses) and pins exactly that narrower claim — refusal, not prevention.
  *
  * Fixtures use `'junction'` on win32 and `'dir'` elsewhere, the way
  * `test/cli-session-containment.test.ts:27` does, because unprivileged Windows
@@ -114,7 +119,8 @@ describe('ensureVaultDirectory containment (#335)', () => {
    * same message family, recognised by the classifier the CLI routes on.
    * This is the assertion that fails at base — the old guard threw a bare `Error`
    * (`code: undefined`) reading `Symlink escape detected: …`, which `exitCodeFor`
-   * would have reported as an unexpected exception rather than a vault-integrity 3.
+   * maps to an unexpected exception (5) rather than the vault-integrity 3 every other
+   * containment refusal gets.
    */
   function assertContainmentRefusal(err: unknown, namedPath: string): true {
     const e = err as { message?: string; code?: string };
@@ -192,9 +198,10 @@ describe('ensureVaultDirectory containment (#335)', () => {
   });
 
   test('a refused path never reaches mkdirSync at all', () => {
-    // The ordering property the issue is about: the old shape could only learn the
-    // path escaped after creating it. Recording every `mkdirSync` argument pins that
-    // no create is issued for a path the guard refuses, independent of the message.
+    // The ordering this path now has: certify the created path, then create it, then
+    // certify what was created. Recording every `mkdirSync` argument pins that no
+    // create is issued for a refused path, independent of the message — so the guard
+    // can never regress to verifying after the damage is on disk.
     const { vault, canonicalVault, outside } = makeFixture('no-mkdir');
     const link = plantLink(path.join(canonicalVault, 'a', 'b'), outside);
     const mkdirArgs: string[] = [];
