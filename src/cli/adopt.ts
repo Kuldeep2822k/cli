@@ -43,6 +43,7 @@ import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, typ
 
 import { resolveNoteTitle } from '../storage/note-title';
 import { normalizeDependencies } from '../storage/dependencies';
+import adoptUndoCommand from './adopt-undo';
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -1351,4 +1352,28 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
   }
 }
 
-export default adoptCommand;
+/**
+ * The handler `palee adopt` is registered with.
+ *
+ * `--undo` (#299) is a mode of this command rather than a command of its own —
+ * `test/docs-command-matrix.test.ts` pins the documented exit-code table to one
+ * row per registered command — so the registered entry point dispatches on the
+ * flag and the reversal itself lives in `./adopt-undo`. Keeping the branch here,
+ * at the export, leaves the adoption path above untouched.
+ */
+async function adoptEntry(targetPath?: string, options: AdoptOptions = {}): Promise<void> {
+  if (options.undo) {
+    await adoptUndoCommand(targetPath, options);
+    return;
+  }
+  if (options.dropTitle !== undefined) {
+    // The same refusal `--chain-tier` without `--auto-chain` gets: a qualifier for
+    // one mode must not be accepted by the other, where it would be silently inert.
+    console.error('Error: --drop-title requires --undo; adoption never removes a key');
+    process.exitCode = ExitCode.Usage;
+    return;
+  }
+  await adoptCommand(targetPath, options);
+}
+
+export default adoptEntry;

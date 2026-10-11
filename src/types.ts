@@ -683,6 +683,28 @@ export interface AdoptOptions {
    * is a usage error — and meaningless without `--auto-chain`.
    */
   chainTier?: string;
+  /**
+   * Reverse an adoption instead of performing one (#299): strip only the
+   * PALEE-owned frontmatter keys from the notes this scope selects, leaving
+   * every other key, comment and byte of the body untouched. Selecting the
+   * notes is the same scan `adopt` already runs, so `all`, `include`, `exclude`,
+   * `tag`, `dryRun`, `verbose` and `yes` all carry over; `difficulty`,
+   * `dependsOn`, `autoChain` and `chainTier` describe what to write and are
+   * refused with this flag.
+   */
+  undo?: boolean;
+  /**
+   * With {@link AdoptOptions#undo}: also remove the note's `title` key.
+   *
+   * Adoption writes `title`, but the key is not on the PALEE-owned list and a note
+   * that already carried one keeps it, so reversal cannot tell an authored title
+   * from a minted one and leaves it by default. `migrate --relabel-ties`
+   * establishes the same rule for an unlabeled `depends_on`: only the user can say
+   * whether a key was adopted or typed by hand, so this opt-in is how that
+   * judgement is handed back to them rather than guessed at. Meaningless without
+   * `undo`, and refused with `undo` absent.
+   */
+  dropTitle?: boolean;
 }
 
 /**
