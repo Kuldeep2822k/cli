@@ -141,7 +141,12 @@ export default withMermaid(
             { text: 'ADR-0005: Concurrency Storage & Schema Migration', link: '/adr/0005-concurrency-storage-and-schema-migration' },
             { text: 'ADR-0006: Concurrency Resilience & Storage Isolation', link: '/adr/0006-phase-1-concurrency-resilience-and-storage-isolation' },
             { text: 'ADR-0007: Hot-Memory Read-State Contract', link: '/adr/0007-hot-memory-read-state-contract' },
-            { text: 'ADR-0008: Validation Rule Framework Decisions', link: '/adr/0008-validation-framework-decisions' }
+            { text: 'ADR-0008: Validation Rule Framework Decisions', link: '/adr/0008-validation-framework-decisions' },
+            { text: 'ADR-0009: The Gating Model', link: '/adr/0009-gating-model-depends-on-source' },
+            { text: 'ADR-0010: Tier-0 Hygiene Classification', link: '/adr/0010-tier0-hygiene-classification' },
+            { text: 'ADR-0011: Tiered Auto-Chain', link: '/adr/0011-tiered-auto-chain' },
+            { text: 'ADR-0012: Declared Prerequisites', link: '/adr/0012-declared-prerequisites' },
+            { text: 'ADR-0013: Per-Edge Blocking Policy (Proposed)', link: '/adr/0013-per-edge-blocking-policy' }
           ]
         },
         {

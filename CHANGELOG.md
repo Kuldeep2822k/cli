@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ADR-0009 through ADR-0013** ([#434](https://github.com/Kuldeep2822k/cli/issues/434)): the auto-chain inference policy and gating model are recorded as architecture decision records — the `depends_on_source` advisory/gating split, Tier-0 hygiene classification, tiered `strict|toc|full` composition, declared prerequisites read from a note's own text, and the proposed per-edge blocking policy. First ADRs since ADR-0008.
 - **`palee adopt --undo`** ([#299](https://github.com/Kuldeep2822k/cli/issues/299)): reverses an adoption by stripping only the frontmatter keys adoption writes, leaving every other key byte-for-byte and previewable with `--dry-run`.
 - **Every mutating command names the vault it writes to** ([#311](https://github.com/Kuldeep2822k/cli/issues/311)).
 

@@ -12,4 +12,9 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0006: Phase 1 Concurrency Resilience, Storage Layer Isolation & Session Duration Tracking](./0006-phase-1-concurrency-resilience-and-storage-isolation.md)
 - [ADR-0007: Hot-Memory Read-State Contract](./0007-hot-memory-read-state-contract.md)
 - [ADR-0008: Validation Rule Framework — Architecture and Product Decisions](./0008-validation-framework-decisions.md)
+- [ADR-0009: The Gating Model — What May Lock a Note](./0009-gating-model-depends-on-source.md)
+- [ADR-0010: Tier-0 Hygiene Classification for Auto-Chain](./0010-tier0-hygiene-classification.md)
+- [ADR-0011: Tiered Auto-Chain — strict | toc | full](./0011-tiered-auto-chain.md)
+- [ADR-0012: Declared Prerequisites — Reading a Note's Own Text](./0012-declared-prerequisites.md)
+- [ADR-0013: Per-Edge Blocking Policy and OR-Groups](./0013-per-edge-blocking-policy.md)
 
