@@ -339,7 +339,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
 
       const resolvedTopic = explicitOutcome
-        ? explicitOutcome.kind === 'topic' ? explicitOutcome.topicId : null
+        ? explicitOutcome.kind === 'topic'
+          ? explicitOutcome.topicId
+          : null
         : resolveSessionTopic(vaultPath, options.topic);
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
