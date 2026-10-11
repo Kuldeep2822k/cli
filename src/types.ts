@@ -704,6 +704,18 @@ export interface PlanOptions {
 }
 
 /**
+ * Command-line options for `palee review`.
+ */
+export interface ReviewOptions {
+  /**
+   * Record the review even when the note's stored `due_at` is still in the
+   * future (#301), without printing the early-review warning. The review is
+   * recorded and exits `0` either way; the flag only silences the notice.
+   */
+  force?: boolean;
+}
+
+/**
  * Command-line options for `palee dashboard`.
  */
 export interface DashboardOptions {

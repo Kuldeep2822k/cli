@@ -89,6 +89,7 @@ program
   .description('Record a manual review for a topic')
   .argument('<topic>', 'Topic ID or unique name fragment')
   .argument('<quality>', 'Quality rating (0-5)')
+  .option('--force', 'Record a review before the topic is due without printing the early-review warning')
   .action(reviewCommand);
 
 // palee assess
