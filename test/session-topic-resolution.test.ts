@@ -220,6 +220,29 @@ describe('session --topic resolution (#302)', () => {
     });
   });
 
+  test('session end accepts an explicit --topic that names the active topic even after the note is deleted (#313)', async () => {
+    await runInTempVault(VAULT_FILES, async (vaultPath) => {
+      await captureOutput(() => sessionCommand('start', { topic: 'T-kubernetes-basics' }));
+      process.exitCode = undefined;
+
+      // The note is deleted/renamed mid-session; hot.md still names it active.
+      // Omitting --topic already tolerates this; passing the active id explicitly
+      // must not discard the recorded session by refusing to resolve the note.
+      fs.rmSync(path.join(vaultPath, 'k8s.md'));
+
+      const endOutput = await captureOutput(() => sessionCommand('end', { topic: 'T-kubernetes-basics' }));
+      assert.strictEqual(process.exitCode, undefined, endOutput);
+      assert.match(endOutput, /Session recorded/, endOutput);
+
+      const confirmed = sessionFiles(vaultPath).filter((f) => f.startsWith('S-'));
+      assert.strictEqual(confirmed.length, 1, 'the in-flight session must still be recorded');
+      const { frontmatter } = parseFrontmatter(
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmed[0]), 'utf8')
+      );
+      assert.strictEqual(frontmatter?.topic_id, 'T-kubernetes-basics');
+    });
+  });
+
   test('a title query records the canonical palee_id, not the words the learner typed', async () => {
     await runInTempVault(VAULT_FILES, async (vaultPath) => {
       const output = await captureOutput(() => sessionCommand('start', { topic: 'Kubernetes Basics' }));

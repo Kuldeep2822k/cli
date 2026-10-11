@@ -85,13 +85,30 @@ function isSessionTopicFailure(outcome: SessionTopicOutcome): outcome is Session
  */
 export function resolveSessionTopicResolution(
   vaultPath: string,
-  explicitTopic?: string
+  explicitTopic?: string,
+  options: { tolerateActiveTopic?: boolean } = {}
 ): SessionTopicOutcome {
   const trimmed = typeof explicitTopic === 'string' ? explicitTopic.trim() : '';
   if (trimmed.length > 0) {
     if (trimmed.toLowerCase() === '(none)') return { kind: 'none' };
     const resolution = resolveTopicQuery(loadTopics(vaultPath), trimmed);
-    if (resolution.kind === 'none') return { kind: 'not-found', query: trimmed };
+    if (resolution.kind === 'none') {
+      // #313: an explicit `--topic` that names the in-flight session's stored
+      // `active_topic` is tolerated for end/draft even when the note was
+      // deleted or renamed since the session started. Refusing would discard
+      // recorded work for the exact reason the omit path trusts `hot.md`
+      // verbatim — and the match is only against a value the learner was
+      // already allowed to store, so it cannot resurrect a phantom `start`.
+      if (options.tolerateActiveTopic) {
+        try {
+          const active = resolveActiveTopic(readHotMemory(vaultPath));
+          if (active && active === trimmed) return { kind: 'topic', topicId: active };
+        } catch {
+          // fall through to not-found
+        }
+      }
+      return { kind: 'not-found', query: trimmed };
+    }
     if (resolution.kind === 'ambiguous') {
       return { kind: 'ambiguous', query: trimmed, candidates: resolution.candidates };
     }
@@ -399,7 +416,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'draft') {
-      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic);
+      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic, { tolerateActiveTopic: true });
       if (isSessionTopicFailure(topicOutcome)) {
         reportUnresolvedSessionTopic(topicOutcome, jsonMode);
         return;
@@ -449,7 +466,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
     }
 
     if (action === 'end') {
-      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic);
+      const topicOutcome = resolveSessionTopicResolution(vaultPath, options.topic, { tolerateActiveTopic: true });
       if (isSessionTopicFailure(topicOutcome)) {
         reportUnresolvedSessionTopic(topicOutcome, jsonMode);
         return;
