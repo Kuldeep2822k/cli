@@ -70,6 +70,44 @@ export function normalizeScore(val: unknown): number {
   return 0;
 }
 
+/** The four assessment pillar frontmatter keys, in the order `adopt.ts` writes them (INV-21). */
+export const PILLAR_KEYS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+
+/**
+ * The pillar scores a note already carries, with the ones it does not omit.
+ *
+ * @param frontmatter - Parsed frontmatter of the note about to be written
+ * @returns Only the pillar keys present in the note, each normalized to `[0.0, 1.0]`
+ *
+ * @remarks
+ * Writing `0` for a pillar the note lacks mints assessment data the learner
+ * never gave — the same defect #191 removed from roadmap import and #277 removed
+ * from adopt (#300 removed it from review). It corrupts the note:
+ * `valid-topic-mastery` computes `0` from four real zeros and reports the
+ * preserved `topic_mastery` as drift, while `validate --fix` has no mastery
+ * repairer and answers "Nothing to repair". An absent pillar stays absent,
+ * which is the condition that rule skips on. One helper for every writer so
+ * the rule cannot drift again.
+ *
+ * @example
+ * ```typescript
+ * carriedPillarScores({ conceptual: 0.5, feynman: 0.25 }); // { conceptual: 0.5, feynman: 0.25 }
+ * carriedPillarScores({});                                  // {}
+ * ```
+ */
+export function carriedPillarScores(
+  frontmatter: Record<string, unknown> | null | undefined
+): Record<string, number> {
+  const scores: Record<string, number> = {};
+  for (const key of PILLAR_KEYS) {
+    const raw = frontmatter?.[key];
+    if (raw !== undefined && raw !== null) {
+      scores[key] = normalizeScore(raw);
+    }
+  }
+  return scores;
+}
+
 /**
  * Calculates overall topic mastery from assessment scores using the canonical weighted formula:
  * `topic_mastery = round((conceptual + practical + debug + (2 * feynman)) / 5, 4)`

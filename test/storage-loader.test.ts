@@ -4,10 +4,79 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { normalizeDependencies } from '../src/storage/dependencies';
-import { loadTopics, getTopicCache } from '../src/storage/loader';
+import {
+  loadTopics,
+  getTopicCache,
+  getNonTopicCache,
+  MAX_NON_TOPIC_CACHE_ENTRIES,
+} from '../src/storage/loader';
 import { FileCache } from '../src/storage/cache';
+import { MAX_NOTE_SOURCE_BYTES } from '../src/storage/source-cap';
 import type { LoadedTopic } from '../src/storage/loader';
 import type { TopicNode } from '../src/types';
+
+/**
+ * Counts `fs.readFileSync` calls for the listed paths while `body` runs.
+ *
+ * @remarks
+ * The loader reaches the filesystem through the shared `fs` module object, so
+ * replacing the method for the duration of the callback observes its IO without
+ * changing it, and the `finally` restore keeps a failing assertion from leaking
+ * the patch. This is what makes a caching fix directly measurable: a repeated
+ * load that serves a verdict from a cached entry performs no read at all, while
+ * an uncached verdict costs exactly one read per pass.
+ *
+ * @param targets - Absolute paths whose reads are counted
+ * @param body - Code under observation
+ * @returns The callback result plus per-path read counts
+ */
+function countReads<T>(targets: string[], body: () => T): { result: T; reads: Map<string, number> } {
+  const original = fs.readFileSync;
+  const callOriginal = original as unknown as (...args: unknown[]) => unknown;
+  const holder = fs as unknown as { readFileSync: typeof fs.readFileSync };
+  const reads = new Map<string, number>(targets.map((t) => [t, 0]));
+  holder.readFileSync = ((...args: unknown[]): unknown => {
+    const key = args[0];
+    if (typeof key === 'string' && reads.has(key)) {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+    }
+    return callOriginal.apply(fs, args);
+  }) as typeof fs.readFileSync;
+  try {
+    return { result: body(), reads };
+  } finally {
+    holder.readFileSync = original;
+  }
+}
+
+/**
+ * Pins each file's `mtime` a fixed interval in the past at a millisecond value
+ * that is not a whole second.
+ *
+ * @remarks
+ * Outside the unsettled horizon, and off the whole-second fallback (#367), a
+ * validated cache hit is served from `stat` alone. Without this the readers
+ * re-read a just-written file by design, so a read count would measure the
+ * horizon rather than the cache.
+ *
+ * @param files - Absolute paths to settle
+ */
+function settleOutsideHorizon(files: string[]): void {
+  const pinned = Math.floor((Date.now() - 10000) / 1000) * 1000 + 250;
+  for (const filePath of files) {
+    fs.utimesSync(filePath, new Date(pinned), new Date(pinned));
+  }
+  // Fail with the real cause if the filesystem rounds `mtime` to whole seconds:
+  // there the #367 fingerprint fallback re-reads on every hit and a read count
+  // would no longer be a cache measurement.
+  if (files.length > 0) {
+    assert.notStrictEqual(
+      fs.statSync(files[0]).mtimeMs % 1000,
+      0,
+      'the temp filesystem must record sub-second mtimes for this measurement'
+    );
+  }
+}
 
 /**
  * FileCache subclass that records get()/set() calls without altering behavior.
@@ -459,6 +528,13 @@ describe('loadTopics cache injection (Issue #129)', () => {
   test('first load with { cache } invokes the injected cache get() and set() per valid topic', () => {
     const f1 = writeTopicNote('T-inj-1');
     const f2 = writeTopicNote('T-inj-2');
+    // A non-topic file is consulted in the injected cache (the loader cannot
+    // know before parsing) but its verdict is NOT stored there: non-topic
+    // markers live in their own bounded cache so they can never evict a real
+    // topic past the topic cache cap (#331). Re-pinned from the two-file form
+    // that preceded #331, where get() and set() counts were trivially equal.
+    const plain = path.join(tmpVault, 'ordinary-note.md');
+    fs.writeFileSync(plain, '# Just a note\n\nNo frontmatter anywhere.\n', 'utf8');
     const injected = new TrackingCache();
 
     const topics = loadTopics(tmpVault, { cache: injected });
@@ -467,8 +543,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     assert.ok(injected.getCalls.includes(f1) && injected.getCalls.includes(f2));
     assert.ok(injected.setCalls.includes(f1) && injected.setCalls.includes(f2));
     // get() precedes set() for each file: misses then writes
-    assert.strictEqual(injected.getCalls.length, 2);
+    assert.strictEqual(injected.getCalls.length, 3);
     assert.strictEqual(injected.setCalls.length, 2);
+    assert.ok(!injected.setCalls.includes(plain), 'a non-topic verdict stays out of the topic cache');
   });
 
   test('second unchanged load returns identical cached objects; get() grows, set() does not', () => {
@@ -600,5 +677,239 @@ describe('a note whose extension is not lowercase', () => {
     assert.strictEqual(topics[0].title, 'Setup');
   });
 });
+
+// Issue #331: `cache.set` used to run only for files that yielded a `palee_id`,
+// so every non-topic file fell through `continue` with no negative entry and a
+// long-lived process re-read and re-parsed the whole vault on each load — scan
+// cost tracked total vault size instead of topic count.
+describe('loadTopics negative caching of non-topic notes (Issue #331)', () => {
+  let tmpVault: string;
+
+  beforeEach(() => {
+    tmpVault = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-negative-'))
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+  });
+
+  /**
+   * Writes an ordinary vault note: a real note, no `palee_id` anywhere.
+   *
+   * @param name - File name inside the temp vault
+   * @param content - Note text (default: a note with a non-PALEE frontmatter block)
+   * @returns Absolute path of the written note
+   */
+  function writePlainNote(name: string, content = '---\ntags: [reading]\ntitle: Book notes\n---\n# Book\n'): string {
+    const filePath = path.join(tmpVault, name);
+    fs.writeFileSync(filePath, content, 'utf8');
+    return filePath;
+  }
+
+  /**
+   * Writes a minimal PALEE topic note.
+   *
+   * @param id - palee_id to embed
+   * @returns Absolute path of the written note
+   */
+  function writeTopic(id: string): string {
+    const filePath = path.join(tmpVault, `topic-${id}.md`);
+    fs.writeFileSync(filePath, `---\npalee_id: ${id}\ntitle: ${id}\n---\n\n# ${id}\n`, 'utf8');
+    return filePath;
+  }
+
+  test('a repeated load does not re-read a non-topic file', () => {
+    const topic = writeTopic('T-331-topic');
+    const withFrontmatter = writePlainNote('book-notes.md');
+    const withoutFrontmatter = writePlainNote('journal.md', '# Journal\n\nProse, no fences.\n');
+    settleOutsideHorizon([topic, withFrontmatter, withoutFrontmatter]);
+
+    const injected = new TrackingCache();
+    const first = countReads([topic, withFrontmatter, withoutFrontmatter], () =>
+      loadTopics(tmpVault, { cache: injected })
+    );
+    assert.strictEqual(first.result.length, 1);
+    assert.strictEqual(first.reads.get(topic), 1, 'the topic is read once to be parsed');
+    assert.strictEqual(first.reads.get(withFrontmatter), 1, 'the verdict needs the bytes once');
+    assert.strictEqual(first.reads.get(withoutFrontmatter), 1);
+
+    const second = countReads([topic, withFrontmatter, withoutFrontmatter], () =>
+      loadTopics(tmpVault, { cache: injected })
+    );
+    assert.strictEqual(second.result.length, 1, 'the negative verdict is not mistaken for a topic');
+    assert.strictEqual(second.result[0], first.result[0], 'topics keep their cached identity');
+    assert.strictEqual(second.reads.get(topic), 0);
+    // The fix: a known non-topic note costs a `stat`, not a read plus a YAML parse.
+    assert.strictEqual(second.reads.get(withFrontmatter), 0, 'the marker serves the verdict');
+    assert.strictEqual(second.reads.get(withoutFrontmatter), 0);
+  });
+
+  test('a marker is held by the negative cache and never by the topic cache', () => {
+    const topic = writeTopic('T-331-split');
+    const plain = writePlainNote('plain.md');
+    const injected = new TrackingCache();
+
+    loadTopics(tmpVault, { cache: injected });
+
+    assert.deepStrictEqual(injected.setCalls, [topic], 'only the topic enters the topic cache');
+    const markers = getNonTopicCache();
+    assert.deepStrictEqual(markers.get(plain), { palee_non_topic: true });
+    assert.strictEqual(markers.get(topic), null, 'a real topic is never negatively cached');
+  });
+
+  test('an edited non-topic file that gains a palee_id is loaded on the next pass', () => {
+    const promoted = writePlainNote('promoted.md');
+    const injected = new TrackingCache();
+
+    assert.strictEqual(loadTopics(tmpVault, { cache: injected }).length, 0);
+    assert.deepStrictEqual(getNonTopicCache().get(promoted), { palee_non_topic: true });
+
+    fs.writeFileSync(promoted, '---\npalee_id: T-promoted\n---\n# Now a topic\n', 'utf8');
+
+    const after = loadTopics(tmpVault, { cache: injected });
+    assert.strictEqual(after.length, 1, 'the stale marker cannot hide a promoted note');
+    assert.strictEqual(after[0].palee_id, 'T-promoted');
+    assert.strictEqual(getNonTopicCache().get(promoted), null, 'the invalidated marker is evicted');
+  });
+
+  test('a marker is fingerprint-validated, not trusted from the path alone', () => {
+    // Same byte length, different bytes: `mtime` and `size` both still match
+    // what the entry recorded, so only the re-hashed fingerprint can catch it.
+    // The file stays inside the unsettled horizon, which is what forces the
+    // re-hash on read.
+    const original = '---\ntags: [aaaa]\n---\n# A\n';
+    const edited = '---\ntags: [bbbb]\n---\n# A\n';
+    assert.strictEqual(
+      Buffer.byteLength(edited),
+      Buffer.byteLength(original),
+      'the rewrite is same-size, so a size-only check would pass it'
+    );
+    const swapped = writePlainNote('swap.md', original);
+    loadTopics(tmpVault, { cache: new TrackingCache() });
+    assert.deepStrictEqual(getNonTopicCache().get(swapped), { palee_non_topic: true });
+
+    fs.writeFileSync(swapped, edited, 'utf8');
+    assert.strictEqual(fs.statSync(swapped).size, Buffer.byteLength(original));
+    assert.strictEqual(
+      getNonTopicCache().get(swapped),
+      null,
+      'the changed fingerprint must invalidate the marker'
+    );
+  });
+
+  test('a negatively cached file that disappears is retried rather than trusted', () => {
+    const gone = writePlainNote('gone.md');
+    loadTopics(tmpVault, { cache: new TrackingCache() });
+    assert.deepStrictEqual(getNonTopicCache().get(gone), { palee_non_topic: true });
+    fs.unlinkSync(gone);
+
+    const topics = loadTopics(tmpVault, { files: [gone], cache: new TrackingCache() });
+
+    assert.strictEqual(topics.length, 0);
+    assert.strictEqual(
+      getNonTopicCache().get(gone),
+      null,
+      'a marker for a file that no longer stats is dropped, never carried forward'
+    );
+  });
+
+  test('snapshot-injected bytes never populate the negative cache', () => {
+    // Same rule the topic cache already enforces: injected content is snapshot
+    // truth, not on-disk truth, and a marker written from it would hide the
+    // file's real verdict from every later load.
+    const note = writeTopic('T-331-disk');
+    const snapshot = new Map<string, string>([[note, '# Only a snapshot\n']]);
+
+    const injected = countReads([note], () => loadTopics(tmpVault, { contents: snapshot }));
+    assert.strictEqual(injected.result.length, 0, 'the snapshot bytes are not a topic');
+    assert.strictEqual(injected.reads.get(note), 0, 'injected bytes are used verbatim');
+    assert.strictEqual(getNonTopicCache().get(note), null, 'no marker survived the snapshot load');
+
+    const after = loadTopics(tmpVault, { cache: new TrackingCache() });
+    assert.strictEqual(after.length, 1, 'the disk verdict is still read fresh');
+    assert.strictEqual(after[0].palee_id, 'T-331-disk');
+  });
+
+  test('the negative cache cap is a bounded positive constant', () => {
+    assert.ok(
+      Number.isInteger(MAX_NON_TOPIC_CACHE_ENTRIES) && MAX_NON_TOPIC_CACHE_ENTRIES > 0,
+      'markers are bounded on their own cap, so they cannot evict topics'
+    );
+  });
+});
+
+// Issue #332: the note readers did unbounded `readFileSync` plus a whole-buffer
+// parse, unlike the TOC reader which declines an oversized document stat-first
+// (src/storage/toc.ts, issue #263). The ceiling itself is pinned in
+// test/storage-source-cap.test.ts.
+describe('loadTopics input-size guard (Issue #332)', () => {
+  let tmpVault: string;
+
+  beforeEach(() => {
+    tmpVault = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-size-'))
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+  });
+
+  test('a document above the cap is skipped without ever being read', () => {
+    const topic = path.join(tmpVault, 'topic-ok.md');
+    fs.writeFileSync(topic, '---\npalee_id: T-332-ok\n---\n# Ok\n', 'utf8');
+    // Past the cap even though its frontmatter opens with a valid `palee_id`:
+    // bytes that cannot be loaded cannot be trusted as a topic either.
+    const dump = path.join(tmpVault, 'dump.md');
+    fs.writeFileSync(
+      dump,
+      `---\npalee_id: T-332-dump\n---\n${'x'.repeat(MAX_NOTE_SOURCE_BYTES)}`,
+      'utf8'
+    );
+
+    const paths = [topic, dump];
+    const first = countReads(paths, () =>
+      loadTopics(tmpVault, { cache: new TrackingCache() })
+    );
+
+    assert.strictEqual(first.reads.get(dump), 0, 'the guard stats before reading');
+    assert.strictEqual(first.result.length, 1, 'the healthy topic still loads');
+    assert.strictEqual(first.result[0].palee_id, 'T-332-ok');
+    assert.strictEqual(
+      getNonTopicCache().get(dump),
+      null,
+      'a declined read is not recorded as a verified non-topic note'
+    );
+
+    // Shrink it back under the cap and the same path loads — the skip left no
+    // cached verdict behind.
+    fs.writeFileSync(dump, '---\npalee_id: T-332-shrunk\n---\n# Small now\n', 'utf8');
+    const second = countReads(paths, () => loadTopics(tmpVault, { cache: new TrackingCache() }));
+    assert.strictEqual(second.reads.get(dump), 1);
+    assert.deepStrictEqual(
+      second.result.map((t) => t.palee_id).sort(),
+      ['T-332-ok', 'T-332-shrunk']
+    );
+  });
+
+  test('a topic note exactly at the cap still loads', () => {
+    const edge = path.join(tmpVault, 'edge-topic.md');
+    const frontmatter = '---\npalee_id: T-332-edge\n---\n';
+    fs.writeFileSync(
+      edge,
+      `${frontmatter}${'x'.repeat(MAX_NOTE_SOURCE_BYTES - Buffer.byteLength(frontmatter))}`,
+      'utf8'
+    );
+    assert.strictEqual(fs.statSync(edge).size, MAX_NOTE_SOURCE_BYTES, 'exactly the ceiling');
+
+    const topics = loadTopics(tmpVault, { cache: new TrackingCache() });
+
+    assert.strictEqual(topics.length, 1, 'the ceiling is inclusive');
+    assert.strictEqual(topics[0].palee_id, 'T-332-edge');
+  });
+});
+
 
 

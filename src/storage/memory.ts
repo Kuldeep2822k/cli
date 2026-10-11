@@ -342,18 +342,22 @@ async function writeSessionNote(
     frontmatterObj.duration_minutes = fullData.duration_minutes;
   }
   const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Absence is an expectation the write carries, not a null fingerprint: a null
+  // fingerprint skipped `atomicWrite`'s whole OCC block, so a concurrent creator's
+  // fresh file was overwritten with no conflict (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
   return filePath;
 }
 
@@ -405,18 +409,23 @@ async function updateHotMemory(
   };
 
   const content = updateFrontmatter(truncatedBody, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Absence is an expectation the write carries, not a null fingerprint — a null
+  // fingerprint disabled `atomicWrite`'s OCC block entirely, so two concurrent
+  // `session start` invocations each expecting no `hot.md` let the loser silently
+  // overwrite the winner's just-created file (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(hotPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, hotPath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, hotPath, content, expectedFingerprint, { expectExists });
   return hotPath;
 }
 
@@ -576,18 +585,22 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   };
 
   const content = updateFrontmatter(indexBody, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // Same modelling as `updateHotMemory`: a missing `index.md` is an expectation of
+  // absence, so a concurrent rebuild that created it in the meantime conflicts
+  // instead of being overwritten (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(indexPath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, indexPath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, indexPath, content, expectedFingerprint, { expectExists });
   return indexPath;
 }
 
@@ -659,9 +672,24 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   if (newestSession) {
     const lastSessionId = newestSession.frontmatter.session_id as string;
     const activeTopicId = (newestSession.frontmatter.topic_id as string) || null;
-    await updateHotMemory(vaultPath, lastSessionId, activeTopicId, newestSession.body);
+    // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
+    // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
+    // default blank the field on every rebuild. Normalize through `Date` so the
+    // session/hot full ISO form (ms + `Z`) is what lands in `hot.md` — never the
+    // `YYYY-MM-DD` shape the review/due fields use — and keep an absent or
+    // unparseable start as `null` rather than the string "null" (BUG-005: such a
+    // note is still selected, so it must still yield a usable working memory).
+    const rawStarted = newestSession.frontmatter.started_at;
+    let newestStartMs = Number.NaN;
+    if (rawStarted instanceof Date) {
+      newestStartMs = rawStarted.getTime();
+    } else if (typeof rawStarted === 'string') {
+      newestStartMs = Date.parse(rawStarted.trim());
+    }
+    const startedAt = Number.isNaN(newestStartMs) ? null : new Date(newestStartMs).toISOString();
+    await updateHotMemory(vaultPath, lastSessionId, activeTopicId, newestSession.body, startedAt);
   } else {
-    await updateHotMemory(vaultPath, null, null, 'No learning history recorded yet.');
+    await updateHotMemory(vaultPath, null, null, 'No learning history recorded yet.', null);
   }
 
   await regenerateIndex(vaultPath);
@@ -700,18 +728,22 @@ async function writeDraftCheckpoint(
   };
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null;
+  let expectedFingerprint: string | null = null;
+  // A draft checkpoint is written twice for the same id (first checkpoint, then
+  // refresh), so absence is only the first case; stating it keeps the OCC guard on
+  // in both (#327).
+  let expectExists = true;
   try {
     expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectedFingerprint = null;
+      expectExists = false;
     } else {
       throw err;
     }
   }
 
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint);
+  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
   return filePath;
 }
 
@@ -774,7 +806,8 @@ async function recoverDraft(
     const rawStarted = frontmatter && typeof frontmatter.started_at === 'string' ? frontmatter.started_at.trim() : '';
     const nowIso = new Date().toISOString();
     const nowTime = new Date(nowIso).getTime();
-    let parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
+    const draftStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : nowTime;
+    let parsedStart = draftStart;
 
     // Clock skew tolerance mirrors src/cli/session.ts: a start timestamp within
     // 60s of now (future or past) is accepted as-is; more than 60s in the
@@ -791,16 +824,113 @@ async function recoverDraft(
     const durationMs = Math.max(0, new Date(endedAt).getTime() - parsedStart);
     const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
-    await writeSessionNote(vaultPath, {
-      session_id: newSessionId,
-      topic_id: topicId,
-      started_at: startedAt,
-      ended_at: endedAt,
-      duration_minutes: durationMinutes,
-    }, body);
+    // #328 idempotence. Saving is not one transaction: a pass can die after the
+    // session note reaches the vault but before the draft is retired, leaving both
+    // files, and the next run then has to tell "already saved" from "not yet saved".
+    // The session frontmatter carries no provenance key back to the draft, and adding
+    // one would change the pinned session format (and every fingerprint of it), so the
+    // match is made on bytes a save already leaves behind. `writeSessionNote` copies
+    // the draft body verbatim under its own heading, so the draft's
+    // `# Draft Session: <id>` line — carrying the draft's own id — survives inside the
+    // completed note. That is the exact signal. Two drafts always get different
+    // `DRAFT-S-<8 hex>` ids, so unlike a topic-and-time comparison it can never
+    // confuse a second draft of the same topic with a retry of the first.
+    // Hand-edited drafts need not carry that heading, so a weaker second match covers
+    // them: same topic, same notes (the heading lines stripped), a `started_at` inside
+    // the window this pass resolves to, and a note written after this draft — the only
+    // order a save of this draft could have produced.
+    const draftHeading = `# Draft Session: ${path.basename(draftPath, '.md')}`;
+    const notesOf = (text: string): string => {
+      let notes = text.trim();
+      while (/^# (?:Draft )?Session:/.test(notes)) {
+        notes = notes.replace(/^# (?:Draft )?Session:[^\n]*\n*/, '').trim();
+      }
+      return notes;
+    };
+    const draftNotes = notesOf(body);
+    // ±60s is the same clock-skew tolerance the clamp above uses. The window spans the
+    // draft's own start, this pass's resolution, and the draft's last checkpoint,
+    // because a stale or future-dated draft clamps to the *then*-current instant: any
+    // earlier pass resolved somewhere inside that span, never outside it.
+    let draftMtimeMs = Number.NaN;
+    try {
+      draftMtimeMs = fs.statSync(draftPath).mtimeMs;
+    } catch {
+      // The draft vanished between the read and here; fall through to the write, which
+      // is today's behaviour and never loses the notes in front of us.
+    }
+    const acceptedStartLow = Math.min(
+      draftStart,
+      parsedStart,
+      ...(Number.isNaN(draftMtimeMs) ? [] : [draftMtimeMs])
+    ) - 60000;
+    const acceptedStartHigh = Math.max(draftStart, parsedStart) + 60000;
+    let alreadySavedSessionId: string | null = null;
+    const sessionsDir = getSessionsDir(vaultPath);
+    if (fs.existsSync(sessionsDir)) {
+      // Ascending filename order, as every other scan in this module uses.
+      for (const file of fs.readdirSync(sessionsDir).sort()) {
+        if (!file.startsWith('S-') || file.startsWith('DRAFT-S-') || !file.endsWith('.md')) continue;
+        const candidatePath = path.join(sessionsDir, file);
+        try {
+          const candidateStat = fs.statSync(candidatePath);
+          if (candidateStat.size === 0) continue;
+          const candidate = parseFrontmatter(fs.readFileSync(candidatePath, 'utf8'));
+          const fm = candidate.frontmatter;
+          if (!fm || typeof fm.session_id !== 'string' || fm.session_id.startsWith('DRAFT-')) continue;
+          if (fm.status !== 'completed') continue;
+          if (String(fm.topic_id ?? 'unknown') !== topicId) continue;
+          const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+          const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
+          if (Number.isNaN(candidateStartMs)) continue;
+          if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
+          if (candidate.body.includes(draftHeading)) {
+            alreadySavedSessionId = fm.session_id;
+            break;
+          }
+          // Empty notes carry no identifying signal: `notesOf === ''` would
+          // match any no-notes completed session of this topic in the window,
+          // so with drafts scanned in filename order (not creation order) an
+          // older draft could be read as "already saved" by a newer draft's
+          // session and silently dropped (#329). Require non-empty notes here;
+          // a no-notes retry is still caught by the draft-id heading match above,
+          // and the only cost is a possible duplicate for a hand-edited,
+          // headingless, note-less draft — never a lost session.
+          if (
+            draftNotes !== '' &&
+            !Number.isNaN(draftMtimeMs) &&
+            notesOf(candidate.body) === draftNotes &&
+            candidateStat.mtimeMs >= draftMtimeMs
+          ) {
+            alreadySavedSessionId = fm.session_id;
+            break;
+          }
+        } catch {
+          // Unreadable candidate: never block recovery over a note we cannot read.
+        }
+      }
+    }
 
-    deleteSessionNote(vaultPath, draftPath);
+    if (alreadySavedSessionId === null) {
+      await writeSessionNote(vaultPath, {
+        session_id: newSessionId,
+        topic_id: topicId,
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_minutes: durationMinutes,
+      }, body);
+    }
+
+    // #328 ordering. `rebuildHotAndIndex` regenerates `.palee/hot.md` and
+    // `.palee/index.md` from the session files, so a throw there costs nothing
+    // permanent — the next rebuild reconciles it. Retiring the draft first is what
+    // made the failure unrecoverable: it destroyed the only marker that recovery was
+    // still pending while leaving the derived views unwritten. The draft is therefore
+    // retired last, once the canonical note exists and the views agree with it; if
+    // the unlink itself fails the draft survives and the pass above recognises the
+    // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
+    deleteSessionNote(vaultPath, draftPath);
     return;
   }
 

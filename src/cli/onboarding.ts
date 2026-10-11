@@ -5,6 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { programName } from './program-name';
 
 export interface VaultValidationOptions {
   json?: boolean;
@@ -27,6 +28,36 @@ export interface VaultValidationOptions {
  */
 export function isJsonOutput(options?: { json?: boolean }): boolean {
   return Boolean(options?.json || (process.stdout && process.stdout.isTTY === false));
+}
+
+/**
+ * The single machine-readable error shape every command emits: a JSON object
+ * `{ error: string }` on `stderr` in JSON mode, `Error: <message>` otherwise.
+ *
+ * @param error - The caught value, or a ready-made diagnostic message
+ * @param options - Command options carrying the boolean `json` flag
+ * @returns Void
+ *
+ * @remarks
+ * One emitter, one shape: `validateVaultPath`'s exit-2 configuration path and
+ * the exit-5 runtime catches in the reading commands both go through here, so a
+ * tool that parses `stderr` as JSON under `--json` sees the same object either
+ * way (#325). The caller owns the exit code — this only formats and writes.
+ *
+ * @example
+ * ```typescript
+ * } catch (e: unknown) {
+ *   emitError(e, options);
+ *   process.exitCode = exitCodeFor(e);
+ * ```
+ */
+export function emitError(error: unknown, options?: { json?: boolean }): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isJsonOutput(options)) {
+    console.error(JSON.stringify({ error: message }));
+  } else {
+    console.error(`Error: ${message}`);
+  }
 }
 
 /**
@@ -58,16 +89,12 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
    * ```
    */
   function reportError(msg: string): void {
-    if (isJsonOutput(options)) {
-      console.error(JSON.stringify({ error: msg }));
-    } else {
-      console.error(`Error: ${msg}`);
-    }
+    emitError(msg, options);
     process.exitCode = 2;
   }
 
   if (!vaultPath) {
-    reportError('Vault path not configured. Run: palee config set-vault <path>');
+    reportError(`Vault path not configured. Run: ${programName()} config set-vault <path>`);
     return null;
   }
 
@@ -113,10 +140,11 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
  * ```
  */
 export function printEmptyVaultOnboarding(): void {
+  const bin = programName();
   console.log('No topics found in vault.\n');
   console.log('To get started:');
   console.log('  • Adopt an existing note:');
-  console.log('    palee adopt "path/to/note.md"\n');
+  console.log(`    ${bin} adopt "path/to/note.md"\n`);
   console.log('  • Import a curriculum roadmap:');
-  console.log('    palee roadmap --from <file.yaml>\n');
+  console.log(`    ${bin} roadmap --from <file.yaml>\n`);
 }

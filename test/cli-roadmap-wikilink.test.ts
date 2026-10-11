@@ -334,8 +334,8 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(snapshotVault(vaultDir), before);
   });
 
-  // #73 review item 3, the reviewer's reproduction verbatim: `T-C` carries an
-  // explicit dep on `T-A`, so chaining the unordered `T-A` onto `T-B` would
+  // #73 review item 3, the reviewer's reproduction verbatim: `T-cyc-c` carries an
+  // explicit dep on `T-cyc-a`, so chaining the unordered `T-cyc-a` onto `T-cyc-b` would
   // close A -> B -> C -> A. The flag must drop only that one synthesized edge,
   // warn about it, and let the import proceed with the rest of the chain —
   // rather than failing the whole roadmap closed over an edge nobody wrote.
@@ -349,18 +349,18 @@ due_at: '2026-09-12'
     fs.writeFileSync(
       yamlPath,
       'topics:\n' +
-        '  - id: T-A\n    title: A\n    path: r/a.md\n' +
-        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
-        '  - id: T-C\n    title: C\n    order: 1\n    depends_on: [T-A]\n    path: r/c.md\n'
+        '  - id: T-cyc-a\n    title: A\n    path: r/a.md\n' +
+        '  - id: T-cyc-b\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-cyc-c\n    title: C\n    order: 1\n    depends_on: [T-cyc-a]\n    path: r/c.md\n'
     );
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /chain edge T-A -> T-B skipped: would close a cycle/);
+    assert.match(result.stdout, /chain edge T-cyc-a -> T-cyc-b skipped: would close a cycle/);
 
     // The remaining chain survives; only the offending edge is gone.
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-A'], 'authored dep must survive');
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-C'], 'accepted chain edge must land');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-cyc-a'], 'authored dep must survive');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-cyc-c'], 'accepted chain edge must land');
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic starts a new chain');
   });
 
@@ -376,14 +376,14 @@ due_at: '2026-09-12'
     fs.writeFileSync(
       yamlPath,
       'topics:\n' +
-        '  - id: T-X\n    title: X\n    order: 1\n    path: r/a.md\n    depends_on: [T-Y]\n' +
-        '  - id: T-Y\n    title: Y\n    order: 2\n    path: r/b.md\n    depends_on: [T-X]\n'
+        '  - id: T-cyc-x\n    title: X\n    order: 1\n    path: r/a.md\n    depends_on: [T-cyc-y]\n' +
+        '  - id: T-cyc-y\n    title: Y\n    order: 2\n    path: r/b.md\n    depends_on: [T-cyc-x]\n'
     );
     const before = snapshotVault(vaultDir);
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 3, result.stdout + result.stderr);
-    assert.match(result.stderr, /Dependency cycle detected: T-X → T-Y → T-X/);
+    assert.match(result.stderr, /Dependency cycle detected: T-cyc-x → T-cyc-y → T-cyc-x/);
     assert.doesNotMatch(
       result.stdout,
       /chain edge\(s\) synthesized/,
@@ -393,9 +393,9 @@ due_at: '2026-09-12'
     assert.deepStrictEqual(snapshotVault(vaultDir), before, 'zero writes on validation failure');
   });
 
-  // A skipped edge must not fragment the rest of the chain. Here `T-A` is mid
-  // list, so its edge onto `T-B` would close A -> B -> C -> A; dropping it makes
-  // `T-A` a new head, and the topic after it (`T-D`) still chains onto `T-A`
+  // A skipped edge must not fragment the rest of the chain. Here `T-cyc-a` is mid
+  // list, so its edge onto `T-cyc-b` would close A -> B -> C -> A; dropping it makes
+  // `T-cyc-a` a new head, and the topic after it (`T-cyc-d`) still chains onto `T-cyc-a`
   // rather than being orphaned or restarting from scratch.
   test('--auto-chain continues the chain past a topic whose edge was skipped', () => {
     const { vaultDir, configDir } = freshVault({});
@@ -403,21 +403,21 @@ due_at: '2026-09-12'
     fs.writeFileSync(
       yamlPath,
       'topics:\n' +
-        '  - id: T-C\n    title: C\n    order: 1\n    depends_on: [T-A]\n    path: r/c.md\n' +
-        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
-        '  - id: T-A\n    title: A\n    order: 3\n    path: r/a.md\n' +
-        '  - id: T-D\n    title: D\n    order: 4\n    path: r/d.md\n'
+        '  - id: T-cyc-c\n    title: C\n    order: 1\n    depends_on: [T-cyc-a]\n    path: r/c.md\n' +
+        '  - id: T-cyc-b\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-cyc-a\n    title: A\n    order: 3\n    path: r/a.md\n' +
+        '  - id: T-cyc-d\n    title: D\n    order: 4\n    path: r/d.md\n'
     );
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /chain edge T-A -> T-B skipped: would close a cycle/);
+    assert.match(result.stdout, /chain edge T-cyc-a -> T-cyc-b skipped: would close a cycle/);
     assert.match(result.stdout, /1 chain edge\(s\) skipped to keep the graph acyclic\./);
 
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-A']);
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-C']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/c.md'), ['T-cyc-a']);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/b.md'), ['T-cyc-c']);
     assert.deepStrictEqual(dependsOn(vaultDir, 'r/a.md'), [], 'the skipped topic becomes a head');
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/d.md'), ['T-A'], 'the chain continues from the new head');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/d.md'), ['T-cyc-a'], 'the chain continues from the new head');
   });
 
   // The chain's own reachability view covers only the roadmap's topics, so a
@@ -428,10 +428,10 @@ due_at: '2026-09-12'
     const { vaultDir, configDir } = freshVault({
       'r/e.md': [
         '---',
-        'palee_id: T-E',
+        'palee_id: T-cyc-e',
         'palee_schema: 1',
         'title: E',
-        'depends_on: [T-C]',
+        'depends_on: [T-cyc-c]',
         '---',
         '',
         '# E',
@@ -442,21 +442,21 @@ due_at: '2026-09-12'
     fs.writeFileSync(
       yamlPath,
       'topics:\n' +
-        '  - id: T-A\n    title: A\n    order: 1\n    path: r/a.md\n    depends_on: [T-E]\n' +
-        '  - id: T-B\n    title: B\n    order: 2\n    path: r/b.md\n' +
-        '  - id: T-C\n    title: C\n    order: 3\n    path: r/c.md\n'
+        '  - id: T-cyc-a\n    title: A\n    order: 1\n    path: r/a.md\n    depends_on: [T-cyc-e]\n' +
+        '  - id: T-cyc-b\n    title: B\n    order: 2\n    path: r/b.md\n' +
+        '  - id: T-cyc-c\n    title: C\n    order: 3\n    path: r/c.md\n'
     );
 
     const result = runCLI(['roadmap', '--from', yamlPath, '--auto-chain', '-y'], configDir);
     assert.strictEqual(result.status, 3, result.stdout + result.stderr);
     assert.match(result.stderr, /Dependency cycle detected:/);
     assert.match(result.stderr, /synthesized by --auto-chain/);
-    assert.match(result.stderr, /T-C → T-B/);
+    assert.match(result.stderr, /T-cyc-c → T-cyc-b/);
     assert.match(result.stderr, /the rest are authored/);
     assert.doesNotMatch(result.stdout, /chain edge\(s\) synthesized/);
     assert.ok(!fs.existsSync(path.join(vaultDir, 'r/b.md')), 'no roadmap note may be written');
     assert.ok(!fs.existsSync(path.join(vaultDir, 'r/c.md')), 'no roadmap note may be written');
-    assert.deepStrictEqual(dependsOn(vaultDir, 'r/e.md'), ['T-C'], 'the pre-existing note is untouched');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'r/e.md'), ['T-cyc-c'], 'the pre-existing note is untouched');
   });
 
   test('a roadmap-synthesized chain edge gates, because the learner wrote the list', () => {
