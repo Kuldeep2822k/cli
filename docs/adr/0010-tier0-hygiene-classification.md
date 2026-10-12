@@ -34,7 +34,7 @@ The classification rules, as shipped:
 - **B3 templates**: `template`/`templates` as a whole token in a stem or directory segment, never as a substring — `03-cpp/02-templates.md` is a C++ templates module, not a template, and a numeric prefix exempts it exactly as the locale arm does.
 - **B4 phase subtrees**: any non-final path segment naming a phase directory (`solutions/`, `your-work/`, `start/`, `sketch/`, `answers/`) collapses its whole subtree to leaves — the work exists, the enumeration does not.
 - **B5 content-doc names**: README-class (`readme`, `summary`), numeric-prefixed, or phase-prefixed basenames (`lab-`, `deep-dive-`, `exam`, `assignment-`, `quiz`, `solution-`, word boundary required — `labnotes` does not qualify) are backbone-eligible.
-- **B7 invalid `palee_id`**: a truthy non-string `palee_id` (YAML reads `palee_id: 12345` as a number) is neither chained nor adopted — under `--auto-chain` such a note used to be treated as an adopted bridge note and then resolve to no id at all, making it an unsatisfiable predecessor that silently blocked everything chaining after it.
+- **B7 invalid `palee_id`**: a truthy non-string `palee_id` (YAML reads `palee_id: 12345` as a number) is demoted to a leaf — `classifyNoteForChain` returns reason `invalid-palee-id`, so the note stays attached to the chain but never gates the notes after it — because under `--auto-chain` such a note used to be treated as an adopted bridge note and then resolve to no id at all, making it an unsatisfiable predecessor that silently blocked everything chaining after it.
 
 Three sub-rulings the review round produced, each with its own test:
 
