@@ -62,6 +62,8 @@ flowchart TD
 
 PALEE adheres to a strict, standardized exit code contract across all 12 commands. Automated CI/CD pipelines, shell scripts, and editor plugins can rely deterministically on these exit codes:
 
+> The binding decisions behind this contract — the single `exitCodeFor` classifier and the `process.exitCode`-never-`process.exit` flush policy — are recorded in ADR-0024. The per-command surface contracts it stabilizes live in the CLI backfill ADRs: readiness/blocked reporting (ADR-0020), the assessment surface (ADR-0021), adoption (ADR-0022), and `migrate --relabel-ties` (ADR-0023).
+
 | Exit Code | Classification | Description | Typical Triggers |
 | :---: | :--- | :--- | :--- |
 | **0** | **Success / Clean Exit** | Command completed successfully, help text was printed, dry-run simulation finished, or the user gracefully cancelled an interactive prompt. | Successful review, complete roadmap import, `palee validate` passed with 0 errors, `palee adopt --dry-run`. |

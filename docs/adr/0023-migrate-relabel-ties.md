@@ -38,7 +38,7 @@ Comparing the predecessor's *id* is "exactly the one thing a rename preserves" �
 
 ### One derived set is printed *and* written
 
-The pass used to report success over work it had refused. A run that will write reads the vault then and derives once; that same set is what it printed and what it writes — so "not the predecessor the audit first saw" is not a state the code can be in, and a re-pointed edge is judged as the edge it is now. `predecessorIntact` re-derives the decision from the bytes about to be written rather than a scan-time fingerprint, because `loadTopics` serves from a module cache keyed on mtime — "a conflict against a baseline that may not exist." The predecessor is re-loaded through `loadTopics` so both sides of a comparison went through the same normalization; two sides of a comparison can only disagree if they are read two different ways.
+The pass used to report success over work it had refused. A run that will write reads the vault then and derives once; that same set is what it printed and what it writes — so "not the predecessor the audit first saw" is not a state the code can be in, and a re-pointed edge is judged as the edge it is now. `predecessorIntact` re-derives the decision from the bytes about to be written rather than a scan-time fingerprint, because `loadTopics` serves from a module cache keyed by filesystem path and validated on mtime/size — "a conflict against a baseline that may not exist." The predecessor is re-loaded through `loadTopics` so both sides of a comparison went through the same normalization; two sides of a comparison can only disagree if they are read two different ways.
 
 ## Consequences
 
@@ -64,6 +64,6 @@ The pass used to report success over work it had refused. A run that will write 
 4. **Demote on the three pairwise questions alone** (no adjacency check).
    - *Why Rejected*: an edge stepping over a present sibling is not one the chain wrote; demoting it removed a gate, and nothing raises mastery on its own, so the note stays unlocked permanently.
 5. **Snapshot fingerprints at scan time and trust them.**
-   - *Why Rejected*: `loadTopics` serves from a module cache keyed on mtime, so a scan-time fingerprint would sometimes assert a read the cache never performed — a conflict against a baseline that may not exist. Re-deriving from the bytes about to be written is the only version that means anything.
+   - *Why Rejected*: `loadTopics` serves from a module cache keyed by filesystem path and validated on mtime/size, so a scan-time fingerprint would sometimes assert a read the cache never performed — a conflict against a baseline that may not exist. Re-deriving from the bytes about to be written is the only version that means anything.
 6. **Classify vanished by error code** (the pre-#283 behaviour).
    - *Why Rejected*: `atomicWrite` raises ENOENT from its own temp handling and rename, so a still-existing note counted as vanished and the command exited 0 over refused work. Existence is the question; the error code only sometimes answers it.
