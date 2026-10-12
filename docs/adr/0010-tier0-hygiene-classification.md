@@ -42,7 +42,7 @@ Three sub-rulings the review round produced, each with its own test:
 2. **`FAQ.md` / `HELP.md` are excluded, not leaves** (#214). Both appear in #205's own measured false edges (`HELP.md depends on FAQ.md`) but sat only in `GENERIC_DOC_STEMS` — the loose locale arm. A `leaf` is still adopted and still a legal TOC predecessor, so neither name was actually prevented from gating a lesson. They now join `REPO_META_STEMS`.
 3. **The vault-root README bridges into the first numbered module** (owner ruling, PAL-205-G2). A root `README.md` enumerating `MODULES/01-foundations/…` chains onto the first numbered module at *any* depth — the first-segment-only rule was unreachable in the `MODULES/01-foundations/` layout the project itself uses.
 
-And one that #411 fixed after the fact: **an empty stem is a leaf, never a backbone.** `stemOf` returns `''` for any non-`.md` basename, and the classifier promoted that to the class whose job is to gate other notes — the opposite of the module's own stated failure direction ("the failure direction is always 'demote to leaf', never 'chain as a lesson'"). A file that can never be a lesson was allowed to decide the order of lessons around it.
+And one that #411 fixed after the fact (the defect was filed as #330): **an empty stem is a leaf, never a backbone.** `stemOf` returns `''` for any non-`.md` basename, and the classifier promoted that to the class whose job is to gate other notes — the opposite of the module's own stated failure direction ("the failure direction is always 'demote to leaf', never 'chain as a lesson'"). A file that can never be a lesson was allowed to decide the order of lessons around it.
 
 ## Consequences
 

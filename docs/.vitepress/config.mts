@@ -146,7 +146,7 @@ export default withMermaid(
             { text: 'ADR-0010: Tier-0 Hygiene Classification', link: '/adr/0010-tier0-hygiene-classification' },
             { text: 'ADR-0011: Tiered Auto-Chain', link: '/adr/0011-tiered-auto-chain' },
             { text: 'ADR-0012: Declared Prerequisites', link: '/adr/0012-declared-prerequisites' },
-            { text: 'ADR-0013: Per-Edge Blocking Policy (Proposed)', link: '/adr/0013-per-edge-blocking-policy' }
+            { text: 'ADR-0013: Per-Edge Blocking Policy', link: '/adr/0013-per-edge-blocking-policy' },
           ]
         },
         {
