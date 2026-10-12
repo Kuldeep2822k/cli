@@ -17,7 +17,7 @@ The fix is a classification pass that runs *before* planning, always on under `-
 ```mermaid
 flowchart TD
     A["vault-relative path"] --> B{"any segment is translations/?<br/>or is the stem empty?"}
-    B -->|yes| C["excluded / leaf —<br/>nothing to rank"]
+    B -->|yes| C["excluded (translations/ segment)<br/>or leaf (empty stem)"]
     B -->|no| D{"repo-meta stem,<br/>template token, or<br/>generic locale suffix?<br/>B1 / B3 / B2-generic"}
     D -->|yes| E["excluded"]
     D -->|no| F{"invalid palee_id, phase-subtree<br/>segment, or other locale suffix?<br/>B7 / B4 / B2-other"}
@@ -55,7 +55,7 @@ And one that #411 fixed after the fact: **an empty stem is a leaf, never a backb
 ### Negative / Tradeoffs
 
 - **Hygiene is a scope change disguised as a wiring flag** (#298, open). `--auto-chain` is documented as a dependency-wiring flag, but it is the only path that runs the hygiene pass — `adopt --all` adopts machine translations and repo-meta notes as first-class topics; `adopt --all --auto-chain` adopts fewer notes, and the scope difference is invisible in the flag's description. Recorded as a known gap with a reproduction, not fixed here, because decoupling scope from wiring is a product decision about what `--all` means.
-- **The classifier is a heuristic about names.** `guide-js.md` stays a content doc / on the backbone only because `js` is absent from `TRANSLATION_LANG_CODES` — the collision arm is a no-op today. The docstrings now say that plainly instead of implying a guard that fires.
+- **The classifier is a heuristic about names, and the locale-collision arm is a no-op today.** `LOCALE_CODE_COLLISIONS` (`js`, `ts`, `la`) only stops a note being *read as a translation*: `guide-js.md` is an unnumbered non-content sibling either way, so it classifies as a `leaf`, not a backbone lesson. The arm changes nothing until one of those codes is actually added to the language list — and the docstring says that plainly instead of implying a guard that fires.
 
 ## Alternatives Considered
 
