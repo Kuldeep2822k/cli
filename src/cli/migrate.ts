@@ -524,7 +524,9 @@ async function reportStoredTies(
  * @param options - Migration options including `--fix`, `--relabel-ties`,
  * `--include-unlabeled-ties` and `--dry-run`. `--dry-run` writes nothing at all —
  * with `--fix` it previews the schema upgrade, with `--relabel-ties` it previews the
- * relabel — and exits `0`. The unlabeled population is reached only by that third
+ * relabel — and exits `0` only when validation succeeds; unrecognized schemas that
+ * `--fix` cannot repair (schema-less notes sitting beside one, say) still exit `3`.
+ * The unlabeled population is reached only by that third
  * flag, so a bare `--relabel-ties` run keeps doing exactly what it did before #266:
  * notes whose label reads `numbered`, and nothing else.
  * @returns Promise resolving when the migration scan or update completes.

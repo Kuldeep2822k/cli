@@ -381,30 +381,36 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         throw new Error('.palee/hot.md disappeared during session start');
       }
 
-      // #442 (UX): a second `session start` silently re-adopted the active session
-      // context — both runs printed "Session Started" and exited 0, so an
-      // in-progress session was easy to clobber. Warn when one is already active; the
-      // start still proceeds (it continues the session), the exit code is unchanged.
       const existingActive = frontmatter && typeof frontmatter.active_topic === 'string'
         ? frontmatter.active_topic.trim()
         : '';
       const existingStarted = frontmatter && typeof frontmatter.started_at === 'string'
         ? frontmatter.started_at.trim()
         : '';
-      if (
-        existingActive.length > 0 && existingActive.toLowerCase() !== '(none)' && existingStarted.length > 0
-      ) {
-        console.warn(
-          `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
-            'Starting again continues it.'
-        );
-      }
 
       const resolvedTopic = explicitOutcome
         ? explicitOutcome.kind === 'topic'
           ? explicitOutcome.topicId
           : null
         : resolveSessionTopic(vaultPath, options.topic);
+
+      // #442 (UX): a second `session start` silently re-adopted the active session
+      // context — both runs printed "Session Started" and exited 0, so an in-progress
+      // session was easy to clobber. Warn, and name which: the same topic is continued,
+      // a different one replaces the active topic. The start still proceeds and the exit
+      // code is unchanged — this is a heads-up, not a refusal.
+      if (
+        existingActive.length > 0 && existingActive.toLowerCase() !== '(none)' && existingStarted.length > 0
+      ) {
+        const sameTopic = resolvedTopic === null || resolvedTopic === existingActive;
+        console.warn(
+          `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
+            (sameTopic
+              ? 'Starting again continues it.'
+              : `Starting "${resolvedTopic}" will replace that active topic; run "palee session end" first to keep the two separate.`)
+        );
+      }
+
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
       if (resolvedTopic) {
@@ -613,19 +619,28 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // Regenerate derived views
       await rebuildHotAndIndex(vaultPath);
 
-      // #442 (bug 2): mark the session ended. `rebuildHotAndIndex` now preserves a
-      // live `active_topic` (a completed note cannot be told from an open session in a
-      // rebuild), so `end` must clear it explicitly — otherwise the next `session end`
-      // would find this topic still active and mint a phantom. `started_at` is preserved
-      // so hot.md still agrees with the recorded session (#329). A FAILED clear leaves
-      // hot.md stale (the resurrect risk returns), so it is surfaced, not swallowed; the
-      // session itself is already on disk, so this only escalates the exit code.
+      // #442 (bug 2): mark the session ended. `rebuildHotAndIndex` re-derives
+      // `active_topic` from the newest completed session, so after this end it names
+      // the topic just recorded — clear it to null so the next `session end` does not
+      // find this topic active and mint a phantom. Clear ONLY when the rebuilt
+      // `active_topic` is the topic we ended; if the rebuild surfaced a different topic
+      // as newest, leave that marker intact rather than clobber another topic's state.
+      // `started_at` is preserved so hot.md still agrees with the recorded session
+      // (#329). A failed clear leaves hot.md stale (the resurrect risk returns), so it
+      // is surfaced, not swallowed; the session itself is already on disk, so this only
+      // escalates the exit code.
       try {
         const postRebuild = readHotMemory(vaultPath);
+        const postActive = postRebuild.frontmatter && typeof postRebuild.frontmatter.active_topic === 'string'
+          ? postRebuild.frontmatter.active_topic.trim()
+          : '';
         const preservedStart = postRebuild.frontmatter && typeof postRebuild.frontmatter.started_at === 'string'
           ? postRebuild.frontmatter.started_at
           : null;
-        await updateHotMemory(vaultPath, sessionId, null, postRebuild.body || '', preservedStart);
+        const clearActive = postActive === topicId;
+        await updateHotMemory(
+          vaultPath, sessionId, clearActive ? null : (postActive || null), postRebuild.body || '', preservedStart
+        );
       } catch (e: unknown) {
         console.warn(
           `Session ${sessionId} was recorded, but hot.md's active-session marker could not ` +

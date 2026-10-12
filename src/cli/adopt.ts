@@ -352,11 +352,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // but the graph damage is visible at the moment it is created.
       if (flagDeps.length > 0) {
         const knownIds = new Set(loadTopics(vaultPath).map((t) => t.id));
-        const unknownDeps = flagDeps.filter((id) => !isValidTopicId(id) || !knownIds.has(id));
-        if (unknownDeps.length > 0) {
+        // A malformed id can never match a topic — it must be corrected. A well-formed
+        // id that just is not adopted yet is a genuine forward reference that resolves
+        // later. Say the right thing about each rather than lumping them under one hint.
+        const malformed = flagDeps.filter((id) => !isValidTopicId(id));
+        const unresolved = flagDeps.filter((id) => isValidTopicId(id) && !knownIds.has(id));
+        if (malformed.length > 0) {
           console.warn(
-            `⚠ Warning: --depends-on names ${unknownDeps.length} id(s) that match no adopted topic: ` +
-              `${unknownDeps.join(', ')} — these edges will dangle until those topics exist.`
+            `⚠ Warning: --depends-on names ${malformed.length} malformed id(s) that can match no topic ` +
+              `(expected T- plus lowercase kebab-case, e.g. T-git-rebase): ${malformed.join(', ')}. ` +
+              'Correct them, or the edge is permanently dangling.'
+          );
+        }
+        if (unresolved.length > 0) {
+          console.warn(
+            `⚠ Warning: --depends-on names ${unresolved.length} id(s) that match no adopted topic: ` +
+              `${unresolved.join(', ')} — these edges will dangle until those topics exist.`
           );
         }
       }

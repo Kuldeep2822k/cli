@@ -120,7 +120,7 @@ Aggregates all active topics across the vault [src/cli/progress.ts#140-233](http
   ```
 
 - **Mastery Status**: Classifies vault overall state as `'no_data'` (`active_count === 0`), `'learning'` (`< 0.70`), or `'mastered'` (`>= 0.70`).
-- **Total Repetitions & Lapses**: Aggregates lifetime review repetitions and memory lapses across all active topics.
+- **Total Repetitions & Lapses**: Sums the current `repetition` value across all active topics (a failed review resets `repetition` to 0, so this is not a lifetime count of review events) together with memory lapses.
 
 #### 2. Topic-Specific Mode (`--topic <id>`)
 Surfaces comprehensive SRS metadata for an individual topic note:
