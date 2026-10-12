@@ -19,7 +19,7 @@ A `src/application/` layer sits between the CLI handlers and the engine/storage 
 | `due-topics.ts` | `normalizeDueDate`, `compareDue`, `partitionDue` — the due-selection primitives previously copy-pasted across `next`, `plan` and `dashboard` |
 | `get-next-topics.ts` | the pure core behind `palee next`, including the prerequisite gate (ADR-0020) |
 | `mastery-summary.ts` | `summarizeMastery` — the mastery buckets previously copy-pasted in `plan`, `dashboard` and `progress` |
-| `resolve-topic-query.ts` | `matchesTopicQuery` — the match predicate previously duplicated in `review`, `progress` and `assess` |
+| `topic-query.ts` *(stayed in `src/cli/` — shared by the CLI layer, never moved)* | `resolveTopicQuery` — the match resolver previously duplicated in `review`, `progress` and `assess` |
 | `record-review.ts` | `buildReviewUpdate` — coerces stored SM-2 state (preserving a literal `0`), runs `processReview`, computes the next due date, resolves four-pillar mastery |
 | `record-assessment.ts` | `buildAssessmentUpdate` and `assessmentAvailabilityDiff` — the merge of supplied pillars over stored ones, and the unlock/block delta (ADR-0021) |
 
@@ -27,7 +27,7 @@ Each application module is a single source of truth with multiple callers; the C
 
 ### The resolution policy stays in the CLI; only the predicate is shared
 
-`resolve-topic-query` shares the *predicate*, not the policy: `review` and `assess` resolve exact-id-wins-then-fuzzy (ADR-0021), `progress` keeps its own tolerance, and the commands differ in wording and JSON shape. Only the choice of topic is shared. The same split governs the session flows' hot-memory policies in ADR-0007 — classification shared, policy local.
+`topic-query.ts` never left the CLI layer, and the split it encodes is the point: it shares the *predicate*, not the policy. `review` and `assess` resolve exact-id-wins-then-fuzzy (ADR-0021), `progress` keeps its own tolerance, and the commands differ in wording and JSON shape. Only the choice of topic is shared — the four commands (`review`, `assess`, `progress`, `session`) call `resolveTopicQuery` and each keeps its own policy on top. The same split governs the session flows' hot-memory policies in ADR-0007 — classification shared, policy local.
 
 ### "Due" means two things, and the split is now first-class
 
