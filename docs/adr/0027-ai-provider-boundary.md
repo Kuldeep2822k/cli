@@ -85,4 +85,4 @@ On Windows the POSIX mode is a no-op; NTFS access is inherited from the config d
 4. **Accept the key as a positional argument.**
    - *Why Rejected*: `argv` is readable by every other process and lands in shell history. stdin/env/prompt only.
 5. **Validate NTFS ACLs natively on Windows.**
-   - *Why Rejected (for now)**: no dependency-free way to read an ACL without spawning `icacls` per write, and a false refusal on a legitimately-secured directory would be worse than the gap. Recorded in #316 as its own feature with its constraints written down.
+   - *Why Rejected (for now)*: no dependency-free way to read an ACL without spawning `icacls` per write, and a false refusal on a legitimately-secured directory would be worse than the gap. Recorded in #316 as its own feature with its constraints written down.
