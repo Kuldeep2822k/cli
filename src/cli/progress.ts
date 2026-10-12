@@ -79,6 +79,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
           new: 0,
           avg_mastery: 0,
           total_reviews: 0,
+          total_repetitions: 0,
           total_lapses: 0,
           by_difficulty: {
             beginner: { total: 0, avg_mastery: 0 },
@@ -211,7 +212,13 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
           learning,
           new: newTopics,
           avg_mastery: globalMastery ?? 0,
+          // #442 (bug 4): this figure is Σ `repetition`, not a count of review
+          // events — a failed review resets `repetition` to 0 and vanishes from it.
+          // The value is honest; the old `Total Reviews` name overclaimed. The
+          // `total_reviews` key stays for existing --json consumers, with the
+          // accurate `total_repetitions` added alongside.
           total_reviews: totalReps,
+          total_repetitions: totalReps,
           total_lapses: totalLapses,
           by_difficulty: {
             beginner: {
@@ -248,7 +255,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       } else {
         console.log(`Average Mastery: No data (${masteryStatus})`);
       }
-      console.log(`Total Reviews: ${totalReps}`);
+      console.log(`Total Repetitions: ${totalReps}`);
       console.log(`Total Lapses: ${totalLapses}`);
       console.log();
 

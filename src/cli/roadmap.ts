@@ -1,6 +1,6 @@
 /**
  * Roadmap Command Handler
- * Manages learning roadmaps (Phase 1: deterministic --from only)
+ * Manages learning roadmaps (deterministic import via --from)
  */
 
 import fs from 'fs';
@@ -337,9 +337,10 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
  * plan-only mode (prints the per-note write plan and writes nothing, exit `0`),
  * and `--yes` confirmation.
  * @returns Promise resolving when roadmap validation and import complete.
- * @remarks Sets process.exitCode = 2 on missing/invalid arguments or missing vault,
- * process.exitCode = 3 on dependency cycles or validation errors in the roadmap,
- * process.exitCode = 1 on partial import failure, and process.exitCode = 5 on unexpected runtime exceptions.
+ * @remarks Sets process.exitCode = 2 on missing/invalid arguments, a `--from` path
+ * that is not a regular file, or a missing vault; process.exitCode = 3 on dependency
+ * cycles or validation errors in the roadmap, process.exitCode = 1 on partial import
+ * failure, and process.exitCode = 5 on unexpected runtime exceptions.
  * @example
  * ```typescript
  * await roadmapCommand({ from: 'roadmap.yaml', yes: true });
@@ -348,7 +349,7 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
 async function roadmapCommand(options: RoadmapOptions): Promise<void> {
   try {
     if (!options.from) {
-      console.error('Error: Phase 1 only supports --from <file>');
+      console.error('Error: --from <file> is required');
       console.error('Usage: palee roadmap --from <roadmap.yaml|roadmap.md>');
       process.exitCode = ExitCode.Usage;
       return;
@@ -364,6 +365,18 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (!fs.existsSync(roadmapPath)) {
       console.error(`Error: Roadmap file not found: ${roadmapPath}`);
+      process.exitCode = ExitCode.Usage;
+      return;
+    }
+
+    // A directory passes `existsSync` but `readFileSync` throws a raw `EISDIR`, which
+    // the outer catch maps to an unexpected runtime exception (exit 5) — every other
+    // usage error here exits 2. `statSync` (which follows a symlink) is used, not
+    // `lstat`: the roadmap is an input this command only reads — it is never a vault
+    // write target — so a symlink to a regular file is a legitimate `--from`. Only a
+    // directory, or a dangling link (already caught by `existsSync`), is refused.
+    if (!fs.statSync(roadmapPath).isFile()) {
+      console.error(`Error: Roadmap path is not a file: ${roadmapPath}`);
       process.exitCode = ExitCode.Usage;
       return;
     }
@@ -478,6 +491,20 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         errors.push(
           `Invalid topic ID format: ${JSON.stringify(id)} (expected T- plus lowercase ` +
             'kebab-case slug, e.g. T-git-rebase)'
+        );
+      }
+
+      // A degenerate placeholder id (`T-00000000-000000-00000000`) satisfies the
+      // kebab-case shape — every segment is digits — so the format gate above passed
+      // it and the import wrote a ghost note under a bogus, unsatisfiable identity.
+      // Refuse the all-zero shape explicitly: it is never a hand-authored lesson id,
+      // and the same all-or-nothing gate means a roadmap holding one writes zero bytes.
+      // Side effect: a single all-zero segment (`T-0`) is also refused — an acceptable
+      // trade-off, since a bare `T-0` is as useless as the placeholder it is meant to stop.
+      if (id && isValidTopicId(id) && /^T-0+(?:-0+)*$/.test(id)) {
+        errors.push(
+          `Invalid topic ID: ${id} is a placeholder (all-zero segments). ` +
+            'Give the topic a real kebab-case id, e.g. T-git-rebase.'
         );
       }
 
@@ -624,6 +651,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       console.log(`  • ${topic.path}`);
     }
     console.log();
+
+    // #442 (bug 6): the real ghost-note defect — a fabricated identity — is refused
+    // outright by the placeholder gate in the validation loop (all-zero ids). A
+    // well-formed id that is simply new is the legitimate purpose of `roadmap --from`,
+    // and it is already disclosed by the create/update listing above and the
+    // `Created: N notes` summary after import, so no separate pre-confirm warning is
+    // emitted here (that fired on every fresh-curriculum import and before a decline).
 
     // #309: this command rewrites `depends_on` across the vault, so `--dry-run`
     // prints the full per-note plan — id, target path, resolved `depends_on`

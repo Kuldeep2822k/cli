@@ -142,7 +142,7 @@ Active Topics: 14 (1 archived)
   New: 2 (14.3%)
 
 Average Mastery: 54.3% (learning)
-Total Reviews: 28
+Total Repetitions: 28
 Total Lapses: 3
 
 By Difficulty:

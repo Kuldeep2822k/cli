@@ -74,6 +74,10 @@ function resolveTopicQuery(
   // title matched anything at all — an existing id/title match is never shadowed by
   // a path reading, and an exact path is unique by construction (`walkVault` visits a
   // physical note once), so this can only name the one note that is there.
+  // #442 deliberately did NOT widen this to a loose basename or an extension-less
+  // path: `#313` requires `one.md`/`w/one` to stay refused for a note at `w/one.md`
+  // (a bare fragment turns every lookup into a candidate hunt, and a shared stem is
+  // ambiguous). The CLI prints the full path, so `01-python-basics.md` already resolves.
   const wanted = normalizeTopicPath(query);
   const byPath = loaded.filter((t) => normalizeTopicPath(t.path) === wanted);
   if (byPath.length === 0) return { kind: 'none' };

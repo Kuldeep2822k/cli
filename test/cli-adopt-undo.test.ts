@@ -766,12 +766,17 @@ describe('palee adopt --undo reverses adoption without touching authored content
     assert.strictEqual(treeDigest(paleeDir), paleeBefore, 'no byte under .palee/ was rewritten');
     assert.match(undo.stdout, /still name 1 un-adopted topic/, undo.stdout);
     assert.match(undo.stdout, new RegExp(topicId as string), undo.stdout);
-    assert.match(undo.stdout, /\.palee\/hot\.md active_topic/, undo.stdout);
+    // #442 (bug 2): `session end` now clears hot.md's `active_topic` (an ended session
+    // is not an active one), so the dangling reference to the un-adopted topic lives in
+    // the canonical session note under `.palee/sessions/`, not in `hot.md active_topic`.
+    assert.match(undo.stdout, /\.palee\/sessions\//, undo.stdout);
 
     // And the claim is checkable: validate reports the same dangling reference as a
-    // warning, which is the surface that owns it.
+    // warning, on the surface that owns it. #442 (bug 2): `end` clears hot.md's
+    // active_topic, so the reference to the un-adopted topic lives in the session note
+    // (`no-session-unknown-topic`) rather than in `hot.md active_topic`.
     const validate = runCLI(['validate', '--json']);
-    assert.match(validate.stdout, /valid-hot-memory/, validate.stdout);
+    assert.match(validate.stdout, /no-session-unknown-topic/, validate.stdout);
   });
 
   test('an untracked note loses nothing when the vault-wide batch scans it', () => {

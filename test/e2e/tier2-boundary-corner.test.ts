@@ -117,7 +117,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     test('B2.5: session end with explicit (none) topic returns exit code 2', () => {
       const res = env.run(['session', 'end', '--topic', '(none)']);
       assert.strictEqual(res.status, 2);
-      assert.match(res.stderr, /Topic required/);
+      assert.match(res.stderr, /no active session/);
     });
   });
 
@@ -127,6 +127,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
   describe('Session Duration & Timestamp Edge Cases', () => {
     test('B3.1: instantaneous session start and end generates valid session record', () => {
       env.createTopics(['T-instant']);
+      env.run(['session', 'start', '--topic', 'T-instant']);
       const res = env.run(['session', 'end', '--topic', 'T-instant']);
       assert.strictEqual(res.status, 0);
 
@@ -229,7 +230,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     test('B4.3: session end without active topic and without --topic exits with code 2 and leaves no files', () => {
       const res = env.run(['session', 'end']);
       assert.strictEqual(res.status, 2);
-      assert.match(res.stderr, /Topic required/);
+      assert.match(res.stderr, /no active session/);
 
       const sessions = env.listSessions();
       assert.strictEqual(sessions.confirmed.length, 0);

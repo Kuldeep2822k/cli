@@ -25,9 +25,16 @@ import {
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
-import { generateTopicId } from '../engine/topic-id';
+import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
-import { classifyNoteForChain, isValidPaleeId, type Tier0SkipReason } from '../engine/tier0-hygiene';
+import {
+  classifyNoteForChain,
+  isValidPaleeId,
+  REPO_META_STEMS,
+  README_CLASS_STEMS,
+  stemOf,
+  type Tier0SkipReason,
+} from '../engine/tier0-hygiene';
 import {
   composeTieredChain,
   parseAutoChainTier,
@@ -338,6 +345,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         ? options.dependsOn.split(',').map((s) => s.trim()).filter(Boolean)
         : [];
 
+      // #442 (bug 7): a `--depends-on` id that names no adopted topic is a dangling
+      // edge — it corrupts the dependency graph, and `validate` only warns on a
+      // missing dependency (exit 0), so the learner found out only when a dependent
+      // vanished from `palee plan`. Warn (do not refuse) so adoption still proceeds,
+      // but the graph damage is visible at the moment it is created.
+      if (flagDeps.length > 0) {
+        const knownIds = new Set(loadTopics(vaultPath).map((t) => t.id));
+        const unknownDeps = flagDeps.filter((id) => !isValidTopicId(id) || !knownIds.has(id));
+        if (unknownDeps.length > 0) {
+          console.warn(
+            `⚠ Warning: --depends-on names ${unknownDeps.length} id(s) that match no adopted topic: ` +
+              `${unknownDeps.join(', ')} — these edges will dangle until those topics exist.`
+          );
+        }
+      }
+
       // #258 — a note adopted for the first time that already carries a
       // non-empty `depends_on` is stating its own prerequisites, and adoption is
       // documented as strictly non-destructive (docs/02-1) with "explicit
@@ -495,6 +518,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
+    /** #442 (UX): repo-meta docs (README/SUMMARY/LICENSE/…) skipped by a blanket batch scan */
+    const skippedRepoMeta: string[] = [];
     /**
      * #312 — every vault-relative path the scan looked at, which is the scope a
      * supplied `--include`/`--exclude` pattern is measured against. The aggregate
@@ -606,6 +631,22 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (options.tag && !matchesTags(frontmatter?.tags, options.tag)) {
         skippedByTag.push(relPath);
         continue;
+      }
+
+      // #442 (UX): `palee adopt --all` (without `--auto-chain`) swept repo-meta docs —
+      // README.md, SUMMARY.md, LICENSE, etc. — into the vault as learning topics. The
+      // blanket batch scan now skips anything named in REPO_META_STEMS plus the
+      // README-class stems. This is scoped to a scan the learner did not otherwise
+      // select: an explicit `--include` (a deliberate path pick), single-file adoption
+      // of the path, or `--auto-chain` — where README/SUMMARY are intentionally kept as
+      // curriculum backbone content docs — all still reach those notes. Under
+      // `--auto-chain` the classifier below owns repo-meta exclusion.
+      if (!options.autoChain && !options.include) {
+        const stem = stemOf(relPath.slice(relPath.lastIndexOf('/') + 1));
+        if (stem.length > 0 && (REPO_META_STEMS.includes(stem) || README_CLASS_STEMS.includes(stem))) {
+          skippedRepoMeta.push(relPath);
+          continue;
+        }
       }
 
       // B1-B4 — repo meta, translation copies and templates are out of an
@@ -1050,6 +1091,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     console.log(`Total Scanned:    ${allFiles.length} files`);
     console.log(`Ready to Adopt:   ${toAdopt.length} notes`);
     console.log(`Already Adopted:  ${alreadyAdopted.length} notes`);
+    if (skippedRepoMeta.length > 0) {
+      console.log(`Skipped (Repo-meta): ${skippedRepoMeta.length} notes (README/SUMMARY/LICENSE etc. are not learning topics; adopt one directly to override)`);
+    }
     if (options.include || options.exclude) {
       console.log(`Excluded (Pattern): ${skippedByPattern.length} notes`);
     }

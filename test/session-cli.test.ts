@@ -418,7 +418,10 @@ describe('Session CLI In-Process Coverage', () => {
     fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
   });
 
-  test('session end falls back to current instant when neither draft nor hot memory has started_at (Tier 3)', async () => {
+  test('session end with no active session refuses at exit 2 and mints no phantom session (#442)', async () => {
+    // Was a Tier-3 "fall back to current instant" characterization; #442 declares the
+    // silent fabrication a bug, so an end with neither a draft (Tier 1) nor a
+    // post-start hot started_at (Tier 2) must refuse at exit 2 and write nothing.
     const hotPath = path.join(vaultDir, '.palee', 'hot.md');
     fs.writeFileSync(
       hotPath,
@@ -426,21 +429,34 @@ describe('Session CLI In-Process Coverage', () => {
       'utf8'
     );
 
+    process.exitCode = undefined;
     await sessionCommand('end', { topic: 'T-adhoc-end' });
+    assert.strictEqual(process.exitCode, 2);
 
     const draftsDir = path.join(vaultDir, '.palee', 'sessions');
-    const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
-    assert.strictEqual(confirmedFiles.length, 1);
+    const confirmedFiles = fs.existsSync(draftsDir)
+      ? fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'))
+      : [];
+    assert.strictEqual(confirmedFiles.length, 0, 'no phantom session may be minted without an active session');
+  });
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
-    const { frontmatter } = parseFrontmatter(sessionContent);
-    assert.strictEqual(frontmatter?.topic_id, 'T-adhoc-end');
-    assert.ok(frontmatter?.started_at);
-    assert.ok(frontmatter?.ended_at);
-    assert.strictEqual(frontmatter?.duration_minutes, 0);
+  test('session start then end records one session; a repeated end reports no active session (#442)', async () => {
+    await sessionCommand('start', { topic: 'T-ongoing-topic' });
+    process.exitCode = undefined;
 
-    // Cleanup session file
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, undefined);
+    const draftsDir = path.join(vaultDir, '.palee', 'sessions');
+    const afterFirst = fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'));
+    assert.strictEqual(afterFirst.length, 1, 'the first end records the active session');
+
+    // A second end has no active session: hot.md's active_topic was cleared, so it
+    // must refuse rather than mint a phantom, and add no session note.
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, 2);
+    const afterSecond = fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'));
+    assert.strictEqual(afterSecond.length, 1, 'the repeated end must not fabricate a session');
   });
 
   test('session end handles corrupt draft frontmatter by falling back to hot.md or current instant', async () => {

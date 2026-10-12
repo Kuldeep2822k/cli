@@ -191,8 +191,10 @@ topics:
       title: 'Lock Recovery Topic',
     });
 
-    // 1. Session start
-    env.run(['session', 'start']);
+    // 1. Session start on the topic the flow later ends.
+    // #442 (bug 2): `session end` now refuses without an active session, so a topicless
+    // start would leave no active topic and the later `end --topic` would be refused.
+    env.run(['session', 'start', '--topic', 'T-lock-recov']);
 
     // 2. Lock note externally
     const notePath = path.join(env.vaultDir, 'lock-recov.md');
@@ -294,6 +296,12 @@ topics:
     // the ID `adopt` actually minted rather than the file's slug.
     const adoptedId = env.readTopic('fault-topic.md').frontmatter?.palee_id as string;
     assert.ok(adoptedId, 'adopt must mint a palee_id for the note');
+
+    // 1b. Open a real active session on the adopted topic. #442 (bug 2): `session end`
+    // now requires active-session evidence, so the corrupt-draft recovery below must
+    // still have a genuine session to end (the draft is what gets corrupted, not the
+    // session signal).
+    env.run(['session', 'start', '--topic', adoptedId]);
 
     // 2. Create draft
     env.run(['session', 'draft', '--topic', adoptedId]);

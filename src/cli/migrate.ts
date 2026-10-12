@@ -522,9 +522,11 @@ async function reportStoredTies(
  * CLI command handler for validating and migrating note schema versions across the vault.
  *
  * @param options - Migration options including `--fix`, `--relabel-ties`,
- * `--include-unlabeled-ties` and `--dry-run`. The unlabeled population is reached
- * only by that third flag, so a bare `--relabel-ties` run keeps doing exactly what
- * it did before #266: notes whose label reads `numbered`, and nothing else.
+ * `--include-unlabeled-ties` and `--dry-run`. `--dry-run` writes nothing at all —
+ * with `--fix` it previews the schema upgrade, with `--relabel-ties` it previews the
+ * relabel — and exits `0`. The unlabeled population is reached only by that third
+ * flag, so a bare `--relabel-ties` run keeps doing exactly what it did before #266:
+ * notes whose label reads `numbered`, and nothing else.
  * @returns Promise resolving when the migration scan or update completes.
  * @remarks Sets process.exitCode = 2 if the vault path is unconfigured or invalid,
  * process.exitCode = 3 if unrecognized schemas remain, process.exitCode = 4 if any
@@ -605,6 +607,36 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     }
 
     if (options.fix && missingSchema.length > 0) {
+      // #442 (bug 9): `--dry-run` must never write, including alongside `--fix`.
+      // The old help claimed `--dry-run` "does not affect --fix", so `--fix --dry-run`
+      // ran the atomic-write loop and mutated the vault. Preview the plan and return
+      // before any write, mirroring `roadmap --dry-run` (zero bytes). The exit code
+      // still mirrors the real run: `--fix` cannot repair an unrecognized schema, so a
+      // vault holding one must not read as a clean 0 in a CI that runs `--dry-run`.
+      if (options.dryRun) {
+        console.log('Dry-run plan (no files were written):');
+        for (const filePath of missingSchema) {
+          console.log(`  • ${filePath}`);
+        }
+        console.log();
+        console.log(
+          `Dry-run complete. ${missingSchema.length} note(s) would be migrated to Schema v1. No files were modified.`
+        );
+        if (unrecognized.length > 0) {
+          console.log(`Unrecognized schema: ${unrecognized.length} notes (not fixable by --fix)`);
+          for (const file of unrecognized.slice(0, 5)) {
+            console.log(`  • ${file}`);
+          }
+          if (unrecognized.length > 5) {
+            console.log(`  ... and ${unrecognized.length - 5} more`);
+          }
+          console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
+          process.exitCode = ExitCode.Validation;
+          return;
+        }
+        process.exitCode = ExitCode.Success;
+        return;
+      }
       console.log(`Migrating ${missingSchema.length} schema-less notes to Schema v1...`);
       let migrated = 0;
       const failed: string[] = [];

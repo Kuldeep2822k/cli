@@ -350,6 +350,7 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
   describe('F5: Session End Duration Recovery', () => {
     test('F5.1: session end creates S-*.md with completed status and valid timestamps', () => {
       env.createTopics(['T-algo']);
+      env.run(['session', 'start', '--topic', 'T-algo']);
       const res = env.run(['session', 'end', '--topic', 'T-algo']);
       assert.strictEqual(res.status, 0);
       assert.match(res.stdout, /Session recorded/);
@@ -397,6 +398,7 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
 
     test('F5.3: session end updates hot.md with last_session reference', () => {
       env.createTopics(['T-hot-update']);
+      env.run(['session', 'start', '--topic', 'T-hot-update']);
       env.run(['session', 'end', '--topic', 'T-hot-update']);
       const sessions = env.listSessions();
       const completedId = sessions.confirmed[0].replace('.md', '');
@@ -408,6 +410,7 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
 
     test('F5.4: session end updates index.md catalog', () => {
       env.createTopics(['T-index-update']);
+      env.run(['session', 'start', '--topic', 'T-index-update']);
       env.run(['session', 'end', '--topic', 'T-index-update']);
       const idx = env.readSessionIndex();
       assert.ok(idx);
@@ -417,7 +420,9 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
 
     test('F5.5: session list shows confirmed sessions in descending order', () => {
       env.createTopics(['T-first', 'T-second']);
+      env.run(['session', 'start', '--topic', 'T-first']);
       env.run(['session', 'end', '--topic', 'T-first']);
+      env.run(['session', 'start', '--topic', 'T-second']);
       env.run(['session', 'end', '--topic', 'T-second']);
 
       const res = env.run(['session', 'list']);

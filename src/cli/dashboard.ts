@@ -1,6 +1,6 @@
 /**
  * Dashboard Command Handler
- * Interactive learning dashboard (Phase 1: text summary only)
+ * Learning dashboard summary (text / JSON)
  */
 
 import { loadTopics } from '../storage';
