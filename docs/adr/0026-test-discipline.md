@@ -39,7 +39,7 @@ When a mutation is not caught, the review says why rather than implying coverage
 
 ### Expected values are computed by hand, not by the implementation
 
-The SM-2 rounding test's expected value is derived from the formula (q=5 ⇒ +0.1 delta ⇒ 2.5568), not by calling the implementation's own rounding helper. A test that asks the code under test for its expected output cannot fail.
+The SM-2 rounding test's expected value is derived from the formula — start at an ease of 2.456789, apply q=5's +0.1 delta, and 2.556789 rounds half-up to 2.5568 — not by calling the implementation's rounding helper. A test that asks the code under test for its expected output cannot fail.
 
 ### Negative controls are measured before committing
 
