@@ -26,7 +26,7 @@ Each supplied pattern is measured against the whole scanned scope — every file
 
 ### Single-file `--dry-run` previews instead of writing
 
-The batch branch returned before writing when `--dry-run` was set; the single-file branch had no such guard, so the command a cautious user runs *before* trusting it adopted the note — and `docs/02-1` promises adoption "without modifying any files" — came back with a minted `palee_id`, eight new frontmatter keys, and its hand-authored `depends_on` replaced by `[]`. Eleven lines: preview the fields that will be written, print the same completion line the batch path prints, and return before `updateFrontmatter`.
+The batch branch returned before writing when `--dry-run` was set; the single-file branch had no such guard, so the command a cautious user runs *before* trusting it adopted the note — and `docs/02-1-topic-management-commands.md` promises adoption "without modifying any files" — came back with a minted `palee_id`, eight new frontmatter keys, and its hand-authored `depends_on` replaced by `[]`. Eleven lines: preview the fields that will be written, print the same completion line the batch path prints, and return before `updateFrontmatter`.
 
 ### `--undo` strips only the keys adoption writes
 
