@@ -161,7 +161,7 @@ export default withMermaid(
             { text: 'ADR-0025: The Application Layer', link: '/adr/0025-application-layer' },
             { text: 'ADR-0026: Test Discipline', link: '/adr/0026-test-discipline' },
             { text: 'ADR-0027: AI Provider & Network Boundary', link: '/adr/0027-ai-provider-boundary' },
-            { text: 'ADR-0028: Phase-2 Design Directions (Proposed)', link: '/adr/0028-phase-2-design-directions' }
+            { text: 'ADR-0028: Phase-2 Design Directions', link: '/adr/0028-phase-2-design-directions' }
           ]
         },
         {
