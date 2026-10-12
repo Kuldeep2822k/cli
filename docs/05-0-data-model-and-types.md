@@ -196,3 +196,5 @@ flowchart LR
 ```
 
 Sources: [src/types.ts#343-389](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L343-L389)
+
+> **Gating semantics (ADR cross-references).** How a `depends_on` list is interpreted is not a plain graph walk: the additive `depends_on_source` field makes `toc`/`tie` edges advisory (never gating) while an absent or unrecognized label gates fail-closed — the binding rule is ADR-0009. Identity of a node across renames (`palee_id`, the value a rename preserves) is ADR-0015, and the storage-normalization of `depends_on`/`dependencies` with byte-fidelity on any frontmatter rewrite is ADR-0016.
