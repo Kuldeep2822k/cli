@@ -38,7 +38,7 @@ Comparing the predecessor's *id* is "exactly the one thing a rename preserves" �
 
 ### One derived set is printed *and* written
 
-The pass used to report success over work it had refused. A run that will write reads the vault then and derives once; that same set is what it printed and what it writes — so "not the predecessor the audit first saw" is not a state the code can be in, and a re-pointed edge is judged as the edge it is now. `tieStillHolds` re-derives the decision from the bytes about to be written rather than a scan-time fingerprint, because `loadTopics` serves from a module cache keyed on mtime — "a conflict against a baseline that may not exist." The predecessor is re-loaded through `loadTopics` so both sides of a comparison went through the same normalization; two sides of a comparison can only disagree if they are read two different ways.
+The pass used to report success over work it had refused. A run that will write reads the vault then and derives once; that same set is what it printed and what it writes — so "not the predecessor the audit first saw" is not a state the code can be in, and a re-pointed edge is judged as the edge it is now. `predecessorIntact` re-derives the decision from the bytes about to be written rather than a scan-time fingerprint, because `loadTopics` serves from a module cache keyed on mtime — "a conflict against a baseline that may not exist." The predecessor is re-loaded through `loadTopics` so both sides of a comparison went through the same normalization; two sides of a comparison can only disagree if they are read two different ways.
 
 ## Consequences
 
