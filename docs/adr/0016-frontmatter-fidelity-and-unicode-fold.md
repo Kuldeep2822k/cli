@@ -41,7 +41,7 @@ Covered in full in ADR-0011's link-parsing discipline; recorded here because the
 ### Negative / Tradeoffs
 
 - **The fold is case-insensitive everywhere, including on case-sensitive filesystems.** On Linux, `Setup.md` and `setup.md` are two different files that the index now treats as one name. That collision is theoretical in an Obsidian vault (Obsidian itself is case-insensitive about links) and the alternative — a fold on some comparisons and not others — is the defect this ADR closes.
-- **`dev:inode` was considered and rejected as the identity key** (ADR-0009's sibling decision): `st.ino` is 0 on FAT32/exFAT and redirected cloud volumes, which would collapse every note to `dev:0` and produce false duplicates — the opposite failure. The walked-casing re-spell was chosen instead: identity from the maps the pipeline already agrees on, no extra syscalls.
+- **`dev:inode` was considered and rejected as the identity key**: `st.ino` is 0 on FAT32/exFAT and redirected cloud volumes, which would collapse every note to `dev:0` and produce false duplicates — the opposite failure. The walked-casing re-spell was chosen instead: identity from the maps the pipeline already agrees on, no extra syscalls.
 
 ## Alternatives Considered
 
