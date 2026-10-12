@@ -49,7 +49,7 @@ The subtle point the extraction made explicit rather than altered: a note is *du
 ## Alternatives Considered
 
 1. **Leave the logic in the handlers and let a future interface spawn the CLI.**
-   - *Why Rejected*: process-spawn is the integration of last resort — output parsing, exit-code mapping, and a per-spawn cost (the test suite measures 561 ms cold per spawn, which #404 later cut to 224 ms by other means). The use-cases are callable in-process.
+   - *Why Rejected*: process-spawn is the integration of last resort — output parsing, exit-code mapping, and a per-spawn cost (the test suite measures ~561 ms cold per spawn, which #404 later cut to ~224 ms by other means). The use-cases are callable in-process.
 2. **Extract everything into a service layer** (a fat application layer owning I/O too).
    - *Why Rejected*: #65 explicitly scopes this to genuinely reusable logic. A service layer that owns I/O just moves the handler's responsibilities down a level and doubles the surface.
 3. **Share the whole topic-resolution policy, not just the predicate.**

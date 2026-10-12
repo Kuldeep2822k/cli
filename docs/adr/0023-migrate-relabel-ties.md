@@ -30,7 +30,7 @@ A note whose stored `depends_on` no longer matches any computable plan is left a
 
 ### `vanished` is classified by existence, not by error code
 
-`atomicWrite` also raises ENOENT from its temp handling and its rename, so a parent directory vanishing mid-run counted a note that still exists as "nothing to relabel" and let the command exit 0. Vanished now means `existsSync` reports the path absent; every other ENOENT stays a write error and keeps exit 5. A non-conflict write failure exits 5 (the documented "unexpected runtime exception," which a permission or disk error is); a conflict still exits 4 and re-runs. A note skipped by the write-time recheck is counted in the summary and leaves the exit code alone — it no longer matches the pattern, which is a correct outcome, not a failure.
+`atomicWrite` also raises ENOENT from its temp handling and its rename, so a parent directory vanishing mid-run counted a note that still exists as "nothing to relabel" and let the command exit 0. Vanished now means `existsSync` reports the path absent; every other ENOENT stays a write error and keeps exit 5. A non-conflict write failure exits 5 (the documented "unexpected runtime exception," which a permission or disk error is). The write-time recheck — a fingerprint that moved, or a predecessor whose identity no longer lives at the recorded path — is different: the note is counted stale **and** the conflict flag is set, so drift under the pass exits 4 and asks for a re-run rather than reporting success over work it refused. The derivation-time refusals (the three counted patterns) leave the exit code alone: a note whose `depends_on` no longer matches any computable plan is a correct outcome, not a failure.
 
 ### Rename detection is by path, not id
 
