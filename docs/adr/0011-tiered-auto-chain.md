@@ -73,7 +73,7 @@ A destination means what the author wrote. The scanner follows CommonMark 0.31.2
 - A vault with no order signal produces zero edges and an honest refusal, instead of alphabetical prerequisites that gate.
 - Where both tiers speak, numbering wins by construction — no precedence table to get wrong.
 - The learner is told which tier authored each edge (`depends_on_source`), so a `toc` edge is visibly advisory and a `numbered` edge is visibly a decision.
-- The scan is linear in document size; the balance tables turn the pathological README (a pasted diff, a generated index) from a 64-second stall into a 4-millisecond one.
+- The scan is linear in document size; the balance tables turn the pathological README (a pasted diff, a generated index) from an 82-second stall into a 4-millisecond one (#275's table, both sides measured in the same run).
 
 ### Negative / Tradeoffs
 
