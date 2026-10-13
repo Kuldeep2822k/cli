@@ -93,7 +93,7 @@ Run "palee plan" to see today's learning plan
 
 ## 2. Progress Command (`palee progress`)
 
-The `palee progress` command offers granular analytics into learning retention, historical repetitions, lapse counts, and topic-specific mastery scores.
+The `palee progress` command offers granular analytics into learning retention, current repetition totals, lapse counts, and topic-specific mastery scores.
 
 ### Syntax & Options
 

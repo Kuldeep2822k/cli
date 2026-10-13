@@ -1070,6 +1070,18 @@ function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<str
   return consumed;
 }
 
+/** Returns true when a completed session note with the supplied ID exists. */
+function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
+  const sessionPath = path.join(getSessionsDir(vaultPath), `${sessionId}.md`);
+  try {
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(sessionPath, 'utf8'));
+    return frontmatter?.session_id === sessionId && frontmatter.status === 'completed';
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 /**
  * Deletes all draft checkpoints matching a specific topic ID.
  *
@@ -1165,6 +1177,7 @@ export {
   getDrafts,
   getTopicDrafts,
   getConsumedDraftPaths,
+  hasCompletedSession,
   deleteTopicDrafts,
   deleteSessionNote,
   recoverDraft,

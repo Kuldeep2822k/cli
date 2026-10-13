@@ -92,7 +92,7 @@ program
   .command('adopt')
   .description('Adopt existing notes as PALEE topics')
   .argument('[path]', 'Path to markdown file or directory relative to vault root')
-  .option('--all', 'Adopt all markdown files across the vault (a batch scan skips repo-meta docs — README/SUMMARY/LICENSE/etc.; adopt a single file by path, or narrow with --include, to override)')
+  .option('--all', 'Adopt all markdown files across the vault (a batch scan skips repo-meta docs — README/SUMMARY/LICENSE/etc.; adopt a single file by path to override)')
   .option('--difficulty <level>', 'Difficulty: beginner, intermediate, advanced')
   .option('--depends-on <ids>', 'Comma-separated topic IDs (single-file mode only)')
   .option('--include <patterns>', 'Comma-separated inclusion glob patterns (batch mode; repeatable)', collectPatterns)

@@ -29,6 +29,7 @@ import {
   writeActiveSession,
   clearActiveSession,
   getConsumedDraftPaths,
+  hasCompletedSession,
 } from '../storage';
 import type { LoadedTopic } from '../storage';
 import { resolveTopicQuery } from './topic-query';
@@ -539,6 +540,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
+      const activeSession = readActiveSession(vaultPath);
+      if (activeSession?.topic_id === topicId && hasCompletedSession(vaultPath, activeSession.session_id)) {
+        await rebuildHotAndIndex(vaultPath);
+        await clearActiveSession(vaultPath);
+        return;
+      }
 
       // 3-tier timestamp recovery algorithm
       // Tier 1: Check draft checkpoints for earliest started_at
@@ -567,13 +574,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // if its `started_at` is unreadable (future, wrong-typed, or corrupt) — that case
       // falls back to an instantaneous start below rather than being refused.
       let hotActiveSameTopic = false;
-      const activeSession = readActiveSession(vaultPath);
       if (!startedAt) {
         try {
           const hot = readHotMemory(vaultPath);
           const fm = hot.frontmatter;
           const activeTopic = fm && typeof fm.active_topic === 'string' ? fm.active_topic.trim() : '';
-          const legacyHotActive = !activeSession && (!fm?.last_session) && activeTopic.length > 0 && activeTopic === topicId;
+          const legacyHotActive = !activeSession && activeTopic.length > 0 && activeTopic === topicId;
           hotActiveSameTopic = activeSession?.topic_id === topicId || legacyHotActive;
           const rawStarted = activeSession?.topic_id === topicId
             ? activeSession.started_at
@@ -613,7 +619,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const durationMs = endMs >= startMs ? endMs - startMs : 0;
       const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
-      const sessionId = generateSessionId();
+      const sessionId = activeSession?.topic_id === topicId
+        ? activeSession.session_id
+        : generateSessionId();
 
       const consumedDraftMarkers = topicDrafts
         .map((draft) => `Draft checkpoint: ${path.basename(draft.path)}`)
