@@ -23,7 +23,7 @@ import { atomicWrite, isConflictError } from './atomic-write';
 import { Lock } from './lock';
 import { assertContainedInVault } from './containment';
 import { SUPPORTED_SCHEMA_VERSION } from '../engine/topic-id';
-import { HotMemoryData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
+import { HotMemoryData, ActiveSessionData, SessionRecord, CompletedSessionRecord, DraftRecoveryAction, NodeError } from '../types';
 
 /**
  * Maximum number of words retained in the active working memory (`hot.md`) summary body.
@@ -429,6 +429,66 @@ async function updateHotMemory(
   return hotPath;
 }
 
+/** Reads the canonical in-progress session marker, or null when no session is active. */
+function readActiveSession(vaultPath: string): ActiveSessionData | null {
+  const statePath = path.join(vaultPath, '.palee', 'active-session.md');
+  try {
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(statePath, 'utf8'));
+    if (!frontmatter || frontmatter.palee_schema !== 1) return null;
+    if (
+      typeof frontmatter.session_id !== 'string' ||
+      typeof frontmatter.topic_id !== 'string' ||
+      typeof frontmatter.started_at !== 'string'
+    ) return null;
+    return {
+      palee_schema: 1,
+      session_id: frontmatter.session_id,
+      topic_id: frontmatter.topic_id,
+      started_at: frontmatter.started_at,
+      updated_at: typeof frontmatter.updated_at === 'string' ? frontmatter.updated_at : '',
+    };
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/** Writes the canonical in-progress session marker used for active-session recovery. */
+async function writeActiveSession(
+  vaultPath: string,
+  session: Pick<ActiveSessionData, 'session_id' | 'topic_id' | 'started_at'>
+): Promise<string> {
+  const paleeDir = getPaleeDir(vaultPath);
+  const statePath = path.join(paleeDir, 'active-session.md');
+  const content = updateFrontmatter('# Active Session\n', {
+    palee_schema: 1,
+    session_id: session.session_id,
+    topic_id: session.topic_id,
+    started_at: session.started_at,
+    updated_at: formatDateOnly(new Date()),
+  });
+  let expectedFingerprint: string | null = null;
+  let expectExists = true;
+  try {
+    expectedFingerprint = computeFingerprint(fs.readFileSync(statePath, 'utf8'));
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') expectExists = false;
+    else throw err;
+  }
+  await atomicWrite(vaultPath, statePath, content, expectedFingerprint, { expectExists });
+  return statePath;
+}
+
+/** Removes the canonical in-progress marker after the session is recorded. */
+async function clearActiveSession(vaultPath: string): Promise<void> {
+  const statePath = path.join(vaultPath, '.palee', 'active-session.md');
+  try {
+    fs.unlinkSync(statePath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
 /**
  * Safely resets or deletes the active working memory file (`.palee/hot.md`).
  *
@@ -669,9 +729,10 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
     }
   }
 
+  const activeSession = readActiveSession(vaultPath);
   if (newestSession) {
     const lastSessionId = newestSession.frontmatter.session_id as string;
-    const activeTopicId = (newestSession.frontmatter.topic_id as string) || null;
+    const activeTopicId = activeSession?.topic_id || null;
     // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
     // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
     // default blank the field on every rebuild. Normalize through `Date` so the
@@ -679,17 +740,27 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
     // `YYYY-MM-DD` shape the review/due fields use — and keep an absent or
     // unparseable start as `null` rather than the string "null" (BUG-005: such a
     // note is still selected, so it must still yield a usable working memory).
-    const rawStarted = newestSession.frontmatter.started_at;
+    const rawStarted = activeSession?.started_at;
     let newestStartMs = Number.NaN;
-    if (rawStarted instanceof Date) {
-      newestStartMs = rawStarted.getTime();
-    } else if (typeof rawStarted === 'string') {
+    if (typeof rawStarted === 'string') {
       newestStartMs = Date.parse(rawStarted.trim());
     }
     const startedAt = Number.isNaN(newestStartMs) ? null : new Date(newestStartMs).toISOString();
-    await updateHotMemory(vaultPath, lastSessionId, activeTopicId, newestSession.body, startedAt);
+    await updateHotMemory(
+      vaultPath,
+      lastSessionId,
+      activeTopicId,
+      newestSession.body,
+      startedAt
+    );
   } else {
-    await updateHotMemory(vaultPath, null, null, 'No learning history recorded yet.', null);
+    await updateHotMemory(
+      vaultPath,
+      null,
+      activeSession?.topic_id || null,
+      activeSession ? 'Active learning session in progress.' : 'No learning history recorded yet.',
+      activeSession?.started_at || null
+    );
   }
 
   await regenerateIndex(vaultPath);
@@ -973,6 +1044,32 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
   return matches;
 }
 
+/** Returns which supplied draft checkpoints a completed session already records as consumed. */
+function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<string> {
+  const draftMarkers = new Map(draftPaths.map((draftPath) => [
+    `Draft checkpoint: ${path.basename(draftPath)}`,
+    draftPath,
+  ]));
+  const consumed = new Set<string>();
+  if (draftMarkers.size === 0) return consumed;
+  const sessionsDir = getSessionsDir(vaultPath);
+  if (!fs.existsSync(sessionsDir)) return consumed;
+  for (const file of fs.readdirSync(sessionsDir).sort()) {
+    if (!file.startsWith('S-') || !file.endsWith('.md')) continue;
+    try {
+      const content = fs.readFileSync(path.join(sessionsDir, file), 'utf8');
+      const { frontmatter, body } = parseFrontmatter(content);
+      if (frontmatter?.status !== 'completed') continue;
+      for (const [marker, draftPath] of draftMarkers) {
+        if (body.includes(marker)) consumed.add(draftPath);
+      }
+    } catch {
+      // An unreadable completed note cannot prove that this draft was consumed.
+    }
+  }
+  return consumed;
+}
+
 /**
  * Deletes all draft checkpoints matching a specific topic ID.
  *
@@ -1061,9 +1158,13 @@ export {
   resetHotMemory,
   regenerateIndex,
   rebuildHotAndIndex,
+  readActiveSession,
+  writeActiveSession,
+  clearActiveSession,
   writeDraftCheckpoint,
   getDrafts,
   getTopicDrafts,
+  getConsumedDraftPaths,
   deleteTopicDrafts,
   deleteSessionNote,
   recoverDraft,

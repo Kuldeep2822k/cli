@@ -233,6 +233,15 @@ export interface HotMemoryData {
   updated_at: string;
 }
 
+/** Persisted state for the session currently in progress, if any. */
+export interface ActiveSessionData {
+  palee_schema: number;
+  session_id: string;
+  topic_id: string;
+  started_at: string;
+  updated_at: string;
+}
+
 /** Base stored session file frontmatter record */
 export interface BaseSessionRecord {
   /** PALEE session schema version */

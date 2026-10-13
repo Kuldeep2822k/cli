@@ -25,6 +25,10 @@ import {
   generateSessionId,
   generateDraftId,
   recoverDraft,
+  readActiveSession,
+  writeActiveSession,
+  clearActiveSession,
+  getConsumedDraftPaths,
 } from '../storage';
 import type { LoadedTopic } from '../storage';
 import { resolveTopicQuery } from './topic-query';
@@ -424,6 +428,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           startedAtToPersist = new Date(Math.min(parsedStart, nowTime)).toISOString();
         }
 
+        const activeSession = readActiveSession(vaultPath);
         await updateHotMemory(
           vaultPath,
           (frontmatter?.last_session as string) || null,
@@ -438,6 +443,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           // unguarded readFileSync (exit 5) — preserve that outcome.
           throw new Error('.palee/hot.md disappeared after session start write');
         }
+        await writeActiveSession(vaultPath, {
+          session_id: activeSession?.topic_id === resolvedTopic
+            ? activeSession.session_id
+            : generateSessionId(),
+          topic_id: resolvedTopic,
+          started_at: startedAtToPersist,
+        });
         frontmatter = refreshed.frontmatter;
         body = refreshed.body;
       }
@@ -536,6 +548,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         const t = new Date(d.started_at).getTime();
         return !Number.isNaN(t) && t <= nowTime + 60000;
       });
+      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
+      if (consumedDrafts.size > 0) {
+        reportNoActiveSession(jsonMode);
+        return;
+      }
       let startedAt: string | null = null;
       if (matchingDrafts.length > 0) {
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
@@ -550,13 +567,17 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // if its `started_at` is unreadable (future, wrong-typed, or corrupt) — that case
       // falls back to an instantaneous start below rather than being refused.
       let hotActiveSameTopic = false;
+      const activeSession = readActiveSession(vaultPath);
       if (!startedAt) {
         try {
           const hot = readHotMemory(vaultPath);
           const fm = hot.frontmatter;
           const activeTopic = fm && typeof fm.active_topic === 'string' ? fm.active_topic.trim() : '';
-          hotActiveSameTopic = activeTopic.length > 0 && activeTopic === topicId;
-          const rawStarted = fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+          const legacyHotActive = !activeSession && (!fm?.last_session) && activeTopic.length > 0 && activeTopic === topicId;
+          hotActiveSameTopic = activeSession?.topic_id === topicId || legacyHotActive;
+          const rawStarted = activeSession?.topic_id === topicId
+            ? activeSession.started_at
+            : legacyHotActive && fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
           const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
           if (hotActiveSameTopic && parsedStart > 0 && parsedStart <= nowTime + 60000) {
             // Stale hot-memory tolerance: clamp to no earlier than 24h before now (matches Tier-1 draft clamp)
@@ -594,13 +615,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       const sessionId = generateSessionId();
 
+      const consumedDraftMarkers = topicDrafts
+        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)}`)
+        .join('\n');
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
         topic_id: topicId,
         started_at: startedAt,
         ended_at: endedAt,
         duration_minutes: durationMinutes,
-      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
+      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.${consumedDraftMarkers ? `\n${consumedDraftMarkers}` : ''}`);
 
       // Clean up drafts on confirmed session end for the current topic
       const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
@@ -618,6 +642,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       // Regenerate derived views
       await rebuildHotAndIndex(vaultPath);
+      if (activeSession?.topic_id === topicId) {
+        await clearActiveSession(vaultPath);
+      }
 
       // #442 (bug 2): mark the session ended. `rebuildHotAndIndex` re-derives
       // `active_topic` from the newest completed session, so after this end it names

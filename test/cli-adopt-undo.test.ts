@@ -757,7 +757,9 @@ describe('palee adopt --undo reverses adoption without touching authored content
 
     const paleeDir = path.join(vaultDir, '.palee');
     assert.ok(fs.existsSync(path.join(paleeDir, 'hot.md')), 'the derived views exist to be protected');
-    assert.match(fs.readFileSync(path.join(paleeDir, 'hot.md'), 'utf8'), new RegExp(topicId as string));
+    const hotBeforeUndo = fs.readFileSync(path.join(paleeDir, 'hot.md'), 'utf8');
+    assert.match(hotBeforeUndo, /last_session:/);
+    assert.match(hotBeforeUndo, /active_topic: null/);
     const paleeBefore = treeDigest(paleeDir);
 
     const undo = runCLI(['adopt', note, '--undo', '--yes']);

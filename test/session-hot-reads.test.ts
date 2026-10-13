@@ -164,8 +164,8 @@ describe('Session hot.md read characterization', () => {
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       const read = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
       assert.strictEqual(read.frontmatter?.palee_schema, 1, 'hot.md must be rebuilt at schema 1');
-      assert.strictEqual(read.frontmatter?.active_topic, 'T-history', 'active_topic must come from the confirmed session');
-      assert.match(read.body, /Confirmed session body content/, 'body must come from the confirmed session');
+       assert.strictEqual(read.frontmatter?.active_topic, null, 'completed sessions must not become active');
+       assert.match(read.body, /Confirmed session body content/, 'body must come from the confirmed session');
       assert.ok(!read.body.includes('Foreign'), 'foreign v2 body must be replaced');
     });
 

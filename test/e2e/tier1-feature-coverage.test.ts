@@ -158,7 +158,7 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
       assert.ok(fs.existsSync(indexPath), 'index.md should be recreated');
       const hot = env.readHotMemory();
       assert.strictEqual(hot?.frontmatter?.last_session, 'S-20260815T120000-aaaa');
-      assert.strictEqual(hot?.frontmatter?.active_topic, 'T-recovered');
+       assert.strictEqual(hot?.frontmatter?.active_topic, null);
     });
   });
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { parseFrontmatter, updateHotMemory } from '../src/storage';
+import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex } from '../src/storage';
 
 describe('Session CLI In-Process Coverage', () => {
   let tempDir: string;
@@ -411,8 +411,8 @@ describe('Session CLI In-Process Coverage', () => {
     // from. Asserted against the session note itself, which is the contract.
     const refreshedHot = fs.readFileSync(hotPath, 'utf8');
     const parsedHot = parseFrontmatter(refreshedHot);
-    assert.strictEqual(parsedHot.frontmatter?.started_at, frontmatter?.started_at);
-    assert.strictEqual(parsedHot.frontmatter?.started_at, pastTime);
+     assert.strictEqual(parsedHot.frontmatter?.active_topic, null);
+     assert.strictEqual(parsedHot.frontmatter?.started_at, null);
 
     // Cleanup session file
     fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
@@ -444,14 +444,15 @@ describe('Session CLI In-Process Coverage', () => {
     await sessionCommand('start', { topic: 'T-ongoing-topic' });
     process.exitCode = undefined;
 
-    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+     await sessionCommand('end', { topic: 'T-ongoing-topic' });
     assert.strictEqual(process.exitCode, undefined);
     const draftsDir = path.join(vaultDir, '.palee', 'sessions');
     const afterFirst = fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'));
-    assert.strictEqual(afterFirst.length, 1, 'the first end records the active session');
+     assert.strictEqual(afterFirst.length, 1, 'the first end records the active session');
 
-    // A second end has no active session: hot.md's active_topic was cleared, so it
-    // must refuse rather than mint a phantom, and add no session note.
+     await rebuildHotAndIndex(vaultDir);
+
+     // A rebuild must not restore the completed session as active.
     process.exitCode = undefined;
     await sessionCommand('end', { topic: 'T-ongoing-topic' });
     assert.strictEqual(process.exitCode, 2);
@@ -529,5 +530,33 @@ describe('Session CLI In-Process Coverage', () => {
     assert.ok(frontmatter);
     assert.strictEqual(frontmatter.active_topic, topicId);
     assert.strictEqual(frontmatter.started_at, initialStartTime, 'Must preserve original started_at');
+  });
+
+  test('session end retry after draft cleanup failure does not duplicate the session', async () => {
+    const draftPath = path.join(vaultDir, '.palee', 'sessions', 'DRAFT-S-retry.md');
+    fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+    fs.writeFileSync(draftPath, `---\npalee_schema: 1\nsession_id: DRAFT-S-retry\ntopic_id: T-ongoing-topic\nstarted_at: "${new Date(Date.now() - 60000).toISOString()}"\nstatus: draft\n---\n# Retry draft\n`, 'utf8');
+
+    const originalUnlinkSync = fs.unlinkSync;
+    fs.unlinkSync = ((target: fs.PathLike | string) => {
+      if (String(target).endsWith('DRAFT-S-retry.md')) {
+        const error = new Error('EACCES') as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      }
+      return originalUnlinkSync(target);
+    }) as typeof fs.unlinkSync;
+    try {
+      await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    } finally {
+      fs.unlinkSync = originalUnlinkSync;
+    }
+
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, 2);
+    const confirmed = fs.readdirSync(path.join(vaultDir, '.palee', 'sessions'))
+      .filter((file) => file.startsWith('S-') && file.endsWith('.md'));
+    assert.strictEqual(confirmed.length, 1);
   });
 });
