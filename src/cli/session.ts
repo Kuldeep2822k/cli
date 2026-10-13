@@ -544,6 +544,21 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       if (activeSession?.topic_id === topicId && hasCompletedSession(vaultPath, activeSession.session_id)) {
         await rebuildHotAndIndex(vaultPath);
         await clearActiveSession(vaultPath);
+        const sessionPath = path.join(vaultPath, '.palee', 'sessions', `${activeSession.session_id}.md`);
+        if (jsonMode) {
+          console.log(JSON.stringify({
+            status: 'already_recorded',
+            session_id: activeSession.session_id,
+            topic_id: topicId,
+            session_path: path.relative(vaultPath, sessionPath),
+            ...vaultTargetFields(target),
+            message: `Session already recorded: ${activeSession.session_id}`,
+          }));
+        } else {
+          console.log(`✓ Session already recorded: ${activeSession.session_id}`);
+          console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);
+          console.log('✓ Working memory (hot.md) and index (index.md) updated.');
+        }
         return;
       }
 

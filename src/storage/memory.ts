@@ -1072,6 +1072,7 @@ function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<str
 
 /** Returns true when a completed session note with the supplied ID exists. */
 function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
+  if (!/^S-[\w-]+$/.test(sessionId)) return false;
   const sessionPath = path.join(getSessionsDir(vaultPath), `${sessionId}.md`);
   try {
     const { frontmatter } = parseFrontmatter(fs.readFileSync(sessionPath, 'utf8'));

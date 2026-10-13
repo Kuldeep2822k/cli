@@ -559,4 +559,63 @@ describe('Session CLI In-Process Coverage', () => {
       .filter((file) => file.startsWith('S-') && file.endsWith('.md'));
     assert.strictEqual(confirmed.length, 1);
   });
+
+  test('session end retry on already-recorded session emits visible success and clears active marker', async () => {
+    const topicId = 'T-ongoing-topic';
+    const sessionId = 'S-retry-completed-1';
+    const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Seed completed session file
+    const sessionFile = path.join(sessionsDir, `${sessionId}.md`);
+    fs.writeFileSync(
+      sessionFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstatus: completed\nstarted_at: "2026-10-14T00:00:00.000Z"\nended_at: "2026-10-14T00:30:00.000Z"\nduration_minutes: 30\n---\n# Completed\n`,
+      'utf8'
+    );
+
+    // Seed active session marker
+    const markerFile = path.join(vaultDir, '.palee', 'active-session.md');
+    fs.writeFileSync(
+      markerFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Active\n`,
+      'utf8'
+    );
+
+    // Human output test
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('end', { topic: topicId });
+    } finally {
+      console.log = origLog;
+    }
+    assert.strictEqual(process.exitCode, undefined);
+    assert.ok(logs.some((l) => l.includes(`✓ Session already recorded: ${sessionId}`)));
+    assert.ok(logs.some((l) => l.includes('Working memory (hot.md) and index (index.md) updated.')));
+    assert.strictEqual(fs.existsSync(markerFile), false);
+
+    // JSON mode test
+    fs.writeFileSync(
+      markerFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Active\n`,
+      'utf8'
+    );
+    const jsonLogs: string[] = [];
+    console.log = (msg?: unknown) => { jsonLogs.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('end', { topic: topicId, json: true });
+    } finally {
+      console.log = origLog;
+    }
+    assert.strictEqual(process.exitCode, undefined);
+    const payload = jsonLogs.map((l) => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).find((p) => p && p.status === 'already_recorded');
+    assert.ok(payload);
+    assert.strictEqual(payload.session_id, sessionId);
+    assert.strictEqual(payload.topic_id, topicId);
+    assert.strictEqual(fs.existsSync(markerFile), false);
+  });
 });

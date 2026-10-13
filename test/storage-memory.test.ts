@@ -24,6 +24,7 @@ import {
   Lock,
   recoverDraft,
   parseFrontmatter,
+  hasCompletedSession,
   MAX_HOT_WORDS,
 } from '../src/storage';
 
@@ -963,4 +964,39 @@ ${body}
 
     fs.unlinkSync(corruptFile);
   });
+
+  describe('hasCompletedSession', () => {
+    test('rejects malformed session IDs or path traversal attempts', () => {
+      assert.strictEqual(hasCompletedSession(testVaultPath, '../escape'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, '..\\escape'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'DRAFT-S-1234'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'invalid'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, ''), false);
+    });
+
+    test('returns false when session note does not exist', () => {
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-nonexistent-123'), false);
+    });
+
+    test('returns true only for completed status matching session ID', () => {
+      const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      const testSessionPath = path.join(sessionsDir, 'S-valid-test-123.md');
+
+      fs.writeFileSync(
+        testSessionPath,
+        '---\npalee_schema: 1\nsession_id: S-valid-test-123\ntopic_id: T-test\nstatus: completed\n---\nBody'
+      );
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-valid-test-123'), true);
+
+      fs.writeFileSync(
+        testSessionPath,
+        '---\npalee_schema: 1\nsession_id: S-valid-test-123\ntopic_id: T-test\nstatus: draft\n---\nBody'
+      );
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-valid-test-123'), false);
+
+      fs.unlinkSync(testSessionPath);
+    });
+  });
+
 });
