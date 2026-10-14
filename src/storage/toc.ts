@@ -2,7 +2,7 @@
  * TOC Discovery — Reading the Repo's Own Enumeration (Issue PAL-205-C3)
  *
  * @remarks
- * Filesystem half of the TOC tier. `src/engine/toc-chain.ts` plans and
+ * Filesystem half of TOC-based ordering. `src/engine/toc-chain.ts` plans and
  * composes chains from plain path lists (the engine stays fs-free); this
  * module is the only place that opens TOC documents and decides which link
  * targets actually exist in the vault.

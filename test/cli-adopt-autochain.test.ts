@@ -628,7 +628,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(dry.stdout, /Nothing left to chain/);
   });
 
-  // ── PAL-205-C: TOC tier, --chain-tier strict|toc|full, depends_on_source ──
+  // ── PAL-205-C: full tier TOC composition, --chain-tier strict|full, depends_on_source ──
 
   /** Reads the `depends_on_source` label written for a note (C5). */
   function dependsOnSource(vaultDir: string, rel: string): string | undefined {
@@ -651,7 +651,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     'guide/wrapup.md': '# Wrap\n',
   };
 
-  test('TOC tier chains an unnumbered layout and labels edges toc', () => {
+  test('full tier chains an unnumbered layout and labels edges toc', () => {
     const { vaultDir, configDir } = freshVault(tocFiles);
     const result = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '-y'], configDir);
     assert.strictEqual(result.status, 0, result.stderr);
@@ -802,10 +802,10 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.deepStrictEqual(dependsOn(vaultDir, 'notes/loose-b.md'), []);
   });
 
-  test('tier advice is withheld when the other tiers would refuse too', () => {
+  test('tier advice is withheld when full would refuse too', () => {
     // The advice was keyed on the enumeration having links, so a README whose only
-    // link is a note no tier will chain told the learner to `try --chain-tier toc`
-    // — and toc refuses there for exactly the same reason, while the roadmap
+    // link is a note no tier will chain told the learner to `try --chain-tier full`
+    // — and full refuses there for exactly the same reason, while the roadmap
     // pointer that does apply was suppressed.
     const unchainable = runCLI(
       ['adopt', '--all', '--auto-chain', '--dry-run'],
@@ -828,7 +828,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       freshVault(tocFiles).configDir
     );
     assert.strictEqual(chainable.status, 0, chainable.stdout + chainable.stderr);
-    assert.match(chainable.stdout, /does not read a README enumeration\) — try --chain-tier toc/);
+    assert.match(chainable.stdout, /does not read a README enumeration\) — try --chain-tier full/);
   });
 
   test('an unchainable README link is a refusal, not a silent zero-edge success', () => {
@@ -958,7 +958,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'm/02-b.md': '# B\n',
       'm/02-a.md': '# A\n',
     });
-    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.doesNotMatch(dry.stdout, /share a number or phase/);
   });
@@ -1016,7 +1016,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   });
 
   test('a lone chainable note in the enumeration does not earn the tier advice', () => {
-    // One candidate is a chain head, so `--chain-tier toc` would write no edge
+    // One candidate is a chain head, so `--chain-tier full` would write no edge
     // here either; pointing at it instead of the roadmap sends the learner to a
     // second identical refusal.
     const { configDir } = freshVault({
@@ -1028,17 +1028,17 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.doesNotMatch(strict.stdout, /does not read a README enumeration/);
     assert.match(strict.stdout, /no chainable order signal\) — consider palee roadmap/);
 
-    const toc = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
-    assert.strictEqual(toc.status, 0, toc.stdout + toc.stderr);
-    assert.match(toc.stdout, /no chainable order signal\) — consider palee roadmap/);
+    const full = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
+    assert.strictEqual(full.status, 0, full.stdout + full.stderr);
+    assert.match(full.stdout, /no chainable order signal\) — consider palee roadmap/);
   });
 
   test('a note the README links twice is still one candidate', () => {
-    // The tier advice is keyed to how many notes `toc` could order, not to how
+    // The tier advice is keyed to how many notes `full` could order, not to how
     // many links a README happens to hold. Two spellings of one destination —
     // an index that lists a lesson in its overview and again in its exercises —
     // used to reach that test as two candidates, so a bare `--auto-chain` sent
-    // the learner to `--chain-tier toc`, which deduplicates, finds one chain
+    // the learner to `--chain-tier full`, which deduplicates, finds one chain
     // head and writes nothing: a second refusal in place of the roadmap pointer.
     const { configDir } = freshVault({
       'README.md': '# Course\n\n- [Only](guide/only.md)\n- [Back to Only](./guide/only.md)\n',
@@ -1053,7 +1053,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
     assert.match(strict.stdout, /no chainable order signal\) — consider palee roadmap/);
 
-    const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    const asked = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     assert.strictEqual(asked.status, 0, asked.stdout + asked.stderr);
     assert.match(
       asked.stdout,
@@ -1062,11 +1062,18 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
   });
 
-  test('unknown --auto-chain tier is a usage error (exit 2)', () => {
+  test('unknown and removed --auto-chain tiers are usage errors (exit 2)', () => {
     const { configDir } = freshVault(chainFiles);
     const result = runCLI(['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'banana', '--dry-run'], configDir);
     assert.strictEqual(result.status, 2);
-    assert.match(result.stderr, /expects one of: strict, toc, full/);
+    assert.match(result.stderr, /expects one of: strict, full/);
+
+    const removedTier = runCLI(
+      ['adopt', 'MODULES', '--auto-chain', '--chain-tier', 'toc', '--dry-run'],
+      configDir
+    );
+    assert.strictEqual(removedTier.status, 2);
+    assert.match(removedTier.stderr, /expects one of: strict, full/);
   });
 
   test('bare --auto-chain chains the numbered tree and leaves the TOC alone', () => {
@@ -1081,7 +1088,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.doesNotMatch(bare.stdout, /Auto-chain:.*full tier/, 'a bare --auto-chain is not the full tier');
     assert.match(
       bare.stdout,
-      /0 edges \(no numbered layout; --chain-tier strict does not read a README enumeration\) — try --chain-tier toc/,
+      /0 edges \(no numbered layout; --chain-tier strict does not read a README enumeration\) — try --chain-tier full/,
       'strict must name itself as the reason, not send the learner to palee roadmap'
     );
     assert.match(bare.stdout, /Planned dependency chain \(0 edges to write\)/);
@@ -1273,7 +1280,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'guide/next.md': '# N\n',
     });
     const started = Date.now();
-    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'toc', '--dry-run'], configDir);
+    const dry = runCLI(['adopt', '--all', '--auto-chain', '--chain-tier', 'full', '--dry-run'], configDir);
     const elapsed = Date.now() - started;
     assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
     assert.match(dry.stdout, /too large to enumerate/);

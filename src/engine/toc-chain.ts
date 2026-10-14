@@ -40,7 +40,7 @@ import {
 import type { DependsOnSource } from '../types';
 
 /** Accepted values of `--chain-tier` (default `strict`, set in `src/cli/adopt.ts`). */
-export type AutoChainTier = 'strict' | 'toc' | 'full';
+export type AutoChainTier = 'strict' | 'full';
 
 /** Which tier authored a note's `depends_on` (persisted as `depends_on_source`). Declared in `src/types.ts`, re-exported here for engine consumers. */
 export type { DependsOnSource };
@@ -977,11 +977,11 @@ export interface TieredChainPlan extends HygieneChainPlan {
   /** Edges authored by author enumeration (TOC tier) */
   tocEdgeCount: number;
   /**
-   * Distinct notes the enumeration offered that a toc/full tier could order,
+   * Distinct notes the enumeration offered that the full tier could order,
    * whether or not the selected tier consumed any. A README may reach one note
    * through several spellings, and the advice is about notes, so duplicates
    * collapse exactly as {@link planTocChain} collapses them. The CLI's
-   * `--chain-tier toc` advice is honest only above one: the first candidate is
+   * `--chain-tier full` advice is honest only above one: the first candidate is
    * a chain head and writes no edge.
    */
   tocCandidateCount: number;
@@ -1075,11 +1075,11 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
   const hasNumberedLayout = numberedSet.size > 0;
 
   // Computed for every tier, including `strict`, which consumes none of it. The
-  // CLI tells a learner running `strict` to try `--chain-tier toc`; that advice is
-  // only worth giving when the enumeration holds something the toc tier could
+  // CLI tells a learner running `strict` to try `--chain-tier full`; that advice is
+  // only worth giving when the enumeration holds something the full tier could
   // actually order, and this is the one place that knows which paths those are.
   // Counted as notes, not links: a README that reaches the same lesson twice
-  // offers the toc tier one note, and `planTocChain` deduplicates to that, so
+  // offers the full tier one note, and `planTocChain` deduplicates to that, so
   // counting links advised a tier that would then write nothing.
   const tocCandidates: string[] = [];
   const seenCandidate = new Set<string>();
@@ -1192,12 +1192,12 @@ export function composeTieredChain(composition: TieredComposition): TieredChainP
  * `--auto-chain` is a plain boolean since #223 and its default tier is `strict`
  * (`src/cli/adopt.ts`), so reading `true` as `full` here would silently widen the
  * reach of a flag that never asked for it - the one thing INV-46 forbids.
- * @returns The tier, or `null` for anything outside `strict|toc|full` (the CLI
+ * @returns The tier, or `null` for anything outside `strict|full` (the CLI
  * turns `null` into a usage error — never a silent default)
  */
 export function parseAutoChainTier(raw: unknown): AutoChainTier | null {
   if (raw === undefined || raw === false) return null;
   if (typeof raw !== 'string') return null;
   const value = raw.trim().toLowerCase();
-  return value === 'strict' || value === 'toc' || value === 'full' ? value : null;
+  return value === 'strict' || value === 'full' ? value : null;
 }

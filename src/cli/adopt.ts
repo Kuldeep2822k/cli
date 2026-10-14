@@ -248,13 +248,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // so `adopt --auto-chain MODULES` would have read `MODULES` as a tier and
     // exited 2 having adopted nothing — a regression of a form this command has
     // always accepted. A bare `--auto-chain` chains the numbered tree only;
-    // enumeration order needs `--chain-tier toc|full`. Anything outside the
-    // three tiers is a usage error, never a silent default back to chaining.
+    // enumeration order needs `--chain-tier full`. Anything outside the two
+    // tiers is a usage error, never a silent default back to chaining.
     let autoChainTier: AutoChainTier | null = null;
     if (options.autoChain) {
       autoChainTier = options.chainTier === undefined ? 'strict' : parseAutoChainTier(options.chainTier);
       if (autoChainTier === null) {
-        console.error('Error: --chain-tier expects one of: strict, toc, full');
+        console.error('Error: --chain-tier expects one of: strict, full');
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -812,7 +812,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         tier: autoChainTier ?? 'strict',
         numbered: hygienePlan,
         // Passed whole under every tier: the strict tier consumes none of it but
-        // still has to report whether the toc tier could have, which is what the
+        // still has to report whether the full tier could have, which is what the
         // refusal advice is keyed to.
         tocPaths: tocEnumeration.documentOrder,
       });
@@ -842,8 +842,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // useful advice. Keyed on the enumeration's *presence* it lies in the other
       // case — a README linking only to notes no tier will order (a `solution/`
       // subtree, a translation copy) would send the learner to
-      // `--chain-tier toc`, which refuses there for the same reason, costing them
-      // the roadmap pointer that does apply. `tocCandidateCount` is what a toc/full
+      // `--chain-tier full`, which refuses there for the same reason, costing them
+      // the roadmap pointer that does apply. `tocCandidateCount` is what full
       // tier could have ordered, so the advice is only offered when it leads
       // somewhere — and "somewhere" needs more than one note, since a lone
       // candidate is the chain head and `toc` would write no edge either.
@@ -887,7 +887,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // Reported only where a tier reads TOC documents — `strict` never does, so
       // a bound it never exercised is not its news.
       const oversizedToc =
-        autoChainTier === 'toc' || autoChainTier === 'full'
+        autoChainTier === 'full'
           ? tocEnumeration.skipped.filter((s) => s.reason === 'oversized')
           : [];
       if (oversizedToc.length > 0) {
@@ -1099,7 +1099,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // link resolves to a note this tier will not order is the same refusal.
         console.log(
           tocLinksDeclined
-            ? 'Auto-chain:       0 edges (no numbered layout; --chain-tier strict does not read a README enumeration) — try --chain-tier toc'
+            ? 'Auto-chain:       0 edges (no numbered layout; --chain-tier strict does not read a README enumeration) — try --chain-tier full'
             : 'Auto-chain:       0 edges (no numbered layout, no chainable order signal) — consider palee roadmap'
         );
       } else {

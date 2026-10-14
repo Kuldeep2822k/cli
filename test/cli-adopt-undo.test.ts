@@ -546,7 +546,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
 
     const refusals: string[][] = [
       ['adopt', note, '--undo', '--auto-chain', '--yes'],
-      ['adopt', note, '--undo', '--chain-tier', 'toc', '--yes'],
+      ['adopt', note, '--undo', '--chain-tier', 'full', '--yes'],
       ['adopt', note, '--undo', '--depends-on', 'T-x', '--yes'],
       ['adopt', note, '--undo', '--difficulty', 'advanced', '--yes'],
       ['adopt', '--undo'],
