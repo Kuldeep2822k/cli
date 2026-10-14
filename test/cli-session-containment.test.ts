@@ -160,6 +160,16 @@ describe('palee session end containment', () => {
   test('records the session normally when .palee/sessions is a real directory', () => {
     const { configDir, vault, sessionsDir, outsideDir } = makeFixture('plain', false);
 
+    // #442: `session end` now refuses without an active session, so seed a genuine
+    // in-progress one in hot.md (Tier-2 evidence) to keep this test on the write path
+    // it exists to cover — the ordinary end that must still file a session inside the
+    // vault and rebuild the derived views.
+    fs.writeFileSync(
+      path.join(vault, '.palee', 'hot.md'),
+      `---\npalee_schema: 1\nmemory_id: H-active\nlast_session: null\nactive_topic: T-264\nstarted_at: "${new Date().toISOString()}"\nupdated_at: 2026-08-30\n---\n# Working Memory\n`,
+      'utf8'
+    );
+
     const result = runCLI(configDir, ['session', 'end', '--topic', 'T-264']);
 
     assert.strictEqual(result.status, 0, `stdout: ${result.stdout} stderr: ${result.stderr}`);

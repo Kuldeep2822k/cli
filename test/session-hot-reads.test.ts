@@ -164,8 +164,8 @@ describe('Session hot.md read characterization', () => {
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       const read = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
       assert.strictEqual(read.frontmatter?.palee_schema, 1, 'hot.md must be rebuilt at schema 1');
-      assert.strictEqual(read.frontmatter?.active_topic, 'T-history', 'active_topic must come from the confirmed session');
-      assert.match(read.body, /Confirmed session body content/, 'body must come from the confirmed session');
+       assert.strictEqual(read.frontmatter?.active_topic, null, 'completed sessions must not become active');
+       assert.match(read.body, /Confirmed session body content/, 'body must come from the confirmed session');
       assert.ok(!read.body.includes('Foreign'), 'foreign v2 body must be replaced');
     });
 
@@ -481,30 +481,38 @@ describe('Session hot.md read characterization', () => {
       );
     });
 
-    test('ignores hot.md started_at when active topic differs (tier 3 fallback)', async () => {
+    test('refuses to end a topic that is not the active one (#442 no cross-topic phantom)', async () => {
       const past = new Date(Date.now() - 3600000).toISOString();
       writeHot([
         'palee_schema: 1',
         'active_topic: T-someone-else',
         `started_at: "${past}"`,
       ]);
+      // #442 (bug 2): ending a topic that hot.md does not name active — and that has no
+      // draft — is no active session. It must refuse at exit 2 rather than fall back to
+      // "now" and mint a session (which is how a phantom was previously produced).
       await sessionCommand('end', { topic: 'T-end-mismatch' });
+      assert.strictEqual(process.exitCode, 2);
       const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
-      const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
-      assert.strictEqual(confirmed.length, 1);
-      const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
-      );
-      assert.notStrictEqual(frontmatter?.started_at, past, 'must not recover cross-topic timestamp');
+      const confirmed = fs.existsSync(sessionsDir)
+        ? fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-'))
+        : [];
+      assert.strictEqual(confirmed.length, 0, 'no session may be minted for a topic that is not active');
     });
 
-    test('recovers from malformed hot.md without throwing (swallow → tier 3)', async () => {
+    test('refuses to end without throwing when hot.md is corrupt and no session is active', async () => {
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       fs.writeFileSync(hotPath, '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
+      // #442 (bug 2): a corrupt hot.md cannot name an active topic and there is no draft,
+      // so there is no active session. The read is still swallowed (no exit-5 crash) but
+      // the end refuses at exit 2 instead of minting a phantom via the old Tier-3 fallback.
       await sessionCommand('end', { topic: 'T-end-corrupt' });
+      assert.strictEqual(process.exitCode, 2, 'end must not crash on corrupt hot.md; it refuses for no active session');
       const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
-      const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
-      assert.strictEqual(confirmed.length, 1, 'end must complete via tier 3 fallback despite corrupt hot.md');
+      const confirmed = fs.existsSync(sessionsDir)
+        ? fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-'))
+        : [];
+      assert.strictEqual(confirmed.length, 0, 'a corrupt hot.md must not produce a phantom session');
     });
   });
 
@@ -572,22 +580,19 @@ describe('Session hot.md read characterization', () => {
       }
     });
 
-    test('end swallows EACCES in tier 2 (tier 3 fallback) but rebuild propagates to exit 5', async () => {
-      writeHot(['palee_schema: 1', 'active_topic: T-end-eacces', `started_at: "${new Date(Date.now() - 3600000).toISOString()}"`]);
+    test('end with an active draft records the session; a rebuild read failure propagates to exit 5', async () => {
+      // #442: an `end` with no active session now refuses, so this test opens a real
+      // active session with a draft first — the concern here is that a hot.md read that
+      // fails during the post-write rebuild still propagates to exit 5 (the session note
+      // itself was already written before the rebuild).
+      await sessionCommand('draft', { topic: 'T-end-eacces' });
+      process.exitCode = undefined;
       const restore = patchHotReadFailure();
       try {
         await sessionCommand('end', { topic: 'T-end-eacces' }); // explicit topic skips resolution read
-        // Tier-2 read swallowed → session note still written with ~now started_at
         const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
         const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
-        assert.strictEqual(confirmed.length, 1, 'session note must be written despite hot.md read failure');
-        const { frontmatter } = parseFrontmatter(
-          fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
-        );
-        assert.ok(
-          Math.abs(new Date(frontmatter!.started_at as string).getTime() - Date.now()) < 120000,
-          'tier 3 fallback must be ~now'
-        );
+        assert.strictEqual(confirmed.length, 1, 'session note must be written despite hot.md read failure during rebuild');
         // The post-write rebuild reads hot.md for its OCC fingerprint and propagates EACCES
         assert.strictEqual(process.exitCode, 5, 'rebuild failure must propagate to command catch');
       } finally {

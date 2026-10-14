@@ -25,6 +25,11 @@ import {
   generateSessionId,
   generateDraftId,
   recoverDraft,
+  readActiveSession,
+  writeActiveSession,
+  clearActiveSession,
+  getConsumedDraftPaths,
+  hasCompletedSession,
 } from '../storage';
 import type { LoadedTopic } from '../storage';
 import { resolveTopicQuery } from './topic-query';
@@ -190,6 +195,26 @@ function reportUnresolvedSessionTopic(outcome: SessionTopicFailure, jsonMode: bo
   }
   process.exitCode = ExitCode.Usage;
   return true;
+}
+
+/**
+ * Reports a `session end` that found no active session to record.
+ *
+ * @param jsonMode - Whether to emit the machine-readable form
+ * @remarks
+ * #442 (bug 2 / UX): an `end` with no active session must refuse rather than mint a
+ * phantom `S-*` note, and the complaint must name the real condition. A wrong or
+ * unresolvable `--topic` is still a Usage error (2) — the same class
+ * {@link reportUnresolvedSessionTopic} exits for — but "no active session" is a
+ * different remedy (start one) than "no such topic" (fix the argument).
+ */
+function reportNoActiveSession(jsonMode: boolean): void {
+  if (jsonMode) {
+    console.error(JSON.stringify({ error: 'no active session' }));
+  } else {
+    console.error('Error: no active session. Run "palee session start" before "palee session end".');
+  }
+  process.exitCode = ExitCode.Usage;
 }
 
 /**
@@ -361,11 +386,36 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         throw new Error('.palee/hot.md disappeared during session start');
       }
 
+      const existingActive = frontmatter && typeof frontmatter.active_topic === 'string'
+        ? frontmatter.active_topic.trim()
+        : '';
+      const existingStarted = frontmatter && typeof frontmatter.started_at === 'string'
+        ? frontmatter.started_at.trim()
+        : '';
+
       const resolvedTopic = explicitOutcome
         ? explicitOutcome.kind === 'topic'
           ? explicitOutcome.topicId
           : null
         : resolveSessionTopic(vaultPath, options.topic);
+
+      // #442 (UX): a second `session start` silently re-adopted the active session
+      // context — both runs printed "Session Started" and exited 0, so an in-progress
+      // session was easy to clobber. Warn, and name which: the same topic is continued,
+      // a different one replaces the active topic. The start still proceeds and the exit
+      // code is unchanged — this is a heads-up, not a refusal.
+      if (
+        existingActive.length > 0 && existingActive.toLowerCase() !== '(none)' && existingStarted.length > 0
+      ) {
+        const sameTopic = resolvedTopic === null || resolvedTopic === existingActive;
+        console.warn(
+          `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
+            (sameTopic
+              ? 'Starting again continues it.'
+              : `Starting "${resolvedTopic}" will replace that active topic; run "palee session end" first to keep the two separate.`)
+        );
+      }
+
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
       if (resolvedTopic) {
@@ -379,6 +429,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           startedAtToPersist = new Date(Math.min(parsedStart, nowTime)).toISOString();
         }
 
+        const activeSession = readActiveSession(vaultPath);
         await updateHotMemory(
           vaultPath,
           (frontmatter?.last_session as string) || null,
@@ -393,6 +444,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           // unguarded readFileSync (exit 5) — preserve that outcome.
           throw new Error('.palee/hot.md disappeared after session start write');
         }
+        await writeActiveSession(vaultPath, {
+          session_id: activeSession?.topic_id === resolvedTopic
+            ? activeSession.session_id
+            : generateSessionId(),
+          topic_id: resolvedTopic,
+          started_at: startedAtToPersist,
+        });
         frontmatter = refreshed.frontmatter;
         body = refreshed.body;
       }
@@ -473,21 +531,64 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
       const topicId = topicOutcome.kind === 'topic' ? topicOutcome.topicId : null;
       if (!topicId) {
-        console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
-        process.exitCode = 2;
+        // #442 (bug 2 / UX): no --topic and no active topic in hot memory means there
+        // is no session in progress. The old "Topic required" wording pushed the
+        // learner to add --topic to a phantom end; name the real condition instead.
+        reportNoActiveSession(jsonMode);
         return;
       }
 
       const nowIso = new Date().toISOString();
       const nowTime = new Date(nowIso).getTime();
+      const activeSession = readActiveSession(vaultPath);
+      if (activeSession?.topic_id === topicId && hasCompletedSession(vaultPath, activeSession.session_id)) {
+        await rebuildHotAndIndex(vaultPath);
+        const rebuiltHot = readHotMemory(vaultPath);
+        const rebuiltFrontmatter = rebuiltHot.frontmatter;
+        const rebuiltActiveTopic = rebuiltFrontmatter && typeof rebuiltFrontmatter.active_topic === 'string'
+          ? rebuiltFrontmatter.active_topic.trim()
+          : '';
+        if (rebuiltActiveTopic === topicId) {
+          const lastSessionId = typeof rebuiltFrontmatter?.last_session === 'string'
+            ? rebuiltFrontmatter.last_session
+            : null;
+          const startedAt = typeof rebuiltFrontmatter?.started_at === 'string'
+            ? rebuiltFrontmatter.started_at
+            : null;
+          await updateHotMemory(vaultPath, lastSessionId, null, rebuiltHot.body || '', startedAt);
+        }
+        await clearActiveSession(vaultPath);
+        const sessionPath = path.join(vaultPath, '.palee', 'sessions', `${activeSession.session_id}.md`);
+        if (jsonMode) {
+          console.log(JSON.stringify({
+            status: 'already_recorded',
+            session_id: activeSession.session_id,
+            topic_id: topicId,
+            session_path: path.relative(vaultPath, sessionPath),
+            ...vaultTargetFields(target),
+            message: `Session already recorded: ${activeSession.session_id}`,
+          }));
+        } else {
+          console.log(`✓ Session already recorded: ${activeSession.session_id}`);
+          console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);
+          console.log('✓ Working memory (hot.md) and index (index.md) updated.');
+        }
+        return;
+      }
 
       // 3-tier timestamp recovery algorithm
       // Tier 1: Check draft checkpoints for earliest started_at
-      const matchingDrafts = getTopicDrafts(vaultPath, topicId).filter((d) => {
+      const topicDrafts = getTopicDrafts(vaultPath, topicId);
+      const matchingDrafts = topicDrafts.filter((d) => {
         if (!d.started_at) return false;
         const t = new Date(d.started_at).getTime();
         return !Number.isNaN(t) && t <= nowTime + 60000;
       });
+      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
+      if (consumedDrafts.size > 0) {
+        reportNoActiveSession(jsonMode);
+        return;
+      }
       let startedAt: string | null = null;
       if (matchingDrafts.length > 0) {
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
@@ -497,15 +598,23 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         startedAt = new Date(Math.min(draftStart, nowTime)).toISOString();
       }
 
-      // Tier 2: Check active hot memory
+      // Tier 2: Check active hot memory. Also establishes active-session evidence: a
+      // session is active on `topicId` when hot.md names it as the active topic, even
+      // if its `started_at` is unreadable (future, wrong-typed, or corrupt) — that case
+      // falls back to an instantaneous start below rather than being refused.
+      let hotActiveSameTopic = false;
       if (!startedAt) {
         try {
           const hot = readHotMemory(vaultPath);
           const fm = hot.frontmatter;
           const activeTopic = fm && typeof fm.active_topic === 'string' ? fm.active_topic.trim() : '';
-          const rawStarted = fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+          const legacyHotActive = !activeSession && activeTopic.length > 0 && activeTopic === topicId;
+          hotActiveSameTopic = activeSession?.topic_id === topicId || legacyHotActive;
+          const rawStarted = activeSession?.topic_id === topicId
+            ? activeSession.started_at
+            : legacyHotActive && fm && typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
           const parsedStart = rawStarted && !Number.isNaN(new Date(rawStarted).getTime()) ? new Date(rawStarted).getTime() : 0;
-          if (activeTopic === topicId && parsedStart > 0 && parsedStart <= nowTime + 60000) {
+          if (hotActiveSameTopic && parsedStart > 0 && parsedStart <= nowTime + 60000) {
             // Stale hot-memory tolerance: clamp to no earlier than 24h before now (matches Tier-1 draft clamp)
             const minStart = nowTime - 24 * 60 * 60 * 1000;
             startedAt = new Date(Math.max(Math.min(parsedStart, nowTime), minStart)).toISOString();
@@ -515,9 +624,21 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
       }
 
-      // Tier 3: Fallback to current instant
+      // #442 (bug 2): an `end` with no active session must refuse rather than mint a
+      // phantom `S-*` note (started_at == ended_at) on every repeated call. Active
+      // session evidence is a topic draft (Tier 1 — its presence alone counts) or hot.md
+      // naming this topic active (Tier 2). When neither holds there is no session in
+      // progress, so refuse. When active but no usable start was found, fall back to an
+      // instantaneous start. The active signal is cleared after a successful end (below)
+      // so a second `end` fails this check too.
       const endedAt = nowIso;
       if (!startedAt || Number.isNaN(new Date(startedAt).getTime())) {
+        if (topicDrafts.length === 0 && !hotActiveSameTopic) {
+          reportNoActiveSession(jsonMode);
+          return;
+        }
+        // An active session is genuinely ending but carried no usable `started_at`
+        // (draft timestamp corrupt/future, or hot timestamp unreadable): instantaneous.
         startedAt = endedAt;
       }
 
@@ -527,18 +648,30 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const durationMs = endMs >= startMs ? endMs - startMs : 0;
       const durationMinutes = Number.isFinite(durationMs) ? Math.round(durationMs / 60000) : 0;
 
-      const sessionId = generateSessionId();
+      const sessionId = activeSession?.topic_id === topicId
+        ? activeSession.session_id
+        : generateSessionId();
 
+      const consumedDraftMarkers = topicDrafts
+        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)}`)
+        .join('\n');
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
         topic_id: topicId,
         started_at: startedAt,
         ended_at: endedAt,
         duration_minutes: durationMinutes,
-      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.`);
+      }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.${consumedDraftMarkers ? `\n${consumedDraftMarkers}` : ''}`);
 
       // Clean up drafts on confirmed session end for the current topic
       const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
+
+      // #442 (bug 3): deleting draft checkpoints silently looked like data loss. Report
+      // each consumed draft so the draft -> session transition is explicit.
+      for (const deletedPath of cleanupResult.deleted) {
+        console.log(`✓ Consumed draft ${path.basename(deletedPath)}`);
+      }
+
       if (cleanupResult.errors.length > 0) {
         console.warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
         process.exitCode = 1;
@@ -546,6 +679,40 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       // Regenerate derived views
       await rebuildHotAndIndex(vaultPath);
+      if (activeSession?.topic_id === topicId) {
+        await clearActiveSession(vaultPath);
+      }
+
+      // #442 (bug 2): mark the session ended. `rebuildHotAndIndex` re-derives
+      // `active_topic` from the newest completed session, so after this end it names
+      // the topic just recorded — clear it to null so the next `session end` does not
+      // find this topic active and mint a phantom. Clear ONLY when the rebuilt
+      // `active_topic` is the topic we ended; if the rebuild surfaced a different topic
+      // as newest, leave that marker intact rather than clobber another topic's state.
+      // `started_at` is preserved so hot.md still agrees with the recorded session
+      // (#329). A failed clear leaves hot.md stale (the resurrect risk returns), so it
+      // is surfaced, not swallowed; the session itself is already on disk, so this only
+      // escalates the exit code.
+      try {
+        const postRebuild = readHotMemory(vaultPath);
+        const postActive = postRebuild.frontmatter && typeof postRebuild.frontmatter.active_topic === 'string'
+          ? postRebuild.frontmatter.active_topic.trim()
+          : '';
+        const preservedStart = postRebuild.frontmatter && typeof postRebuild.frontmatter.started_at === 'string'
+          ? postRebuild.frontmatter.started_at
+          : null;
+        const clearActive = postActive === topicId;
+        await updateHotMemory(
+          vaultPath, sessionId, clearActive ? null : (postActive || null), postRebuild.body || '', preservedStart
+        );
+      } catch (e: unknown) {
+        console.warn(
+          `Session ${sessionId} was recorded, but hot.md's active-session marker could not ` +
+            `be cleared (${(e as Error).message}). Run palee session start to reset working memory.`
+        );
+        const code = exitCodeFor(e);
+        process.exitCode = code === ExitCode.Conflict ? ExitCode.Conflict : ExitCode.PartialImport;
+      }
 
       console.log(`✓ Session recorded: ${sessionId}`);
       console.log(`  Path: ${path.relative(vaultPath, sessionPath)}`);

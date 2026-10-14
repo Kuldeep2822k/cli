@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { parseFrontmatter, updateHotMemory } from '../src/storage';
+import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex } from '../src/storage';
 
 describe('Session CLI In-Process Coverage', () => {
   let tempDir: string;
@@ -411,14 +411,17 @@ describe('Session CLI In-Process Coverage', () => {
     // from. Asserted against the session note itself, which is the contract.
     const refreshedHot = fs.readFileSync(hotPath, 'utf8');
     const parsedHot = parseFrontmatter(refreshedHot);
-    assert.strictEqual(parsedHot.frontmatter?.started_at, frontmatter?.started_at);
-    assert.strictEqual(parsedHot.frontmatter?.started_at, pastTime);
+     assert.strictEqual(parsedHot.frontmatter?.active_topic, null);
+     assert.strictEqual(parsedHot.frontmatter?.started_at, null);
 
     // Cleanup session file
     fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
   });
 
-  test('session end falls back to current instant when neither draft nor hot memory has started_at (Tier 3)', async () => {
+  test('session end with no active session refuses at exit 2 and mints no phantom session (#442)', async () => {
+    // Was a Tier-3 "fall back to current instant" characterization; #442 declares the
+    // silent fabrication a bug, so an end with neither a draft (Tier 1) nor a
+    // post-start hot started_at (Tier 2) must refuse at exit 2 and write nothing.
     const hotPath = path.join(vaultDir, '.palee', 'hot.md');
     fs.writeFileSync(
       hotPath,
@@ -426,21 +429,35 @@ describe('Session CLI In-Process Coverage', () => {
       'utf8'
     );
 
+    process.exitCode = undefined;
     await sessionCommand('end', { topic: 'T-adhoc-end' });
+    assert.strictEqual(process.exitCode, 2);
 
     const draftsDir = path.join(vaultDir, '.palee', 'sessions');
-    const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
-    assert.strictEqual(confirmedFiles.length, 1);
+    const confirmedFiles = fs.existsSync(draftsDir)
+      ? fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'))
+      : [];
+    assert.strictEqual(confirmedFiles.length, 0, 'no phantom session may be minted without an active session');
+  });
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
-    const { frontmatter } = parseFrontmatter(sessionContent);
-    assert.strictEqual(frontmatter?.topic_id, 'T-adhoc-end');
-    assert.ok(frontmatter?.started_at);
-    assert.ok(frontmatter?.ended_at);
-    assert.strictEqual(frontmatter?.duration_minutes, 0);
+  test('session start then end records one session; a repeated end reports no active session (#442)', async () => {
+    await sessionCommand('start', { topic: 'T-ongoing-topic' });
+    process.exitCode = undefined;
 
-    // Cleanup session file
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+     await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, undefined);
+    const draftsDir = path.join(vaultDir, '.palee', 'sessions');
+    const afterFirst = fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'));
+     assert.strictEqual(afterFirst.length, 1, 'the first end records the active session');
+
+     await rebuildHotAndIndex(vaultDir);
+
+     // A rebuild must not restore the completed session as active.
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, 2);
+    const afterSecond = fs.readdirSync(draftsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'));
+    assert.strictEqual(afterSecond.length, 1, 'the repeated end must not fabricate a session');
   });
 
   test('session end handles corrupt draft frontmatter by falling back to hot.md or current instant', async () => {
@@ -513,5 +530,103 @@ describe('Session CLI In-Process Coverage', () => {
     assert.ok(frontmatter);
     assert.strictEqual(frontmatter.active_topic, topicId);
     assert.strictEqual(frontmatter.started_at, initialStartTime, 'Must preserve original started_at');
+  });
+
+  test('session end retry after draft cleanup failure does not duplicate the session', async () => {
+    const draftPath = path.join(vaultDir, '.palee', 'sessions', 'DRAFT-S-retry.md');
+    fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+    fs.writeFileSync(draftPath, `---\npalee_schema: 1\nsession_id: DRAFT-S-retry\ntopic_id: T-ongoing-topic\nstarted_at: "${new Date(Date.now() - 60000).toISOString()}"\nstatus: draft\n---\n# Retry draft\n`, 'utf8');
+
+    const originalUnlinkSync = fs.unlinkSync;
+    fs.unlinkSync = ((target: fs.PathLike | string) => {
+      if (String(target).endsWith('DRAFT-S-retry.md')) {
+        const error = new Error('EACCES') as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      }
+      return originalUnlinkSync(target);
+    }) as typeof fs.unlinkSync;
+    try {
+      await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    } finally {
+      fs.unlinkSync = originalUnlinkSync;
+    }
+
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: 'T-ongoing-topic' });
+    assert.strictEqual(process.exitCode, 2);
+    const confirmed = fs.readdirSync(path.join(vaultDir, '.palee', 'sessions'))
+      .filter((file) => file.startsWith('S-') && file.endsWith('.md'));
+    assert.strictEqual(confirmed.length, 1);
+  });
+
+  test('session end retry on already-recorded session emits visible success and clears active marker', async () => {
+    const topicId = 'T-ongoing-topic';
+    const sessionId = 'S-retry-completed-1';
+    const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Seed completed session file
+    const sessionFile = path.join(sessionsDir, `${sessionId}.md`);
+    fs.writeFileSync(
+      sessionFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstatus: completed\nstarted_at: "2026-10-14T00:00:00.000Z"\nended_at: "2026-10-14T00:30:00.000Z"\nduration_minutes: 30\n---\n# Completed\n`,
+      'utf8'
+    );
+
+    // Seed active session marker
+    const markerFile = path.join(vaultDir, '.palee', 'active-session.md');
+    fs.writeFileSync(
+      markerFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Active\n`,
+      'utf8'
+    );
+
+    // Human output test
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('end', { topic: topicId });
+    } finally {
+      console.log = origLog;
+    }
+    assert.strictEqual(process.exitCode, undefined);
+    assert.ok(logs.some((l) => l.includes(`✓ Session already recorded: ${sessionId}`)));
+    assert.ok(logs.some((l) => l.includes('Working memory (hot.md) and index (index.md) updated.')));
+    assert.strictEqual(fs.existsSync(markerFile), false);
+    const hotFile = path.join(vaultDir, '.palee', 'hot.md');
+    const { frontmatter: hotAfterRetry } = parseFrontmatter(fs.readFileSync(hotFile, 'utf8'));
+    assert.strictEqual(hotAfterRetry?.active_topic, null);
+
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: topicId });
+    assert.strictEqual(process.exitCode, 2, 'a further end must be refused after the retry clears active state');
+    const confirmedAfterRetry = fs.readdirSync(sessionsDir)
+      .filter((file) => file.startsWith('S-') && file.endsWith('.md'));
+    assert.strictEqual(confirmedAfterRetry.length, 1);
+    process.exitCode = undefined;
+
+    // JSON mode test
+    fs.writeFileSync(
+      markerFile,
+      `---\npalee_schema: 1\nsession_id: ${sessionId}\ntopic_id: ${topicId}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Active\n`,
+      'utf8'
+    );
+    const jsonLogs: string[] = [];
+    console.log = (msg?: unknown) => { jsonLogs.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('end', { topic: topicId, json: true });
+    } finally {
+      console.log = origLog;
+    }
+    assert.strictEqual(process.exitCode, undefined);
+    const payload = jsonLogs.map((l) => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).find((p) => p && p.status === 'already_recorded');
+    assert.ok(payload);
+    assert.strictEqual(payload.session_id, sessionId);
+    assert.strictEqual(payload.topic_id, topicId);
+    assert.strictEqual(fs.existsSync(markerFile), false);
   });
 });

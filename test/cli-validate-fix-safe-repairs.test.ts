@@ -269,7 +269,8 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
       const fm = readFrontmatter(vaultPath, '.palee/hot.md');
       assert.strictEqual(fm.memory_id, 'H-active');
       assert.strictEqual(fm.last_session, 'S-20260830T100000-aaaa1111');
-      assert.strictEqual(fm.active_topic, 'T-alpha');
+       assert.strictEqual(fm.active_topic, null);
+       assert.strictEqual(fm.started_at, null);
 
       const after = await captureOutput(() => validateCommand({ json: true }));
       assert.strictEqual(parseReport(after.out).warning_count, 0, after.out);

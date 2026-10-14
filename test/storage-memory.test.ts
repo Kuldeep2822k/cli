@@ -24,6 +24,7 @@ import {
   Lock,
   recoverDraft,
   parseFrontmatter,
+  hasCompletedSession,
   MAX_HOT_WORDS,
 } from '../src/storage';
 
@@ -316,14 +317,10 @@ describe('Memory System', () => {
     const hotContent = fs.readFileSync(hotPath, 'utf8');
     const { frontmatter } = parseFrontmatter(hotContent);
     assert.strictEqual(frontmatter!.last_session, sessionId);
-    assert.strictEqual(frontmatter!.active_topic, 'T-docker-basics');
+    assert.strictEqual(frontmatter!.active_topic, null);
   });
 
-  // #329: `rebuildHotAndIndex` ran `updateHotMemory` without its fifth argument, so
-  // the default (`null`) blanked `hot.md.started_at` on every rebuild — including the
-  // one that closes every session — leaving working memory contradicting the very
-  // session note it was derived from.
-  test('rebuildHotAndIndex carries started_at from the newest session into hot.md (#329)', async () => {
+  test('rebuildHotAndIndex does not reopen a completed session (#443)', async () => {
     const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-329-hot-start-'));
     try {
       const startedAt = '2026-09-12T08:30:15.000Z';
@@ -341,19 +338,13 @@ describe('Memory System', () => {
       const { frontmatter } = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
       assert.ok(frontmatter);
       assert.strictEqual(frontmatter!.last_session, sessionId);
-      assert.strictEqual(
-        frontmatter!.started_at,
-        startedAt,
-        'hot.md.started_at must equal the newest session note started_at'
-      );
-      // Sessions/hot use full ISO with ms + `Z`; the `YYYY-MM-DD` review/due shape
-      // must never leak in through the rebuild.
-      assert.match(String(frontmatter!.started_at), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+       assert.strictEqual(frontmatter!.active_topic, null);
+       assert.strictEqual(frontmatter!.started_at, null);
 
       // Rebuild again: the carried value must be stable, not re-blanked.
       await rebuildHotAndIndex(vaultPath);
       const reread = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
-      assert.strictEqual(reread.frontmatter!.started_at, startedAt);
+       assert.strictEqual(reread.frontmatter!.active_topic, null);
     } finally {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }
@@ -426,8 +417,8 @@ Draft status session with newer timestamp.
     // from selection. Assert the confirmed session is selected directly.
     assert.strictEqual(frontmatter!.last_session, confirmedId,
       'draft-status session must not be selected as newest session');
-    assert.strictEqual(frontmatter!.active_topic, 'T-confirmed',
-      'active_topic must come from the newest confirmed session');
+    assert.strictEqual(frontmatter!.active_topic, null,
+      'completed sessions must not become active after rebuild');
   });
 
   // BUG-005: an unparseable `started_at` produced NaN, which never satisfied
@@ -461,8 +452,8 @@ ${body}
       assert.ok(frontmatter!.last_session, 'hot memory must select a session even when all timestamps are unparseable');
       assert.ok(!body.includes('No learning history recorded yet.'),
         'hot memory must not be erased while confirmed sessions exist on disk');
-      assert.ok(['T-corrupt-a', 'T-corrupt-b'].includes(String(frontmatter!.active_topic)),
-        'active_topic must come from a real session, not be null (tie-break order is not contractual)');
+      assert.strictEqual(frontmatter!.active_topic, null,
+        'completed sessions must not become active after rebuild');
 
       const indexContent = fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8');
       assert.ok(indexContent.includes('Total Sessions: 2'),
@@ -488,7 +479,7 @@ ${body}
       const { frontmatter } = parseFrontmatter(hotContent);
       assert.strictEqual(frontmatter!.last_session, 'S-valid',
         'a session with an unparseable timestamp must not displace a validly-timed one');
-      assert.strictEqual(frontmatter!.active_topic, 'T-valid');
+      assert.strictEqual(frontmatter!.active_topic, null);
     } finally {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }
@@ -506,7 +497,7 @@ ${body}
       const { frontmatter } = parseFrontmatter(hotContent);
       assert.strictEqual(frontmatter!.last_session, 'S-preepoch',
         'a parseable pre-1970 timestamp must outrank an unparseable one, not be filtered out');
-      assert.strictEqual(frontmatter!.active_topic, 'T-pre1970');
+      assert.strictEqual(frontmatter!.active_topic, null);
     } finally {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }
@@ -531,7 +522,7 @@ ${body}
 
       assert.strictEqual(first!.last_session, 'S-20260101T000000-zzzz',
         'the ascending scan leaves the greatest filename as the newest');
-      assert.strictEqual(first!.active_topic, 'T-later');
+      assert.strictEqual(first!.active_topic, null);
       assert.strictEqual(second!.last_session, first!.last_session, 'two rebuilds of the same data agree');
       assert.strictEqual(
         fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8'),
@@ -973,4 +964,39 @@ ${body}
 
     fs.unlinkSync(corruptFile);
   });
+
+  describe('hasCompletedSession', () => {
+    test('rejects malformed session IDs or path traversal attempts', () => {
+      assert.strictEqual(hasCompletedSession(testVaultPath, '../escape'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, '..\\escape'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'DRAFT-S-1234'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'invalid'), false);
+      assert.strictEqual(hasCompletedSession(testVaultPath, ''), false);
+    });
+
+    test('returns false when session note does not exist', () => {
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-nonexistent-123'), false);
+    });
+
+    test('returns true only for completed status matching session ID', () => {
+      const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      const testSessionPath = path.join(sessionsDir, 'S-valid-test-123.md');
+
+      fs.writeFileSync(
+        testSessionPath,
+        '---\npalee_schema: 1\nsession_id: S-valid-test-123\ntopic_id: T-test\nstatus: completed\n---\nBody'
+      );
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-valid-test-123'), true);
+
+      fs.writeFileSync(
+        testSessionPath,
+        '---\npalee_schema: 1\nsession_id: S-valid-test-123\ntopic_id: T-test\nstatus: draft\n---\nBody'
+      );
+      assert.strictEqual(hasCompletedSession(testVaultPath, 'S-valid-test-123'), false);
+
+      fs.unlinkSync(testSessionPath);
+    });
+  });
+
 });

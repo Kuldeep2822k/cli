@@ -213,7 +213,8 @@ practical: -2.0
       assert.ok(fs.existsSync(indexPath));
 
       const hotContent = fs.readFileSync(hotPath, 'utf8');
-      assert.ok(hotContent.includes('T-valid'));
+       assert.match(hotContent, /last_session: S-20260820T100000-aaaa/);
+       assert.match(hotContent, /active_topic: null/);
 
       const drafts = getDrafts(testVault);
       assert.strictEqual(drafts.length, 1);

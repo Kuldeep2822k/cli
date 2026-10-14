@@ -93,7 +93,7 @@ Run "palee plan" to see today's learning plan
 
 ## 2. Progress Command (`palee progress`)
 
-The `palee progress` command offers granular analytics into learning retention, historical repetitions, lapse counts, and topic-specific mastery scores.
+The `palee progress` command offers granular analytics into learning retention, current repetition totals, lapse counts, and topic-specific mastery scores.
 
 ### Syntax & Options
 
@@ -120,7 +120,7 @@ Aggregates all active topics across the vault [src/cli/progress.ts#140-233](http
   ```
 
 - **Mastery Status**: Classifies vault overall state as `'no_data'` (`active_count === 0`), `'learning'` (`< 0.70`), or `'mastered'` (`>= 0.70`).
-- **Total Repetitions & Lapses**: Aggregates lifetime review repetitions and memory lapses across all active topics.
+- **Total Repetitions & Lapses**: Sums the current `repetition` value across all active topics (a failed review resets `repetition` to 0, so this is not a lifetime count of review events) together with memory lapses.
 
 #### 2. Topic-Specific Mode (`--topic <id>`)
 Surfaces comprehensive SRS metadata for an individual topic note:
@@ -142,7 +142,7 @@ Active Topics: 14 (1 archived)
   New: 2 (14.3%)
 
 Average Mastery: 54.3% (learning)
-Total Reviews: 28
+Total Repetitions: 28
 Total Lapses: 3
 
 By Difficulty:

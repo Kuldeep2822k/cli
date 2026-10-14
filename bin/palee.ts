@@ -92,7 +92,7 @@ program
   .command('adopt')
   .description('Adopt existing notes as PALEE topics')
   .argument('[path]', 'Path to markdown file or directory relative to vault root')
-  .option('--all', 'Adopt all markdown files across the vault')
+  .option('--all', 'Adopt all markdown files across the vault (a batch scan skips repo-meta docs — README/SUMMARY/LICENSE/etc.; adopt a single file by path to override)')
   .option('--difficulty <level>', 'Difficulty: beginner, intermediate, advanced')
   .option('--depends-on <ids>', 'Comma-separated topic IDs (single-file mode only)')
   .option('--include <patterns>', 'Comma-separated inclusion glob patterns (batch mode; repeatable)', collectPatterns)
@@ -120,6 +120,16 @@ Pattern syntax for --include / --exclude (batch mode):
   • Matching ignores case.
   • Repeat the flag, or separate patterns with commas, to filter on more than one; a pattern that matches no file in the scanned scope is named in a warning.
   • --include, --exclude and --tag filter a scan, so they are batch mode only: with a single note path they exit 2.
+`
+  )
+  .addHelpText(
+    'after',
+    `
+Prerequisite format for --auto-chain (a note's own declared prerequisites):
+  • A prerequisites section is a heading that is exactly a trigger phrase: 'Prerequisites', 'Prerequisite', 'Requires', 'Required knowledge' or 'Depends on'/'Dependency on' (a leading 'Prior ' is allowed), with nothing else on the line. '## Prerequisites for the lab' is NOT such a heading.
+  • Only list items under that heading count, and each must carry a [[wikilink]] or a markdown [link](target) — the link is the reference; the words around it only qualify it.
+  • Prose is never read as a prerequisite: 'Prerequisite: X' written as a sentence is ignored by design, because a sentence cannot be told from a description of what a lesson involves.
+  • A hedged item is skipped, not gated: negation ('does not require [[x]]'), disjunction ('[[x]] or [[y]]'), and reversal ('a prerequisite for [[x]]') contribute no edge.
 `
   )
   .action(adoptCommand);
@@ -180,7 +190,7 @@ program
 program
   .command('roadmap')
   .description('Manage learning roadmaps')
-  .option('--from <file>', 'Import roadmap from YAML file')
+  .option('--from <file>', 'Import roadmap from a YAML or Markdown file (frontmatter, fenced YAML, or [[wikilink]] formats)')
   .option('--auto-chain', 'Chain imported topics onto the previous one - ordered by ascending order field, topics without one follow in file order after all ordered ones; an explicit non-empty depends_on wins')
   .option('--dry-run', 'Print the full per-note import plan (ids, paths, resolved depends_on, creates/updates) and write nothing')
   .option('-y, --yes', 'Skip confirmation prompt')
@@ -193,7 +203,7 @@ program
   .option('--fix', 'Automatically update notes missing palee_schema to schema v1')
   .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes whose stored label says `numbered`, so they stop gating; depends_on is never changed. Notes carrying no depends_on_source key at all - the ones adopted before that label existed - are NOT reached by this flag; they need --include-unlabeled-ties')
   .option('--include-unlabeled-ties', 'With --relabel-ties, also relabel notes that carry no depends_on_source key at all, which is what notes adopted before that label existed were left in. Opt-in because an unlabeled note is byte-identical whether the chain or a person wrote its depends_on: only the label is written, never the list, and only for a single backward edge to a same-rank sibling in the same directory with no same-rank sibling still between them. Combine with --dry-run to preview every note it would touch')
-  .option('--dry-run', 'With --relabel-ties, print the notes that would be relabelled and write nothing (does not affect --fix)')
+  .option('--dry-run', 'Preview without writing files: with --fix, lists the notes that would be upgraded to Schema v1; with --relabel-ties, lists the notes that would be relabelled. Writes nothing in both cases')
   .action(migrateCommand);
 
 // palee session
@@ -209,7 +219,7 @@ program
 // palee dashboard
 program
   .command('dashboard')
-  .description('Show interactive learning dashboard')
+  .description('Show a learning dashboard summary')
   .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 

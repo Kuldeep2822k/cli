@@ -559,15 +559,18 @@ Body content.
     runCLI(['config', 'set-vault', vaultDir]);
   });
 
-  test('session end requires topic when hot.md has no active topic', () => {
+  test('session end refuses when there is no active session (#442)', () => {
     // Ensure clean vault without hot.md active_topic
     const sessionTestVault = path.join(tempDir, 'session-vault');
     fs.mkdirSync(sessionTestVault, { recursive: true });
     runCLI(['config', 'set-vault', sessionTestVault]);
 
+    // #442 (bug 2 / UX): a bare `session end` with no active session now reports
+    // "no active session" (the real condition) instead of the old "Topic required",
+    // and refuses rather than minting a phantom.
     const result = runCLI(['session', 'end']);
     assert.strictEqual(result.status, 2);
-    assert.match(result.stderr, /Topic required/);
+    assert.match(result.stderr, /no active session/);
 
     // Assert that no phantom T-general file was created
     const sessionsDir = path.join(sessionTestVault, '.palee', 'sessions');
@@ -603,6 +606,10 @@ Body content.
       'utf8'
     );
     runCLI(['config', 'set-vault', sessionTestVault]);
+
+    // #442 (bug 2): `session end` requires an active session, so open one on the topic
+    // first (a bare `end --topic` on a never-started topic now refuses as a phantom).
+    runCLI(['session', 'start', '--topic', 'T-docker-basics']);
 
     const result = runCLI(['session', 'end', '--topic', 'T-docker-basics']);
     assert.strictEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
