@@ -374,7 +374,7 @@ dependencies:
     assert.deepStrictEqual(t.depends_on, ['T-valid-dep']);
   });
 
-  test('loadTopics carries depends_on_source so the toc tier can be recognized as advisory', () => {
+  test('loadTopics carries depends_on_source so TOC-sourced edges are recognized as advisory', () => {
     const write = (name: string, label: string): void => {
       fs.writeFileSync(
         path.join(tmpVault, name),

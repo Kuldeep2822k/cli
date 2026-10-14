@@ -714,8 +714,8 @@ export interface AdoptOptions {
   autoChain?: boolean;
   /**
    * Which order signal `--auto-chain` may consume: `strict` (numbered tree
-   * only), `toc` (author enumeration only), or `full` (both). Optional; absent,
-   * `--auto-chain` runs the `full` tier. Validated by the CLI — anything else
+   * only) or `full` (numbered tree plus author enumeration). Optional; absent,
+   * `--auto-chain` runs the `strict` tier. Validated by the CLI — anything else
    * is a usage error — and meaningless without `--auto-chain`.
    */
   chainTier?: string;

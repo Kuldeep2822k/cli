@@ -961,7 +961,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // that change withdrew: two exported rules, opposite answers, picked by whether the
       // caller passed `undefined` or `true`.
       assert.strictEqual(parseAutoChainTier(true), null);
-      assert.strictEqual(parseAutoChainTier('TOC'), 'toc');
+      assert.strictEqual(parseAutoChainTier('TOC'), null);
+      assert.strictEqual(parseAutoChainTier(' FULL '), 'full');
       assert.strictEqual(parseAutoChainTier(' strict '), 'strict');
     });
     it('rejects unknown values, undefined and false', () => {

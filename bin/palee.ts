@@ -101,7 +101,7 @@ program
   .option('--dry-run', 'Simulate adoption and print summary without modifying files')
   .option('--verbose', 'Print detailed file-by-file inspection list')
   .option('--auto-chain', 'Auto-wire depends_on from a note\'s own prerequisites, else the numbered tree (batch mode only)')
-  .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; toc/full add listing order, which never gates')
+  .option('--chain-tier <tier>', 'Order signal for --auto-chain: strict (default) numbers only; full adds listing order, which never gates')
   .option('-y, --yes', 'Skip confirmation prompt')
   .option('--undo', 'Reverse an adoption instead of performing one: strip only the PALEE-owned frontmatter keys from the selected notes, preserving every other key, comment and body byte (combine with --dry-run to preview)')
   .option('--drop-title', 'With --undo: also remove the `title` key. Adoption writes it but does not own it, and a note that authored its own title keeps it, so reversal cannot tell the two apart and leaves it unless you say otherwise')

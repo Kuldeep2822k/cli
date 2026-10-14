@@ -731,7 +731,7 @@ describe('Dependency Graph', () => {
     );
   });
 
-  test('a numbered label still gates, so the exemption stays scoped to the toc tier', () => {
+  test('a numbered label still gates, so the exemption stays scoped to TOC-sourced edges', () => {
     // The label is the whole discriminator: an identical graph whose edge came
     // from the note's own numeric prefix must keep its gate.
     const topics = new Map<string, TopicNode>([

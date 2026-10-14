@@ -108,7 +108,7 @@ export const assertAcyclicPlan = tocChain.assertAcyclicPlan;
 export const isInNumberedTree = tocChain.isInNumberedTree;
 /** Merges the numbered (hygiene) plan with the TOC enumeration under the selected tier */
 export const composeTieredChain = tocChain.composeTieredChain;
-/** Parses the `--auto-chain[=strict|toc|full]` value; `null` = reject */
+/** Parses the `--chain-tier <strict|full>` value; `null` = reject */
 export const parseAutoChainTier = tocChain.parseAutoChainTier;
 export type { AutoChainTier, DependsOnSource, TocLink, TocSkipReason, TocTargetCandidate, TocChainPlan, TieredChainPlan, TieredComposition } from './toc-chain';
 
