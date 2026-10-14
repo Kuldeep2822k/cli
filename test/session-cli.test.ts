@@ -595,6 +595,17 @@ describe('Session CLI In-Process Coverage', () => {
     assert.ok(logs.some((l) => l.includes(`✓ Session already recorded: ${sessionId}`)));
     assert.ok(logs.some((l) => l.includes('Working memory (hot.md) and index (index.md) updated.')));
     assert.strictEqual(fs.existsSync(markerFile), false);
+    const hotFile = path.join(vaultDir, '.palee', 'hot.md');
+    const { frontmatter: hotAfterRetry } = parseFrontmatter(fs.readFileSync(hotFile, 'utf8'));
+    assert.strictEqual(hotAfterRetry?.active_topic, null);
+
+    process.exitCode = undefined;
+    await sessionCommand('end', { topic: topicId });
+    assert.strictEqual(process.exitCode, 2, 'a further end must be refused after the retry clears active state');
+    const confirmedAfterRetry = fs.readdirSync(sessionsDir)
+      .filter((file) => file.startsWith('S-') && file.endsWith('.md'));
+    assert.strictEqual(confirmedAfterRetry.length, 1);
+    process.exitCode = undefined;
 
     // JSON mode test
     fs.writeFileSync(

@@ -543,6 +543,20 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const activeSession = readActiveSession(vaultPath);
       if (activeSession?.topic_id === topicId && hasCompletedSession(vaultPath, activeSession.session_id)) {
         await rebuildHotAndIndex(vaultPath);
+        const rebuiltHot = readHotMemory(vaultPath);
+        const rebuiltFrontmatter = rebuiltHot.frontmatter;
+        const rebuiltActiveTopic = rebuiltFrontmatter && typeof rebuiltFrontmatter.active_topic === 'string'
+          ? rebuiltFrontmatter.active_topic.trim()
+          : '';
+        if (rebuiltActiveTopic === topicId) {
+          const lastSessionId = typeof rebuiltFrontmatter?.last_session === 'string'
+            ? rebuiltFrontmatter.last_session
+            : null;
+          const startedAt = typeof rebuiltFrontmatter?.started_at === 'string'
+            ? rebuiltFrontmatter.started_at
+            : null;
+          await updateHotMemory(vaultPath, lastSessionId, null, rebuiltHot.body || '', startedAt);
+        }
         await clearActiveSession(vaultPath);
         const sessionPath = path.join(vaultPath, '.palee', 'sessions', `${activeSession.session_id}.md`);
         if (jsonMode) {
