@@ -747,6 +747,20 @@ depends_on: []
       assert.strictEqual(data.next.id, 'T-topic-tty');
     });
 
+    test('PALEE_JSON=1 selects JSON for every remaining reading command', async () => {
+      // The next/plan cases above cover two of the six; pin the other four so
+      // env-var selection is not silently command-specific (#357).
+      process.env.PALEE_JSON = '1';
+      await progressCommand({});
+      assert.ok(getLastParsedJson(), 'progress emits JSON under PALEE_JSON');
+      await dashboardCommand({});
+      assert.ok(getLastParsedJson(), 'dashboard emits JSON under PALEE_JSON');
+      await validateCommand({});
+      assert.ok(getLastParsedJson(), 'validate emits JSON under PALEE_JSON');
+      await sessionCommand('list', {});
+      assert.notStrictEqual(getLastParsedJson(), undefined, 'session list emits JSON under PALEE_JSON');
+    });
+
     test('PALEE_JSON=true (case-insensitive) restores JSON output without --json flag', async () => {
       process.env.PALEE_JSON = 'TRUE';
       await planCommand({});

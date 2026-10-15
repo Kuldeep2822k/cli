@@ -8,6 +8,7 @@
 import { program } from 'commander';
 import packageJson from '../package.json';
 import { ExitCode } from '../src/cli/exit-codes';
+import { isJsonOutput } from '../src/cli/onboarding';
 import { deriveProgramName } from '../src/cli/program-name';
 
 // Command handlers
@@ -266,12 +267,14 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   }
 
   // JSON mode comes from the option commander parsed for the command that ran
-  // (#338) — a positional `process.argv.includes('--json')` also fires when
-  // `--json` is merely a *value* (`palee config -- --json`). Fall back to that
-  // sniff only when no action ran, so there is nothing parsed to consult.
-  const isJson = parsedActionOptions
-    ? Boolean(parsedActionOptions.json)
-    : process.argv.includes('--json');
+  // (#338), routed through `isJsonOutput` so `PALEE_JSON` is honored on the
+  // fatal path exactly as it is on every command's success path. A positional
+  // `process.argv.includes('--json')` also fires when `--json` is merely a
+  // *value* (`palee config -- --json`), so that sniff is kept only as the
+  // pre-action fallback when no action ran and there is nothing parsed.
+  const isJson = isJsonOutput(
+    parsedActionOptions ? { json: Boolean(parsedActionOptions.json) } : undefined
+  ) || (!parsedActionOptions && process.argv.includes('--json'));
   const message = err instanceof Error ? err.message : String(err);
   if (isJson) {
     console.log(JSON.stringify({

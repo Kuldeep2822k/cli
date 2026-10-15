@@ -199,8 +199,10 @@ export function extractTocLinks(text: string, stats?: TocScanStats): TocLink[] {
     }
     // The break handles the document that holds no `)` at all from here on; the
     // table handles the one that holds plenty of them but never one at the depth
-    // this link's own `(` left behind. Reached only until the first failure of
-    // each form builds its table, so this probe never pays per-link.
+    // this link's own `(` left behind. The probe still runs once per link, but a
+    // successful link advances past the closer it just found, so the scans never
+    // overlap and the total work stays linear instead of re-walking to a distant
+    // paren for every link.
     const parenProbe = scanned.indexOf(')', destStart);
     counter.steps += probeSteps(scanned, parenProbe, destStart);
     if (parenProbe < 0) break;

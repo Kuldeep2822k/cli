@@ -226,6 +226,24 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(JSON.parse(runConfig(['show', '--json'], unset).stdout).api_key_set, false);
   });
 
+  test('config show honors PALEE_JSON without the --json flag (#357)', () => {
+    // `config show` was the one reading command still testing the raw `--json`
+    // option instead of isJsonOutput, so a piped/cron caller with PALEE_JSON=1
+    // got the human report. Pin that env selection now reaches the success path.
+    const configDir = freshConfigDir();
+    runConfig(['set-base-url', 'https://opencode.ai/zen/v1'], configDir);
+    const shown = runConfig(['show'], configDir, { env: { PALEE_JSON: '1' } });
+    assert.strictEqual(shown.status, 0, shown.stderr);
+    const parsed = JSON.parse(shown.stdout);
+    assert.strictEqual(parsed.base_url, 'https://opencode.ai/zen/v1');
+    assert.strictEqual(typeof parsed.api_key_set, 'boolean');
+
+    // And it stays human when PALEE_JSON is not a truthy opt-in value.
+    const human = runConfig(['show'], configDir, { env: { PALEE_JSON: 'no' } });
+    assert.match(human.stdout, /Base URL|API Key/i);
+    assert.throws(() => JSON.parse(human.stdout), "PALEE_JSON='no' must not switch config show to JSON");
+  });
+
   test('unset-api-key removes the secret from disk', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {

@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { exitCodeFor } from './exit-codes';
+import { isJsonOutput } from './onboarding';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
@@ -319,7 +320,7 @@ async function configCommand(
   try {
     if (!action || action === 'show') {
       const config = loadConfig();
-      if (options?.json) {
+      if (isJsonOutput(options)) {
         console.log(JSON.stringify({
           vault_path: config.vaultPath ?? null,
           ai_provider: config.aiProvider ?? null,

@@ -109,7 +109,7 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
 ### JSON Selection Rules
 
 1. **Explicit Flag (`--json`)**: When `--json` is supplied, PALEE always outputs structured JSON to `stdout`.
-2. **Environment Variable (`PALEE_JSON`)**: Setting `PALEE_JSON=1` (or `true`, case-insensitive) selects JSON output without the flag — useful for scripts and cron jobs.
+2. **Environment Variable (`PALEE_JSON`)**: Setting `PALEE_JSON=1` (or `true`, case-insensitive) selects JSON output without the flag — useful for scripts and cron jobs. This check is strict: only `1` and `true` select JSON, so `PALEE_JSON=yes` does nothing. (`PALEE_DEBUG` deliberately uses a looser rule — it enables on any value except empty or `0`.)
 3. **Piping Does Not Switch Formats**: Redirecting or piping `stdout` (`palee dashboard > metrics.txt`, `palee next | less`) keeps the human-readable report. This is deliberate: a redirected report stays readable, and machine consumers opt in explicitly (#357).
 4. **Structured Error Emission on `stderr`**: When JSON mode is active (via `--json` or `PALEE_JSON`) and a configuration/argument error occurs, PALEE formats the error message as a JSON payload on `stderr` and exits with code `2`:
    ```bash
@@ -119,7 +119,7 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
    # exit code: 2
    ```
    The same `{"error": ...}` shape is what the reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`) emit on `stderr` for the unexpected-exception class, still with exit code `5` — a handler never degrades machine mode to plain text just because it failed (#325). Outside machine mode both classes stay single-line `Error: <message>` text.
-   A fatal exception that escapes every handler is reported by the entry point: `{"status":"error","code":5,"error":"<message>"}` on `stdout` when the command's parsed `--json` option is set, otherwise the bare message on `stderr`. The raw stack is never printed unless the user opts in with `PALEE_DEBUG=1` (#338), and the process ends by setting `process.exitCode` rather than calling `process.exit`, so redirected output is fully flushed and a piped caller never receives a truncated payload (#320).
+   A fatal exception that escapes every handler is reported by the entry point: `{"status":"error","code":5,"error":"<message>"}` on `stdout` when JSON mode is active (the command's parsed `--json` option or `PALEE_JSON`), otherwise the bare message on `stderr`. The raw stack is never printed unless the user opts in with `PALEE_DEBUG=1` (#338), and the process ends by setting `process.exitCode` rather than calling `process.exit`, so redirected output is fully flushed and a piped caller never receives a truncated payload (#320).
 4. **Deterministic Empty States**: For empty vaults (0 topics), JSON commands return valid zeroed JSON structures instead of throwing errors or exiting non-zero.
 
 ### JSON Output Schema Mapping
