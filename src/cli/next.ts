@@ -155,6 +155,11 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       }
     } else {
       const next = dueTopics[0];
+      if (next === undefined) {
+        // Unreachable: the `dueTopics.length === 0` branch returns above, so
+        // the array is non-empty here.
+        throw new Error('Internal error: expected at least one due topic.');
+      }
       const dueStr = next.dueAt
         ? next.dueAt.toISOString().split('T')[0]
         : 'Never reviewed';
