@@ -726,4 +726,91 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       );
     });
   });
+
+  describe('vault root canonicalization (#373)', () => {
+    type Realpath = typeof fs.realpathSync;
+
+    // The fixture vault may live under a symlinked temp root (macOS /var ->
+    // /private/var). Passing the canonical root keeps every path comparison
+    // exact on all platforms, and keeps relativeVaultPath on its fast path.
+    function canonicalFixtureVault(): string {
+      return fs.realpathSync(vaultPath);
+    }
+
+    /** Counts realpathSync calls that canonicalize the vault root itself. */
+    function countVaultRootCanonicalizations(canonicalVault: string, fn: () => void): number {
+      const realRealpath = fs.realpathSync;
+      let count = 0;
+      const fsAny = fs as unknown as { realpathSync: Realpath };
+      fsAny.realpathSync = ((p: fs.PathLike, ...rest: unknown[]): string => {
+        if (typeof p === 'string' && path.resolve(p) === canonicalVault) count++;
+        return (realRealpath as (...args: unknown[]) => string)(p, ...rest);
+      }) as Realpath;
+      try {
+        fn();
+      } finally {
+        fsAny.realpathSync = realRealpath;
+      }
+      return count;
+    }
+
+    it('canonicalizes the vault root once no matter how many links a roadmap resolves', () => {
+      const canonicalVault = canonicalFixtureVault();
+      const twoLinks: WikilinkRoadmapSection[] = [
+        {
+          track: '',
+          links: [link('[[MODULES/01-foundations/01-systems]]'), link('[[01-processes]]')],
+        },
+      ];
+      const sixLinks: WikilinkRoadmapSection[] = [
+        {
+          track: '',
+          links: [
+            link('[[MODULES/01-foundations/01-systems]]'),
+            link('[[01-processes]]'),
+            link('[[Case]]'),
+            link('[[MODULES/case.md]]'),
+            link('[[note]]'),
+            link('[[outside-note]]'),
+          ],
+        },
+      ];
+      const two = countVaultRootCanonicalizations(canonicalVault, () =>
+        resolveWikilinkRoadmap(canonicalVault, twoLinks)
+      );
+      const six = countVaultRootCanonicalizations(canonicalVault, () =>
+        resolveWikilinkRoadmap(canonicalVault, sixLinks)
+      );
+      assert.strictEqual(
+        six,
+        two,
+        `6 links must not canonicalize the vault root more often than 2 links (got ${six} vs ${two})`
+      );
+    });
+
+    it('never calls realpathSync for the vault root when resolvedVaultPath is passed', () => {
+      const realRealpath = fs.realpathSync;
+      const canonicalVault = canonicalFixtureVault();
+      // Built before the patch: walkVault canonicalizes the root once itself.
+      const index = buildVaultNoteIndex(canonicalVault);
+      const fsAny = fs as unknown as { realpathSync: Realpath };
+      fsAny.realpathSync = ((p: fs.PathLike, ...rest: unknown[]): string => {
+        if (typeof p === 'string' && path.resolve(p) === canonicalVault) {
+          throw new Error('realpathSync must not be called for the vault root here');
+        }
+        return (realRealpath as (...args: unknown[]) => string)(p, ...rest);
+      }) as Realpath;
+      try {
+        const resolved = resolveWikilinkTarget(
+          canonicalVault,
+          link('[[MODULES/01-foundations/01-systems]]'),
+          index,
+          canonicalVault
+        );
+        assert.strictEqual(resolved.relativePath, 'MODULES/01-foundations/01-systems.md');
+      } finally {
+        fsAny.realpathSync = realRealpath;
+      }
+    });
+  });
 });

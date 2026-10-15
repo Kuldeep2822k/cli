@@ -26,11 +26,12 @@ import { foldIdentity } from './vault-walker';
  * @param glob - Raw glob pattern string
  * @returns Compiled RegExp with case-insensitive flag (`i`)
  *
- * @example
- * ```typescript
- * const re = globToRegex('notes/**\/*.md');
- * re.test('notes/math/linear-algebra.md'); // true
- * ```
+ * @remarks
+ * Validation only: the compiled expression exists so {@link validatePattern}
+ * can check that a pattern compiles — it is not a matcher. Patterns with
+ * separated `**` bands (e.g. `a/**\/a/**\/b.md`) compile to a regex that can
+ * backtrack super-linearly, so do not call `.test()` on the result; use
+ * {@link matchPathGlob} or {@link matchesPattern} for matching instead.
  */
 export function globToRegex(glob: string): RegExp {
   let trimmed = glob.trim().replace(/\\/g, '/');

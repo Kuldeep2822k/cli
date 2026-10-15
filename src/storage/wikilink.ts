@@ -178,6 +178,10 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
  * @param vaultPath - Absolute path to the vault root
  * @param link - Parsed wikilink (anchor/`.md` already stripped)
  * @param index - Note index from {@link buildVaultNoteIndex}
+ * @param resolvedVaultPath - Canonical vault root (`fs.realpathSync`ed). When
+ * omitted, the vault root is canonicalized here; callers resolving many links
+ * (e.g. {@link resolveWikilinkRoadmap}) pass the pre-computed value so the
+ * canonicalization happens once instead of once per link.
  * @returns Canonical absolute path and vault-relative POSIX path
  * @throws {@link AmbiguousWikilinkError} when several notes match
  * @throws {@link UnresolvedWikilinkError} when no note matches
@@ -202,9 +206,13 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
 export function resolveWikilinkTarget(
   vaultPath: string,
   link: ParsedWikilink,
-  index: Map<string, string[]>
+  index: Map<string, string[]>,
+  resolvedVaultPath?: string
 ): ResolvedWikilink {
-  const resolvedVault = fs.realpathSync(vaultPath);
+  // Hoisted by resolveWikilinkRoadmap for bulk resolution; direct callers get
+  // the same value computed here. realpathSync is deterministic per input, so
+  // hoisting changes no behaviour.
+  const resolvedVault = resolvedVaultPath ?? fs.realpathSync(vaultPath);
   const target = link.target;
 
   // Wikilink targets are `/`-separated only (see {@link targetBaseName}). An
@@ -316,7 +324,10 @@ export function resolveWikilinkTarget(
     }
     break;
   }
-  if (!isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
+  // The found ancestor is already the canonical vault root when the walk
+  // reached it: realpathSync would be the identity there, so skip the syscall
+  // (#373 — this runs once per link on basename-only targets).
+  if (ancestor !== resolvedVault && !isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
     throw new UnresolvedWikilinkError(target);
   }
 
@@ -367,6 +378,9 @@ export function resolveWikilinkRoadmap(
   sections: WikilinkRoadmapSection[]
 ): RoadmapFile {
   const index = buildVaultNoteIndex(vaultPath);
+  // Canonicalize once: resolveWikilinkTarget would otherwise realpathSync the
+  // vault root for every link in every section (#373).
+  const resolvedVault = fs.realpathSync(vaultPath);
   const existingByPath = new Map<string, { id: string; title: string }>();
   for (const topic of loadTopics(vaultPath)) {
     existingByPath.set(topic.filePath, { id: topic.id, title: topic.title });
@@ -379,7 +393,7 @@ export function resolveWikilinkRoadmap(
   for (const section of sections) {
     let previousId: string | null = null;
     for (const link of section.links) {
-      const resolved = resolveWikilinkTarget(vaultPath, link, index);
+      const resolved = resolveWikilinkTarget(vaultPath, link, index, resolvedVault);
       if (seenPaths.has(resolved.absolutePath)) {
         throw new Error(
           `Duplicate wikilink target in roadmap: [[${link.target}]] resolves to ${resolved.relativePath} more than once`
