@@ -43,7 +43,9 @@ function definedIds(): string[] {
   for (const line of text.split(/\r?\n/)) {
     const match = line.match(DEFINITION);
     if (match) {
-      ids.push(match[1]);
+      const captured = match[1];
+      assert.ok(captured !== undefined);
+      ids.push(captured);
     }
   }
   return ids;
