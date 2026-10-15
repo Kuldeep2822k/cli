@@ -439,7 +439,12 @@ function computeSccs(edges: Map<string, string[]>): string[][] {
         // `frame[1]` is a live cursor into `neighbors` (the `while`
         // condition), so this exists; the guard keeps the type honest.
         const next = neighbors[frame[1]];
-        if (next === undefined) continue;
+        if (next === undefined) {
+          // Advance the cursor even on the (unreachable) narrowing miss, so
+          // the `while` bound always moves forward and can never spin.
+          frame[1]++;
+          continue;
+        }
         frame[1]++;
         if (!index.has(next)) {
           frames.push([next, 0]);

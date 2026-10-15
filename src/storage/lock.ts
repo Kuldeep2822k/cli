@@ -285,15 +285,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
 
       const freshLocks = parsedLocks.filter(l => !isLockStale(l));
       if (freshLocks.length > 0) {
-        // `length > 0` was checked, so a first lock exists; the guard keeps
-        // the type honest rather than asserting it.
+        // A fresh lock always conflicts; the throw is unconditional so a
+        // narrowing miss can never fall through to acquiring the lock.
+        // `length > 0` guarantees `first` exists; optional chaining keeps
+        // the type honest without a non-null assertion.
         const first = freshLocks[0];
-        if (first !== undefined) {
-          const active = first.data;
-          const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`) as NodeError;
-          conflictErr.code = 'ECONFLICT';
-          throw conflictErr;
-        }
+        const active = first?.data;
+        const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`) as NodeError;
+        conflictErr.code = 'ECONFLICT';
+        throw conflictErr;
       }
 
       if (activeFiles.length === 0) {

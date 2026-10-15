@@ -326,7 +326,7 @@ describe('Storage Note Scanner', () => {
       assert.ok(firstNote !== undefined);
       assert.strictEqual(firstNote.frontmatter, null);
       assert.ok(firstNote.parseError, 'expected a parse error');
-      assert.match(firstNote.parseError!, /(unclosed|implicit map keys)/i);
+      assert.match(firstNote.parseError, /(unclosed|implicit map keys)/i);
     });
 
     test('unclosed fence followed by body thematic break with markdown subheadings is reported as parse error', () => {
@@ -350,7 +350,7 @@ describe('Storage Note Scanner', () => {
       assert.ok(firstNote !== undefined);
       assert.strictEqual(firstNote.frontmatter, null);
       assert.ok(firstNote.parseError, 'expected a parse error');
-      assert.match(firstNote.parseError!, /unclosed/i);
+      assert.match(firstNote.parseError, /unclosed/i);
     });
 
     test('unclosed fence followed by body thematic break with blockquotes is reported as parse error', () => {
@@ -383,7 +383,7 @@ describe('Storage Note Scanner', () => {
       assert.ok(firstNote !== undefined);
       assert.strictEqual(firstNote.frontmatter, null);
       assert.ok(firstNote.parseError, 'expected a parse error');
-      assert.match(firstNote.parseError!, /(unclosed|implicit map keys|invalid frontmatter key)/i);
+      assert.match(firstNote.parseError, /(unclosed|implicit map keys|invalid frontmatter key)/i);
     });
 
     test('valid note with frontmatter and body thematic break is parsed successfully without parse error', () => {
@@ -439,7 +439,7 @@ describe('Storage Note Scanner', () => {
       assert.ok(firstNote !== undefined);
       assert.strictEqual(firstNote.frontmatter, null);
       assert.ok(firstNote.parseError, 'expected a parse error');
-      assert.match(firstNote.parseError!, /(unclosed|implicit map keys)/i);
+      assert.match(firstNote.parseError, /(unclosed|implicit map keys)/i);
     });
   });
 
