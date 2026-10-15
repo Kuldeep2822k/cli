@@ -39,7 +39,6 @@ const READING_COMMANDS: ReadonlyArray<{ name: string; handler: Handler }> = [
 describe('Reading-command runtime errors keep the machine-readable contract (#325)', () => {
   let tmpDir: string;
   let prevConfigDir: string | undefined;
-  let prevIsTTY: boolean | undefined;
   let loggedOut: string[];
   let loggedErr: string[];
   const originalLog = console.log;
@@ -52,7 +51,6 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
-    prevIsTTY = process.stdout.isTTY;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-runtime-error-'));
     const configDir = path.join(tmpDir, 'config');
     fs.mkdirSync(configDir, { recursive: true });
@@ -73,7 +71,6 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
   afterEach(() => {
     console.log = originalLog;
     console.error = originalError;
-    Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
     process.exitCode = 0;
     if (prevConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
@@ -112,15 +109,31 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
       assert.strictEqual(process.exitCode, 5, 'exit code 5 is unchanged by the formatting fix');
     });
 
-    test(`${name} on a piped stdout also emits JSON (non-TTY auto-detection)`, async () => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    test(`${name} on a piped stdout without --json keeps the plain-text error (#357)`, async () => {
       await handler({});
+
+      const raw = loggedErr.join('\n').trim();
+      assert.ok(/^Error: /u.test(raw), `human mode stays text when piped, got: ${raw}`);
+      assert.match(raw, /EISDIR/);
+      assert.ok(
+        !raw.includes('{') && !raw.includes('}'),
+        'no JSON braces in the human-readable line'
+      );
+      assert.strictEqual(process.exitCode, 5);
+    });
+
+    test(`${name} with PALEE_JSON=1 emits JSON without --json flag (#357)`, async () => {
+      process.env.PALEE_JSON = '1';
+      try {
+        await handler({});
+      } finally {
+        delete process.env.PALEE_JSON;
+      }
       assert.match(parsedStderr().error, /EISDIR/);
       assert.strictEqual(process.exitCode, 5);
     });
 
-    test(`${name} in a terminal keeps the plain-text line`, async () => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    test(`${name} without --json keeps the plain-text line`, async () => {
       await handler({});
 
       const raw = loggedErr.join('\n').trim();
