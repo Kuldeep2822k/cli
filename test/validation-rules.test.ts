@@ -76,10 +76,12 @@ describe('parse-frontmatter rule (#26)', () => {
     const issues = parseFrontmatterRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'parse-frontmatter');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].file, 'a-broken.md');
-    assert.strictEqual(issues[0].details?.parserMessage, 'bad yaml');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'parse-frontmatter');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.file, 'a-broken.md');
+    assert.strictEqual(firstIssue.details?.parserMessage, 'bad yaml');
   });
 
   test('orders warnings by file path deterministically', () => {
@@ -126,16 +128,18 @@ describe('read-failure rule', () => {
     const issues = readFailureRule.run(context);
 
     assert.strictEqual(issues.length, 2);
+    const [firstIssue, secondIssue] = issues;
+    assert.ok(firstIssue !== undefined && secondIssue !== undefined);
     assert.deepStrictEqual(
       issues.map((i) => i.file),
       ['a-locked.md', 'z-locked.md']
     );
-    assert.strictEqual(issues[0].ruleId, 'read-failure');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.match(issues[0].message, /a-locked\.md/);
-    assert.match(issues[0].message, /EPERM/);
-    assert.strictEqual(issues[0].details?.readError, 'EPERM: denied');
-    assert.strictEqual(issues[1].details?.readError, 'EBUSY: file locked');
+    assert.strictEqual(firstIssue.ruleId, 'read-failure');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.match(firstIssue.message, /a-locked\.md/);
+    assert.match(firstIssue.message, /EPERM/);
+    assert.strictEqual(firstIssue.details?.readError, 'EPERM: denied');
+    assert.strictEqual(secondIssue.details?.readError, 'EBUSY: file locked');
   });
 
   test('fully readable vault yields no issues', () => {
@@ -165,10 +169,12 @@ describe('no-duplicate-topic-id rule (#30)', () => {
     const issues = noDuplicateTopicIdRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'no-duplicate-topic-id');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-dup');
-    assert.deepStrictEqual(issues[0].details?.files, ['one.md', 'two.md']);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'no-duplicate-topic-id');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-dup');
+    assert.deepStrictEqual(firstIssue.details?.files, ['one.md', 'two.md']);
   });
 
   test('duplicate across three files reports all files in one issue', () => {
@@ -183,7 +189,9 @@ describe('no-duplicate-topic-id rule (#30)', () => {
     const issues = noDuplicateTopicIdRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.deepStrictEqual(issues[0].details?.files, ['one.md', 'three.md', 'two.md']);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.deepStrictEqual(firstIssue.details?.files, ['one.md', 'three.md', 'two.md']);
   });
 
   test('two different duplicate IDs report two issues sorted by topic ID', () => {
@@ -244,16 +252,18 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     const issues = noMissingDependencyRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'no-missing-dependency');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'no-missing-dependency');
     // Vault-scan severity policy (ADR-0008 decision 1 / #34): missing
     // dependencies warn — the engine quarantines the dependent topic
     // instead of failing the scan; roadmap pre-validation keeps its own
     // separate error path.
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].topicId, 'T-broken');
-    assert.strictEqual(issues[0].details?.missing, 'T-does-not-exist');
-    assert.match(issues[0].message, /T-broken/);
-    assert.match(issues[0].message, /T-does-not-exist/);
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.topicId, 'T-broken');
+    assert.strictEqual(firstIssue.details?.missing, 'T-does-not-exist');
+    assert.match(firstIssue.message, /T-broken/);
+    assert.match(firstIssue.message, /T-does-not-exist/);
   });
 
   test('multiple missing deps report in deterministic order', () => {
@@ -288,9 +298,11 @@ describe('no-missing-dependency rule (ported from engine)', () => {
     const issues = noMissingDependencyRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].details?.snapshotIncomplete, undefined);
-    assert.strictEqual(issues[0].details?.missing, 'T-locked');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.details?.snapshotIncomplete, undefined);
+    assert.strictEqual(firstIssue.details?.missing, 'T-locked');
   });
 
   test('rule metadata: id, warning severity per the #34 scan policy, not fixable', () => {
@@ -312,10 +324,12 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     const issues = noDependencyCycleRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.ok(Array.isArray(issues[0].details?.path));
-    const path = issues[0].details?.path as string[];
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'no-dependency-cycle');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.ok(Array.isArray(firstIssue.details?.path));
+    const path = firstIssue.details?.path as string[];
     assert.strictEqual(path[0], path[path.length - 1]);
     assert.ok(path.includes('T-a'));
     assert.ok(path.includes('T-b'));
@@ -333,7 +347,9 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     const issues = noDependencyCycleRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    const path = issues[0].details?.path as string[];
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    const path = firstIssue.details?.path as string[];
     assert.strictEqual(path.length, 4);
     assert.strictEqual(path[0], 'T-a');
     assert.strictEqual(path[path.length - 1], 'T-a');
@@ -363,7 +379,9 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     const issues = noDependencyCycleRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    const path = issues[0].details?.path as string[];
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    const path = firstIssue.details?.path as string[];
     assert.ok(path.includes('T-a'));
     assert.ok(path.includes('T-b'));
   });
@@ -384,8 +402,10 @@ describe('no-dependency-cycle rule (ported from engine)', () => {
     const issues = noDependencyCycleRule.run(context);
 
     assert.strictEqual(issues.length, 2, 'each disjoint cycle must produce one finding');
-    assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
-    assert.strictEqual(issues[1].ruleId, 'no-dependency-cycle');
+    const [firstIssue, secondIssue] = issues;
+    assert.ok(firstIssue !== undefined && secondIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'no-dependency-cycle');
+    assert.strictEqual(secondIssue.ruleId, 'no-dependency-cycle');
     // detectCycles sorts canonicalized cycle paths lexicographically; assert the
     // exact order rather than sorting, so ordering regressions are caught.
     assert.deepStrictEqual(
