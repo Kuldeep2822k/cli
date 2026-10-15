@@ -987,6 +987,29 @@ ${body}
     fs.unlinkSync(disagreeFile);
   });
 
+  test('rebuildHotAndIndex points hot.md last_session at the filename stem (#359)', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-359-hot-'));
+    try {
+      const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      // Filename stem and frontmatter.session_id disagree; the validated ID space is
+      // the stem, so hot.md must carry the stem or it becomes a dangling reference.
+      fs.writeFileSync(
+        path.join(sessionsDir, 'S-hot-stem.md'),
+        '---\npalee_schema: 1\nsession_id: S-hot-loses\ntopic_id: T-hot\nstatus: completed\nstarted_at: 2026-09-01T10:00:00.000Z\nended_at: 2026-09-01T11:00:00.000Z\n---\nBody',
+        'utf8'
+      );
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const read = readHotMemory(vaultPath);
+      assert.strictEqual(read.frontmatter?.last_session, 'S-hot-stem', 'hot.md must use the filename stem');
+      assert.notStrictEqual(read.frontmatter?.last_session, 'S-hot-loses', 'the disagreeing frontmatter session_id must not be used');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('writeDraftCheckpoint retries an OCC conflict instead of losing the checkpoint (#358)', async () => {
     const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
@@ -1013,12 +1036,49 @@ ${body}
     const draftPath = path.join(sessionsDir, `${draftId}.md`);
     assert.ok(fs.existsSync(draftPath), 'checkpoint file must exist after concurrent writes');
     const content = fs.readFileSync(draftPath, 'utf8');
+    // Promise.all above only resolves if neither writer lost its checkpoint: without
+    // the OCC retry the loser propagated ECONFLICT and rejected. Resolution itself is
+    // the load-bearing evidence a retry happened (#358).
+    const draftHeaders = content.match(/# Draft Session:/g) ?? [];
+    assert.strictEqual(draftHeaders.length, 1, 'exactly one complete checkpoint must survive, not a mangled merge');
+    assert.match(content, /palee_schema: 1/, 'the surviving checkpoint must carry valid frontmatter');
     assert.ok(
-      content.includes('First writer body') || content.includes('Second writer body'),
-      'one of the two checkpoint bodies must have been persisted'
+      /First writer body|Second writer body/.test(content),
+      'the surviving body must be one of the two attempted writes'
     );
 
     fs.unlinkSync(draftPath);
+  });
+
+  test('writeDraftCheckpoint retry loop is bounded — heavy contention terminates, never hangs (#358)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const draftId = generateDraftId();
+
+    // Many simultaneous writers force repeated OCC conflicts. The loop is bounded at
+    // 3 attempts, so each call must settle (persist or surface a conflict) rather than
+    // spin; a race with a generous ceiling turns an unbounded retry into a failure.
+    const attempts = Array.from({ length: 6 }, (_, i) =>
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-bound', started_at: '2026-08-30T10:00:00Z' },
+        `Contention writer ${i}`
+      )
+        .then(() => 'ok')
+        .catch(() => 'error')
+    );
+
+    const winner = await Promise.race([
+      Promise.all(attempts).then((r) => ({ kind: 'done' as const, r })),
+      new Promise<{ kind: 'timeout'; r?: undefined }>((res) => setTimeout(() => res({ kind: 'timeout' }), 8000)),
+    ]);
+    assert.strictEqual(winner.kind, 'done', 'the retry loop terminated within its bound (no spin)');
+    assert.strictEqual(winner.r?.length, 6, 'every writer settled');
+    assert.ok((winner.r ?? []).includes('ok'), 'at least one writer persisted the checkpoint');
+
+    const draftPath = path.join(sessionsDir, `${draftId}.md`);
+    fs.rmSync(draftPath, { force: true });
   });
 
   describe('hasCompletedSession', () => {

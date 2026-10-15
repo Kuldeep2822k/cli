@@ -736,7 +736,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
 
   const activeSession = readActiveSession(vaultPath);
   if (newestSession) {
-    const lastSessionId = newestSession.frontmatter.session_id as string;
+    // Derive the id from the filename stem, not frontmatter.session_id: hot.md
+    // is validated against the same filename-derived ID space as the index
+    // (valid-hot-memory checks fm.last_session there), so a disagreeing
+    // session_id would leave a dangling reference (#359).
+    const lastSessionId = path.basename(newestSession.file, '.md');
     const activeTopicId = activeSession?.topic_id || null;
     // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
     // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
@@ -835,6 +839,14 @@ async function writeDraftCheckpoint(
         throw err;
       }
       lastConflict = err;
+      // Back off with jitter before re-contending, so a busy winning writer is not
+      // met head-to-head on every re-read/re-write (the atomic-write retry idiom).
+      // Never sleep after the final attempt — that path just throws the conflict.
+      if (attempt < MAX_CHECKPOINT_ATTEMPTS) {
+        const baseDelay = 50 * attempt;
+        const jittered = baseDelay + (Math.random() * 2 - 1) * baseDelay * 0.25;
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.min(jittered, 300))));
+      }
     }
   }
   throw lastConflict;
