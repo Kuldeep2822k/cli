@@ -324,7 +324,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       const sessionFiles = fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-') && !f.startsWith('DRAFT-'));
       assert.strictEqual(sessionFiles.length, 1);
 
-      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFiles[0]), 'utf8');
+      const [sessionFile] = sessionFiles;
+      assert.ok(sessionFile !== undefined);
+      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFile), 'utf8');
       const { frontmatter } = parseFrontmatter(sessionContent);
       assert.ok(frontmatter);
 
@@ -360,7 +362,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       const sessionFiles = fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-') && !f.startsWith('DRAFT-'));
       assert.strictEqual(sessionFiles.length, 1);
 
-      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFiles[0]), 'utf8');
+      const [sessionFile] = sessionFiles;
+      assert.ok(sessionFile !== undefined);
+      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFile), 'utf8');
       const { frontmatter } = parseFrontmatter(sessionContent);
       assert.ok(frontmatter);
 
@@ -390,7 +394,9 @@ describe('Empirical Challenger 1: Deep Verification & Stress Test Suite', () => 
       const sessionFiles = fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-') && !f.startsWith('DRAFT-'));
       assert.strictEqual(sessionFiles.length, 1);
 
-      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFiles[0]), 'utf8');
+      const [sessionFile] = sessionFiles;
+      assert.ok(sessionFile !== undefined);
+      const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFile), 'utf8');
       const { frontmatter } = parseFrontmatter(sessionContent);
       assert.ok(frontmatter);
 
