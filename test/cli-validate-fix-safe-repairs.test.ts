@@ -33,12 +33,11 @@ const PILLAR_EXPECTED = 0.82;
 
 /**
  * Isolated temp vault + PALEE config (mirrors cli-validate-fix-sm2.test.ts).
- * `isTTY` forces the human/JSON output mode deterministically, because
- * `isJsonOutput()` also auto-switches on a non-TTY stdout.
+ * Human-readable output is the default regardless of TTY state: isJsonOutput()
+ * only switches to JSON on the explicit --json flag or PALEE_JSON (#357).
  */
 async function runInTempVault(
-  fn: (vaultPath: string) => Promise<void>,
-  options: { isTTY?: boolean } = {}
+  fn: (vaultPath: string) => Promise<void>
 ): Promise<void> {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-fix323-'));
   const vaultPath = path.join(tempDir, 'vault');
@@ -46,15 +45,12 @@ async function runInTempVault(
   fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify({ vaultPath }, null, 2));
 
   const origConfigDir = process.env.PALEE_CONFIG_DIR;
-  const origIsTTY = process.stdout.isTTY;
   const origExitCode = process.exitCode;
   process.env.PALEE_CONFIG_DIR = tempDir;
-  process.stdout.isTTY = options.isTTY ?? true;
   process.exitCode = 0;
   try {
     await fn(vaultPath);
   } finally {
-    process.stdout.isTTY = origIsTTY;
     process.exitCode = origExitCode;
     if (origConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = origConfigDir;
