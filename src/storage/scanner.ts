@@ -71,7 +71,10 @@ function isTopLevelYamlData(trimmed: string): boolean {
  */
 function lastYamlDataIndex(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) {
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const line = lines[i];
+    if (line === undefined) continue;
     if (isIndentedLine(line)) continue;
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -117,7 +120,10 @@ function hasBodyTextLines(raw: string): boolean {
   // blank does not count: it belongs to a block scalar or a nested collection.
   let mappingEnded = false;
   for (let index = 0; index < lines.length; index++) {
+    // `index` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const line = lines[index];
+    if (line === undefined) continue;
     const trimmed = line.trim();
     if (!trimmed) {
       if (!isIndentedLine(line)) mappingEnded = true;
