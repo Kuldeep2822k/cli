@@ -49,9 +49,11 @@ describe('saveConfig temp file naming', () => {
     }
 
     assert.strictEqual(names.length, 2, 'both writes must have opened a temp file');
-    assert.notStrictEqual(names[0], names[1], 'and they must not race on one name');
+    const [firstName, secondName] = names;
+    assert.ok(firstName !== undefined && secondName !== undefined);
+    assert.notStrictEqual(firstName, secondName, 'and they must not race on one name');
     assert.match(
-      names[1],
+      secondName,
       new RegExp(`\\.tmp\\.${process.pid}\\.[0-9a-f]{8}$`),
       'the suffix is random bytes, not a timestamp'
     );
