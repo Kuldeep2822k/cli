@@ -558,7 +558,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   const indexPath = path.join(paleeDir, 'index.md');
   const sessionsDir = getSessionsDir(vaultPath);
 
-  const sessions: SessionRecord[] = [];
+  const sessions: (SessionRecord & { fileStem: string })[] = [];
   // Confirmed sessions skipped because they could not be read or carry an
   // unsupported schema. Surfaced in the report so `Total Sessions` no longer
   // silently undercounts reality (#361, #362).
@@ -603,6 +603,11 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               started_at: (frontmatter.started_at as string) || '',
               ended_at: (frontmatter.ended_at as string) || '',
               status: 'completed',
+              // The wikilink ref must be the filename stem, not
+              // frontmatter.session_id: the session loader derives IDs from the
+              // filename (the only reliable signal when the two disagree), and
+              // valid-session-index checks refs against that ID space (#359).
+              fileStem: path.basename(file, '.md'),
             });
           }
         } catch {
@@ -631,7 +636,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
     indexBody += `Total Sessions: ${sessions.length}\n\n`;
     for (const s of sessions) {
       const dateStr = s.started_at ? s.started_at.split('T')[0] : 'Unknown date';
-      indexBody += `- [[${s.session_id}]] - Topic: ${s.topic_id} (${dateStr})\n`;
+      indexBody += `- [[${s.fileStem}]] - Topic: ${s.topic_id} (${dateStr})\n`;
     }
   }
   if (skippedCount > 0) {
@@ -799,23 +804,40 @@ async function writeDraftCheckpoint(
   };
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null = null;
-  // A draft checkpoint is written twice for the same id (first checkpoint, then
-  // refresh), so absence is only the first case; stating it keeps the OCC guard on
-  // in both (#327).
-  let expectExists = true;
-  try {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectExists = false;
-    } else {
-      throw err;
+
+  // A checkpoint's whole purpose is crash recovery, so an OCC conflict must not
+  // lose the write: re-read the fingerprint and rewrite instead of propagating
+  // ECONFLICT (#358). Bounded retries — a writer that never stops winning means
+  // live contention, and spinning forever is worse than surfacing the failure.
+  const MAX_CHECKPOINT_ATTEMPTS = 3;
+  let lastConflict: unknown = null;
+  for (let attempt = 1; attempt <= MAX_CHECKPOINT_ATTEMPTS; attempt++) {
+    let expectedFingerprint: string | null = null;
+    // A draft checkpoint is written twice for the same id (first checkpoint, then
+    // refresh), so absence is only the first case; stating it keeps the OCC guard on
+    // in both (#327).
+    let expectExists = true;
+    try {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        expectExists = false;
+      } else {
+        throw err;
+      }
+    }
+
+    try {
+      await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
+      return filePath;
+    } catch (err: unknown) {
+      if (!isConflictError(err)) {
+        throw err;
+      }
+      lastConflict = err;
     }
   }
-
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
-  return filePath;
+  throw lastConflict;
 }
 
 /**

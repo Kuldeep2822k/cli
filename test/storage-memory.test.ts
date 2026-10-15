@@ -965,6 +965,62 @@ ${body}
     fs.unlinkSync(corruptFile);
   });
 
+  test('regenerateIndex wikilinks the filename stem, not a disagreeing frontmatter session_id (#359)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const disagreeFile = path.join(sessionsDir, 'S-stem-wins.md');
+    fs.writeFileSync(
+      disagreeFile,
+      '---\npalee_schema: 1\nsession_id: S-frontmatter-loses\ntopic_id: T-stem\nstatus: completed\nstarted_at: 2026-08-30T10:00:00.000Z\nended_at: 2026-08-30T10:30:00.000Z\n---\nBody'
+    );
+
+    const indexPath = await regenerateIndex(testVaultPath);
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    assert.ok(content.includes('[[S-stem-wins]]'), 'index must wikilink the filename stem');
+    assert.ok(
+      !content.includes('[[S-frontmatter-loses]]'),
+      'index must not wikilink the disagreeing frontmatter session_id'
+    );
+
+    fs.unlinkSync(disagreeFile);
+  });
+
+  test('writeDraftCheckpoint retries an OCC conflict instead of losing the checkpoint (#358)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Both writers read the same fingerprint, so the loser deterministically
+    // takes ECONFLICT from atomicWrite; the fix must retry and still persist
+    // a checkpoint rather than propagating the conflict.
+    const draftId = generateDraftId();
+    await Promise.all([
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-occ', started_at: '2026-08-30T10:00:00Z' },
+        'First writer body'
+      ),
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-occ', started_at: '2026-08-30T10:00:00Z' },
+        'Second writer body'
+      ),
+    ]);
+
+    const draftPath = path.join(sessionsDir, `${draftId}.md`);
+    assert.ok(fs.existsSync(draftPath), 'checkpoint file must exist after concurrent writes');
+    const content = fs.readFileSync(draftPath, 'utf8');
+    assert.ok(
+      content.includes('First writer body') || content.includes('Second writer body'),
+      'one of the two checkpoint bodies must have been persisted'
+    );
+
+    fs.unlinkSync(draftPath);
+  });
+
   describe('hasCompletedSession', () => {
     test('rejects malformed session IDs or path traversal attempts', () => {
       assert.strictEqual(hasCompletedSession(testVaultPath, '../escape'), false);
