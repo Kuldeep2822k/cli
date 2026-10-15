@@ -180,7 +180,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
 
   } catch (e: unknown) {
     // #325: the documented machine-readable contract covers runtime errors too.
-    // `--json` (or a piped stdout) gets the same `{ error }` payload the exit-2
+    // `--json` (or PALEE_JSON) gets the same `{ error }` payload the exit-2
     // vault path emits, on stderr; the exit code is unchanged. `options` is
     // passed rather than the in-try `jsonMode`, which does not exist when the
     // throw happens before it is assigned.
