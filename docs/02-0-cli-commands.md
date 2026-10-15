@@ -35,7 +35,7 @@ The CLI is implemented on top of the `commander` framework. Every command follow
 1. **Configuration Resolution**: Commands load persistent configuration (`PaleeConfig`) from the OS-specific config directory via `loadConfig()` [src/cli/config.ts#38-49](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L38-L49).
 2. **Vault Preflight Validation**: Commands verify that the configured vault path exists, is a readable directory, and contains accessible Markdown files using `validateVaultPath()` [src/cli/onboarding.ts#26-67](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L26-L67).
 3. **Domain Engine Delegation**: Core domain logic is dispatched to dedicated command handlers (e.g., `adoptCommand`, `reviewCommand`, `planCommand`, `sessionCommand`), which interface directly with storage layers, the SM-2 engine, and the DAG dependency solver.
-4. **Format & Channel Resolution**: Output is rendered to the terminal in human-readable styled text, or emitted as structured JSON when `--json` is specified or when `stdout` is redirected in a non-TTY environment [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19).
+4. **Format & Channel Resolution**: Output is rendered to the terminal in human-readable styled text, or emitted as structured JSON when `--json` is specified or `PALEE_JSON=1` is set [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19).
 
 ```mermaid
 flowchart TD
@@ -52,8 +52,8 @@ flowchart TD
     Dispatcher --> SessEng["Session Working Memory<br/>(session start/draft/end/list)"]
     
     TopEng & SrsEng & RepEng & SessEng --> OutCheck{"isJsonOutput() Check"}
-    OutCheck -->|"TTY (Terminal)"| TTYOut["Human-Readable<br/>Formatted Console"]
-    OutCheck -->|"Non-TTY or --json"| JsonOut["Structured JSON<br/>Output to stdout"]
+    OutCheck -->|"--json or PALEE_JSON=1"| JsonOut["Structured JSON<br/>Output to stdout"]
+    OutCheck -->|"otherwise"| TTYOut["Human-Readable<br/>Formatted Console"]
 ```
 
 ---
@@ -94,21 +94,24 @@ The following matrix documents the exact behavior of every command under each ex
 
 ---
 
-## Machine-Readable Output & Non-TTY Auto-JSON Detection
+## Machine-Readable Output
 
-PALEE is built for seamless integration into developer pipelines, shell scripts, cron jobs, and editor extensions. It implements an automatic JSON streaming detection contract via `isJsonOutput()` [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19):
+PALEE is built for seamless integration into developer pipelines, shell scripts, cron jobs, and editor extensions. JSON output is an explicit opt-in via `isJsonOutput()` [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19):
 
 ```typescript
 export function isJsonOutput(options?: { json?: boolean }): boolean {
-  return Boolean(options?.json || (process.stdout && process.stdout.isTTY === false));
+  if (options?.json) return true;
+  const env = process.env.PALEE_JSON;
+  return env === '1' || env?.toLowerCase() === 'true';
 }
 ```
 
-### Automatic Non-TTY Detection Rules
+### JSON Selection Rules
 
 1. **Explicit Flag (`--json`)**: When `--json` is supplied, PALEE always outputs structured JSON to `stdout`.
-2. **Implicit Non-TTY Streaming**: When `stdout` is redirected to a file (`palee dashboard > metrics.json`) or piped to another process (`palee next | jq .`), Node.js sets `process.stdout.isTTY === false`. PALEE automatically suppresses all ANSI color codes, decorative ASCII tables, and interactive prompts, outputting pure JSON directly.
-3. **Structured Error Emission on `stderr`**: When JSON mode is active (either via `--json` or non-TTY detection) and a configuration/argument error occurs, PALEE formats the error message as a JSON payload on `stderr` and exits with code `2`:
+2. **Environment Variable (`PALEE_JSON`)**: Setting `PALEE_JSON=1` (or `true`, case-insensitive) selects JSON output without the flag — useful for scripts and cron jobs.
+3. **Piping Does Not Switch Formats**: Redirecting or piping `stdout` (`palee dashboard > metrics.txt`, `palee next | less`) keeps the human-readable report. This is deliberate: a redirected report stays readable, and machine consumers opt in explicitly (#357).
+4. **Structured Error Emission on `stderr`**: When JSON mode is active (via `--json` or `PALEE_JSON`) and a configuration/argument error occurs, PALEE formats the error message as a JSON payload on `stderr` and exits with code `2`:
    ```bash
    $ palee validate --json
    # If vault is unconfigured:
