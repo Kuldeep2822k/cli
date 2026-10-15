@@ -29,7 +29,8 @@ export type ProviderErrorKind = 'config' | 'network' | 'provider' | 'schema';
  */
 export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
-  readonly status?: number;
+  /** `undefined` means there was no HTTP status (config, network, or schema failure). */
+  readonly status?: number | undefined;
 
   constructor(kind: ProviderErrorKind, message: string, status?: number) {
     super(message);
@@ -101,9 +102,11 @@ export type KeySource = 'env' | 'config' | 'none';
 export interface ProviderSettings {
   baseUrl: string;
   model: string;
-  apiKey?: string;
+  /** `undefined` means no credential is configured (a loopback server may need none). */
+  apiKey?: string | undefined;
   keySource: KeySource;
-  providerName?: string;
+  /** `undefined` means no provider name was configured. */
+  providerName?: string | undefined;
 }
 
 /** Options for one provider instance. */
@@ -223,8 +226,13 @@ function isReservedIPv4(host: string): boolean {
 function embeddedIPv4(bare: string): string | undefined {
   const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
   if (!mapped) return undefined;
-  const hi = Number.parseInt(mapped[1], 16);
-  const lo = Number.parseInt(mapped[2], 16);
+  // A match fills both capture groups, but the type system cannot know that; fail
+  // explicitly rather than parsing an undefined value.
+  const hiText = mapped[1];
+  const loText = mapped[2];
+  if (hiText === undefined || loText === undefined) return undefined;
+  const hi = Number.parseInt(hiText, 16);
+  const lo = Number.parseInt(loText, 16);
   return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
 }
 
@@ -407,7 +415,8 @@ function messagesFor(request: ChatRequest): ChatTurn[] {
 export class OpenAICompatibleProvider {
   private readonly transport: Transport;
   private readonly timeoutMs: number;
-  private readonly callerSignal?: AbortSignal;
+  /** `undefined` means the caller supplied no abort signal. */
+  private readonly callerSignal?: AbortSignal | undefined;
   private readonly requestUrl: string;
   private readonly host: string;
 
