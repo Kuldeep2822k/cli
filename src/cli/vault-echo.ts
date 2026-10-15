@@ -78,7 +78,13 @@ export function resolveVaultTarget(
   config: PaleeConfig,
   options: ResolveVaultTargetOptions = {}
 ): VaultTarget | null {
-  const vaultPath = validateVaultPath(config.vaultPath, { json: options.json });
+  // `exactOptionalPropertyTypes` rejects an explicit `json: undefined`, so the
+  // key is only passed when the caller actually set the flag; an absent key and
+  // an undefined one read identically inside `validateVaultPath`.
+  const vaultPath = validateVaultPath(
+    config.vaultPath,
+    options.json === undefined ? {} : { json: options.json }
+  );
   if (!vaultPath) return null;
 
   const target: VaultTarget = { vaultPath, configPath: getConfigPath() };
