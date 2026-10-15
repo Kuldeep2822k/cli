@@ -30,15 +30,6 @@ describe('prerequisite gating is consistent across next/plan/dashboard (#305, #3
   let prevConfigDir: string | undefined;
   let loggedOutputs: string[] = [];
   const originalLog = console.log;
-  const originalIsTTY = process.stdout.isTTY;
-
-  function asTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-  }
-
-  function restoreTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
-  }
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
@@ -57,7 +48,6 @@ describe('prerequisite gating is consistent across next/plan/dashboard (#305, #3
   afterEach(() => {
     console.log = originalLog;
     process.exitCode = 0;
-    restoreTTY();
     if (prevConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
@@ -114,12 +104,7 @@ depends_on: []
     beforeEach(seedBlockedChildVault);
 
     test('next recommends the unblocked topic instead of the blocked one', async () => {
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       const text = allOutput();
       assert.match(text, /Next topic due for review:/, 'a ready topic exists, so the normal header must print');
       assert.ok(text.includes('RootPrereq'), 'next must name the topic with no prerequisites');
@@ -169,12 +154,7 @@ depends_on: []
     });
 
     test('next warns in human mode when a due topic was gated away', async () => {
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       assert.match(
         allOutput(),
         /⚠ 1 due topic is waiting on a prerequisite/,
@@ -223,12 +203,7 @@ depends_on: []
     });
 
     test('human output states that nothing is ready and names the blocking prerequisite', async () => {
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       const text = allOutput();
       assert.match(
         text,
@@ -278,12 +253,7 @@ depends_on: []
       assert.deepStrictEqual(data.blocked, []);
       assert.strictEqual(data.next, null);
 
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       assert.match(allOutput(), /No topics due for review\./);
     });
 
@@ -308,12 +278,7 @@ depends_on:
 `
         );
       }
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       const text = allOutput();
       assert.match(text, /Nothing to review — every due topic is blocked by prerequisites:/);
       const bulletLines = text.split('\n').filter((line) => line.trimStart().startsWith('• '));
@@ -348,22 +313,12 @@ depends_on:
   - T-bb
 `
       );
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       assert.match(allOutput(), /⚠ 2 due topics are waiting on prerequisites — see: palee plan/);
 
       fs.unlinkSync(path.join(tmpDir, 'child-c.md'));
       loggedOutputs = [];
-      asTTY();
-      try {
-        await nextCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await nextCommand({});
       assert.match(allOutput(), /⚠ 1 due topic is waiting on a prerequisite — see: palee plan/);
     });
   });
@@ -436,12 +391,7 @@ depends_on: []
     });
 
     test('human output prints "Reviews Due: 1" and names the blocked note exactly once', async () => {
-      asTTY();
-      try {
-        await planCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await planCommand({});
       const text = allOutput();
       assert.match(text, /Reviews Due: 1\n/);
       assert.match(text, /Blocked by prerequisites: 1/);
@@ -491,12 +441,7 @@ depends_on: []
     });
 
     test('human output prints a Next Review section next to its own "run palee next" prompt', async () => {
-      asTTY();
-      try {
-        await dashboardCommand({});
-      } finally {
-        restoreTTY();
-      }
+      await dashboardCommand({});
       const text = allOutput();
       assert.match(text, /Next Review:/);
       assert.match(text, /RootPrereq \(T-bb\)/);
