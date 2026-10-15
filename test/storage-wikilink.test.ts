@@ -786,6 +786,7 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         two,
         `6 links must not canonicalize the vault root more often than 2 links (got ${six} vs ${two})`
       );
+      assert.ok(two >= 1, 'the roadmap path must canonicalize the vault root at least once (guards against a process-wide memo that drops it to 0 and makes the equality vacuous)');
     });
 
     it('never calls realpathSync for the vault root when resolvedVaultPath is passed', () => {

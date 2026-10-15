@@ -202,6 +202,13 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
  * case-insensitive, with an exact-case hit winning ties. Both branches return
  * the path in the casing {@link walkVault} reported, because callers key
  * already-adopted notes and duplicate-target detection by that string.
+ *
+ * @param resolvedVaultPath - OPTIONAL pre-canonicalized vault root, supplied by
+ * {@link resolveWikilinkRoadmap} to canonicalize once for a whole roadmap. When
+ * present it MUST be `fs.realpathSync(vaultPath)` exactly — never
+ * `fs.realpathSync.native` and never `path.resolve` — because the containment
+ * checks below key on that canonical form; a mismatched value would silently
+ * widen or narrow the vault boundary. Omit it for direct single-link callers.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,

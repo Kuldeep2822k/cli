@@ -10,7 +10,7 @@ import path from 'path';
 import { foldIdentity } from './vault-walker';
 
 /**
- * Converts a glob wildcard pattern into an equivalent RegExp.
+ * Compiles a glob wildcard pattern into a RegExp solely for validation.
  *
  * @remarks
  * Supported glob constructs:
@@ -33,7 +33,7 @@ import { foldIdentity } from './vault-walker';
  * backtrack super-linearly, so do not call `.test()` on the result; use
  * {@link matchPathGlob} or {@link matchesPattern} for matching instead.
  */
-export function globToRegex(glob: string): RegExp {
+export function globValidationRegex(glob: string): RegExp {
   let trimmed = glob.trim().replace(/\\/g, '/');
   if (!trimmed) {
     return /^$/i;
@@ -568,9 +568,9 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
  * @throws {Error} If regex compilation fails for any pattern
  *
  * @remarks
- * Compiles each pattern through `globToRegex` to ensure regex validity.
+ * Compiles each pattern through `globValidationRegex` to ensure regex validity.
  * Unclosed character classes (e.g. `[`) are safely escaped as literals
- * by `globToRegex` and do not trigger validation errors.
+ * by `globValidationRegex` and do not trigger validation errors.
  *
  * @example
  * ```typescript
@@ -586,7 +586,7 @@ export function validatePattern(patterns: string | string[]): void {
     const trimmed = pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
     if (!trimmed) continue;
     try {
-      globToRegex(trimmed);
+      globValidationRegex(trimmed);
     } catch (err: unknown) {
       const e = err as Error;
       throw new Error(`Invalid glob pattern "${pattern}": ${e.message}`, { cause: err });

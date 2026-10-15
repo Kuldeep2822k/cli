@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { globToRegex, matchesPattern, matchesTags } from '../src/storage/pattern-matcher';
+import { globValidationRegex, matchesPattern, matchesTags } from '../src/storage/pattern-matcher';
 import { normalizeDifficulty } from '../src/types';
 import { calculateEaseFactorDelta, processReview } from '../src/engine/sm2';
 import { detectCycle } from '../src/engine/dependency';
@@ -8,7 +8,7 @@ import { TopicNode } from '../src/types';
 
 describe('Property-Based & Fuzz Testing Suite', () => {
   describe('Glob Pattern Fuzzing & ReDoS Safety', () => {
-    test('globToRegex compiles 300+ randomized glob combinations without throwing or hanging', () => {
+    test('globValidationRegex compiles 300+ randomized glob combinations without throwing or hanging', () => {
       const globTokens = ['*', '**', '?', '[0-9]', '[!a-z]', 'notes', 'sub', 'md', '/', '\\', '.', '-', '_', '{a,b}'];
 
       for (let i = 0; i < 300; i++) {
@@ -20,7 +20,7 @@ describe('Property-Based & Fuzz Testing Suite', () => {
         }
 
         const start = Date.now();
-        const regex = globToRegex(randomGlob);
+        const regex = globValidationRegex(randomGlob);
         assert.ok(regex instanceof RegExp);
         // Test matching speed against a standard path to ensure no catastrophic backtracking (ReDoS)
         regex.test('notes/2026/concepts/kubernetes-architecture-overview.md');
