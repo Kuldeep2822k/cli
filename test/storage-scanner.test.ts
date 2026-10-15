@@ -91,9 +91,12 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.strictEqual(notes[0].frontmatter, null);
-    assert.ok(notes[0].parseError, 'expected a parse error message');
-    assert.ok(notes[0].parseError!.length > 0);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.strictEqual(firstNote.frontmatter, null);
+    const parseError = firstNote.parseError;
+    assert.ok(parseError, 'expected a parse error message');
+    assert.ok(parseError.length > 0);
   });
 
   test('unclosed frontmatter fence is reported as a parse error', () => {
@@ -106,8 +109,10 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.strictEqual(notes[0].frontmatter, null);
-    assert.match(notes[0].parseError ?? '', /unclosed/i);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.strictEqual(firstNote.frontmatter, null);
+    assert.match(firstNote.parseError ?? '', /unclosed/i);
   });
 
   test('a note opening with a --- thematic break is not flagged (horizontal rule)', () => {
@@ -121,8 +126,10 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.strictEqual(notes[0].parseError, undefined, 'thematic break must not be flagged');
-    assert.strictEqual(notes[0].frontmatter, null);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.strictEqual(firstNote.parseError, undefined, 'thematic break must not be flagged');
+    assert.strictEqual(firstNote.frontmatter, null);
   });
 
   test('unclosed fence with YAML-like body still reports a parse error', () => {
@@ -135,7 +142,9 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.match(notes[0].parseError ?? '', /unclosed/i);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.match(firstNote.parseError ?? '', /unclosed/i);
   });
 
   test('includeContent captures raw bytes for snapshot injection', () => {
@@ -146,6 +155,7 @@ describe('Storage Note Scanner', () => {
     );
 
     const [note] = scanNotes(tmpVault, { includeContent: true });
+    assert.ok(note !== undefined);
 
     assert.strictEqual(note.content, '---\npalee_id: T-a\n---\n# A\n');
   });
@@ -156,7 +166,9 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.strictEqual(notes[0].parseError, undefined);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.strictEqual(firstNote.parseError, undefined);
   });
 
   test('output is sorted by relative path across nested directories', () => {
@@ -179,8 +191,10 @@ describe('Storage Note Scanner', () => {
 
     const notes = scanNotes(tmpVault);
 
-    assert.ok(notes[0].relativePath.includes('/'), `expected POSIX path, got ${notes[0].relativePath}`);
-    assert.ok(!notes[0].relativePath.includes('\\'));
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.ok(firstNote.relativePath.includes('/'), `expected POSIX path, got ${firstNote.relativePath}`);
+    assert.ok(!firstNote.relativePath.includes('\\'));
   });
 
   test('skips unreadable files gracefully', () => {
@@ -216,7 +230,9 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.match(notes[0].parseError ?? '', /unclosed/i);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.match(firstNote.parseError ?? '', /unclosed/i);
   });
 
   test('unclosed fence with indented YAML mapping still reports a parse error', () => {
@@ -229,7 +245,9 @@ describe('Storage Note Scanner', () => {
     const notes = scanNotes(tmpVault);
 
     assert.strictEqual(notes.length, 1);
-    assert.match(notes[0].parseError ?? '', /unclosed/i);
+    const [firstNote] = notes;
+    assert.ok(firstNote !== undefined);
+    assert.match(firstNote.parseError ?? '', /unclosed/i);
   });
 
   describe('Unclosed-fence heuristic gap (#171.11)', () => {
@@ -243,9 +261,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.ok(notes[0].frontmatter);
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.ok(firstNote.frontmatter);
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm['display name'], 'Mathematics');
       assert.strictEqual(fm['created date'], '2026-01-01');
     });
@@ -260,9 +280,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.ok(notes[0].frontmatter);
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.ok(firstNote.frontmatter);
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm['schema/url'], 'https://example.test');
       assert.strictEqual(fm['pré-requis'], 'T-1');
       assert.strictEqual(fm['chapter one'], 'Introduction');
@@ -282,9 +304,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.ok(notes[0].frontmatter);
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.ok(firstNote.frontmatter);
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm['Chapter 1'], 'Introduction');
     });
 
@@ -298,9 +322,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /(unclosed|implicit map keys)/i);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'expected a parse error');
+      assert.match(firstNote.parseError!, /(unclosed|implicit map keys)/i);
     });
 
     test('unclosed fence followed by body thematic break with markdown subheadings is reported as parse error', () => {
@@ -320,9 +346,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /unclosed/i);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'expected a parse error');
+      assert.match(firstNote.parseError!, /unclosed/i);
     });
 
     test('unclosed fence followed by body thematic break with blockquotes is reported as parse error', () => {
@@ -335,8 +363,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'expected a parse error');
     });
 
     test('unclosed fence with body containing non-fence \\n--- is still reported as parse error', () => {
@@ -349,9 +379,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /(unclosed|implicit map keys|invalid frontmatter key)/i);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'expected a parse error');
+      assert.match(firstNote.parseError!, /(unclosed|implicit map keys|invalid frontmatter key)/i);
     });
 
     test('valid note with frontmatter and body thematic break is parsed successfully without parse error', () => {
@@ -364,10 +396,12 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.ok(notes[0].frontmatter);
-      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-valid');
-      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).title, 'Valid');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.ok(firstNote.frontmatter);
+      assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).palee_id, 'T-valid');
+      assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).title, 'Valid');
     });
 
     test('valid note with quoted keys containing colons is parsed successfully', () => {
@@ -380,9 +414,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.ok(notes[0].frontmatter);
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.ok(firstNote.frontmatter);
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm['custom: property'], 'double-quoted');
       assert.strictEqual(fm['other: property'], 'single-quoted');
       assert.strictEqual(fm['nested: "quote": key'], 'value');
@@ -399,9 +435,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.ok(notes[0].parseError, 'expected a parse error');
-      assert.match(notes[0].parseError!, /(unclosed|implicit map keys)/i);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'expected a parse error');
+      assert.match(firstNote.parseError!, /(unclosed|implicit map keys)/i);
     });
   });
 
@@ -421,9 +459,11 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined, 'a YAML comment is not leaked body text');
-      assert.ok(notes[0].frontmatter, 'the parsed frontmatter must survive');
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined, 'a YAML comment is not leaked body text');
+      assert.ok(firstNote.frontmatter, 'the parsed frontmatter must survive');
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm.palee_id, 'T-319-between');
       assert.strictEqual(fm.difficulty, 'beginner');
     });
@@ -438,8 +478,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-319-last');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).palee_id, 'T-319-last');
     });
 
     test('a comment after a blank line while the mapping continues is legal', () => {
@@ -452,8 +494,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined, 'the entries after it keep the mapping open');
-      const fm = notes[0].frontmatter as Record<string, unknown>;
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined, 'the entries after it keep the mapping open');
+      const fm = firstNote.frontmatter as Record<string, unknown>;
       assert.strictEqual(fm['## key points'], undefined, 'the comment must not become a key');
       assert.strictEqual(fm.difficulty, 'advanced');
     });
@@ -468,8 +512,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].parseError, undefined);
-      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-319-nospace');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.parseError, undefined);
+      assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).palee_id, 'T-319-nospace');
     });
 
     test('the heading shape is fatal only in the trailing paragraph, not adjacent to the entries', () => {
@@ -523,17 +569,21 @@ describe('Storage Note Scanner', () => {
 
       assert.strictEqual(reads, 0, 'the file must never be read — the guard stats first');
       assert.strictEqual(notes.length, 1, 'the declined file still gets one entry');
-      assert.strictEqual(notes[0].frontmatter, null);
-      assert.match(notes[0].readError ?? '', /Oversized/);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.match(firstNote.readError ?? '', /Oversized/);
       assert.ok(
-        (notes[0].readError ?? '').includes(String(MAX_NOTE_SOURCE_BYTES)),
+        (firstNote.readError ?? '').includes(String(MAX_NOTE_SOURCE_BYTES)),
         'the diagnostic names the ceiling the reader applied'
       );
-      assert.strictEqual(notes[0].parseError, undefined, 'a declined read is not a parse failure');
+      assert.strictEqual(firstNote.parseError, undefined, 'a declined read is not a parse failure');
 
       // `includeContent` must not smuggle the bytes back into the snapshot.
       const snapshot = scanNotes(tmpVault, { includeContent: true });
-      assert.strictEqual(snapshot[0].content, undefined);
+      const [firstSnapshot] = snapshot;
+      assert.ok(firstSnapshot !== undefined);
+      assert.strictEqual(firstSnapshot.content, undefined);
     });
 
     test('a note at exactly the cap is still read and parsed', () => {
@@ -545,8 +595,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].readError, undefined, 'the cap is inclusive, not exclusive');
-      assert.strictEqual(notes[0].frontmatter, null, 'a large note without frontmatter is simply not a topic');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.readError, undefined, 'the cap is inclusive, not exclusive');
+      assert.strictEqual(firstNote.frontmatter, null, 'a large note without frontmatter is simply not a topic');
     });
 
     test('a legal topic note below the cap is unaffected by the guard', () => {
@@ -559,8 +611,10 @@ describe('Storage Note Scanner', () => {
       const notes = scanNotes(tmpVault);
 
       assert.strictEqual(notes.length, 1);
-      assert.strictEqual(notes[0].readError, undefined);
-      assert.strictEqual((notes[0].frontmatter as Record<string, unknown>).palee_id, 'T-long');
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.readError, undefined);
+      assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).palee_id, 'T-long');
     });
   });
 });
