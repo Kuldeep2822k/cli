@@ -1,0 +1,60 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+
+  "timezone": "Asia/Kolkata",
+  "schedule": ["on monday"],
+
+  "dependencyDashboard": true,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "labels": ["dependencies"],
+
+  "minimumReleaseAge": "5 days",
+
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "labels": ["dependencies"]
+  },
+
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "dependencies"]
+  },
+
+  "packageRules": [
+    {
+      "description": "Major updates age-gate 30 days, carry the breaking label, and are never automerged.",
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "30 days",
+      "automerge": false,
+      "labels": ["dependencies", "breaking"]
+    },
+    {
+      "description": "Development dependencies: group minor and patch into one PR, automerge once CI is green.",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies",
+      "automerge": true
+    },
+    {
+      "description": "Production dependencies: group minor and patch into one PR, always reviewed by hand.",
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "production dependencies",
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions: one weekly grouped PR; digest pins are updated together with the inline version comment.",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "automerge": false,
+      "labels": ["dependencies", "ci", "actions"]
+    }
+  ]
+}

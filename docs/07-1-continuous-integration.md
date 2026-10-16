@@ -4,7 +4,6 @@
 
 - [.c8rc.json](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json)
 - [.github/PULL_REQUEST_TEMPLATE.md](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1)
-- [.github/dependabot.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/dependabot.yml)
 - [.github/labeler.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml)
 - [.github/labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/labels.yml)
 - [.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
@@ -14,6 +13,7 @@
 - [.github/workflows/sync-labels.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml)
 - [LICENSE](https://github.com/Kuldeep2822k/cli/blob/main/LICENSE)
 - [eslint.config.mjs](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs)
+- [renovate.json](https://github.com/Kuldeep2822k/cli/blob/main/renovate.json)
 
 </details>
 
@@ -104,11 +104,18 @@ The repository uses automated labeling to categorize changes and enforce contrib
 - PR Labeler: Automatically assigns labels based on the file paths modified (e.g., `core` for `src/**/*`, `tests` for `test/**/*`) [.github/workflows/pr-labeler.yml#1-19](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-labeler.yml#L1-L19)[.github/labeler.yml#1-38](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml#L1-L38)
 - Label Sync: The `sync-labels.yml` workflow ensures the repository's label set matches the definitions in `.github/labels.yml`[.github/workflows/sync-labels.yml#1-30](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/sync-labels.yml#L1-L30)
 
-### Dependabot Configuration
+### Renovate Configuration
 
-Dependabot is configured to perform weekly updates for both `npm` dependencies and `github-actions`[.github/dependabot.yml#1-43](https://github.com/Kuldeep2822k/cli/blob/main/.github/dependabot.yml#L1-L43) It groups production and development updates to minimize PR noise and applies the `dependencies` or `ci` labels automatically [.github/dependabot.yml#21-32](https://github.com/Kuldeep2822k/cli/blob/main/.github/dependabot.yml#L21-L32)
+Renovate performs the automated dependency updates via the free Mend-hosted Renovate App: a weekly Monday run in the `Asia/Kolkata` timezone covers both `npm` dependencies and `github-actions`[renovate.json#L1-L54](https://github.com/Kuldeep2822k/cli/blob/main/renovate.json#L1-L54) It replaces Dependabot and preserves its tuning in Renovate primitives:
 
-Sources:[.github/workflows/pr-sanitizer.yml#1-36](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-sanitizer.yml#L1-L36)[.github/workflows/pr-labeler.yml#1-19](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-labeler.yml#L1-L19)[.github/labeler.yml#1-38](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml#L1-L38)[.github/dependabot.yml#1-43](https://github.com/Kuldeep2822k/cli/blob/main/.github/dependabot.yml#L1-L43)
+- Release Age Gates: `minimumReleaseAge` holds updates for 5 days after a release reaches npm (30 days for majors), the equivalent of the previous Dependabot `cooldown` — a release has to prove itself before an update PR is even opened.
+- Grouping: production and development `minor`/`patch` updates each land as a single grouped PR to minimize noise; GitHub Actions updates form their own group with the `ci` and `actions` labels.
+- Auto-merge: development-dependency updates and lockfile maintenance merge automatically once CI is green; production updates and every major bump always require manual review.
+- Security: Renovate reacts to GitHub dependency vulnerability alerts immediately, outside the weekly schedule, tagging those PRs `security`.
+- Lockfile Maintenance: a separate weekly PR refreshes `package-lock.json` without changing any declared version.
+- Commit Messages: semantic commits with the `chore(deps):` prefix, satisfying the PR sanitizer's Conventional Commits requirement.
+
+Sources:[.github/workflows/pr-sanitizer.yml#1-36](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-sanitizer.yml#L1-L36)[.github/workflows/pr-labeler.yml#1-19](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/pr-labeler.yml#L1-L19)[.github/labeler.yml#1-38](https://github.com/Kuldeep2822k/cli/blob/main/.github/labeler.yml#L1-L38)[.github/labels.yml#1-107](https://github.com/Kuldeep2822k/cli/blob/main/.github/labels.yml#L1-L107)[renovate.json#L1-L54](https://github.com/Kuldeep2822k/cli/blob/main/renovate.json#L1-L54)
 
 ## Security and Invariants
 
@@ -138,9 +145,9 @@ To safeguard against supply-chain poisoning and mutable tag hijacking (where a c
 | `.github/workflows/sync-labels.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Label sync checkout |
 | `.github/workflows/sync-labels.yml` | `crazy-max/ghaction-github-labeler` | `de749f56396740be8be9ec88cb7ef31e405a3064` | `# v5.2.0` | Sync labels from YAML |
 
-#### Dependabot Automated Maintenance
+#### Renovate Automated Maintenance
 
-As configured in `.github/dependabot.yml` (`package-ecosystem: "github-actions"`), Dependabot automatically scans for new action releases weekly. When an upstream action publishes an update, Dependabot generates a Pull Request updating the 40-character commit SHA while preserving the human-readable `# vX.Y.Z` inline version comment.
+Renovate scans the `github-actions` ecosystem on the same weekly Monday run (`matchManagers: ["github-actions"]` in `renovate.json`). When an upstream action publishes an update, Renovate generates a Pull Request updating the 40-character commit SHA while preserving the human-readable `# vX.Y.Z` inline version comment.
 
 ### Native Module Guardrail
 

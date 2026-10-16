@@ -40,6 +40,9 @@
 - name: dependencies
   color: "0366d6"
   description: Dependency updates
+- name: security
+  color: "d93f0b"
+  description: Dependency updates fixing known vulnerabilities
 - name: refactor
   color: "e99695"
   description: Refactoring code without changing behavior
