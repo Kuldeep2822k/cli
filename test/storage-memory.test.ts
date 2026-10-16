@@ -25,6 +25,7 @@ import {
   recoverDraft,
   parseFrontmatter,
   hasCompletedSession,
+  isConflictError,
   MAX_HOT_WORDS,
 } from '../src/storage';
 
@@ -963,6 +964,130 @@ ${body}
     assert.ok(!content.includes('S-corrupt-frontmatter]]'), 'corrupt session must not be listed as an indexed session');
 
     fs.unlinkSync(corruptFile);
+  });
+
+  test('regenerateIndex wikilinks the filename stem, not a disagreeing frontmatter session_id (#359)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const disagreeFile = path.join(sessionsDir, 'S-stem-wins.md');
+    fs.writeFileSync(
+      disagreeFile,
+      '---\npalee_schema: 1\nsession_id: S-frontmatter-loses\ntopic_id: T-stem\nstatus: completed\nstarted_at: 2026-08-30T10:00:00.000Z\nended_at: 2026-08-30T10:30:00.000Z\n---\nBody'
+    );
+
+    const indexPath = await regenerateIndex(testVaultPath);
+    const content = fs.readFileSync(indexPath, 'utf8');
+
+    assert.ok(content.includes('[[S-stem-wins]]'), 'index must wikilink the filename stem');
+    assert.ok(
+      !content.includes('[[S-frontmatter-loses]]'),
+      'index must not wikilink the disagreeing frontmatter session_id'
+    );
+
+    fs.unlinkSync(disagreeFile);
+  });
+
+  test('rebuildHotAndIndex points hot.md last_session at the filename stem (#359)', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-359-hot-'));
+    try {
+      const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      // Filename stem and frontmatter.session_id disagree; the validated ID space is
+      // the stem, so hot.md must carry the stem or it becomes a dangling reference.
+      fs.writeFileSync(
+        path.join(sessionsDir, 'S-hot-stem.md'),
+        '---\npalee_schema: 1\nsession_id: S-hot-loses\ntopic_id: T-hot\nstatus: completed\nstarted_at: 2026-09-01T10:00:00.000Z\nended_at: 2026-09-01T11:00:00.000Z\n---\nBody',
+        'utf8'
+      );
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const read = readHotMemory(vaultPath);
+      assert.strictEqual(read.frontmatter?.last_session, 'S-hot-stem', 'hot.md must use the filename stem');
+      assert.notStrictEqual(read.frontmatter?.last_session, 'S-hot-loses', 'the disagreeing frontmatter session_id must not be used');
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
+  test('writeDraftCheckpoint retries an OCC conflict instead of losing the checkpoint (#358)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Both writers read the same fingerprint, so the loser deterministically
+    // takes ECONFLICT from atomicWrite; the fix must retry and still persist
+    // a checkpoint rather than propagating the conflict.
+    const draftId = generateDraftId();
+    await Promise.all([
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-occ', started_at: '2026-08-30T10:00:00Z' },
+        'First writer body'
+      ),
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-occ', started_at: '2026-08-30T10:00:00Z' },
+        'Second writer body'
+      ),
+    ]);
+
+    const draftPath = path.join(sessionsDir, `${draftId}.md`);
+    assert.ok(fs.existsSync(draftPath), 'checkpoint file must exist after concurrent writes');
+    const content = fs.readFileSync(draftPath, 'utf8');
+    // Promise.all above only resolves if neither writer lost its checkpoint: without
+    // the OCC retry the loser propagated ECONFLICT and rejected. Resolution itself is
+    // the load-bearing evidence a retry happened (#358).
+    const draftHeaders = content.match(/# Draft Session:/g) ?? [];
+    assert.strictEqual(draftHeaders.length, 1, 'exactly one complete checkpoint must survive, not a mangled merge');
+    assert.match(content, /palee_schema: 1/, 'the surviving checkpoint must carry valid frontmatter');
+    assert.ok(
+      /First writer body|Second writer body/.test(content),
+      'the surviving body must be one of the two attempted writes'
+    );
+
+    fs.unlinkSync(draftPath);
+  });
+
+  test('writeDraftCheckpoint retry loop is bounded — heavy contention terminates, never hangs (#358)', async () => {
+    const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const draftId = generateDraftId();
+
+    // Many simultaneous writers force repeated OCC conflicts. The loop is bounded at
+    // 3 attempts, so each call must settle (persist or surface a conflict) rather than
+    // spin; a race with a generous ceiling turns an unbounded retry into a failure.
+    const attempts = Array.from({ length: 6 }, (_, i) =>
+      writeDraftCheckpoint(
+        testVaultPath,
+        draftId,
+        { topic_id: 'T-bound', started_at: '2026-08-30T10:00:00Z' },
+        `Contention writer ${i}`
+      )
+        .then(() => 'ok' as const)
+        .catch((err: unknown) => {
+          if (isConflictError(err)) return 'conflict' as const;
+          throw err;
+        })
+    );
+
+    let timeoutId: NodeJS.Timeout | undefined;
+    const winner = await Promise.race([
+      Promise.all(attempts).then((r) => ({ kind: 'done' as const, r })),
+      new Promise<{ kind: 'timeout'; r?: undefined }>((res) => {
+        timeoutId = setTimeout(() => res({ kind: 'timeout' }), 8000);
+      }),
+    ]);
+    if (timeoutId) clearTimeout(timeoutId);
+
+    assert.strictEqual(winner.kind, 'done', 'the retry loop terminated within its bound (no spin)');
+    assert.strictEqual(winner.r?.length, 6, 'every writer settled');
+    assert.ok((winner.r ?? []).includes('ok'), 'at least one writer persisted the checkpoint');
+
+    const draftPath = path.join(sessionsDir, `${draftId}.md`);
+    fs.rmSync(draftPath, { force: true });
   });
 
   describe('hasCompletedSession', () => {

@@ -32,6 +32,9 @@ import { HotMemoryData, ActiveSessionData, SessionRecord, CompletedSessionRecord
  */
 const MAX_HOT_WORDS = 250;
 
+/** Extracts the session ID stem from a session filename or path. */
+const sessionStem = (p: string): string => path.basename(p, '.md');
+
 /**
  * Read outcome for `.palee/hot.md`, distinguishing why frontmatter is unavailable.
  *
@@ -558,7 +561,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   const indexPath = path.join(paleeDir, 'index.md');
   const sessionsDir = getSessionsDir(vaultPath);
 
-  const sessions: SessionRecord[] = [];
+  const sessions: (SessionRecord & { fileStem: string })[] = [];
   // Confirmed sessions skipped because they could not be read or carry an
   // unsupported schema. Surfaced in the report so `Total Sessions` no longer
   // silently undercounts reality (#361, #362).
@@ -603,6 +606,11 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               started_at: (frontmatter.started_at as string) || '',
               ended_at: (frontmatter.ended_at as string) || '',
               status: 'completed',
+              // The wikilink ref must be the filename stem, not
+              // frontmatter.session_id: the session loader derives IDs from the
+              // filename (the only reliable signal when the two disagree), and
+              // valid-session-index checks refs against that ID space (#359).
+              fileStem: sessionStem(file),
             });
           }
         } catch {
@@ -631,7 +639,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
     indexBody += `Total Sessions: ${sessions.length}\n\n`;
     for (const s of sessions) {
       const dateStr = s.started_at ? s.started_at.split('T')[0] : 'Unknown date';
-      indexBody += `- [[${s.session_id}]] - Topic: ${s.topic_id} (${dateStr})\n`;
+      indexBody += `- [[${s.fileStem}]] - Topic: ${s.topic_id} (${dateStr})\n`;
     }
   }
   if (skippedCount > 0) {
@@ -731,7 +739,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
 
   const activeSession = readActiveSession(vaultPath);
   if (newestSession) {
-    const lastSessionId = newestSession.frontmatter.session_id as string;
+    // Derive the id from the filename stem, not frontmatter.session_id: hot.md
+    // is validated against the same filename-derived ID space as the index
+    // (valid-hot-memory checks fm.last_session there), so a disagreeing
+    // session_id would leave a dangling reference (#359).
+    const lastSessionId = sessionStem(newestSession.file);
     const activeTopicId = activeSession?.topic_id || null;
     // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
     // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
@@ -766,6 +778,12 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
   await regenerateIndex(vaultPath);
 }
 
+/** Maximum retry attempts when writeDraftCheckpoint encounters an OCC conflict (#358). */
+const MAX_CHECKPOINT_ATTEMPTS = 3;
+const CHECKPOINT_RETRY_BASE_MS = 50;
+const CHECKPOINT_RETRY_JITTER = 0.25;
+const CHECKPOINT_RETRY_MAX_MS = 300;
+
 /**
  * Writes an intermediate draft checkpoint for an in-progress study session (`.palee/sessions/DRAFT-S-*.md`).
  *
@@ -799,23 +817,51 @@ async function writeDraftCheckpoint(
   };
 
   const content = updateFrontmatter(`# Draft Session: ${draftId}\n\n${bodyContent.trim()}`, frontmatterObj);
-  let expectedFingerprint: string | null = null;
-  // A draft checkpoint is written twice for the same id (first checkpoint, then
-  // refresh), so absence is only the first case; stating it keeps the OCC guard on
-  // in both (#327).
-  let expectExists = true;
-  try {
-    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      expectExists = false;
-    } else {
-      throw err;
+
+  // A checkpoint's whole purpose is crash recovery, so an OCC conflict must not
+  // lose the write: re-read the fingerprint and rewrite instead of propagating
+  // ECONFLICT (#358). Bounded retries — a writer that never stops winning means
+  // live contention, and spinning forever is worse than surfacing the failure.
+  // Note: the retry winner deliberately wins and overwrites with this writer's
+  // pre-rendered snapshot (same-session duplicate crash recovery), not a merge.
+  let lastConflict: unknown = null;
+  for (let attempt = 1; attempt <= MAX_CHECKPOINT_ATTEMPTS; attempt++) {
+    let expectedFingerprint: string | null = null;
+    // A draft checkpoint is written twice for the same id (first checkpoint, then
+    // refresh), so absence is only the first case; stating it keeps the OCC guard on
+    // in both (#327).
+    let expectExists = true;
+    try {
+      expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        expectExists = false;
+      } else {
+        throw err;
+      }
+    }
+
+    try {
+      await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
+      return filePath;
+    } catch (err: unknown) {
+      if (!isConflictError(err)) {
+        throw err;
+      }
+      lastConflict = err;
+      // Back off with jitter before re-contending, so a busy winning writer is not
+      // met head-to-head on every re-read/re-write (the atomic-write retry idiom).
+      // Never sleep after the final attempt — that path just throws the conflict.
+      if (attempt < MAX_CHECKPOINT_ATTEMPTS) {
+        const baseDelay = CHECKPOINT_RETRY_BASE_MS * attempt;
+        const jittered = baseDelay + (Math.random() * 2 - 1) * baseDelay * CHECKPOINT_RETRY_JITTER;
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(0, Math.min(jittered, CHECKPOINT_RETRY_MAX_MS)))
+        );
+      }
     }
   }
-
-  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
-  return filePath;
+  throw lastConflict;
 }
 
 /**
