@@ -56,8 +56,9 @@ try {
     throw new Error(`could not run the installed palee binary: ${result.error.message}`);
   }
   if (result.status !== 0) {
+    const reason = result.signal ? `killed with signal ${result.signal}` : `exited ${result.status}`;
     throw new Error(
-      `palee next --json exited ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+      `palee next --json ${reason}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
     );
   }
 

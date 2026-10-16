@@ -71,11 +71,17 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       jobs: Record<string, { steps?: Array<{ run?: string }> }>;
     };
 
-    const runsScript = (job: { steps?: Array<{ run?: string }> } | undefined): boolean =>
-      (job?.steps ?? []).some((step) => (step.run ?? '').includes(script));
+    const stepIndex = (job: { steps?: Array<{ run?: string }> } | undefined, needle: string): number =>
+      (job?.steps ?? []).findIndex((step) => (step.run ?? '').includes(needle));
 
-    assert.ok(runsScript(ci.jobs['smoke-install']), 'ci.yml smoke-install must run the installed-binary smoke script');
-    assert.ok(runsScript(release.jobs['smoke-test']), 'release.yml smoke-test must run the installed-binary smoke script');
+    assert.ok(
+      stepIndex(ci.jobs['smoke-install'], script) > stepIndex(ci.jobs['smoke-install'], 'palee --help'),
+      'ci.yml smoke-install must run the installed-binary smoke script after palee --help'
+    );
+    assert.ok(
+      stepIndex(release.jobs['smoke-test'], script) > stepIndex(release.jobs['smoke-test'], 'palee --help'),
+      'release.yml smoke-test must run the installed-binary smoke script after palee --help'
+    );
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', script)), 'the smoke script the workflows invoke must exist');
   });
 
