@@ -321,9 +321,9 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
       const report = parseReport(fixed.out);
       assert.deepStrictEqual(repairsOf(report), [], 'no rebuild may run on a provisional snapshot');
       assert.strictEqual(conflictsOf(report).length, 1, `expected a refusal: ${fixed.out}`);
-        const [conflict] = conflictsOf(report);
-        assert.ok(conflict !== undefined);
-        assert.match(conflict, /snapshot is incomplete/, conflict);
+      const [conflict] = conflictsOf(report);
+      assert.ok(conflict !== undefined);
+      assert.match(conflict, /snapshot is incomplete/, conflict);
       assert.strictEqual(readIfPresent(vaultPath, '.palee/index.md'), staleIndex);
     });
   });
@@ -490,7 +490,6 @@ describe('#323 validate --fix: dispatch is authorized by rule metadata', () => {
         const [conflict] = conflictsOf(report);
         assert.ok(conflict !== undefined);
         assert.match(conflict, /phantom-safe-rule/, conflict);
-        assert.ok(conflict !== undefined);
         assert.match(conflict, /no repair is implemented/, conflict);
         assert.strictEqual(report.valid, true, 'a reported refusal never becomes an error');
         assert.strictEqual(process.exitCode, 0);
