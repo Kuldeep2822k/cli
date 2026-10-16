@@ -19,11 +19,10 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   });
 
   /**
-   * Runs the real CLI through the shared launch command (`PALEE_CMD`: the
-   * prebuilt dist entry normally, the TypeScript sources behind tsx under
-   * coverage) with `PALEE_CONFIG_DIR` pointed at {@link configDir}; captures
-   * exit status, stdout and stderr instead of throwing on a non-zero exit.
-   * Args containing glob/space characters are shell-quoted.
+   * Runs the real CLI (`node dist/bin/palee.js`) with `PALEE_CONFIG_DIR` pointed
+   * at {@link configDir}; captures exit status, stdout and stderr instead of
+   * throwing on a non-zero exit. Args containing glob/space characters are
+   * shell-quoted.
    */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {

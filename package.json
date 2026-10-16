@@ -36,8 +36,7 @@
     "test:e2e": "node --import tsx --test \"test/e2e/*.test.ts\"",
     "pretest:fuzz": "npm run build",
     "test:fuzz": "node --import tsx --test \"test/property-fuzz.test.ts\" \"test/stress-concurrency.test.ts\" \"test/challenger1-*.test.ts\"",
-    "pretest:coverage": "npm run build",
-    "test:coverage": "node --max-old-space-size=4096 ./node_modules/c8/bin/c8.js node --import tsx --test --test-concurrency=4 \"test/**/*.test.ts\""
+    "test:coverage": "node --max-old-space-size=4096 ./node_modules/c8/bin/c8.js npm test"
   },
   "keywords": [
     "spaced-repetition",

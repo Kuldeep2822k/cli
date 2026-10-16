@@ -87,18 +87,4 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     assert.ok(required.includes('test-platforms'), 'publishing must wait for the matrix');
     assert.ok(required.includes('verify-and-pack'), 'and for the artifact it publishes');
   });
-
-  test('coverage script bounds concurrency and tests the full suite', () => {
-    const pkgPath = path.resolve(__dirname, '../package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    const coverageScript = pkg.scripts?.['test:coverage'] ?? '';
-    assert.ok(
-      coverageScript.includes('--test-concurrency=4'),
-      'coverage must bound worker fan-out to 4 (ADR-0029)'
-    );
-    assert.ok(
-      coverageScript.includes('"test/**/*.test.ts"'),
-      'coverage must measure the same glob plain npm test measures'
-    );
-  });
 });

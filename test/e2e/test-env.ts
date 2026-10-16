@@ -15,14 +15,10 @@ export interface TestVaultEnv {
   tempDir: string;
   configDir: string;
   vaultDir: string;
-  run: (
-    args: string[],
-    options?: { input?: string; env?: Record<string, string>; cwd?: string; timeout?: number }
-  ) => CLIResult;
+  run: (args: string[], options?: { input?: string; env?: Record<string, string> }) => CLIResult;
   runInteractive: (
     args: string[],
-    steps: Array<{ waitFor: RegExp; write: string }>,
-    options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+    steps: Array<{ waitFor: RegExp; write: string }>
   ) => Promise<CLIResult>;
   createTopic: (filename: string, frontmatter: Record<string, unknown>, body?: string) => string;
   createTopics: (ids: string[]) => void;
@@ -41,19 +37,14 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
  *
  * @param args - CLI arguments to pass to the binary
  * @param configDir - Isolated directory containing config.json
- * @param options - Additional options including piped input, custom env vars, working directory, and a per-call timeout override
+ * @param options - Additional options including piped input, custom env vars, and working directory
  * @returns CLI execution result containing status code, stdout, and stderr
- * @remarks
- * Every spawn is bounded by a timeout (120 s by default): a hung CLI child used
- * to block its worker forever, and a timeout turns that into an ordinary test
- * failure naming the command and showing how far it got.
  */
 export function runPalee(
   args: string[],
   configDir: string,
-  options?: { input?: string; env?: Record<string, string>; cwd?: string; timeout?: number }
+  options?: { input?: string; env?: Record<string, string>; cwd?: string }
 ): CLIResult {
-  const timeout = options?.timeout ?? 120_000;
   const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
     cwd: options?.cwd || REPO_ROOT,
     env: {
@@ -65,16 +56,9 @@ export function runPalee(
     input: options?.input,
     encoding: 'utf8',
     stdio: 'pipe',
-    timeout,
   });
 
   if (result.error) {
-    if ((result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
-      throw new Error(
-        `CLI did not finish within ${timeout}ms during '${args.join(' ')}'` +
-          `\nstdout:\n${result.stdout || '(none)'}\nstderr:\n${result.stderr || '(none)'}`
-      );
-    }
     throw new Error(`Process spawn error during '${args.join(' ')}': ${result.error.message}\n${result.error.stack}`);
   }
 
@@ -97,9 +81,7 @@ export const runPaleeCli = runPalee;
  * @param args - CLI arguments to pass to the binary
  * @param steps - Marker/input pairs, applied in order, each awaiting an answer
  *   that has not been consumed yet
- * @param options - Optional `cwd`, `env` overrides (applied after the isolated
- *   `PALEE_CONFIG_DIR`/`NODE_ENV` pair, matching `runPalee`), and a `timeout`
- *   override
+ * @param timeoutMs - Bound the run so a missing marker fails instead of hanging
  * @returns Promise resolving to the same result shape `runPalee` returns
  * @remarks
  * `runPalee` pipes stdin through `spawnSync`, which delivers the whole blob at
@@ -111,18 +93,12 @@ function runPaleeInteractive(
   args: string[],
   configDir: string,
   steps: Array<{ waitFor: RegExp; write: string }>,
-  options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+  timeoutMs = 60000
 ): Promise<CLIResult> {
-  const timeoutMs = options?.timeout ?? 60000;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [...PALEE_ARGV, ...args], {
-      cwd: options?.cwd || REPO_ROOT,
-      env: {
-        ...process.env,
-        PALEE_CONFIG_DIR: configDir,
-        NODE_ENV: 'test',
-        ...(options?.env || {}),
-      },
+      cwd: REPO_ROOT,
+      env: { ...process.env, PALEE_CONFIG_DIR: configDir, NODE_ENV: 'test' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -213,18 +189,14 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     'utf8'
   );
 
-  const run = (
-    args: string[],
-    options?: { input?: string; env?: Record<string, string>; cwd?: string; timeout?: number }
-  ): CLIResult => {
+  const run = (args: string[], options?: { input?: string; env?: Record<string, string> }): CLIResult => {
     return runPalee(args, configDir, options);
   };
 
   const runInteractive = (
     args: string[],
-    steps: Array<{ waitFor: RegExp; write: string }>,
-    options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
-  ): Promise<CLIResult> => runPaleeInteractive(args, configDir, steps, options);
+    steps: Array<{ waitFor: RegExp; write: string }>
+  ): Promise<CLIResult> => runPaleeInteractive(args, configDir, steps);
 
   const createTopic = (filename: string, frontmatter: Record<string, unknown>, body = 'Topic notes content.'): string => {
     const fullPath = path.join(vaultDir, filename);
