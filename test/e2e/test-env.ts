@@ -15,7 +15,10 @@ export interface TestVaultEnv {
   tempDir: string;
   configDir: string;
   vaultDir: string;
-  run: (args: string[], options?: { input?: string; env?: Record<string, string> }) => CLIResult;
+  run: (
+    args: string[],
+    options?: { input?: string; env?: Record<string, string>; cwd?: string; timeout?: number }
+  ) => CLIResult;
   runInteractive: (
     args: string[],
     steps: Array<{ waitFor: RegExp; write: string }>,
@@ -210,7 +213,10 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
     'utf8'
   );
 
-  const run = (args: string[], options?: { input?: string; env?: Record<string, string> }): CLIResult => {
+  const run = (
+    args: string[],
+    options?: { input?: string; env?: Record<string, string>; cwd?: string; timeout?: number }
+  ): CLIResult => {
     return runPalee(args, configDir, options);
   };
 
