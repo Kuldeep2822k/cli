@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Test-time CLI launch policy kept `tsx` under coverage; `test:coverage` builds once and caps concurrency** ([#451](https://github.com/Kuldeep2822k/cli/issues/451)): routing coverage children through the compiled `dist` entry was trialed and rejected — the tsc-emitted function maps do not merge with the tsx parent's, dropping function coverage from 94.35% to 87.07% (below the 93% floor; ADR-0029 records the evidence). The coverage script now builds via `pretest:coverage` ahead of the run, wraps the Node test runner directly instead of a nested `npm test`, and bounds the runner pool with `--test-concurrency=4`.
+- **CLI subprocess helpers are bounded** ([#451](https://github.com/Kuldeep2822k/cli/issues/451)): `runPalee` fails with the command name and captured output after a 120 s default timeout instead of hanging its worker; `runPaleeInteractive` accepts `cwd`/`env`/`timeout` overrides; `PALEE_CMD` pins the quoted `process.execPath` rather than PATH-resolved `node`.
 - **Auto-chain tiers are now `strict` and `full`**: the redundant `toc` alias was removed; `full` adds advisory TOC enumeration to the numbered plan.
 - **`ValidationError` is a discriminated union and `TopicNode` drops its catch-all index signature** ([#337](https://github.com/Kuldeep2822k/cli/issues/337)).
 - **`prepublishOnly` rebuilds `dist/` on publish** ([#336](https://github.com/Kuldeep2822k/cli/issues/336)) so a manual `npm publish` cannot ship a stale build.
