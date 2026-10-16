@@ -128,22 +128,25 @@ To safeguard against supply-chain poisoning and mutable tag hijacking (where a c
 | Workflow File | Action Name | Pinned Commit SHA (40-char) | Comment Tag | Purpose |
 |---|---|---|---|---|
 | `.github/workflows/ci.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Hermetic code checkout |
-| `.github/workflows/ci.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Node.js runtime initialization |
+| `.github/workflows/ci.yml` | `actions/setup-node` | `949feb2413d6458794dcd2491c4babbbce0c15c1` | `# v7.1.0` | Node.js runtime initialization |
 | `.github/workflows/deploy-docs.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Docs source checkout |
-| `.github/workflows/deploy-docs.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Docs build Node setup |
-| `.github/workflows/deploy-docs.yml` | `actions/configure-pages` | `983d7736d9b0ae728b81ab479565c72886d7745b` | `# v5.0.0` | GitHub Pages configuration |
+| `.github/workflows/deploy-docs.yml` | `actions/setup-node` | `949feb2413d6458794dcd2491c4babbbce0c15c1` | `# v7.1.0` | Docs build Node setup |
+| `.github/workflows/deploy-docs.yml` | `actions/configure-pages` | `45bfe0192ca1faeb007ade9deae92b16b8254a0d` | `# v6.0.0` | GitHub Pages configuration |
 | `.github/workflows/deploy-docs.yml` | `actions/upload-pages-artifact` | `fc324d3547104276b827a68afc52ff2a11cc49c9` | `# v5.0.0` | VitePress HTML artifact upload |
-| `.github/workflows/deploy-docs.yml` | `actions/deploy-pages` | `d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` | `# v4.0.5` | Pages deployment |
+| `.github/workflows/deploy-docs.yml` | `actions/deploy-pages` | `368f82528645a54fb793d4d04e342629a3f51346` | `# v5.0.1` | Pages deployment |
 | `.github/workflows/release.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Release checkout |
-| `.github/workflows/release.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | NPM pack & publish Node setup |
-| `.github/workflows/release.yml` | `actions/upload-artifact` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | `# v7.0.1` | Stash release tarball |
-| `.github/workflows/release.yml` | `actions/download-artifact` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | `# v8.0.1` | Fetch verified tarball |
-| `.github/workflows/release.yml` | `softprops/action-gh-release` | `3d0d9888cb7fd7b750713d6e236d1fcb99157228` | `# v3.0.2` | Publish GitHub release & assets |
+| `.github/workflows/release.yml` | `actions/setup-node` | `949feb2413d6458794dcd2491c4babbbce0c15c1` | `# v7.1.0` | NPM pack & publish Node setup |
+| `.github/workflows/release.yml` | `actions/upload-artifact` | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | `# v7.0.2` | Stash release tarball |
+| `.github/workflows/release.yml` | `actions/download-artifact` | `9000827ccba6bdab643e8b6fd33ac0654aef8333` | `# v8.0.2` | Fetch verified tarball |
+| `.github/workflows/release.yml` | `softprops/action-gh-release` | `efb35369e0ad2afab669f228072c1b0d510eae64` | `# v3.0.3` | Publish GitHub release & assets |
 | `.github/workflows/security.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Security scanner checkout |
-| `.github/workflows/security.yml` | `actions/setup-node` | `820762786026740c76f36085b0efc47a31fe5020` | `# v7.0.0` | Security scanner Node setup |
-| `.github/workflows/pr-labeler.yml` | `actions/labeler` | `8558be74a3edee8416ec1b285b0266ef6101c13d` | `# v5.0.0` | PR categorization |
+| `.github/workflows/security.yml` | `actions/setup-node` | `949feb2413d6458794dcd2491c4babbbce0c15c1` | `# v7.1.0` | Security scanner Node setup |
+| `.github/workflows/pr-labeler.yml` | `actions/labeler` | `bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13` | `# v7.0.0` | PR categorization |
 | `.github/workflows/sync-labels.yml` | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `# v7.0.1` | Label sync checkout |
-| `.github/workflows/sync-labels.yml` | `crazy-max/ghaction-github-labeler` | `de749f56396740be8be9ec88cb7ef31e405a3064` | `# v5.2.0` | Sync labels from YAML |
+| `.github/workflows/sync-labels.yml` | `crazy-max/ghaction-github-labeler` | `548a7c3603594ec17c819e1239f281a3b801ab4d` | `# v6.0.0` | Sync labels from YAML |
+| `.github/workflows/pr-sanitizer.yml` | `amannn/action-semantic-pull-request` | `48f256284bd46cdaab1048c3721360e808335d50` | `# v6.1.1` | Conventional-Commits PR title enforcement |
+| `.github/workflows/skylos.yml` | `duriantaco/skylos` | `abb2eab0172fc8ac7f7013e03e6e54d68f30d008` | `# v4.47.2` | Dead-code static analysis |
+| `.github/workflows/sync-project-fields.yml` | `actions/github-script` | `3a2844b7e9c422d3c10d287c895573f7108da1b3` | `# v9.0.0` | Issue label → roadmap field sync |
 
 #### Renovate Automated Maintenance
 
