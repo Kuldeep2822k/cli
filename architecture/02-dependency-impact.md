@@ -2,7 +2,7 @@
 
 **Route:** `architecture-visualization` → `dependency-impact-analyzer` + `graphviz`.
 **Question this answers:** *what depends on what, and if I touch this file, what else can break?*
-**Basis:** the 216-edge static import graph in [`_evidence/import-graph.json`](_evidence/import-graph.json). Regenerate with `node scripts/arch-import-graph.cjs`, re-render views with `node scripts/arch-render-dot.cjs`.
+**Basis:** the 216-edge static import graph in [`_evidence/import-graph.json`](_evidence/import-graph.json) — a historical snapshot dated 2026-09-22 (60 modules, 216 edges); the generator scripts are not in this repository.
 **Diagram sources:** [`dependency-graph.dot`](dependency-graph.dot) (all 60 modules, clustered by layer), [`layer-summary.dot`](layer-summary.dot) (layer aggregation), [`boundary-exceptions.dot`](boundary-exceptions.dot).
 
 > **Note on direction.** "Dependents" below = modules that transitively import the module in question, i.e. the code that a change to it can silently affect. "Reaches" = the module's own transitive dependencies, i.e. how much machinery a change to it must be reasoned about against.

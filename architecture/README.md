@@ -52,14 +52,7 @@ Already generated into [`export/`](export/) — each view exists as both `.svg` 
 
 ## Regenerate
 
-```bash
-node scripts/arch-import-graph.cjs    # scans src/ + bin/ -> architecture/_evidence/import-graph.{json,md}
-node scripts/arch-render-dot.cjs      # graph -> 3 generated .dot views + _evidence/evidence-model.json
-node scripts/mermaid-lint.cjs         # structural check of every ```mermaid block in docs/, architecture/, planning/
-node scripts/mermaid-lint.cjs --self-test   # proves the linter's checks can actually fail (8/8)
-```
-
-All three are read-only against `src/` (boundary-exceptions.dot is hand-maintained); the two `arch-*` scripts only write into `architecture/`.
+The evidence in this directory is a historical snapshot, not something this checkout produces: the import graph, the DOT views and the Mermaid lint were generated on 2026-09-22 (60 modules, 216 import edges) by session scripts that are not in this repository (`scripts/arch-import-graph.cjs`, `scripts/arch-render-dot.cjs`, `scripts/mermaid-lint.cjs` — all read-only against `src/`; `boundary-exceptions.dot` is hand-maintained). There is no in-place way to regenerate them.
 
 ## Render the diagram sources
 

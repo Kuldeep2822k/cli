@@ -60,11 +60,11 @@ Storage (`src/storage/`):
 
 1. `npm run typecheck` (strict `tsc --noEmit` — this is the real quality gate)
 2. `npm run lint` (flat ESLint, mostly hygiene; the one armed gate is `@typescript-eslint/no-explicit-any` on `src/**`, which enforces the zero-`any`-in-`src/` PR rule; `test/**` keeps it off)
-3. `npm test` (node:test via `node --import tsx --test "test/**/*.test.ts"`); use `npm run test:coverage` (c8 thresholds: lines/statements ≥60%, functions ≥75%, branches ≥65%; CI also enforces changed-code ≥50% via diff-cover)
+3. `npm test` (node:test via `node --import tsx --test "test/**/*.test.ts"`); use `npm run test:coverage` (c8 thresholds: lines/statements ≥96%, functions ≥93%, branches ≥88%; CI also enforces changed-code ≥50% via diff-cover)
 4. `npm run build` (tsc + copies package.json to dist)
 5. `npm pack && node scripts/verify-tarball.js` — tarball must contain `dist/src/index.js`, `dist/src/index.d.ts`, `dist/bin/palee.js`, `package.json`, `dist/package.json`, `README.md`, `LICENSE`; must NOT contain `src/`, `test/`, `.github/`, `planning/`, `coverage/`.
 
-Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.ts` with `PALEE_CONFIG_DIR` pointing at a temp dir, and assert on exit codes + stdout/stderr regex. Platform guards exist for win32. CI runs Node 22/24/26 × ubuntu/windows/macos and blocks native modules. PR titles must be Conventional Commits.
+Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `process.execPath` with the command line resolved by `test/palee-cli.ts` (`PALEE_ARGV`) and `PALEE_CONFIG_DIR` pointing at a temp dir, and assert on exit codes + stdout/stderr regex. Outside coverage that argv is the prebuilt `dist/bin/palee.js`; under c8 it is the TypeScript source behind `--import tsx`, so coverage keeps mapping to `src/` (ADR-0029). Platform guards exist for win32. CI runs Node 22/24/26 × ubuntu/windows/macos and blocks native modules. PR titles must be Conventional Commits.
 
 ## Known gaps (fix deliberately, or leave clearly marked)
 
