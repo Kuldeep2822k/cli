@@ -32,6 +32,9 @@ import { HotMemoryData, ActiveSessionData, SessionRecord, CompletedSessionRecord
  */
 const MAX_HOT_WORDS = 250;
 
+/** Extracts the session ID stem from a session filename or path. */
+const sessionStem = (p: string): string => path.basename(p, '.md');
+
 /**
  * Read outcome for `.palee/hot.md`, distinguishing why frontmatter is unavailable.
  *
@@ -607,7 +610,7 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
               // frontmatter.session_id: the session loader derives IDs from the
               // filename (the only reliable signal when the two disagree), and
               // valid-session-index checks refs against that ID space (#359).
-              fileStem: path.basename(file, '.md'),
+              fileStem: sessionStem(file),
             });
           }
         } catch {
@@ -740,7 +743,7 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
     // is validated against the same filename-derived ID space as the index
     // (valid-hot-memory checks fm.last_session there), so a disagreeing
     // session_id would leave a dangling reference (#359).
-    const lastSessionId = path.basename(newestSession.file, '.md');
+    const lastSessionId = sessionStem(newestSession.file);
     const activeTopicId = activeSession?.topic_id || null;
     // #329: `hot.md` is derived from this note, so its `started_at` has to agree with
     // the note it came from. Dropping the fifth argument let `updateHotMemory`'s
@@ -774,6 +777,12 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
 
   await regenerateIndex(vaultPath);
 }
+
+/** Maximum retry attempts when writeDraftCheckpoint encounters an OCC conflict (#358). */
+const MAX_CHECKPOINT_ATTEMPTS = 3;
+const CHECKPOINT_RETRY_BASE_MS = 50;
+const CHECKPOINT_RETRY_JITTER = 0.25;
+const CHECKPOINT_RETRY_MAX_MS = 300;
 
 /**
  * Writes an intermediate draft checkpoint for an in-progress study session (`.palee/sessions/DRAFT-S-*.md`).
@@ -813,7 +822,8 @@ async function writeDraftCheckpoint(
   // lose the write: re-read the fingerprint and rewrite instead of propagating
   // ECONFLICT (#358). Bounded retries — a writer that never stops winning means
   // live contention, and spinning forever is worse than surfacing the failure.
-  const MAX_CHECKPOINT_ATTEMPTS = 3;
+  // Note: the retry winner deliberately wins and overwrites with this writer's
+  // pre-rendered snapshot (same-session duplicate crash recovery), not a merge.
   let lastConflict: unknown = null;
   for (let attempt = 1; attempt <= MAX_CHECKPOINT_ATTEMPTS; attempt++) {
     let expectedFingerprint: string | null = null;
@@ -843,9 +853,11 @@ async function writeDraftCheckpoint(
       // met head-to-head on every re-read/re-write (the atomic-write retry idiom).
       // Never sleep after the final attempt — that path just throws the conflict.
       if (attempt < MAX_CHECKPOINT_ATTEMPTS) {
-        const baseDelay = 50 * attempt;
-        const jittered = baseDelay + (Math.random() * 2 - 1) * baseDelay * 0.25;
-        await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.min(jittered, 300))));
+        const baseDelay = CHECKPOINT_RETRY_BASE_MS * attempt;
+        const jittered = baseDelay + (Math.random() * 2 - 1) * baseDelay * CHECKPOINT_RETRY_JITTER;
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(0, Math.min(jittered, CHECKPOINT_RETRY_MAX_MS)))
+        );
       }
     }
   }

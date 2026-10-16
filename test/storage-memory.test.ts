@@ -25,6 +25,7 @@ import {
   recoverDraft,
   parseFrontmatter,
   hasCompletedSession,
+  isConflictError,
   MAX_HOT_WORDS,
 } from '../src/storage';
 
@@ -1065,14 +1066,22 @@ ${body}
         { topic_id: 'T-bound', started_at: '2026-08-30T10:00:00Z' },
         `Contention writer ${i}`
       )
-        .then(() => 'ok')
-        .catch(() => 'error')
+        .then(() => 'ok' as const)
+        .catch((err: unknown) => {
+          if (isConflictError(err)) return 'conflict' as const;
+          throw err;
+        })
     );
 
+    let timeoutId: NodeJS.Timeout | undefined;
     const winner = await Promise.race([
       Promise.all(attempts).then((r) => ({ kind: 'done' as const, r })),
-      new Promise<{ kind: 'timeout'; r?: undefined }>((res) => setTimeout(() => res({ kind: 'timeout' }), 8000)),
+      new Promise<{ kind: 'timeout'; r?: undefined }>((res) => {
+        timeoutId = setTimeout(() => res({ kind: 'timeout' }), 8000);
+      }),
     ]);
+    if (timeoutId) clearTimeout(timeoutId);
+
     assert.strictEqual(winner.kind, 'done', 'the retry loop terminated within its bound (no spin)');
     assert.strictEqual(winner.r?.length, 6, 'every writer settled');
     assert.ok((winner.r ?? []).includes('ok'), 'at least one writer persisted the checkpoint');

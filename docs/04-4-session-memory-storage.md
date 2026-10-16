@@ -84,22 +84,22 @@ Sources: [src/cli/session.ts#60-275](https://github.com/Kuldeep2822k/cli/blob/ma
 
 ### Derived View Regeneration
 
-`rebuildHotAndIndex` is the primary maintenance function. It scans the `sessions/` directory, identifies the most recent completed session, and triggers a refresh of both `hot.md` and `index.md` [src/storage/memory.ts#328-375](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L328-L375):
+`rebuildHotAndIndex` is the primary maintenance function. It scans the `sessions/` directory, identifies the most recent completed session, and triggers a refresh of both `hot.md` and `index.md` [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts):
 
-1. **Scanning**: Reads all `S-*.md` files in `.palee/sessions/` [src/storage/memory.ts#338-341](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L338-L341).
-2. **Validation**: Skips zero-byte files and safely parses frontmatter to ensure session integrity [src/storage/memory.ts#344-363](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L344-L363).
-3. **Sorting**: Sessions are sorted newest-first based on `started_at` [src/storage/memory.ts#298](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L298).
-4. **Indexing**: `regenerateIndex` creates a Markdown list with Obsidian-style links (e.g., `[[S-20260808T180000-a1b2c3d4]] - Topic: T-01 (2026-08-08)`) [src/storage/memory.ts#305-309](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L305-L309).
+1. **Scanning**: Reads all `S-*.md` files in `.palee/sessions/`.
+2. **Validation**: Skips zero-byte files and safely parses frontmatter to ensure session integrity.
+3. **Sorting**: Sessions are sorted newest-first based on `started_at`.
+4. **Indexing**: `regenerateIndex` creates a Markdown list with Obsidian-style links (e.g., `[[S-20260808T180000-a1b2c3d4]] - Topic: T-01 (2026-08-08)`).
 
 ### Draft Checkpoints & Storage Boundary Functions
 
-During a session, the system captures progress using `writeDraftCheckpoint` [src/storage/memory.ts#386-412](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L386-L412). The storage layer provides dedicated helpers:
+During a session, the system captures progress using `writeDraftCheckpoint` [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts). The storage layer provides dedicated helpers:
 
 - **`getTopicDrafts(vaultPath, topicId)`**: Returns array of matching active drafts with their paths, `started_at` timestamps, and body text.
 - **`deleteTopicDrafts(vaultPath, topicId)`**: Discovers and deletes all drafts matching a given topic.
 - **`deleteSessionNote(vaultPath, targetPath)`**: Safely deletes a session or draft note with strict directory boundary validation preventing unlinks outside `.palee/sessions/`.
 
-The `recoverDraft` function handles four distinct actions [src/storage/memory.ts#437-482](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L437-L482):
+The `recoverDraft` function handles four distinct actions [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts):
 
 | Action | Logic |
 | --- | --- |
@@ -108,7 +108,7 @@ The `recoverDraft` function handles four distinct actions [src/storage/memory.ts
 | `discard` | Permanently and safely deletes the draft file via `deleteSessionNote`. |
 | `ignore` | Leaves the draft file in place without taking action. |
 
-Sources: [src/storage/memory.ts#378-558](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L378-L558)[src/cli/session.ts#96-112](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L96-L112)
+Sources: [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts) · [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
 
 ---
 
