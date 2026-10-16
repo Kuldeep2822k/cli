@@ -89,7 +89,7 @@ Tests in `test/cli-exit-codes.test.ts` (32 tests) systematically verify the 0–
 
 ### Machine-Readable JSON Output (`test/cli-json-output.test.ts`)
 
-Tests in `test/cli-json-output.test.ts` (22 tests) enforce Invariant #45 across all 11 CLI commands:
+Tests in `test/cli-json-output.test.ts` (36 tests) enforce Invariant #45 across all 11 CLI commands:
 
 - **Schema Stability**: Verifies that every command supporting `--json` emits valid, parseable JSON conforming to documented TypeScript interfaces.
 - **Empty State Resilience**: Ensures that uninitialized or empty vaults return structured JSON (with `null` fields or `[]` arrays) rather than crashing.

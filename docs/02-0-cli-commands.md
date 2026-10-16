@@ -35,7 +35,7 @@ The CLI is implemented on top of the `commander` framework. Every command follow
 1. **Configuration Resolution**: Commands load persistent configuration (`PaleeConfig`) from the OS-specific config directory via `loadConfig()` [src/cli/config.ts#38-49](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L38-L49).
 2. **Vault Preflight Validation**: Commands verify that the configured vault path exists, is a readable directory, and contains accessible Markdown files using `validateVaultPath()` [src/cli/onboarding.ts#26-67](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L26-L67).
 3. **Domain Engine Delegation**: Core domain logic is dispatched to dedicated command handlers (e.g., `adoptCommand`, `reviewCommand`, `planCommand`, `sessionCommand`), which interface directly with storage layers, the SM-2 engine, and the DAG dependency solver.
-4. **Format & Channel Resolution**: Output is rendered to the terminal in human-readable styled text, or emitted as structured JSON when `--json` is specified or `PALEE_JSON=1` is set [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19).
+4. **Format & Channel Resolution**: Output is rendered to the terminal in human-readable styled text, or emitted as structured JSON when `--json` is specified or `PALEE_JSON=1` is set [src/cli/onboarding.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts).
 
 ```mermaid
 flowchart TD
@@ -120,7 +120,7 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
    ```
    The same `{"error": ...}` shape is what the reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`) emit on `stderr` for the unexpected-exception class, still with exit code `5` — a handler never degrades machine mode to plain text just because it failed (#325). Outside machine mode both classes stay single-line `Error: <message>` text.
    A fatal exception that escapes every handler is reported by the entry point: `{"status":"error","code":5,"error":"<message>"}` on `stdout` when JSON mode is active (the command's parsed `--json` option or `PALEE_JSON`), otherwise the bare message on `stderr`. The raw stack is never printed unless the user opts in with `PALEE_DEBUG=1` (#338), and the process ends by setting `process.exitCode` rather than calling `process.exit`, so redirected output is fully flushed and a piped caller never receives a truncated payload (#320).
-4. **Deterministic Empty States**: For empty vaults (0 topics), JSON commands return valid zeroed JSON structures instead of throwing errors or exiting non-zero.
+5. **Deterministic Empty States**: For empty vaults (0 topics), JSON commands return valid zeroed JSON structures instead of throwing errors or exiting non-zero.
 
 ### JSON Output Schema Mapping
 
@@ -151,11 +151,11 @@ palee dashboard
 # 2. Inspect today's structured learning plan
 palee plan
 
-# 3. (Optional) Pipe the plan into jq to extract only ready-to-learn topics
-palee plan | jq '.ready_to_learn[] | {id: .id, title: .title, difficulty: .difficulty}'
+# 3. (Optional) Pipe the plan into jq to extract only ready-to-learn topics (opt in with --json or PALEE_JSON=1)
+palee plan --json | jq '.ready_to_learn[] | {id: .id, title: .title, difficulty: .difficulty}'
 
 # 4. Extract total count of reviews due today for terminal prompt/status bar
-DUE_COUNT=$(palee plan | jq '.counts.due')
+DUE_COUNT=$(palee plan --json | jq '.counts.due')
 echo "Reviews due today: ${DUE_COUNT}"
 ```
 
@@ -167,14 +167,14 @@ Work through overdue topics one at a time using SuperMemo SM-2 quality ratings.
 # 1. Fetch the single highest-priority overdue topic
 palee next
 
-# 2. Open the note in your editor or Obsidian (using jq to extract path)
-NOTE_PATH=$(palee next | jq -r '.next.path')
+# 2. Open the note in your editor or Obsidian (using jq with --json to extract path)
+NOTE_PATH=$(palee next --json | jq -r '.next.path')
 code "$NOTE_PATH"
 
 # 3. Review the material and self-assess recall quality (0 to 5):
 #    0 = Complete blackout, 1 = Incorrect (familiar), 2 = Incorrect (easy mistake)
 #    3 = Correct with serious difficulty, 4 = Correct with hesitation, 5 = Perfect recall
-TOPIC_ID=$(palee next | jq -r '.next.id')
+TOPIC_ID=$(palee next --json | jq -r '.next.id')
 palee review "$TOPIC_ID" 4
 
 # 4. View all remaining due topics in the queue
