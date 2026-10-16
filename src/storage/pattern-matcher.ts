@@ -25,8 +25,6 @@ import { foldIdentity } from './vault-walker';
  *
  * @param glob - Raw glob pattern string
  * @returns Compiled RegExp with case-insensitive flag (`i`)
- *
- * @remarks
  * Validation only: the compiled expression exists so {@link validatePattern}
  * can check that a pattern compiles — it is not a matcher. Patterns with
  * separated `**` bands (e.g. `a/**\/a/**\/b.md`) compile to a regex that can

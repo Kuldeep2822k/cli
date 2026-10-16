@@ -172,6 +172,24 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
   return matches.length === 1 ? matches[0] : canonical;
 }
 
+declare const CanonicalVaultRootBrand: unique symbol;
+
+/**
+ * A branded string representing a canonical vault root path verified by
+ * `fs.realpathSync`. Using this type ensures callers cannot pass unvalidated
+ * paths into resolution containment checks.
+ */
+export type CanonicalVaultRoot = string & { readonly [CanonicalVaultRootBrand]: typeof CanonicalVaultRootBrand };
+
+/**
+ * Produces a {@link CanonicalVaultRoot} token by canonicalizing the vault path
+ * via `fs.realpathSync`. Passing this pre-computed root to {@link resolveWikilinkTarget}
+ * avoids repeated `realpathSync` syscalls when resolving many links.
+ */
+export function canonicalizeVaultRoot(vaultPath: string): CanonicalVaultRoot {
+  return fs.realpathSync(vaultPath) as CanonicalVaultRoot;
+}
+
 /**
  * Resolves one parsed wikilink to a vault note.
  *
@@ -180,8 +198,11 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
  * @param index - Note index from {@link buildVaultNoteIndex}
  * @param resolvedVaultPath - Canonical vault root (`fs.realpathSync`ed). When
  * omitted, the vault root is canonicalized here; callers resolving many links
- * (e.g. {@link resolveWikilinkRoadmap}) pass the pre-computed value so the
- * canonicalization happens once instead of once per link.
+ * ({@link resolveWikilinkRoadmap}) pass it pre-computed so the canonicalization
+ * happens once per roadmap. When present it MUST be a {@link CanonicalVaultRoot}
+ * produced by {@link canonicalizeVaultRoot} — never `fs.realpathSync.native` and
+ * never `path.resolve` — because the containment checks key on that canonical
+ * form; a mismatched value would silently widen or narrow the vault boundary.
  * @returns Canonical absolute path and vault-relative POSIX path
  * @throws {@link AmbiguousWikilinkError} when several notes match
  * @throws {@link UnresolvedWikilinkError} when no note matches
@@ -202,24 +223,17 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
  * case-insensitive, with an exact-case hit winning ties. Both branches return
  * the path in the casing {@link walkVault} reported, because callers key
  * already-adopted notes and duplicate-target detection by that string.
- *
- * @param resolvedVaultPath - OPTIONAL pre-canonicalized vault root, supplied by
- * {@link resolveWikilinkRoadmap} to canonicalize once for a whole roadmap. When
- * present it MUST be `fs.realpathSync(vaultPath)` exactly — never
- * `fs.realpathSync.native` and never `path.resolve` — because the containment
- * checks below key on that canonical form; a mismatched value would silently
- * widen or narrow the vault boundary. Omit it for direct single-link callers.
  */
 export function resolveWikilinkTarget(
   vaultPath: string,
   link: ParsedWikilink,
   index: Map<string, string[]>,
-  resolvedVaultPath?: string
+  resolvedVaultPath?: CanonicalVaultRoot
 ): ResolvedWikilink {
   // Hoisted by resolveWikilinkRoadmap for bulk resolution; direct callers get
   // the same value computed here. realpathSync is deterministic per input, so
   // hoisting changes no behaviour.
-  const resolvedVault = resolvedVaultPath ?? fs.realpathSync(vaultPath);
+  const resolvedVault = resolvedVaultPath ?? canonicalizeVaultRoot(vaultPath);
   const target = link.target;
 
   // Wikilink targets are `/`-separated only (see {@link targetBaseName}). An
@@ -387,7 +401,7 @@ export function resolveWikilinkRoadmap(
   const index = buildVaultNoteIndex(vaultPath);
   // Canonicalize once: resolveWikilinkTarget would otherwise realpathSync the
   // vault root for every link in every section (#373).
-  const resolvedVault = fs.realpathSync(vaultPath);
+  const resolvedVault = canonicalizeVaultRoot(vaultPath);
   const existingByPath = new Map<string, { id: string; title: string }>();
   for (const topic of loadTopics(vaultPath)) {
     existingByPath.set(topic.filePath, { id: topic.id, title: topic.title });

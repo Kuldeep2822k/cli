@@ -7,9 +7,12 @@ import {
   buildVaultNoteIndex,
   resolveWikilinkTarget,
   resolveWikilinkRoadmap,
+  canonicalizeVaultRoot,
+  isWithinVault,
   AmbiguousWikilinkError,
   UnresolvedWikilinkError,
   type WikilinkRoadmapSection,
+  type CanonicalVaultRoot,
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
 import { relativeVaultPath, foldNoteKey } from '../src/storage/vault-walker';
@@ -91,6 +94,11 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
   });
 
   describe('resolveWikilinkTarget', () => {
+    it('holds identity isWithinVault for the canonical vault root', () => {
+      const canonical = fs.realpathSync(vaultPath);
+      assert.ok(isWithinVault(canonical, canonical));
+    });
+
     it('resolves an exact vault-relative path with or without .md', () => {
       const index = buildVaultNoteIndex(vaultPath);
       const withExt = resolveWikilinkTarget(
@@ -733,8 +741,8 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
     // The fixture vault may live under a symlinked temp root (macOS /var ->
     // /private/var). Passing the canonical root keeps every path comparison
     // exact on all platforms, and keeps relativeVaultPath on its fast path.
-    function canonicalFixtureVault(): string {
-      return fs.realpathSync(vaultPath);
+    function canonicalFixtureVault(): CanonicalVaultRoot {
+      return canonicalizeVaultRoot(vaultPath);
     }
 
     /** Counts realpathSync calls that canonicalize the vault root itself. */

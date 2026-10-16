@@ -20,6 +20,8 @@ describe('Property-Based & Fuzz Testing Suite', () => {
         }
 
         const start = Date.now();
+        // Validation-only regex: the timed `.test()` below is a deliberate
+        // ReDoS probe on the compiled output, not matcher usage.
         const regex = globValidationRegex(randomGlob);
         assert.ok(regex instanceof RegExp);
         // Test matching speed against a standard path to ensure no catastrophic backtracking (ReDoS)
