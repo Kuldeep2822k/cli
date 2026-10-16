@@ -56,6 +56,29 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     ]);
   });
 
+  test('both installed-package smoke jobs exercise a real command, not just flags', () => {
+    // `--version` and `--help` prove the shim resolves; they exit before the
+    // dispatcher loads config, reads a vault, or emits JSON through the
+    // packaged dependency tree. The smoke script does all three, and it has to
+    // run wherever the package was just installed — CI's pre-merge legs and the
+    // post-publish gate — or the claim silently narrows back to two flags.
+    const script = 'scripts/smoke-installed.js';
+    const releasePath = path.resolve(__dirname, '../.github/workflows/release.yml');
+    const release = parseDocument(fs.readFileSync(releasePath, 'utf8')).toJSON() as {
+      jobs: Record<string, { steps?: Array<{ run?: string }> }>;
+    };
+    const ci = parseDocument(fs.readFileSync(workflowPath, 'utf8')).toJSON() as {
+      jobs: Record<string, { steps?: Array<{ run?: string }> }>;
+    };
+
+    const runsScript = (job: { steps?: Array<{ run?: string }> } | undefined): boolean =>
+      (job?.steps ?? []).some((step) => (step.run ?? '').includes(script));
+
+    assert.ok(runsScript(ci.jobs['smoke-install']), 'ci.yml smoke-install must run the installed-binary smoke script');
+    assert.ok(runsScript(release.jobs['smoke-test']), 'release.yml smoke-test must run the installed-binary smoke script');
+    assert.ok(fs.existsSync(path.resolve(__dirname, '..', script)), 'the smoke script the workflows invoke must exist');
+  });
+
   test('a release tag triggers CI as well as publishing', () => {
     assert.deepStrictEqual(doc.on.push?.tags, ['v*.*.*']);
     assert.ok(doc.on.push?.branches?.includes('main'));

@@ -238,3 +238,6 @@ jobs:
 
       - name: Test global binary --help
         run: palee --help
+
+      - name: Smoke-test the installed binary against an isolated vault
+        run: node scripts/smoke-installed.js
