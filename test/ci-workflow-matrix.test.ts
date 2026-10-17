@@ -74,14 +74,21 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     const stepIndex = (job: { steps?: Array<{ run?: string }> } | undefined, needle: string): number =>
       (job?.steps ?? []).findIndex((step) => (step.run ?? '').includes(needle));
 
-    assert.ok(
-      stepIndex(ci.jobs['smoke-install'], script) > stepIndex(ci.jobs['smoke-install'], 'palee --help'),
-      'ci.yml smoke-install must run the installed-binary smoke script after palee --help'
-    );
-    assert.ok(
-      stepIndex(release.jobs['smoke-test'], script) > stepIndex(release.jobs['smoke-test'], 'palee --help'),
-      'release.yml smoke-test must run the installed-binary smoke script after palee --help'
-    );
+    // Existence before order. `findIndex` answers -1 for a step that is not
+    // there, and any real index beats -1, so comparing the two positions alone
+    // let a deleted `palee --help` step satisfy the check — the exact drift this
+    // suite exists to catch, in the one leg that runs too rarely to notice.
+    for (const [label, job] of [
+      ['ci.yml smoke-install', ci.jobs['smoke-install']],
+      ['release.yml smoke-test', release.jobs['smoke-test']],
+    ] as Array<[string, { steps?: Array<{ run?: string }> } | undefined]>) {
+      const helpAt = stepIndex(job, 'palee --help');
+      const smokeAt = stepIndex(job, script);
+      assert.ok(helpAt !== -1, `${label} must run palee --help at all`);
+      assert.ok(smokeAt !== -1, `${label} must run the installed-binary smoke script at all`);
+      assert.ok(smokeAt > helpAt, `${label} must run the smoke script after palee --help`);
+    }
+
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', script)), 'the smoke script the workflows invoke must exist');
   });
 
