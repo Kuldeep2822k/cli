@@ -9,7 +9,7 @@ import { progressCommand } from '../src/cli/progress';
 import { dashboardCommand } from '../src/cli/dashboard';
 import { validateCommand } from '../src/cli/validate';
 import { sessionCommand } from '../src/cli/session';
-import { saveConfig } from '../src/cli/config';
+import configCommand, { saveConfig, loadConfig } from '../src/cli/config';
 
 describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
   let tmpDir: string;
@@ -801,6 +801,161 @@ depends_on: []
       process.env.PALEE_JSON = '0';
       await planCommand({});
       assertHumanReadable(allOutput());
+    });
+  });
+
+  describe('Every JSON Arm Answers JSON (#45 residual gaps)', () => {
+    let prevPaleeJson: string | undefined;
+
+    beforeEach(() => {
+      prevPaleeJson = process.env.PALEE_JSON;
+      delete process.env.PALEE_JSON;
+      fs.writeFileSync(
+        path.join(tmpDir, 'topic-json.md'),
+        `---
+palee_schema: 1
+palee_id: T-topic-json
+title: JSON Fixture Topic
+difficulty: beginner
+topic_mastery: 0.6
+repetition: 2
+lapses: 0
+due_at: 2020-01-01
+depends_on: []
+---
+# JSON Fixture
+`,
+        'utf8'
+      );
+    });
+
+    afterEach(() => {
+      if (prevPaleeJson !== undefined) {
+        process.env.PALEE_JSON = prevPaleeJson;
+      } else {
+        delete process.env.PALEE_JSON;
+      }
+    });
+
+    /** Nothing on stdout may be prose once JSON is selected — not a banner, not a notice. */
+    function assertStdoutIsDocumentsOnly(): void {
+      for (const line of loggedOutputs) {
+        assert.ok(
+          !/^Building working memory|^=== PALEE Session|^Working Memory|^✓ |^ {2}Path:/u.test(line),
+          `stdout carries a prose line under JSON mode: ${line.slice(0, 50)}`
+        );
+        JSON.parse(line);
+      }
+    }
+
+    test('config set-vault answers one document and the write really lands', async () => {
+      await configCommand('set-vault', tmpDir, { json: true });
+      assert.strictEqual(process.exitCode, 0);
+      assert.strictEqual(loggedOutputs.length, 1, 'exactly one document on stdout');
+      const data = getLastParsedJson();
+      assert.strictEqual(data.status, 'set');
+      assert.strictEqual(data.vault_path, path.resolve(tmpDir));
+      assert.strictEqual(loadConfig().vaultPath, path.resolve(tmpDir), 'the document agrees with the disk');
+    });
+
+    test('config set-provider, set-model and unset-api-key each answer one document', async () => {
+      await configCommand('set-provider', 'ollama', { json: true });
+      assert.strictEqual(getLastParsedJson().ai_provider, 'ollama');
+      await configCommand('set-model', 'llama3', { json: true });
+      assert.strictEqual(getLastParsedJson().model, 'llama3');
+      await configCommand('unset-api-key', undefined, { json: true });
+      const data = getLastParsedJson();
+      assert.strictEqual(data.status, 'absent', 'nothing was stored, so the removal is reported as absent');
+      assert.strictEqual(data.api_key_set, false);
+      assertStdoutIsDocumentsOnly();
+    });
+
+    test('the human arm of a config write still prints its original sentence', async () => {
+      await configCommand('set-model', 'llama3', {});
+      assert.deepStrictEqual(loggedOutputs, ['Model set to: llama3']);
+    });
+
+    test('a refused config action answers {error, valid_actions} on stderr only', async () => {
+      await configCommand('bogus', undefined, { json: true });
+      assert.strictEqual(process.exitCode, 2);
+      assert.strictEqual(loggedOutputs.length, 0, 'a refusal never writes a document to stdout');
+      const data = getLastParsedJsonError();
+      assert.match(data.error, /unknown action 'bogus'/u);
+      assert.ok(data.valid_actions.includes('set-api-key'), 'the guidance line becomes a field');
+    });
+
+    test('set-api-key given a literal is refused as one object and never echoes the key', async () => {
+      await configCommand('set-api-key', 'sk-must-not-appear', { json: true });
+      assert.strictEqual(process.exitCode, 2);
+      const data = getLastParsedJsonError();
+      assert.strictEqual(Object.keys(data).join(','), 'error,remedy', 'the two-line refusal travels as one object');
+      const spoken = loggedErrors.join('\n') + loggedOutputs.join('\n');
+      assert.ok(!spoken.includes('sk-must-not-appear'), 'a credential must never reach output');
+      assert.strictEqual(loadConfig().apiKey, undefined, 'and nothing was stored');
+    });
+
+    test('session start answers one document and suppresses the rebuild notice', async () => {
+      await sessionCommand('start', { topic: 'T-topic-json', json: true });
+      assert.strictEqual(process.exitCode, 0);
+      assert.strictEqual(loggedOutputs.length, 1, 'the hot.md rebuild notice has no place on stdout');
+      const data = getLastParsedJson();
+      assert.strictEqual(data.status, 'started');
+      assert.strictEqual(data.active_topic, 'T-topic-json');
+      assert.strictEqual(typeof data.working_memory, 'string');
+      assert.deepStrictEqual(data.warnings, []);
+      assert.strictEqual(data.vault_path, path.resolve(tmpDir), 'the write names its vault as fields');
+    });
+
+    test('a second start reports the already-active heads-up inside the document', async () => {
+      await sessionCommand('start', { topic: 'T-topic-json', json: true });
+      loggedOutputs = [];
+      loggedErrors = [];
+      await sessionCommand('start', { json: true });
+      assert.strictEqual(process.exitCode, 0, 'the heads-up does not change the exit code');
+      assert.strictEqual(loggedOutputs.length, 1);
+      const data = getLastParsedJson();
+      assert.strictEqual(data.warnings.length, 1, 'the warning travels as a field, not a stderr line');
+      assert.match(data.warnings[0], /already active for T-topic-json/u);
+    });
+
+    test('session draft and end report consumed drafts inside the document, not as lines', async () => {
+      await sessionCommand('start', { topic: 'T-topic-json', json: true });
+      await sessionCommand('draft', { json: true });
+      const draft = getLastParsedJson();
+      assert.strictEqual(draft.status, 'drafted');
+      assert.strictEqual(draft.topic_id, 'T-topic-json');
+      assert.match(draft.draft_id, /^DRAFT-S-/u);
+
+      loggedOutputs = [];
+      await sessionCommand('end', { json: true });
+      assert.strictEqual(process.exitCode, 0);
+      assert.strictEqual(loggedOutputs.length, 1, 'each consumed draft is a field, never a preceding line');
+      const end = getLastParsedJson();
+      assert.strictEqual(end.status, 'recorded');
+      assert.deepStrictEqual(end.consumed_drafts, [path.basename(draft.draft_path)]);
+      assert.strictEqual(end.draft_cleanup_failures, 0);
+      assert.strictEqual(end.topic_id, 'T-topic-json');
+      assert.strictEqual(typeof end.duration_minutes, 'number');
+      assertStdoutIsDocumentsOnly();
+    });
+
+    test('an unknown session action answers {error, valid_actions}', async () => {
+      await sessionCommand('bogus', { json: true });
+      assert.strictEqual(process.exitCode, 2);
+      assert.strictEqual(loggedOutputs.length, 0);
+      const data = getLastParsedJsonError();
+      assert.match(data.error, /Unknown session action: 'bogus'/u);
+      assert.deepStrictEqual(data.valid_actions, ['start', 'end', 'draft', 'list']);
+    });
+
+    test('PALEE_JSON=1 selects the same documents as the flag', async () => {
+      process.env.PALEE_JSON = '1';
+      await configCommand('set-model', 'gpt-4', {});
+      assert.strictEqual(getLastParsedJson().status, 'set');
+      loggedOutputs = [];
+      await sessionCommand('start', { topic: 'T-topic-json' });
+      assert.strictEqual(loggedOutputs.length, 1);
+      assert.strictEqual(getLastParsedJson().status, 'started');
     });
   });
 });

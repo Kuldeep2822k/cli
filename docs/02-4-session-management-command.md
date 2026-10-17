@@ -91,7 +91,8 @@ Initializes the study environment:
 # Start study session in interactive recovery mode
 palee session start --interactive
 
-# Query session start status as structured JSON (emits drafts_pending on unconfirmed checkpoints)
+# Query session start status as structured JSON
+# (emits drafts_pending on unconfirmed checkpoints, otherwise status: started)
 palee session start --json
 ```
 
@@ -157,7 +158,7 @@ The following table lists all supported arguments and options for `palee session
 | `<action>` | `string` | **Required** | Session action to perform: `start`, `draft`, `end`, or `list`. | `palee session start` |
 | `-i, --interactive` | `boolean` | `false` | Enable interactive prompt mode for draft recovery during `palee session start`. | `palee session start -i` |
 | `--topic <query>` | `string` | `undefined` | Target topic, resolved against the vault like `review`'s argument: an exact `palee_id`, or a unique ID/title substring. Overrides the `active_topic` defined in `.palee/hot.md`; `(none)` selects no topic. | `palee session end --topic "T-01"` |
-| `--json` | `boolean` | `false` | Output results as structured JSON (supported for `palee session start` and `palee session list`). | `palee session start --json` |
+| `--json` | `boolean` | `false` | Output results as structured JSON. Every action answers exactly one document on stdout — `start` → `status: "started"`, `draft` → `"drafted"`, `end` → `"recorded"` or `"already_recorded"`, `list` → `{confirmed, drafts, total_confirmed, total_drafts}`, and unconfirmed checkpoints on `start` → `"drafts_pending"` — while refusals put `{error}` on `stderr` at exit `2`. Per-line notices and warnings are fields inside the document (`consumed_drafts`, `warnings`), never prose above it, so `2>&1` stays parseable. | `palee session start --json` |
 
 ---
 
