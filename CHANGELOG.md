@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The default config is described per-user, not machine-global**: `palee --help` told users an unset `PALEE_CONFIG_DIR` means "the machine-global config … every command on this machine shares one config", and the `PaleeConfig` doc comment named `~/.palee/config.json` — a path `getConfigPath()` never produces. Both real defaults (`%LOCALAPPDATA%\palee` on Windows, `~/.config/palee` elsewhere) sit under the current user's profile, so the old wording hid that two accounts keep separate vaults and credentials.
 - **`palee review` never mints pillar scores and names an off-schedule (early) review** ([#300](https://github.com/Kuldeep2822k/cli/issues/300), [#301](https://github.com/Kuldeep2822k/cli/issues/301)).
 - **`atomicWrite` preserves the destination's permission mode and fsyncs the parent directory** ([#318](https://github.com/Kuldeep2822k/cli/issues/318), [#333](https://github.com/Kuldeep2822k/cli/issues/333)).
 - **The machine-readable error contract holds on every failure path** ([#320](https://github.com/Kuldeep2822k/cli/issues/320), [#325](https://github.com/Kuldeep2822k/cli/issues/325), [#326](https://github.com/Kuldeep2822k/cli/issues/326), [#338](https://github.com/Kuldeep2822k/cli/issues/338)): JSON mode and exit codes stay consistent, no raw error object is dumped, and `process.exit()` no longer truncates output.

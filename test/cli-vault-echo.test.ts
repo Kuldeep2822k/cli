@@ -9,7 +9,7 @@ import { PALEE_ARGV } from './palee-cli';
 /**
  * #311: `PALEE_CONFIG_DIR` was the only per-run config override and it appeared in no
  * help text, so a scripted run that omitted the export silently read and wrote the
- * machine-global config — and a mutating command then exited 0 having never named the
+ * per-user default config — and a mutating command then exited 0 having never named the
  * vault it touched. Two parallel automation runs, one un-scoped block, sixteen adopted
  * notes in the other run's tree.
  *
@@ -51,9 +51,9 @@ function runCLI(env: Record<string, string>, args: string[]): RunResult {
 
 /**
  * The config path the CLI resolves when `PALEE_CONFIG_DIR` is unset — the
- * machine-global one, which is where the incident's writes went.
+ * per-user default one, which is where the incident's writes went.
  */
-function globalConfigPath(fakeLocalAppData: string, fakeHome: string): string {
+function defaultConfigPath(fakeLocalAppData: string, fakeHome: string): string {
   return process.platform === 'win32'
     ? path.join(fakeLocalAppData, 'palee', 'config.json')
     : path.join(fakeHome, '.config', 'palee', 'config.json');
@@ -70,7 +70,7 @@ describe('Vault target echo and PALEE_CONFIG_DIR discoverability (#311)', () => 
   let configA: string;
   let fakeLocalAppData: string;
   let fakeHome: string;
-  /** Env that makes a run resolve the machine-global config: no override at all. */
+  /** Env that makes a run resolve the per-user default config: no override at all. */
   let fallbackEnv: Record<string, string>;
 
   const NOTE = '---\ntitle: Echo Topic\n---\n\n# Echo Topic body\n';
@@ -104,7 +104,7 @@ depends_on: []
     fs.writeFileSync(path.join(vaultY, 'topic.md'), NOTE, 'utf8');
 
     // Windows reads %LOCALAPPDATA%, POSIX reads $HOME. Redirecting both pins the
-    // fallback to a temp root instead of the developer's real global config.
+    // fallback to a temp root instead of the developer's real default config.
     fallbackEnv = { LOCALAPPDATA: fakeLocalAppData, USERPROFILE: fakeHome, HOME: fakeHome };
   });
 
@@ -124,10 +124,10 @@ depends_on: []
       assert.match(result.stdout, /Vault path set to:/);
     });
 
-    test('the machine-global config resolves to vault Y', () => {
+    test('the per-user default config resolves to vault Y', () => {
       const result = runCLI(fallbackEnv, ['config', 'set-vault', vaultY]);
       assert.strictEqual(result.status, 0, result.stderr);
-      assert.ok(fs.existsSync(globalConfigPath(fakeLocalAppData, fakeHome)));
+      assert.ok(fs.existsSync(defaultConfigPath(fakeLocalAppData, fakeHome)));
     });
   });
 
@@ -185,30 +185,30 @@ depends_on: []
       fs.writeFileSync(path.join(vaultY, 'topic.md'), NOTE, 'utf8');
     });
 
-    test('adopt with PALEE_CONFIG_DIR unset prints the machine-global vault and config', () => {
+    test('adopt with PALEE_CONFIG_DIR unset prints the per-user default vault and config', () => {
       const result = runCLI(fallbackEnv, ['adopt', 'topic.md', '--yes', '--difficulty', 'beginner']);
       assert.strictEqual(result.status, 0, result.stdout + result.stderr);
 
       assert.match(
         result.stdout,
         new RegExp(`• Vault:\\s+${escapeRegExp(path.resolve(vaultY))}`),
-        'the run must name the vault it adopted into even when it came from the global config'
+        'the run must name the vault it adopted into even when it came from the default config'
       );
       assert.match(
         result.stdout,
-        new RegExp(`• Config:\\s+${escapeRegExp(globalConfigPath(fakeLocalAppData, fakeHome))}`)
+        new RegExp(`• Config:\\s+${escapeRegExp(defaultConfigPath(fakeLocalAppData, fakeHome))}`)
       );
     });
 
     test('the un-scoped write landed in vault Y and left vault X untouched', () => {
       const inY = fs.readFileSync(path.join(vaultY, 'topic.md'), 'utf8');
       const inX = fs.readFileSync(path.join(vaultX, 'topic.md'), 'utf8');
-      assert.match(inY, /^palee_id/m, 'the adopted note carries an id in the global config vault');
+      assert.match(inY, /^palee_id/m, 'the adopted note carries an id in the default config vault');
       assert.ok(!inX.includes('palee_id'), 'the scoped vault was never written by the un-scoped run');
     });
 
-    test('the echo does not refuse the write: a global-config vault is the normal case', () => {
-      // Rejecting a write just because the vault came from the machine-global config
+    test('the echo does not refuse the write: a default-config vault is the normal case', () => {
+      // Rejecting a write just because the vault came from the per-user default config
       // would break every single-vault user, so the echo stays informational —
       // visibility, not a gate (#311 expected #3, considered and rejected).
       fs.writeFileSync(path.join(vaultY, 'another.md'), NOTE.replace('Echo Topic', 'Another Topic'), 'utf8');
