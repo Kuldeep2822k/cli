@@ -102,7 +102,7 @@ These are stated here once, neutrally; the fix list and severity are in `03-docs
 
 | If you change… | Also update… |
 | --- | --- |
-| a module's imports | the import graph and DOT views are a historical snapshot (60/216, dated 2026-09-22); the generator scripts are not in this repository, so update this page's counts by hand |
+| a module's imports | nothing in this directory — the import graph and DOT views are a dated snapshot (60/216, 2026-09-22) and the generator scripts are not in this repository, so the counts stay as recorded. Add a new dated snapshot only when the graph and its dependent artifacts can be re-derived together (ADR-0031) |
 | the layer set or its rules | `agent.md:9-16`, `architecture/palee-architecture.dsl` element list, and this page's L3 table |
 | a facade's exports | `src/<layer>/index.ts` doc comment, and the `FacadeBypass` view if the CLI starts or stops using it |
 | the 19-rule catalog | `src/cli/validate.ts` registry **and** `src/validation/index.ts` (registration order is mirrored in both today) |

@@ -8,7 +8,7 @@ Captured from design review on 2026-08-11.
 
 ### Problem
 
-`palee roadmap --from` accepted only `.yaml` files when this review was captured (`yaml.parse()` on the whole file). That gap has since been closed — `--from` also reads Markdown frontmatter, fenced YAML code blocks, and `[[wikilink]]` lists. The reasons `.md` support mattered:
+`palee roadmap --from` accepted only `.yaml` files when this review was captured (`yaml.parse()` on the whole file). That gap has since been closed — `--from` also reads Markdown frontmatter, fenced YAML code blocks, and `[[wikilink]]` lists, the last only from a Markdown document whose frontmatter sets `palee_roadmap: true` [src/storage/roadmap-parser.ts#L238](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts#L238). The reasons `.md` support mattered:
 
 - The design spec (`roadmap_design.md` line 10) shows `kubernetes-roadmap.md` as the example — `.md` was the original intent.
 - PALEE is an Obsidian-native tool; `.yaml` files are invisible/ugly in Obsidian.
@@ -272,14 +272,14 @@ The design separates "review" (recall scheduling) from "assessment" (understandi
 
 ### Missing Code (since implemented)
 
-`computeTopicMastery()` did not exist when this review was captured; it now lives in `src/engine/mastery.ts` with exactly this formula — `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)` — and `palee assess` writes the four pillar scores that feed it. When `palee test` is built, it only needs to call the same computation.
+`computeTopicMastery()` did not exist when this review was captured; it now lives in `src/engine/mastery.ts` with exactly this formula — `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)` — and `palee assess` resolves the four scores from supplied values and stored frontmatter values, but writes only the supplied pillar fields. When `palee test` is built, it only needs to call the same computation.
 
 ---
 
 ## Priority Order
 
 1. **Batch adopt** — Biggest onboarding blocker. Users can't start easily.
-2. **Roadmap `.md` support** — shipped (see §1): `--from` reads `.yaml`, Markdown frontmatter, fenced YAML blocks, and `[[wikilink]]` lists.
+2. **Roadmap `.md` support** — shipped (see §1): `--from` reads `.yaml`, Markdown frontmatter, fenced YAML blocks, and `[[wikilink]]` lists from documents marked `palee_roadmap: true`.
 3. **README cleanup** — Remove or stub unimplemented commands.
 4. **Beginner's guide** — Helps adoption after the above are fixed.
 5. **`test` / `tutor` commands** — Phase 2 AI features, implement after provider layer is solid.
