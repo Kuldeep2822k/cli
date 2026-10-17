@@ -21,6 +21,59 @@ function getLockData(lockDir: string) {
   }
 }
 
+/** One recorded `fs.utimesSync` call: the path it was given and both stamps. */
+interface UtimesCall {
+  file: string;
+  atime: Parameters<typeof fs.utimesSync>[1];
+  mtime: Parameters<typeof fs.utimesSync>[2];
+}
+
+/**
+ * Records every `fs.utimesSync` call while still performing the real touch.
+ *
+ * @remarks
+ * `src/storage/lock.ts` imports the same `fs` namespace object this file does, so
+ * replacing the method here is what makes the heartbeat's own touch observable —
+ * the same seam the `fs.rmdirSync` patch below uses, for the same reason. The
+ * heartbeat is the ONLY production path that calls `utimesSync` (the whole of
+ * `lock.ts` has one call site), so an empty record list proves nobody stamped
+ * the lock file.
+ *
+ * @returns The live record list plus the function that puts `fs` back.
+ */
+function spyUtimesSync(): { calls: UtimesCall[]; restore: () => void } {
+  const calls: UtimesCall[] = [];
+  const originalUtimesSync = fs.utimesSync;
+  (fs as unknown as { utimesSync: typeof fs.utimesSync }).utimesSync = function recordingUtimesSync(
+    this: unknown,
+    p: fs.PathLike,
+    atime: Parameters<typeof fs.utimesSync>[1],
+    mtime: Parameters<typeof fs.utimesSync>[2]
+  ): void {
+    if (typeof p === 'string') calls.push({ file: p, atime, mtime });
+    return (originalUtimesSync as unknown as (...a: unknown[]) => void).call(this, p, atime, mtime);
+  };
+  return {
+    calls,
+    restore: () => {
+      (fs as unknown as { utimesSync: typeof fs.utimesSync }).utimesSync = originalUtimesSync;
+    },
+  };
+}
+
+/** Path of the holder's session file, asserting the lock dir holds exactly one. */
+function singleSessionFile(lockDir: string): string {
+  const files = fs.readdirSync(lockDir).filter(f => f.endsWith('.json'));
+  assert.strictEqual(files.length, 1, `precondition: one lock session file expected, found ${files.length}`);
+  const sessionFile = files[0];
+  assert.strictEqual(
+    sessionFile,
+    `${getLockData(lockDir).lock_id}.json`,
+    `precondition: session file must be named after the lock id inside it, found ${sessionFile}`
+  );
+  return path.join(lockDir, sessionFile);
+}
+
 describe('File Locking', () => {
   let testVaultPath: string;
   let testFilePath: string;
@@ -87,28 +140,121 @@ describe('File Locking', () => {
 
 
 
-  test('heartbeat updates mtime', async () => {
+  test('heartbeat timer stamps the held session file once per HEARTBEAT_INTERVAL (INV-05)', async (t) => {
+    // INV-05: a held lock advertises its own liveness. The previous version of
+    // this test slept 1100ms, called `fs.utimesSync` on the lock file ITSELF and
+    // then asserted the mtime had moved — it manufactured the effect it credited
+    // to production, so deleting `startHeartbeat()` from `acquire()` kept it
+    // green. Here the only thing allowed to touch the file is the closure
+    // production handed to `setInterval`, and the clock is a mock: the 15s
+    // cadence is pinned by simulated elapsed time, with no sleep, no 1100ms
+    // gamble, and no dependence on Windows mtime granularity.
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    const spy = spyUtimesSync();
+
     const lock = new Lock(testVaultPath, testFilePath);
-    await lock.acquire();
+    try {
+      await lock.acquire();
+      const lockFile = singleSessionFile(lock.lockPath);
 
-    const files = fs.readdirSync(lock.lockPath).filter(f => f.endsWith('.json'));
-    const [lockFileName] = files;
-    assert.ok(lockFileName !== undefined);
-    const lockFile = path.join(lock.lockPath, lockFileName);
-    const initialMtime = fs.statSync(lockFile).mtimeMs;
+      // Armed, but nothing has elapsed. Neither this test nor production may have
+      // stamped anything yet — this is the assertion the old test faked.
+      assert.deepStrictEqual(
+        spy.calls.map(c => c.file),
+        [] as string[],
+        'acquire() must not stamp the lock file; only the interval may'
+      );
 
-    await new Promise(resolve => setTimeout(resolve, 1100));
+      // One millisecond short of the interval: still silent. A heartbeat armed on
+      // a shorter delay fires inside this window and shows up as extra calls.
+      t.mock.timers.tick(HEARTBEAT_INTERVAL - 1);
+      assert.deepStrictEqual(
+        spy.calls.map(c => c.file),
+        [] as string[],
+        `heartbeat must stay silent until ${HEARTBEAT_INTERVAL}ms has elapsed`
+      );
 
-    // Force heartbeat update via manual utimesSync
-    const now = new Date();
-    fs.utimesSync(lockFile, now, now);
+      const startedAt = Date.now();
+      t.mock.timers.tick(1);
+      const endedAt = Date.now();
 
-    const updatedMtime = fs.statSync(lockFile).mtimeMs;
+      assert.strictEqual(
+        spy.calls.length,
+        1,
+        `expected exactly one heartbeat stamp at ${HEARTBEAT_INTERVAL}ms, got ${spy.calls.length}`
+      );
+      const [firstStamp] = spy.calls;
+      assert.ok(firstStamp !== undefined);
+      assert.strictEqual(
+        firstStamp.file,
+        lockFile,
+        'heartbeat must stamp the session file this holder owns'
+      );
 
-    assert.notStrictEqual(initialMtime, updatedMtime);
-    assert.ok(updatedMtime > initialMtime);
+      // The stamp has to be a live timestamp: `utimesSync` on `new Date(0)` would
+      // arm the timer but make the lock look abandoned to every other process.
+      const { atime, mtime } = firstStamp;
+      assert.ok(
+        atime instanceof Date && mtime instanceof Date,
+        `heartbeat must pass Date stamps to utimesSync, got ${String(atime)} / ${String(mtime)}`
+      );
+      assert.ok(
+        atime.getTime() >= startedAt && atime.getTime() <= endedAt,
+        `heartbeat stamp must be the current clock, got ${atime.toISOString()} outside ${new Date(startedAt).toISOString()}..${new Date(endedAt).toISOString()}`
+      );
 
-    lock.release();
+      // `setInterval`, not a one-shot: a second period must stamp a second time.
+      t.mock.timers.tick(HEARTBEAT_INTERVAL);
+      assert.strictEqual(
+        spy.calls.length,
+        2,
+        `heartbeat must repeat every ${HEARTBEAT_INTERVAL}ms, saw ${spy.calls.length} stamps after a second period`
+      );
+      const [, secondStamp] = spy.calls;
+      assert.ok(secondStamp !== undefined);
+      assert.strictEqual(secondStamp.file, lockFile, 'repeated heartbeat must re-stamp the same session file');
+    } finally {
+      spy.restore();
+      lock.release();
+    }
+  });
+
+  test('release clears the heartbeat interval so a dead holder stops claiming liveness (INV-05)', async (t) => {
+    // The other half of the liveness contract: stop advertising once released.
+    // Nothing else in the suite can see a leaked interval — `release()` unlinks the
+    // session file either way, and a tick after that reads ENOENT and self-clears
+    // (`updateHeartbeat` returns 'lost'). The recorder sees the attempt regardless
+    // of the outcome, so an interval left running after release still shows up here.
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    const spy = spyUtimesSync();
+
+    const lock = new Lock(testVaultPath, testFilePath);
+    try {
+      await lock.acquire();
+      const lockFile = singleSessionFile(lock.lockPath);
+
+      t.mock.timers.tick(HEARTBEAT_INTERVAL);
+      assert.strictEqual(spy.calls.length, 1, 'precondition: the heartbeat stamps once per interval');
+      const [heldStamp] = spy.calls;
+      assert.ok(heldStamp !== undefined);
+      assert.strictEqual(heldStamp.file, lockFile, 'precondition: that stamp is this session file');
+
+      lock.release();
+      spy.calls.length = 0;
+
+      // Three full periods with nobody holding the lock. If the interval survived
+      // `release()` the touch still happens (its ENOENT is caught by
+      // `updateHeartbeat`), so a leaked timer is recorded here rather than thrown.
+      t.mock.timers.tick(HEARTBEAT_INTERVAL * 3);
+      assert.deepStrictEqual(
+        spy.calls.map(c => c.file),
+        [] as string[],
+        'release() must clear the heartbeat interval'
+      );
+    } finally {
+      spy.restore();
+      lock.release();
+    }
   });
 
   test('stale lock recovery takes over old lock', async () => {
