@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **`ensureVaultDirectory` is contained before it creates** ([#335](https://github.com/Kuldeep2822k/cli/issues/335)): the target is checked against the vault root before any `mkdir`, blocking a mid-path symlink escape.
+- **Docs toolchain audit pins**: the full npm audit (push-time, dev included) fails on advisories published 2026-10 — `katex` prototype pollution (via `mermaid 11`, GHSA-238p-pmpm-9mq7) and the `@xmldom/xmldom ≤ 0.9.11` batch (via `speech-rule-engine 4.1.4`, ~12 GHSAs). Scoped `overrides` pin the fixed `katex 0.18.11` (mermaid 11's declared range caps below the fix; `vitepress-plugin-mermaid@2.0.17` — unmaintained — still peers `mermaid 10 || 11`, so mermaid 12 is not installable) and `@xmldom/xmldom 0.9.12` (SRE 4.1.4 pins 0.9.10 exactly). `npm audit --audit-level=high` → 0.
 
 ## [1.0.0] - 2026-10-11
 

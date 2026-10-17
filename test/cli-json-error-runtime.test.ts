@@ -39,6 +39,7 @@ const READING_COMMANDS: ReadonlyArray<{ name: string; handler: Handler }> = [
 describe('Reading-command runtime errors keep the machine-readable contract (#325)', () => {
   let tmpDir: string;
   let prevConfigDir: string | undefined;
+  let prevPaleeJson: string | undefined;
   let loggedOut: string[];
   let loggedErr: string[];
   const originalLog = console.log;
@@ -51,6 +52,10 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
+    prevPaleeJson = process.env.PALEE_JSON;
+    // The human/plain-text expectations below are the contract under test, so
+    // no ambient PALEE_JSON from the invoking shell may flip them to JSON.
+    delete process.env.PALEE_JSON;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-runtime-error-'));
     const configDir = path.join(tmpDir, 'config');
     fs.mkdirSync(configDir, { recursive: true });
@@ -76,6 +81,11 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (prevPaleeJson !== undefined) {
+      process.env.PALEE_JSON = prevPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -125,11 +135,7 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
 
     test(`${name} with PALEE_JSON=1 emits JSON without --json flag (#357)`, async () => {
       process.env.PALEE_JSON = '1';
-      try {
-        await handler({});
-      } finally {
-        delete process.env.PALEE_JSON;
-      }
+      await handler({});
       assert.match(parsedStderr().error, /EISDIR/);
       assert.strictEqual(process.exitCode, 5);
     });
