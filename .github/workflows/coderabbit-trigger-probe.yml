@@ -19,4 +19,4 @@ jobs:
         run: |
           gh api repos/Kuldeep2822k/cli/issues/458/comments \
             --method POST \
-            --field body='@coderabbitai rate limit'
+            --raw-field body='@coderabbitai rate limit'
