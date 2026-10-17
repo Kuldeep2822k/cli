@@ -62,6 +62,31 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     assert.ok(doc.on.pull_request?.branches?.includes('main'));
   });
 
+  test('the docs site is built on a pull request, not only at pages-deploy time', () => {
+    // deploy-docs.yml only renders on a push to main, so a pull request that
+    // breaks the VitePress toolchain merges green and the first failure to
+    // render is the pages deploy. vitepress declares `vite ^5.4.14` and
+    // @vitejs/plugin-vue declares `vite ^5`, so a vite major can be forced in
+    // far outside the declared ranges (#466) and no PR-level check would ever
+    // build the site.
+    const jobsDoc = parseDocument(fs.readFileSync(workflowPath, 'utf8')).toJSON() as {
+      jobs: Record<string, { needs?: string[]; steps?: Array<{ run?: string }> }>;
+    };
+    const docsBuild = jobsDoc.jobs['docs-build'];
+    assert.ok(docsBuild, 'ci.yml must carry a docs-build job');
+    assert.ok(
+      (docsBuild.steps ?? []).some((step) => (step.run ?? '') === 'npm run docs:build'),
+      'docs-build must invoke npm run docs:build'
+    );
+    assert.deepStrictEqual(jobsDoc.jobs['ci-success']?.needs, [
+      'quality-check',
+      'test-matrix',
+      'smoke-install',
+      'engines-floor-smoke',
+      'docs-build',
+    ], 'ci-success must gate on docs-build - a job outside the gate runs but is not required');
+  });
+
   test('a tag cannot publish before the platform matrix has passed', () => {
     // CI's own tag run is a separate workflow, and a workflow cannot depend on
     // another's result — so the publish gate has to live in `release.yml`, which

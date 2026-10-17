@@ -214,9 +214,38 @@ jobs:
       - name: Run the built artifact on the declared floor
         run: node dist/bin/palee.js --version
 
+  # deploy-docs.yml renders the site only after a push to main, so a pull
+  # request that breaks the VitePress toolchain still merges green and the
+  # first failure to render is the pages deploy. The browser toolchain is
+  # version-sensitive in exactly the way dependency majors move silently:
+  # vitepress pins `vite ^5.4.14` and @vitejs/plugin-vue pins `vite ^5`, so a
+  # vite 8 can be forced in far outside the declared ranges (#466) with nothing
+  # on the PR path building the site. Building it here closes that hole.
+  docs-build:
+    name: Docs Site Build (VitePress)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the docs site
+        run: npm run docs:build
+
   ci-success:
     if: always()
-    needs: [quality-check, test-matrix, smoke-install, engines-floor-smoke]
+    needs: [quality-check, test-matrix, smoke-install, engines-floor-smoke, docs-build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

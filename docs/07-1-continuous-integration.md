@@ -54,6 +54,10 @@ The `smoke-install` job verifies the integrity of the NPM package by simulating 
 3. Install: Installs the CLI globally from the local tarball [.github/workflows/ci.yml#115-116](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L115-L116)
 4. Version Match: Compares `palee --version` output against the `package.json` version [.github/workflows/ci.yml#118-127](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L118-L127)
 
+### 4. Docs Site Build
+
+The `docs-build` job runs `npm run docs:build` on every pull request [.github/workflows/ci.yml#244](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L244-L244). Deploy (`deploy-docs.yml`) renders the site only on a push to `main`, so without this gate a pull request that breaks the VitePress toolchain merges green and the first failure to render is the pages deploy. The browser toolchain is version-sensitive in exactly the way dependency majors move silently: vitepress declares `vite ^5.4.14` and `@vitejs/plugin-vue` declares `vite ^5`, so a vite major can be forced in far outside each declared range and no test in the matrix would notice. `ci-success` gates on the job [.github/workflows/ci.yml#248](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L248-L248), and `test/ci-workflow-matrix.test.ts` asserts both the step and the gate.
+
 ### Data Flow: CI Pipeline Execution
 
 The following diagram illustrates the progression of a commit through the CI pipeline.
@@ -90,9 +94,14 @@ flowchart TD
     GlobalInstall --> VersionCheck
     VersionCheck --> Success
     Matrix --> SI
+    DB["docs-build job"]
+    SiteBuild["npm run docs:build"]
+    QC --> DB
+    DB --> SiteBuild
+    SiteBuild --> Success
 ```
 
-Sources:[.github/workflows/ci.yml#16-144](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L16-L144)
+Sources:[.github/workflows/ci.yml#23-251](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L23-L251)
 
 ## PR Automation and Hygiene
 
