@@ -85,6 +85,37 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', script)), 'the smoke script the workflows invoke must exist');
   });
 
+  test('both smoke jobs run the script from a checked-out repository', () => {
+    // `npm install -g` delivers only the published package; the script ships
+    // with the repository, so a smoke job without a checkout dies with
+    // "Cannot find module" on the one run that happens after a release (found
+    // as the post-publish leg on #457). The ordering is asserted because that
+    // leg runs too rarely to be trusted to catch a dropped or reordered step.
+    const script = 'scripts/smoke-installed.js';
+    type SmokeJob = { steps?: Array<{ run?: string; uses?: string }> };
+    const release = parseDocument(
+      fs.readFileSync(path.resolve(__dirname, '../.github/workflows/release.yml'), 'utf8'),
+    ).toJSON() as { jobs: Record<string, SmokeJob> };
+    const ci = parseDocument(fs.readFileSync(workflowPath, 'utf8')).toJSON() as {
+      jobs: Record<string, SmokeJob>;
+    };
+
+    const stepIndex = (
+      job: SmokeJob | undefined,
+      match: (step: { run?: string; uses?: string }) => boolean,
+    ): number => (job?.steps ?? []).findIndex(match);
+
+    for (const [label, job] of [
+      ['ci.yml smoke-install', ci.jobs['smoke-install']],
+      ['release.yml smoke-test', release.jobs['smoke-test']],
+    ] as Array<[string, SmokeJob | undefined]>) {
+      const checkoutAt = stepIndex(job, (step) => (step.uses ?? '').startsWith('actions/checkout'));
+      const smokeAt = stepIndex(job, (step) => (step.run ?? '').includes(script));
+      assert.ok(checkoutAt !== -1, `${label} must include an actions/checkout step`);
+      assert.ok(smokeAt > checkoutAt, `${label} must run the smoke script after the checkout`);
+    }
+  });
+
   test('a release tag triggers CI as well as publishing', () => {
     assert.deepStrictEqual(doc.on.push?.tags, ['v*.*.*']);
     assert.ok(doc.on.push?.branches?.includes('main'));

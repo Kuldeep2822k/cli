@@ -16,7 +16,7 @@ The two smoke jobs also drift independently — the same class of divergence #26
 
 ### One real command, run wherever the package was just installed
 
-`scripts/smoke-installed.js` runs after the flag checks in both jobs. It:
+`scripts/smoke-installed.js` runs after the flag checks in both jobs. The post-publish job checks the repository out first (pinned, `persist-credentials: false`): `npm install -g` delivers only the published package, and the script ships with the repository, not with the package. It:
 
 - creates an isolated temporary root under `os.tmpdir()` with an empty `vault/` and a `config/config.json` naming that vault as `vaultPath`;
 - runs with the temporary root as `cwd`, outside the checkout, so nothing can silently resolve against the repository;
@@ -29,7 +29,7 @@ The two smoke jobs also drift independently — the same class of divergence #26
 
 ### Both smoke jobs run it, and a guard keeps them from drooping
 
-`ci.yml`'s `smoke-install` runs the script on all three OS legs (macOS included — the platform `npm install -g` was historically broken on), and `release.yml`'s post-publish `smoke-test` runs it after installing the published package. `test/ci-workflow-matrix.test.ts` parses both workflows and asserts each smoke job has a step invoking the script, and that the script exists — the same workflow-text guard pattern the matrix parity test established.
+`ci.yml`'s `smoke-install` runs the script on all three OS legs (macOS included — the platform `npm install -g` was historically broken on), and `release.yml`'s post-publish `smoke-test` runs it after installing the published package. `test/ci-workflow-matrix.test.ts` parses both workflows and asserts each smoke job has a step invoking the script **after** an `actions/checkout` step, and that the script exists — the same workflow-text guard pattern the matrix parity test established. The ordering assertion is what converts a post-release "Cannot find module" from a silent release-day failure back into a failing test.
 
 ### Node built-ins only
 
