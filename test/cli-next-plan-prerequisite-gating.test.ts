@@ -28,15 +28,20 @@ describe('prerequisite gating is consistent across next/plan/dashboard (#305, #3
   let tmpDir: string;
   let tmpConfigDir: string;
   let prevConfigDir: string | undefined;
+  let prevPaleeJson: string | undefined;
   let loggedOutputs: string[] = [];
   const originalLog = console.log;
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
+    prevPaleeJson = process.env.PALEE_JSON;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-gate-'));
     tmpConfigDir = path.join(tmpDir, '.config');
     fs.mkdirSync(tmpConfigDir, { recursive: true });
     process.env.PALEE_CONFIG_DIR = tmpConfigDir;
+    // This suite pins the gate through flags, not the environment: an ambient
+    // PALEE_JSON would flip the human-readable reports into JSON (#357).
+    delete process.env.PALEE_JSON;
     saveConfig({ vaultPath: tmpDir });
     loggedOutputs = [];
     console.log = (...args: unknown[]) => {
@@ -52,6 +57,11 @@ describe('prerequisite gating is consistent across next/plan/dashboard (#305, #3
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (prevPaleeJson !== undefined) {
+      process.env.PALEE_JSON = prevPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -749,16 +749,36 @@ depends_on: []
 
     test('PALEE_JSON=1 selects JSON for every remaining reading command', async () => {
       // The next/plan cases above cover two of the six; pin the other four so
-      // env-var selection is not silently command-specific (#357).
+      // env-var selection is not silently command-specific (#357). A parsed
+      // object is truthy whatever it holds, so each case names a field: a
+      // command that emitted unrelated JSON, or an empty document, fails here.
       process.env.PALEE_JSON = '1';
       await progressCommand({});
-      assert.ok(getLastParsedJson(), 'progress emits JSON under PALEE_JSON');
+      assert.strictEqual(
+        getLastParsedJson().total_topics,
+        1,
+        'progress emits its own JSON under PALEE_JSON'
+      );
       await dashboardCommand({});
-      assert.ok(getLastParsedJson(), 'dashboard emits JSON under PALEE_JSON');
+      assert.strictEqual(
+        getLastParsedJson().total_topics,
+        1,
+        'dashboard emits its own JSON under PALEE_JSON'
+      );
       await validateCommand({});
-      assert.ok(getLastParsedJson(), 'validate emits JSON under PALEE_JSON');
+      assert.strictEqual(
+        getLastParsedJson().topic_count,
+        1,
+        'validate emits its own JSON under PALEE_JSON'
+      );
       await sessionCommand('list', {});
-      assert.notStrictEqual(getLastParsedJson(), undefined, 'session list emits JSON under PALEE_JSON');
+      const sessions = getLastParsedJson();
+      assert.strictEqual(
+        sessions.total_confirmed,
+        0,
+        'session list emits its own JSON under PALEE_JSON'
+      );
+      assert.ok(Array.isArray(sessions.drafts), 'the session document carries its draft list');
     });
 
     test('PALEE_JSON=true (case-insensitive) restores JSON output without --json flag', async () => {
