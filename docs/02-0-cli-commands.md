@@ -44,7 +44,7 @@ flowchart TD
     LoadCfg --> ValidVault{"src/cli/onboarding.ts:<br/>validateVaultPath()"}
     
     ValidVault -->|"Valid Vault"| Dispatcher["Dispatch Command Handler"]
-    ValidVault -->|"Invalid Vault (Code 2)"| ErrVault["Emit Error<br/>(TTY Text or JSON to stderr)"]
+    ValidVault -->|"Invalid Vault (Code 2)"| ErrVault["Emit Error<br/>(Human Text or JSON to stderr)"]
     
     Dispatcher --> TopEng["Topic Engine<br/>(adopt, roadmap, migrate)"]
     Dispatcher --> SrsEng["SRS Review & Plan Engine<br/>(review, next, plan)"]

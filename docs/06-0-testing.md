@@ -268,9 +268,13 @@ describe('CLI In-Process Stream & JSON-Mode Tests', () => {
   let loggedErrors: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
+  let origConfigDir: string | undefined;
+  let origPaleeJson: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-inproc-test-'));
+    origConfigDir = process.env.PALEE_CONFIG_DIR;
+    origPaleeJson = process.env.PALEE_JSON;
     process.env.PALEE_CONFIG_DIR = tmpDir;
     saveConfig({ vaultPath: tmpDir });
 
@@ -285,8 +289,16 @@ describe('CLI In-Process Stream & JSON-Mode Tests', () => {
     console.log = originalLog;
     console.error = originalError;
     process.exitCode = undefined;
-    delete process.env.PALEE_CONFIG_DIR;
-    delete process.env.PALEE_JSON;
+    if (origConfigDir === undefined) {
+      delete process.env.PALEE_CONFIG_DIR;
+    } else {
+      process.env.PALEE_CONFIG_DIR = origConfigDir;
+    }
+    if (origPaleeJson === undefined) {
+      delete process.env.PALEE_JSON;
+    } else {
+      process.env.PALEE_JSON = origPaleeJson;
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

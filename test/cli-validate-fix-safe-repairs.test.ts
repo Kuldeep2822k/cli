@@ -45,8 +45,12 @@ async function runInTempVault(
   fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify({ vaultPath }, null, 2));
 
   const origConfigDir = process.env.PALEE_CONFIG_DIR;
+  const origPaleeJson = process.env.PALEE_JSON;
   const origExitCode = process.exitCode;
   process.env.PALEE_CONFIG_DIR = tempDir;
+  // Human-output assertions must not depend on the ambient environment:
+  // clear PALEE_JSON for the test body, then restore it.
+  delete process.env.PALEE_JSON;
   process.exitCode = 0;
   try {
     await fn(vaultPath);
@@ -56,6 +60,11 @@ async function runInTempVault(
       process.env.PALEE_CONFIG_DIR = origConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (origPaleeJson !== undefined) {
+      process.env.PALEE_JSON = origPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

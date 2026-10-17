@@ -65,9 +65,15 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         'shared stats must equal the sum of two independent scans'
       );
 
-      const untouched: TocScanStats = { steps: 0 };
-      extractTocLinks('[a](a.md)');
-      assert.strictEqual(untouched.steps, 0, 'an omitted stats object must stay empty');
+      const withStats: TocScanStats = { steps: 0 };
+      const expected = extractTocLinks('[a](a.md)', withStats).map((l) => l.destination);
+      const omitted = extractTocLinks('[a](a.md)').map((l) => l.destination);
+      assert.deepStrictEqual(
+        omitted,
+        expected,
+        'omitting the stats argument must not change the extracted links'
+      );
+      assert.ok(withStats.steps > 0, 'the stats variant still records its steps');
     });
 
     it('keeps document order across a typical module README', () => {

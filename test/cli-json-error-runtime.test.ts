@@ -119,6 +119,7 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
         !raw.includes('{') && !raw.includes('}'),
         'no JSON braces in the human-readable line'
       );
+      assert.strictEqual(loggedOut.length, 0, 'an error payload never rides on stdout');
       assert.strictEqual(process.exitCode, 5);
     });
 
@@ -133,19 +134,6 @@ describe('Reading-command runtime errors keep the machine-readable contract (#32
       assert.strictEqual(process.exitCode, 5);
     });
 
-    test(`${name} without --json keeps the plain-text line`, async () => {
-      await handler({});
-
-      const raw = loggedErr.join('\n').trim();
-      assert.ok(/^Error: /u.test(raw), `human mode stays text, got: ${raw}`);
-      assert.match(raw, /EISDIR/);
-      assert.ok(
-        !raw.includes('{') && !raw.includes('}'),
-        'no JSON braces in the human-readable line'
-      );
-      assert.strictEqual(loggedOut.length, 0);
-      assert.strictEqual(process.exitCode, 5);
-    });
   }
 
   test('the exit-5 payload and the exit-2 payload are the same shape', async () => {
