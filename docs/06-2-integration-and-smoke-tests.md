@@ -89,12 +89,12 @@ Tests in `test/cli-exit-codes.test.ts` (32 tests) systematically verify the 0–
 
 ### Machine-Readable JSON Output (`test/cli-json-output.test.ts`)
 
-Tests in `test/cli-json-output.test.ts` (22 tests) enforce Invariant #45 across all 11 CLI commands:
+Tests in `test/cli-json-output.test.ts` (36 tests) enforce Invariant #45 across all 11 CLI commands:
 
 - **Schema Stability**: Verifies that every command supporting `--json` emits valid, parseable JSON conforming to documented TypeScript interfaces.
 - **Empty State Resilience**: Ensures that uninitialized or empty vaults return structured JSON (with `null` fields or `[]` arrays) rather than crashing.
 - **Error JSON Formatting**: Validates that errors under `--json` emit a structured payload `{ "error": "description" }` to stderr with appropriate exit codes.
-- **Non-TTY Auto-JSON Detection**: Simulates piped environments (`process.stdout.isTTY = false`) and confirms that PALEE automatically activates JSON streaming without requiring the explicit `--json` flag.
+- **Explicit JSON Selection**: Sets `PALEE_JSON=1` and confirms that PALEE emits JSON without requiring the explicit `--json` flag; piping alone keeps the human-readable report (#357).
 
 ### In-Process Session CLI Dispatch (`test/session-cli.test.ts`)
 

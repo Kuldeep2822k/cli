@@ -20,7 +20,7 @@ No path aliases — plain relative imports (`'../types'`, `'./frontmatter'`). Da
 - **Adding a command** requires: a default-exported handler in `src/cli/<name>.ts`, a `.command()...action(handler)` block in `bin/palee.ts`, and a matching `*Options` type in `src/types.ts` for any flags.
 - Every reading handler starts with `loadConfig()` and `const vaultPath = validateVaultPath(config.vaultPath, { json: options?.json }); if (!vaultPath) return;`. On missing/invalid vault, `validateVaultPath` prints to stderr (plain text or structured JSON) and sets `process.exitCode = 2`.
 - Discover notes via `walkVault` + `parseFrontmatter`; filter on `frontmatter.palee_id`. WalkVault skips dot-dirs (`.obsidian`, `.palee`, `.git`), `node_modules`, symlinks — `.palee/` is never scanned as topics.
-- Wrap every handler in try/catch → `emitError(e, options)` (exported from `./onboarding`), then `process.exitCode = exitCodeFor(e); return;`. `emitError` is the one error shape for the whole CLI: `JSON.stringify({ error: message })` on `stderr` when `isJsonOutput(options)` (explicit `--json` **or** non-TTY stdout), plain `Error: ${message}` otherwise. Never let a runtime exception degrade machine output to text, never print a stack from a handler, and never re-derive JSON mode by sniffing `process.argv` — read the parsed `options`. The raw stack is printed only by `bin/palee.ts`'s fatal handler, and only when `PALEE_DEBUG=1`.
+- Wrap every handler in try/catch → `emitError(e, options)` (exported from `./onboarding`), then `process.exitCode = exitCodeFor(e); return;`. `emitError` is the one error shape for the whole CLI: `JSON.stringify({ error: message })` on `stderr` when `isJsonOutput(options)` (explicit `--json` or `PALEE_JSON=1`), plain `Error: ${message}` otherwise. Never let a runtime exception degrade machine output to text, never print a stack from a handler, and never re-derive JSON mode by sniffing `process.argv` — read the parsed `options`. The raw stack is printed only by `bin/palee.ts`'s fatal handler, and only when `PALEE_DEBUG=1`.
 - **Exit codes are load-bearing** (README and CI assert them): `0` success, `1` partial import failure, `2` usage/config, `3` validation failures, `4` OCC lock conflict, `5` unexpected exception.
   - **Standard policy**: Prefer `process.exitCode = N; return;` on success and recoverable errors so Node can cleanly flush buffered `stdout`/`stderr` streams and complete test runner cycles.
   - The top-level fatal handler follows the same rule: it sets `process.exitCode = 5` and returns instead of exiting directly, because exiting via `process.exit` discards writes still queued to a redirected `stdout` — the truncated payload a piped `--json` caller would parse (#320). No shipped path calls it.
@@ -68,7 +68,7 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.
 
 ## Known gaps (fix deliberately, or leave clearly marked)
 
-- `--json` and non-TTY machine output: Implemented across all 6 reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`).
+- `--json` machine output: Implemented across all 6 reading commands (`next`, `plan`, `progress`, `dashboard`, `validate`, `session list`); JSON requires the explicit `--json` flag or `PALEE_JSON=1` — piping alone keeps the human-readable report (#357).
 - `validate --fix` and `session end` are Phase-1 stubs ("not implemented"). `migrate` is read-only and fails closed on unrecognized schemas.
 - `computeTopicMastery()` and `resolveTopicMastery()` are implemented in `src/engine/mastery.ts` using the four-pillar formula `round((c + p + d + 2f) / 5, 4)` with `MASTERY_THRESHOLD = 0.70`; zero active topics ⇒ `global_mastery: null`, never numeric 0.
 - `config set-provider` is a single-string setter; `PaleeConfig` has no `apiKey`/`baseUrl` — blocks Phase-2 AI. Never print secrets from `config show`.
@@ -77,7 +77,7 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `npx tsx bin/palee.
 
 ## Constraints that must never be violated
 
-- Non-AI commands open **no network sockets and no DNS lookups**. Non-TTY output stays machine-readable.
+- Non-AI commands open **no network sockets and no DNS lookups**. Piped/redirected output stays human-readable unless `--json` or `PALEE_JSON=1` is set.
 - AI layer (Phase 2): LLM gets only read-only tools; `record_assessment`/`record_review`/`save_session` are session-manager-only, never registered as model tools. No freeform JSON recovery (fenced JSON, regex, bracket repair, guessing) — structured output only, one bounded retry.
 - Session continuity contract: `hot.md` (≤250 words) loads first, session written before derived views regenerated.
 - No native modules, no SQLite addons; prod deps pure JS (`commander` + `yaml` only — don't add runtime deps casually).

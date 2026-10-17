@@ -246,6 +246,15 @@ PALEE uses standard exit codes to facilitate scripting:
 - `4`: Optimistic concurrency conflict (file was modified by another process)
 - `5`: Unexpected error (e.g., Node.js exception)
 
+## Machine-Readable Output
+
+Commands emit human-readable terminal output by default (even when piped). Pass `--json` or set `PALEE_JSON=1` to emit structured JSON for scripts and automated workflows:
+
+```bash
+palee plan --json | jq '.ready_to_learn[]'
+PALEE_JSON=1 palee next | jq -r '.next.path'
+```
+
 ## Windows Notes
 
 - **Path Normalization**: PALEE natively handles both forward slashes (`/`) and backslashes (`\`) for vault configuration and file references.

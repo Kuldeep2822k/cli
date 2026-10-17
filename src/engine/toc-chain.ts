@@ -68,6 +68,31 @@ export interface TocLink {
 const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /**
+ * Operation counts for one {@link extractTocLinks} scan.
+ *
+ * @remarks A single number on purpose: the complexity guards assert it stays
+ * linear in the input length. It counts every character the scanner's own loop
+ * and walks examine — `indexOf` probes, `findLabelEnd` / `readDestination`
+ * walks, balance/closer table builds — plus one input length for the up-front
+ * markup-blanking pass. Per-link `normalizeTocLink` decoding is linear in the
+ * link text and is deliberately not counted.
+ */
+export interface TocScanStats {
+  steps: number;
+}
+
+/**
+ * Characters examined by a forward `indexOf` probe from `from`.
+ *
+ * @remarks `indexOf` looks at each position from `from` up to and including the
+ * match, or to end-of-text when there is none — so the probe cost is exact
+ * without replacing the native call.
+ */
+function probeSteps(text: string, found: number, from: number): number {
+  return (found < 0 ? text.length : found + 1) - from;
+}
+
+/**
  * Extracts inline markdown link destinations from a document, in order.
  *
  * @param text - Raw markdown of one TOC file
@@ -89,9 +114,15 @@ const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * note that really exists, so a destination that only appears inside one of those
  * regions would still enter the chain and collect a persisted prerequisite from
  * documentation. Same rule, one implementation: {@link stripUnfollowableMarkup}.
+ *
+ * @param text - Raw markdown of one TOC file
+ * @param stats - Optional accumulator receiving the scan's operation count
+ * (see {@link TocScanStats}); the scan adds to any steps already recorded
  */
-export function extractTocLinks(text: string): TocLink[] {
+export function extractTocLinks(text: string, stats?: TocScanStats): TocLink[] {
+  const counter: TocScanStats = stats ?? { steps: 0 };
   const scanned = stripUnfollowableMarkup(text);
+  counter.steps += text.length; // the blanking pass above: one linear read
   const links: TocLink[] = [];
   let i = 0;
   /** Built the first time a label fails to close; see {@link BracketBalance}. */
@@ -105,6 +136,7 @@ export function extractTocLinks(text: string): TocLink[] {
   let angleClosers: AngleClosers | null = null;
   while (i < scanned.length) {
     const open = scanned.indexOf('[', i);
+    counter.steps += probeSteps(scanned, open, i);
     if (open < 0) break;
     // An image's label is not a link.
     if (open > 0 && scanned[open - 1] === '!') {
@@ -124,9 +156,11 @@ export function extractTocLinks(text: string): TocLink[] {
       // loop re-entered it for every remaining `[` — quadratic on a README of
       // stray brackets. If no `]` exists at or after `open`, none exists for any
       // later `[` either, so nothing past here can form a label.
-      if (scanned.indexOf(']', open) < 0) break;
+      const closerProbe = scanned.indexOf(']', open);
+      counter.steps += probeSteps(scanned, closerProbe, open);
+      if (closerProbe < 0) break;
     }
-    const close = findLabelEnd(scanned, open);
+    const close = findLabelEnd(scanned, open, counter);
     if (close < 0) {
       // The walk that just failed is the last full one this scan pays for: from
       // here every open `[` is answered from the balance table instead. Without
@@ -135,7 +169,7 @@ export function extractTocLinks(text: string): TocLink[] {
       // `[` back on the full-walk path. Issue #263 measured that at 64 s for
       // 160 KB of brackets, through the real `deriveTocEnumeration` API, where
       // one such file stalls `adopt --auto-chain` for the whole vault.
-      balance ??= buildBracketBalance(scanned, '[', ']');
+      balance ??= buildBracketBalance(scanned, '[', ']', counter);
       i = open + 1;
       continue;
     }
@@ -144,16 +178,15 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 1;
       continue;
     }
-    // Destination bails, the counterparts of the label pair above. The break
-    // handles the document that holds no `)` at all from here on; the table handles
-    // the one that holds plenty of them but never one at the depth this link's own
-    // `(` left behind.
+    // Destination bails, the counterparts of the label pair above.
+    //
+    // When the table for this form already exists and says the destination
+    // cannot close, answer from it in O(1) — the `)` probe below scans to a
+    // possibly distant `)`, so running it first would put every link back on a
+    // full scan of the remainder (quadratic on stray-angle documents, where the
+    // native probe is merely fast enough to hide under a clock bound).
     const destStart = close + 2;
-    if (scanned.indexOf(')', destStart) < 0) break;
     if (scanned[destStart] === '<') {
-      // The angle form's own bound: paren depth answers nothing about a destination
-      // that closes on `>` plus a plain `)`, so the table above deliberately declines
-      // it (issue #287).
       if (angleClosers !== null && angleCannotClose(angleClosers, destStart)) {
         i = destStart;
         continue;
@@ -164,7 +197,16 @@ export function extractTocLinks(text: string): TocLink[] {
       i = destStart;
       continue;
     }
-    const dest = readDestination(scanned, destStart);
+    // The break handles the document that holds no `)` at all from here on; the
+    // table handles the one that holds plenty of them but never one at the depth
+    // this link's own `(` left behind. The probe still runs once per link, but a
+    // successful link advances past the closer it just found, so the scans never
+    // overlap and the total work stays linear instead of re-walking to a distant
+    // paren for every link.
+    const parenProbe = scanned.indexOf(')', destStart);
+    counter.steps += probeSteps(scanned, parenProbe, destStart);
+    if (parenProbe < 0) break;
+    const dest = readDestination(scanned, destStart, counter);
     if (!dest) {
       // The destination counterpart of the label defect: a document whose
       // destinations never balance — `[a](b(c) ` repeated, where every `)` is
@@ -178,8 +220,8 @@ export function extractTocLinks(text: string): TocLink[] {
       // construction, and left the angle walk as unbounded as it had been —
       // `'[a](<b'.repeat(10 000) + ')'` still cost 1.7 s until the closer table
       // existed.
-      if (scanned[destStart] === '<') angleClosers ??= buildAngleClosers(scanned);
-      else destBalance ??= buildBracketBalance(scanned, '(', ')');
+      if (scanned[destStart] === '<') angleClosers ??= buildAngleClosers(scanned, counter);
+      else destBalance ??= buildBracketBalance(scanned, '(', ')', counter);
       i = destStart;
       continue;
     }
@@ -196,9 +238,10 @@ export function extractTocLinks(text: string): TocLink[] {
  * Returns `-1` only after walking the rest of the text, which is the cost
  * {@link buildBracketBalance} exists to make unnecessary the second time.
  */
-function findLabelEnd(text: string, open: number): number {
+function findLabelEnd(text: string, open: number, counter: TocScanStats): number {
   let depth = 0;
   for (let i = open; i < text.length; i++) {
+    counter.steps++;
     if (text[i] === '\\') {
       i++;
       continue;
@@ -245,12 +288,13 @@ interface BracketBalance {
  * @param openCh - The delimiter that raises the depth
  * @param closeCh - The delimiter that lowers it, and that a failing scan is looking for
  */
-function buildBracketBalance(text: string, openCh: string, closeCh: string): BracketBalance {
+function buildBracketBalance(text: string, openCh: string, closeCh: string, counter: TocScanStats): BracketBalance {
   const length = text.length;
   const after = new Int32Array(length);
   const minFrom = new Int32Array(length + 1);
   let bal = 0;
   let i = 0;
+  counter.steps += length; // forward pass: every character examined once
   while (i < length) {
     const ch = text[i];
     if (ch === '\\') {
@@ -274,6 +318,7 @@ function buildBracketBalance(text: string, openCh: string, closeCh: string): Bra
   const noCloser = 0x7fffffff;
   minFrom[length] = noCloser;
   let lowest = noCloser;
+  counter.steps += length; // backward pass: every character examined once
   for (let j = length - 1; j >= 0; j--) {
     if (after[j] < lowest) lowest = after[j];
     minFrom[j] = lowest;
@@ -334,7 +379,7 @@ interface AngleClosers {
  * Paid for at most once per scan, and only after an angle destination has already
  * failed to close.
  */
-function buildAngleClosers(text: string): AngleClosers {
+function buildAngleClosers(text: string, counter: TocScanStats): AngleClosers {
   const length = text.length;
   const gt = new Int32Array(length + 1).fill(-1);
   const rp = new Int32Array(length + 1).fill(-1);
@@ -345,6 +390,7 @@ function buildAngleClosers(text: string): AngleClosers {
   // promote a `>` the walk would have taken for data, nor hide one it would have
   // honoured. `\d` is two literal characters and stops nowhere near a delimiter.
   let i = 0;
+  counter.steps += length; // forward pass: every character examined once
   while (i < length) {
     if (text[i] === '\\' && i + 1 < length && isAsciiPunctuation(text[i + 1])) {
       i += 2;
@@ -359,6 +405,7 @@ function buildAngleClosers(text: string): AngleClosers {
   // a tidier rule here would refuse to walk documents the walk closes successfully.
   let nextGt = -1;
   let nextRp = -1;
+  counter.steps += length; // backward pass: every character examined once
   for (let j = length - 1; j >= 0; j--) {
     if (candidate[j] === 1) nextGt = j;
     if (text[j] === ')') nextRp = j;
@@ -485,11 +532,12 @@ function looksLikeTitle(rest: string): boolean {
  * missing note (or, worse, onto an unrelated note with the truncated name) and
  * silently lost the author's ordering edge.
  */
-function readDestination(text: string, start: number): RawDestination | null {
+function readDestination(text: string, start: number, counter: TocScanStats): RawDestination | null {
   if (start >= text.length) return null;
   if (text[start] === '<') {
     let out = '';
     for (let i = start + 1; i < text.length; i++) {
+      counter.steps++;
       const ch = text[i];
       if (ch === '\\' && i + 1 < text.length && isAsciiPunctuation(text[i + 1])) {
         // The escape grammar here is the *same* {@link isAsciiPunctuation} rule
@@ -509,6 +557,7 @@ function readDestination(text: string, start: number): RawDestination | null {
       }
       if (ch === '>') {
         const close = text.indexOf(')', i + 1);
+        counter.steps += probeSteps(text, close, i + 1);
         if (close < 0) return null;
         return { raw: out, next: close + 1 };
       }
@@ -526,6 +575,7 @@ function readDestination(text: string, start: number): RawDestination | null {
     else out += ch;
   };
   for (let i = start; i < text.length; i++) {
+    counter.steps++;
     const ch = text[i];
     if (ch === '\\' && i + 1 < text.length) {
       const next = text[i + 1];

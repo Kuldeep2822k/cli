@@ -57,17 +57,8 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
     return JSON.parse(raw);
   }
 
-  // Text (human) output requires a TTY: under `node --test` stdout is piped, so
-  // isJsonOutput() would auto-switch to JSON (src/cli/onboarding.ts:28).
-  const originalIsTTY = process.stdout.isTTY;
-
-  function asTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-  }
-
-  function restoreTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
-  }
+  // Human-readable output is the default regardless of TTY state: isJsonOutput()
+  // only switches to JSON on the explicit --json flag or PALEE_JSON (#357).
 
   function seedVault() {
     fs.writeFileSync(
@@ -225,18 +216,13 @@ depends_on:
     });
 
     test('text output omits archived topics from lists and totals', async () => {
-      asTTY();
-      try {
-        await planCommand({});
-        const text = loggedOutputs.join('\n');
-        assert.match(text, /Ready to Learn: 1/);
-        assert.match(text, /Reviews Due: 1/);
-        assert.doesNotMatch(text, /Archived Topic/, 'archived topic must not be listed in the plan');
-        assert.match(text, /Total Topics: 2 \(1 archived\)/);
-        assert.match(text, /New: 0/);
-      } finally {
-        restoreTTY();
-      }
+      await planCommand({});
+      const text = loggedOutputs.join('\n');
+      assert.match(text, /Ready to Learn: 1/);
+      assert.match(text, /Reviews Due: 1/);
+      assert.doesNotMatch(text, /Archived Topic/, 'archived topic must not be listed in the plan');
+      assert.match(text, /Total Topics: 2 \(1 archived\)/);
+      assert.match(text, /New: 0/);
     });
   });
 
@@ -267,16 +253,11 @@ depends_on:
     });
 
     test('text output does not count archived in New line', async () => {
-      asTTY();
-      try {
-        await dashboardCommand({});
-        const text = loggedOutputs.join('\n');
-        assert.match(text, /^New:\s+0\s/m);
-        assert.doesNotMatch(text, /Archived Topic/);
-        assert.match(text, /Total Topics:\s+2 \(1 archived\)/);
-      } finally {
-        restoreTTY();
-      }
+      await dashboardCommand({});
+      const text = loggedOutputs.join('\n');
+      assert.match(text, /^New:\s+0\s/m);
+      assert.doesNotMatch(text, /Archived Topic/);
+      assert.match(text, /Total Topics:\s+2 \(1 archived\)/);
     });
 
     test('archived-only vault still reports zeroed active stats', async () => {

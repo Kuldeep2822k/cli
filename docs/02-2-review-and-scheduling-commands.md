@@ -151,7 +151,7 @@ palee next [flags]
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | `--all` | `boolean` | `false` | Display all overdue topics in the queue instead of only the single highest-priority topic. | `palee next --all` |
-| `--json` | `boolean` | `false` | Output results in structured JSON format (auto-activated in non-TTY environments). | `palee next --json` |
+| `--json` | `boolean` | `false` | Output results in structured JSON format (`PALEE_JSON=1` also works). | `palee next --json` |
 
 ---
 
@@ -223,9 +223,13 @@ $ palee next --all
     Path: Rust/02-ownership.md
 ```
 
-#### Piped JSON Output (Automatic Non-TTY Detection)
+#### JSON Output for Piping (Explicit Opt-In)
+
+JSON output requires the explicit `--json` flag or `PALEE_JSON=1`; piping alone
+keeps the human-readable report (#357).
+
 ```bash
-$ palee next | jq .
+$ palee next --json | jq .
 {
   "next": {
     "id": "T-20260814T120000-abcd",
@@ -268,7 +272,7 @@ palee plan [flags]
 
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `--json` | `boolean` | `false` | Output complete topological learning plan as JSON (auto-activated in non-TTY environments). | `palee plan --json` |
+| `--json` | `boolean` | `false` | Output complete topological learning plan as JSON (`PALEE_JSON=1` also works). | `palee plan --json` |
 
 ---
 

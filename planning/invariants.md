@@ -43,7 +43,7 @@ Every invariant is addressed by its stable `INV-` ID (for example `INV-11`), nev
 - **INV-27** — Resolution precedence is exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match.
 - **INV-28** — Ambiguous matches require interactive selection or return a deterministic non-interactive error.
 - **INV-29** — Non-AI commands open no network sockets.
-- **INV-30** — `--json` and non-TTY output contain no ANSI control sequences.
+- **INV-30** — `--json`/`PALEE_JSON` output contains no ANSI control sequences.
 
 ## Roadmaps
 

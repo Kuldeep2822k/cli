@@ -10,10 +10,72 @@ import {
   isInNumberedTree,
   composeTieredChain,
   parseAutoChainTier,
+  type TocLink,
+  type TocScanStats,
 } from '../src/engine/toc-chain';
 
 describe('TOC tier engine (PAL-205-C3)', () => {
   describe('extractTocLinks', () => {
+    /**
+     * Runs the scanner with operation counting: links plus the number of
+     * characters the scanner's walks examined (see TocScanStats).
+     */
+    function scanCounted(text: string): { links: TocLink[]; steps: number } {
+      const stats: TocScanStats = { steps: 0 };
+      const links = extractTocLinks(text, stats);
+      return { links, steps: stats.steps };
+    }
+
+    /**
+     * Complexity guard, judged in operations rather than wall-clock time so it
+     * is deterministic on any host. `large` is 4x `small`: a linear scan costs
+     * ~4x the operations, while a regressed walk re-scans the remainder per
+     * candidate and costs ~16x — red under the 6x bound, green with headroom.
+     * The absolute bound pins the constant factor too.
+     */
+    function assertLinearGrowth(label: string, smallSteps: number, largeSteps: number, largeLength: number): void {
+      assert.ok(
+        largeSteps < 6 * smallSteps,
+        `${label}: 4x input cost ${largeSteps} vs ${smallSteps} ops — a walk is being repeated`
+      );
+      assert.ok(
+        largeSteps < 20 * largeLength,
+        `${label}: ${largeSteps} ops for ${largeLength} chars is not a linear scan`
+      );
+    }
+
+    it('accumulates steps into a pre-populated TocScanStats across calls', () => {
+      // The docstring promises the scan "adds to any steps already recorded":
+      // two scans sharing one stats object must total both scans' work, and a
+      // scan with no stats argument must not disturb anyone else's object.
+      const shared: TocScanStats = { steps: 0 };
+      extractTocLinks('[a](a.md)', shared);
+      const afterFirst = shared.steps;
+      assert.ok(afterFirst > 0, 'a scan must record steps');
+      extractTocLinks('[b](b.md)', shared);
+      assert.ok(shared.steps > afterFirst, 'the second scan must add to the recorded steps');
+
+      const soloA: TocScanStats = { steps: 0 };
+      extractTocLinks('[a](a.md)', soloA);
+      const soloB: TocScanStats = { steps: 0 };
+      extractTocLinks('[b](b.md)', soloB);
+      assert.strictEqual(
+        shared.steps,
+        soloA.steps + soloB.steps,
+        'shared stats must equal the sum of two independent scans'
+      );
+
+      const withStats: TocScanStats = { steps: 0 };
+      const expected = extractTocLinks('[a](a.md)', withStats).map((l) => l.destination);
+      const omitted = extractTocLinks('[a](a.md)').map((l) => l.destination);
+      assert.deepStrictEqual(
+        omitted,
+        expected,
+        'omitting the stats argument must not change the extracted links'
+      );
+      assert.ok(withStats.steps > 0, 'the stats variant still records its steps');
+    });
+
     it('keeps document order across a typical module README', () => {
       const md = [
         '# Module 01',
@@ -77,20 +139,20 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // so a README full of stray brackets used to re-scan the whole remainder for
     // every candidate: 200 KB of `[` stalled `adopt --auto-chain` for close to
     // two minutes at 100 % CPU. `deriveTocEnumeration` reads every README in the
-    // vault unattended, so one pathological file was enough. The bound is loose
-    // on purpose — the defect it detects costs seconds, not milliseconds.
+    // vault unattended, so one pathological file was enough. Judged in operations
+    // (see TocScanStats), not milliseconds: a wall-clock bound is red on a loaded
+    // host and green on a fast one for the same code.
     it('stays linear on a pathological run of stray brackets', () => {
-      for (const [label, junk] of [
-        ['unopened labels', '['.repeat(100000)],
-        ['unclosed destinations', '[x]('.repeat(50000)],
+      for (const [label, build] of [
+        ['unopened labels', (n: number) => `[L](d/l.md)\n${'['.repeat(n)}`],
+        ['unclosed destinations', (n: number) => `[L](d/l.md)\n${'[x]('.repeat(n)}`],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(`[L](d/l.md)\n${junk}`)
-          .map((l) => l.destination)
-          .filter(Boolean);
-        const elapsed = performance.now() - started;
+        const smallSteps = scanCounted(build(25000)).steps;
+        const largeText = build(100000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter(Boolean);
         assert.ok(targets.includes('d/l.md'), `${label}: the real link must still be found`);
-        assert.ok(elapsed < 2000, `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -99,28 +161,23 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // diff — defeated it and put every `[` back on the quadratic path, each
     // paying a full `findLabelEnd` walk to end-of-text. Measured on the unfixed
     // scanner with `'['.repeat(N) + ']'`: 20 000 brackets 0.6 s, 40 000 2.8 s,
-    // 80 000 20 s, 160 000 82 s. This 100 000-bracket case took 17.8 s there and
-    // ~2 ms linearised, so the bound below is ~9x under the defect and ~1000x
-    // over the fix: red on any return of the rescan, green on a loaded host.
+    // 80 000 20 s, 160 000 82 s. Judged in operations now: the regressed walk
+    // costs ~16x for 4x input, the linearised scan ~4x.
     it('does not rescan every label when one stray ] defeats the no-closer bail', () => {
-      for (const [label, junk] of [
-        ['run of opens closed once', `${'['.repeat(100000)}]`],
-        ['real links on both sides of the junk', `[L](d/l.md)\n${'['.repeat(100000)}]\n[ok](b.md)`],
+      for (const [label, build, expected] of [
+        ['run of opens closed once', (n: number) => `${'['.repeat(n)}]`, []],
+        [
+          'real links on both sides of the junk',
+          (n: number) => `[L](d/l.md)\n${'['.repeat(n)}]\n[ok](b.md)`,
+          ['d/l.md', 'b.md'],
+        ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(junk)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a label scan is being repeated`
-        );
-        if (label === 'run of opens closed once') {
-          assert.deepStrictEqual(targets, [], 'a run of stray brackets enumerates nothing');
-        } else {
-          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
-        }
+        const smallSteps = scanCounted(build(25000)).steps;
+        const largeText = build(100000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -133,28 +190,22 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // 180 KB 5.8 s, 360 KB 20 s, 720 KB 79 s. `TOC_MAX_SOURCE_BYTES` caps a
     // document at 512 KiB, which still leaves ~40 s for one pathological README and
     // an unbounded aggregate over a vault, because `deriveTocEnumeration` reads
-    // every one of them. Bound chosen the same way as the label case above: ~10x
-    // under the defect at this size, far over the linearised scan.
+    // every one of them. Judged in operations now: ~16x for 4x input when regressed.
     it('does not rescan every destination when none of them balances', () => {
-      const junk = '[a](b(c) '.repeat(40000);
-      for (const [label, text] of [
-        ['run of unbalanced destinations', junk],
-        ['real links on both sides of the junk', `[L](d/l.md)\n${junk}\n[ok](b.md)`],
+      for (const [label, build, expected] of [
+        ['run of unbalanced destinations', (reps: number) => '[a](b(c) '.repeat(reps), []],
+        [
+          'real links on both sides of the junk',
+          (reps: number) => `[L](d/l.md)\n${'[a](b(c) '.repeat(reps)}\n[ok](b.md)`,
+          ['d/l.md', 'b.md'],
+        ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(text)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a destination scan is being repeated`
-        );
-        if (label === 'run of unbalanced destinations') {
-          assert.deepStrictEqual(targets, [], 'a run of unbalanced destinations enumerates nothing');
-        } else {
-          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
-        }
+        const smallSteps = scanCounted(build(10000)).steps;
+        const largeText = build(40000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -164,32 +215,25 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // README of stray angle brackets therefore restarts a scan of the rest of the file
     // for every preceding `[`. Measured on the unfixed scanner, over
     // `'[a](<b'.repeat(N) + ')'`: 2 500 → 119 ms, 5 000 → 444 ms, 10 000 → 4 746 ms,
-    // ~quadratic in N, so 20 000 → ~19 s. 10 000 cleared the defect by only ~2.4x of
-    // the 2000 ms bound — too thin a margin against a fast runner that could race a
-    // regressed walk under the clock — so this uses 20 000 to match the ~9x headroom the
-    // two guards above keep. Note the second case holds both delimiters — the walk is
-    // unbounded when a `>` exists but no `)` follows it, which no single-character
-    // bail can see.
+    // ~quadratic in N. Judged in operations now: ~16x for 4x input when regressed.
+    // Note the second case holds both delimiters — the walk is unbounded when a `>`
+    // exists but no `)` follows it, which no single-character bail can see.
     it('does not rescan every angle destination when none of them closes', () => {
-      for (const [label, text, expected] of [
-        ['no unescaped > at all', `${'[a](<b'.repeat(20000)})`, []],
-        ['a > with no ) after it', `${'[a](<b'.repeat(20000)})>`, []],
+      for (const [label, build, expected] of [
+        ['no unescaped > at all', (n: number) => `${'[a](<b'.repeat(n)})`, []],
+        ['a > with no ) after it', (n: number) => `${'[a](<b'.repeat(n)})>`, []],
         [
           'real links on both sides of the junk',
-          `[L](d/l.md)\n${'[a](<b'.repeat(20000)}\n[ok](b.md)`,
+          (n: number) => `[L](d/l.md)\n${'[a](<b'.repeat(n)}\n[ok](b.md)`,
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(text)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — an angle destination scan is being repeated`
-        );
-        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the bound`);
+        const smallSteps = scanCounted(build(5000)).steps;
+        const largeText = build(20000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 

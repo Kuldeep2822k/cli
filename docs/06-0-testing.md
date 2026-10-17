@@ -52,7 +52,7 @@ The table below catalogs the 19 architectural-layer test files in the `test/` di
 | **1** | `test/cli-adopt-batch.test.ts` | `CLI Adopt Batch Integration Tests` | 9 | CLI Integration | Batch note adoption (`--all`, directory targets, `--dry-run`, `--tag`, `--include`, `--exclude`, `-y`), non-interactive exit code 2, vault escape exit code 2, note title fallback extraction (frontmatter $\rightarrow$ H1 $\rightarrow$ filename), idempotent skipping. |
 | **2** | `test/cli-commands.test.ts` | `CLI Commands` | 19 | CLI Integration | End-to-end command pipeline (`config`, `adopt`, `roadmap`, `review`, `plan`, `progress`, `dashboard`, `session`), Markdown frontmatter preservation, lock conflict exit code 4, OCC collision detection, date string handling. |
 | **3** | `test/cli-exit-codes.test.ts` | `CLI Command In-Process Exit Codes & Coverage` | 32 | CLI Core / Process | In-process handler invocation verifying deterministic exit codes: 0 (success), 2 (usage/validation), 3 (schema/cycle error), 4 (concurrency conflict), 5 (unhandled runtime exception). |
-| **4** | `test/cli-json-output.test.ts` | `CLI Machine-Readable --json Output (Invariant #45)` | 22 | CLI JSON Contracts | Machine-readable `--json` contract testing across all commands; empty vault defaults (nulls/empty lists); populated vault schemas; stderr error JSON; automatic non-TTY auto-JSON activation when `stdout.isTTY === false`. |
+| **4** | `test/cli-json-output.test.ts` | `CLI Machine-Readable --json Output (Invariant #45)` | 36 | CLI JSON Contracts | Machine-readable `--json` contract testing across all commands; empty vault defaults (nulls/empty lists); populated vault schemas; stderr error JSON; explicit JSON selection via `--json` flag or `PALEE_JSON` (piping alone keeps human-readable output, #357). |
 | **5** | `test/engine-dependency.test.ts` | `Dependency Graph` | 7 | Engine Core | Pure graph algorithms over canonical `depends_on`: 3-color DFS cycle detection (`detectCycle`), frontier readiness filtering (`getReadyTopics`), missing dependency validation (`validateDependencyGraph`). Alias unioning is covered at the storage layer (row 13). |
 | **6** | `test/engine-mastery.test.ts` | `Mastery Engine & Threshold` | 11 | Engine Core | 4-Pillar Pedagogical Mastery formula $(c + p + d + 2f) / 5$, `MASTERY_THRESHOLD = 0.70`, 40% Feynman weight, score normalization/clamping $[0.0, 1.0]$, 4-decimal rounding. |
 | **7** | `test/engine-sm2.test.ts` | `SM-2 Algorithm` | 15 | Engine Core | SuperMemo SM-2 interval progression (1 $\rightarrow$ 6 $\rightarrow$ $I \times EF$), quality rating bounds $[0, 5]$, ease factor clamping ($\ge 1.30$), lapse tracking, and local calendar due date arithmetic. |
@@ -247,9 +247,11 @@ describe('CLI Subprocess Integration Tests', () => {
 });
 ```
 
-### 3. Stream & TTY Mocking Test Boilerplate (`process.stdout.isTTY = false`)
+### 3. Stream & JSON-Mode Test Boilerplate (`PALEE_JSON`)
 
-Use this template for in-process testing of command outputs, non-TTY auto-JSON detection, and exit code propagation:
+Use this template for in-process testing of command outputs, explicit JSON-mode
+selection, and exit code propagation. JSON mode is selected only by the explicit
+`--json` flag or `PALEE_JSON=1` — piping/`isTTY` no longer switches formats (#357):
 
 ```typescript
 import { describe, test, beforeEach, afterEach } from 'node:test';
@@ -260,16 +262,19 @@ import os from 'node:os';
 import { nextCommand } from '../src/cli/next';
 import { saveConfig } from '../src/cli/config';
 
-describe('CLI In-Process Stream & Non-TTY Auto-JSON Tests', () => {
+describe('CLI In-Process Stream & JSON-Mode Tests', () => {
   let tmpDir: string;
   let loggedOutputs: string[] = [];
   let loggedErrors: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  const originalIsTTY = process.stdout.isTTY;
+  let origConfigDir: string | undefined;
+  let origPaleeJson: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-inproc-test-'));
+    origConfigDir = process.env.PALEE_CONFIG_DIR;
+    origPaleeJson = process.env.PALEE_JSON;
     process.env.PALEE_CONFIG_DIR = tmpDir;
     saveConfig({ vaultPath: tmpDir });
 
@@ -283,15 +288,23 @@ describe('CLI In-Process Stream & Non-TTY Auto-JSON Tests', () => {
   afterEach(() => {
     console.log = originalLog;
     console.error = originalError;
-    process.stdout.isTTY = originalIsTTY;
     process.exitCode = undefined;
-    delete process.env.PALEE_CONFIG_DIR;
+    if (origConfigDir === undefined) {
+      delete process.env.PALEE_CONFIG_DIR;
+    } else {
+      process.env.PALEE_CONFIG_DIR = origConfigDir;
+    }
+    if (origPaleeJson === undefined) {
+      delete process.env.PALEE_JSON;
+    } else {
+      process.env.PALEE_JSON = origPaleeJson;
+    }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('non-TTY environment automatically triggers JSON output', async () => {
-    // Simulate non-interactive piped environment (e.g. palee next | jq)
-    process.stdout.isTTY = false;
+  test('PALEE_JSON=1 selects JSON output without the --json flag', async () => {
+    // Explicit opt-in for machine consumers (e.g. palee next --json | jq)
+    process.env.PALEE_JSON = '1';
 
     await nextCommand({});
     assert.strictEqual(process.exitCode, undefined);

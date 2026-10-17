@@ -655,12 +655,14 @@ depends_on: []
     });
   });
 
-  describe('Non-TTY (Piped/Redirected) Auto-JSON Selection', () => {
-    const originalIsTTY = process.stdout.isTTY;
+  describe('Non-TTY (Piped/Redirected) Output Selection (#357)', () => {
+    let prevPaleeJson: string | undefined;
 
     beforeEach(() => {
-      // Mock piped/redirected stdout
-      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      // Piping/redirecting must NOT switch to JSON on its own anymore: JSON
+      // requires the explicit --json flag or PALEE_JSON.
+      prevPaleeJson = process.env.PALEE_JSON;
+      delete process.env.PALEE_JSON;
 
       // Create a topic in tmpDir
       fs.writeFileSync(
@@ -683,10 +685,61 @@ depends_on: []
     });
 
     afterEach(() => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+      if (prevPaleeJson !== undefined) {
+        process.env.PALEE_JSON = prevPaleeJson;
+      } else {
+        delete process.env.PALEE_JSON;
+      }
     });
 
-    test('next on non-TTY automatically outputs JSON without --json flag', async () => {
+    function allOutput(): string {
+      const raw = loggedOutputs.join('\n');
+      assert.ok(raw.trim(), 'Expected console.log output');
+      return raw;
+    }
+
+    /** Human-readable reports are multi-line prose/tables, never a JSON document. */
+    function assertHumanReadable(raw: string): void {
+      assert.throws(
+        () => JSON.parse(raw),
+        'piped output without --json must stay human-readable, not JSON'
+      );
+    }
+
+    test('next on non-TTY without --json keeps the human-readable report', async () => {
+      await nextCommand({});
+      const raw = allOutput();
+      assertHumanReadable(raw);
+      assert.match(raw, /Next topic due for review:/);
+    });
+
+    test('plan on non-TTY without --json keeps the human-readable report', async () => {
+      await planCommand({});
+      assertHumanReadable(allOutput());
+    });
+
+    test('progress on non-TTY without --json keeps the human-readable report', async () => {
+      await progressCommand({});
+      assertHumanReadable(allOutput());
+    });
+
+    test('dashboard on non-TTY without --json keeps the human-readable report', async () => {
+      await dashboardCommand({});
+      assertHumanReadable(allOutput());
+    });
+
+    test('validate on non-TTY without --json keeps the human-readable report', async () => {
+      await validateCommand({});
+      assertHumanReadable(allOutput());
+    });
+
+    test('session list on non-TTY without --json keeps the human-readable report', async () => {
+      await sessionCommand('list', {});
+      assertHumanReadable(allOutput());
+    });
+
+    test('PALEE_JSON=1 restores JSON output without --json flag', async () => {
+      process.env.PALEE_JSON = '1';
       await nextCommand({});
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 1);
@@ -694,39 +747,60 @@ depends_on: []
       assert.strictEqual(data.next.id, 'T-topic-tty');
     });
 
-    test('plan on non-TTY automatically outputs JSON without --json flag', async () => {
+    test('PALEE_JSON=1 selects JSON for every remaining reading command', async () => {
+      // The next/plan cases above cover two of the six; pin the other four so
+      // env-var selection is not silently command-specific (#357). A parsed
+      // object is truthy whatever it holds, so each case names a field: a
+      // command that emitted unrelated JSON, or an empty document, fails here.
+      process.env.PALEE_JSON = '1';
+      await progressCommand({});
+      assert.strictEqual(
+        getLastParsedJson().total_topics,
+        1,
+        'progress emits its own JSON under PALEE_JSON'
+      );
+      await dashboardCommand({});
+      assert.strictEqual(
+        getLastParsedJson().total_topics,
+        1,
+        'dashboard emits its own JSON under PALEE_JSON'
+      );
+      await validateCommand({});
+      assert.strictEqual(
+        getLastParsedJson().topic_count,
+        1,
+        'validate emits its own JSON under PALEE_JSON'
+      );
+      await sessionCommand('list', {});
+      const sessions = getLastParsedJson();
+      assert.strictEqual(
+        sessions.total_confirmed,
+        0,
+        'session list emits its own JSON under PALEE_JSON'
+      );
+      assert.ok(Array.isArray(sessions.drafts), 'the session document carries its draft list');
+    });
+
+    test('PALEE_JSON=true (case-insensitive) restores JSON output without --json flag', async () => {
+      process.env.PALEE_JSON = 'TRUE';
       await planCommand({});
       const data = getLastParsedJson();
       assert.strictEqual(data.total_topics, 1);
       assert.strictEqual(data.counts.due, 1);
     });
 
-    test('progress on non-TTY automatically outputs JSON without --json flag', async () => {
-      await progressCommand({});
-      const data = getLastParsedJson();
-      assert.strictEqual(data.total_topics, 1);
-      assert.strictEqual(data.by_difficulty.beginner.total, 1);
+    test("PALEE_JSON='false' keeps the human-readable report (only '1'/'true' opt in)", async () => {
+      process.env.PALEE_JSON = 'false';
+      await nextCommand({});
+      const raw = allOutput();
+      assertHumanReadable(raw);
+      assert.match(raw, /Next topic due for review:/);
     });
 
-    test('dashboard on non-TTY automatically outputs JSON without --json flag', async () => {
-      await dashboardCommand({});
-      const data = getLastParsedJson();
-      assert.strictEqual(data.total_topics, 1);
-      assert.strictEqual(data.reviews_due, 1);
-    });
-
-    test('validate on non-TTY automatically outputs JSON without --json flag', async () => {
-      await validateCommand({});
-      const data = getLastParsedJson();
-      assert.strictEqual(data.valid, true);
-      assert.strictEqual(data.topic_count, 1);
-    });
-
-    test('session list on non-TTY automatically outputs JSON without --json flag', async () => {
-      await sessionCommand('list', {});
-      const data = getLastParsedJson();
-      assert.strictEqual(data.total_confirmed, 0);
-      assert.strictEqual(data.total_drafts, 0);
+    test("PALEE_JSON='0' keeps the human-readable report (only '1'/'true' opt in)", async () => {
+      process.env.PALEE_JSON = '0';
+      await planCommand({});
+      assertHumanReadable(allOutput());
     });
   });
 });
