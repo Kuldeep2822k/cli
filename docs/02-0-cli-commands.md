@@ -16,6 +16,8 @@
 - [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts)
 - [src/cli/migrate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/migrate.ts)
 - [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
+- [src/cli/update.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/update.ts)
+- [src/cli/update-check.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/update-check.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/cli-exit-codes.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-exit-codes.test.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
@@ -60,7 +62,7 @@ flowchart TD
 
 ## Exit Code Contract (0 to 5)
 
-PALEE adheres to a strict, standardized exit code contract across all 12 commands. Automated CI/CD pipelines, shell scripts, and editor plugins can rely deterministically on these exit codes:
+PALEE adheres to a strict, standardized exit code contract across all 13 commands. Automated CI/CD pipelines, shell scripts, and editor plugins can rely deterministically on these exit codes:
 
 > The binding decisions behind this contract — the single `exitCodeFor` classifier and the `process.exitCode`-never-`process.exit` flush policy — are recorded in ADR-0024. The per-command surface contracts it stabilizes live in the CLI backfill ADRs: readiness/blocked reporting (ADR-0020), the assessment surface (ADR-0021), adoption (ADR-0022), and `migrate --relabel-ties` (ADR-0023).
 
@@ -91,6 +93,7 @@ The following matrix documents the exact behavior of every command under each ex
 | `palee migrate` | All notes verified to be on current schema (`palee_schema: 1`). | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | OCC mid-air collision or active file lock hit while writing a note during `migrate --fix`; remaining notes are still processed. | Unexpected runtime exception or YAML parse failure. |
 | `palee session` | Session lifecycle action (`start`, `draft`, `end`, `list`) completed successfully. | N/A | Unconfigured vault, a `draft`/`end` with no `--topic` and no active topic, `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or storage directory error. |
 | `palee dashboard` | Successfully rendered high-level dashboard metrics or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or calculation failure. |
+| `palee update` | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. | N/A | Commander's own usage path: an unknown option or an unexpected positional argument. | N/A | N/A | npm could not be resolved (`ENOENT`), the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
 
 ---
 
