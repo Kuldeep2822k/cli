@@ -29,6 +29,12 @@
 
   "packageRules": [
     {
+      "description": "TypeScript is capped below 7 until typescript-eslint ships support: the parser's peer range is typescript >=4.8.4 <6.1.0 (typescript-eslint#10940 tracks TS 7), so bumps to 7 fail npm ci with ERESOLVE before any code runs.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7",
+      "labels": ["dependencies"]
+    },
+    {
       "description": "Major updates age-gate 30 days, carry the breaking label, and are never automerged.",
       "matchUpdateTypes": ["major"],
       "minimumReleaseAge": "30 days",
