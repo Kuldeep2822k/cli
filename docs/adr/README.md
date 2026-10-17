@@ -33,4 +33,5 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0027: The AI Provider Adapter and Its Network Boundary](./0027-ai-provider-boundary.md)
 - [ADR-0028: Phase-2 Design Directions](./0028-phase-2-design-directions.md)
 - [ADR-0029: Test-Time CLI Launch Policy](./0029-test-cli-launch-policy.md)
+- [ADR-0030: Installed-Artifact CI Evidence](./0030-installed-artifact-ci-evidence.md)
 
