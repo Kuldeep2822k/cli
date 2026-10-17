@@ -1,0 +1,22 @@
+name: CodeRabbit Trigger Probe
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      issues: write
+
+    steps:
+      - name: Post one CodeRabbit rate-limit probe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment 458 \
+            --repo Kuldeep2822k/cli \
+            --body "@coderabbitai rate limit"
