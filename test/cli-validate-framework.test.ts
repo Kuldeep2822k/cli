@@ -101,7 +101,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     assert.strictEqual(data.valid, true);
     assert.strictEqual(data.error_count, 0);
     assert.strictEqual(data.warning_count, 1);
@@ -117,7 +119,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     assert.strictEqual(data.valid, false);
     assert.strictEqual(data.error_count, 1);
     assert.strictEqual(data.errors[0].type, 'duplicate_id');
@@ -130,7 +134,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     assert.strictEqual(data.valid, true);
     assert.strictEqual(data.error_count, 0);
     assert.strictEqual(data.warning_count, 1);
@@ -269,7 +275,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     // Errors: none — the session's shape is valid; its topic ref and
     // the index entries are warnings.
     assert.strictEqual(data.error_count, 0);
@@ -296,7 +304,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     assert.strictEqual(data.valid, false);
     assert.strictEqual(data.errors[0].rule_id, 'valid-session-schema');
     assert.strictEqual(process.exitCode, 3);
@@ -314,7 +324,9 @@ describe('validate command: framework wiring (#25)', () => {
 
     await validateCommand({ json: true });
 
-    const data = JSON.parse(loggedOutputs[loggedOutputs.length - 1]);
+    const rawOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(rawOutput, 'Expected at least one console.log output');
+    const data = JSON.parse(rawOutput);
     // The BOM'd topic IS in the snapshot — it would otherwise vanish
     // (topic_count would be 0 with a clean pass and zero findings).
     assert.strictEqual(data.topic_count, 1);

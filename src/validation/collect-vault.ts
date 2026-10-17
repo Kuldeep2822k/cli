@@ -64,7 +64,10 @@ function collectVault(
   // bytes feed parse outcomes and topic normalization (no second read, no
   // cache revalidation that could observe a different version mid-scan).
   const notes = scanNotes(vaultPath, {
-    files: options.files,
+    // `ScanNotesOptions.files` does not admit an explicit `undefined` under
+    // `exactOptionalPropertyTypes`, so the key is omitted (not
+    // undefined-valued) when the caller passed no file list.
+    ...(options.files === undefined ? {} : { files: options.files }),
     includeContent: true,
   });
   // Every scanned path is retained for reporting (file_count must reflect

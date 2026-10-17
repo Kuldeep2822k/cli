@@ -37,7 +37,9 @@ function parseFrontmatter(content: string): FrontmatterResult {
   // Case 1: Empty frontmatter fences with no intermediate content (---\n---)
   const emptyMatch = stripped.match(/^---\r?\n---(?:\r?\n)?([\s\S]*)$/);
   if (emptyMatch) {
-    return { frontmatter: null, body: emptyMatch[1], raw: '' };
+    // Group 1 (`[\s\S]*`) always matches, possibly empty; the fallback keeps
+    // the type honest rather than asserting it.
+    return { frontmatter: null, body: emptyMatch[1] ?? '', raw: '' };
   }
 
   // Case 2: Populated frontmatter with mandatory newline before closing fence
@@ -49,11 +51,20 @@ function parseFrontmatter(content: string): FrontmatterResult {
 
   const raw = fmMatch[1];
   const body = fmMatch[2];
+  // Both groups (`[\s\S]*?` and `[\s\S]*`) always match, possibly empty; the
+  // guard keeps the type honest rather than asserting it, and falls back to
+  // the no-frontmatter shape this function already uses.
+  if (raw === undefined || body === undefined) {
+    return { frontmatter: null, body: stripped, raw: null };
+  }
 
   try {
     const doc = parseDocument(raw);
     if (doc.errors && doc.errors.length > 0) {
-      return { frontmatter: null, body, raw, error: doc.errors[0].message };
+      // `length > 0` was checked, so a first error exists; the fallback names
+      // the failure explicitly instead of producing an undefined message.
+      const firstError = doc.errors[0];
+      return { frontmatter: null, body, raw, error: firstError?.message ?? 'Unknown YAML parse error' };
     }
     const parsed = doc.toJSON();
     // Frontmatter must be a YAML mapping. A scalar value between `---`

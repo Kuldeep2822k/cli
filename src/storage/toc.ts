@@ -70,7 +70,10 @@ export interface TocEnumeration {
 function lookupNote(index: NoteIndex, rel: string): { path: string | null; ambiguous: boolean } {
   if (index.exact.has(rel)) return { path: rel, ambiguous: false };
   const hits = index.folded.get(foldNoteKey(rel)) ?? [];
-  if (hits.length === 1) return { path: hits[0], ambiguous: false };
+  // `length === 1` was checked, so a hit exists; the fallback keeps the type
+  // honest rather than asserting it, and `null` is this function's own
+  // "no hit" signal.
+  if (hits.length === 1) return { path: hits[0] ?? null, ambiguous: false };
   if (hits.length > 1) return { path: null, ambiguous: true };
   return { path: null, ambiguous: false };
 }
@@ -86,13 +89,18 @@ function compareTocDirs(a: string, b: string): number {
   const sb = b.length === 0 ? [] : b.split('/');
   const len = Math.min(sa.length, sb.length);
   for (let i = 0; i < len; i++) {
-    const pa = parseNumericPrefix(sa[i]);
-    const pb = parseNumericPrefix(sb[i]);
+    // `i` is below both segment counts by construction; the guards keep the
+    // type honest rather than asserting it.
+    const segA = sa[i];
+    const segB = sb[i];
+    if (segA === undefined || segB === undefined) continue;
+    const pa = parseNumericPrefix(segA);
+    const pb = parseNumericPrefix(segB);
     if (pa !== null && pb !== null && pa.n !== pb.n) return pa.n - pb.n;
     if (pa !== null && pb === null) return -1;
     if (pa === null && pb !== null) return 1;
-    const la = sa[i].toLowerCase();
-    const lb = sb[i].toLowerCase();
+    const la = segA.toLowerCase();
+    const lb = segB.toLowerCase();
     if (la !== lb) return la < lb ? -1 : 1;
   }
   return sa.length - sb.length;

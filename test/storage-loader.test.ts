@@ -70,8 +70,10 @@ function settleOutsideHorizon(files: string[]): void {
   // there the #367 fingerprint fallback re-reads on every hit and a read count
   // would no longer be a cache measurement.
   if (files.length > 0) {
+    const [firstFile] = files;
+    assert.ok(firstFile !== undefined);
     assert.notStrictEqual(
-      fs.statSync(files[0]).mtimeMs % 1000,
+      fs.statSync(firstFile).mtimeMs % 1000,
       0,
       'the temp filesystem must record sub-second mtimes for this measurement'
     );
@@ -249,7 +251,8 @@ feynman: 0.999999
 
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 1);
-    const t = topics[0];
+    const [t] = topics;
+    assert.ok(t !== undefined);
     assert.strictEqual(t.topic_mastery, 1.0); // Clamped from 1.5
     assert.strictEqual(t.conceptual, 0.85); // Parsed from "0.85"
     assert.strictEqual(t.practical, 0.0); // Clamped from -0.2
@@ -278,7 +281,8 @@ last_quality: .nan
 
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 1);
-    const t = topics[0];
+    const [t] = topics;
+    assert.ok(t !== undefined);
     assert.strictEqual(t.repetition, 0);
     assert.strictEqual(t.lapses, 0);
     assert.strictEqual(t.ease_factor, 2.5);
@@ -301,7 +305,9 @@ title: Prescan 1
 
     const topics = loadTopics(tmpVault, [file1]);
     assert.strictEqual(topics.length, 1);
-    assert.strictEqual(topics[0].palee_id, 'T-prescan-1');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-prescan-1');
   });
 
   test('loadTopics unions and dedupes depends_on and dependencies when both keys are present (Issue #126)', () => {
@@ -325,7 +331,8 @@ dependencies:
 
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 1);
-    const t = topics[0];
+    const [t] = topics;
+    assert.ok(t !== undefined);
     assert.deepStrictEqual(t.depends_on, ['T-dep-1', 'T-dep-2', 'T-dep-3']);
   });
 
@@ -346,7 +353,8 @@ dependencies: "T-dep-b, T-dep-c"
 
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 1);
-    const t = topics[0];
+    const [t] = topics;
+    assert.ok(t !== undefined);
     assert.deepStrictEqual(t.depends_on, ['T-dep-a', 'T-dep-b', 'T-dep-c']);
   });
 
@@ -370,7 +378,8 @@ dependencies:
 
     const topics = loadTopics(tmpVault);
     assert.strictEqual(topics.length, 1);
-    const t = topics[0];
+    const [t] = topics;
+    assert.ok(t !== undefined);
     assert.deepStrictEqual(t.depends_on, ['T-valid-dep']);
   });
 
@@ -432,6 +441,7 @@ topic_mastery: 0
       'utf8'
     );
     const [topic] = loadTopics(tmpVault);
+    assert.ok(topic !== undefined);
     const { areDependenciesSatisfied } = require('../src/engine/dependency');
     const prereq = { palee_id: 'T-prereq', depends_on: [], topic_mastery: 0 };
     const graph = new Map<string, TopicNode>([
@@ -561,8 +571,12 @@ describe('loadTopics cache injection (Issue #129)', () => {
 
     assert.strictEqual(second.length, 1);
     // Object identity preserved from the injected cache
-    assert.strictEqual(second[0], first[0]);
-    assert.strictEqual(second[0].palee_id, 'T-inj-stable');
+    const [second0] = second;
+    assert.ok(second0 !== undefined);
+    const [first0] = first;
+    assert.ok(first0 !== undefined);
+    assert.strictEqual(second0, first0);
+    assert.strictEqual(second0.palee_id, 'T-inj-stable');
     // Cache consulted again (get) but never rewritten (no new set)
     assert.strictEqual(injected.getCalls.length, getsAfterFirst + 1);
     assert.strictEqual(injected.setCalls.length, setsAfterFirst);
@@ -574,7 +588,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const injected = new TrackingCache();
 
     const before = loadTopics(tmpVault, { cache: injected });
-    assert.strictEqual(before[0].status, 'learning');
+    const [before0] = before;
+    assert.ok(before0 !== undefined);
+    assert.strictEqual(before0.status, 'learning');
     const setsAfterFirst = injected.setCalls.length;
 
     // Rewrite the note with different content (and settle mtime granularity)
@@ -590,7 +606,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const after = loadTopics(tmpVault, { cache: injected });
 
     assert.strictEqual(after.length, 1);
-    assert.strictEqual(after[0].status, 'mastered');
+    const [after0] = after;
+    assert.ok(after0 !== undefined);
+    assert.strictEqual(after0.status, 'mastered');
     // Invalidation forced a fresh set() with the updated topic
     assert.ok(injected.setCalls.length > setsAfterFirst);
   });
@@ -608,7 +626,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const viaInjected = loadTopics(tmpVault, { cache: injected });
 
     assert.strictEqual(viaInjected.length, 1);
-    assert.strictEqual(viaInjected[0].palee_id, 'T-inj-fresh');
+    const [viaInjected0] = viaInjected;
+    assert.ok(viaInjected0 !== undefined);
+    assert.strictEqual(viaInjected0.palee_id, 'T-inj-fresh');
     // The injected cache populated itself even though the shared cache was already warm
     assert.strictEqual(injected.setCalls.length, 1);
     // And the shared cache is untouched by the injected run
@@ -619,7 +639,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const f1 = writeTopicNote('T-inj-legacy');
     const topics = loadTopics(tmpVault, [f1]);
     assert.strictEqual(topics.length, 1);
-    assert.strictEqual(topics[0].palee_id, 'T-inj-legacy');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-inj-legacy');
   });
 
   test('default no-arg form still resolves via getTopicCache()', () => {
@@ -630,11 +652,15 @@ describe('loadTopics cache injection (Issue #129)', () => {
     const topics = loadTopics(tmpVault);
 
     assert.strictEqual(topics.length, 1);
-    assert.strictEqual(topics[0].palee_id, 'T-inj-default');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-inj-default');
     // Prove the shared cache served this load: a second call returns
     // the same object identity as what the shared cache holds.
     const again = loadTopics(tmpVault);
-    assert.strictEqual(again[0], topics[0]);
+    const [again0] = again;
+    assert.ok(again0 !== undefined);
+    assert.strictEqual(again0, topic0);
   });
 
   test('runtime null second argument keeps the legacy vault-walk fallback (JS callers)', () => {
@@ -643,7 +669,9 @@ describe('loadTopics cache injection (Issue #129)', () => {
     writeTopicNote('T-inj-null');
     const topics = loadTopics(tmpVault, null as unknown as string[]);
     assert.strictEqual(topics.length, 1);
-    assert.strictEqual(topics[0].palee_id, 'T-inj-null');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-inj-null');
   });
 });
 
@@ -673,8 +701,10 @@ describe('a note whose extension is not lowercase', () => {
   test('is loaded, and titled from its name without the extension', () => {
     const topics = loadTopics(vault);
     assert.strictEqual(topics.length, 1, 'the walker and the loader fold the same way');
-    assert.strictEqual(topics[0].palee_id, 'T-setup-1');
-    assert.strictEqual(topics[0].title, 'Setup');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-setup-1');
+    assert.strictEqual(topic0.title, 'Setup');
   });
 });
 
@@ -739,7 +769,11 @@ describe('loadTopics negative caching of non-topic notes (Issue #331)', () => {
       loadTopics(tmpVault, { cache: injected })
     );
     assert.strictEqual(second.result.length, 1, 'the negative verdict is not mistaken for a topic');
-    assert.strictEqual(second.result[0], first.result[0], 'topics keep their cached identity');
+    const [secondResult0] = second.result;
+    assert.ok(secondResult0 !== undefined);
+    const [firstResult0] = first.result;
+    assert.ok(firstResult0 !== undefined);
+    assert.strictEqual(secondResult0, firstResult0, 'topics keep their cached identity');
     assert.strictEqual(second.reads.get(topic), 0);
     // The fix: a known non-topic note costs a `stat`, not a read plus a YAML parse.
     assert.strictEqual(second.reads.get(withFrontmatter), 0, 'the marker serves the verdict');
@@ -770,7 +804,9 @@ describe('loadTopics negative caching of non-topic notes (Issue #331)', () => {
 
     const after = loadTopics(tmpVault, { cache: injected });
     assert.strictEqual(after.length, 1, 'the stale marker cannot hide a promoted note');
-    assert.strictEqual(after[0].palee_id, 'T-promoted');
+    const [after0] = after;
+    assert.ok(after0 !== undefined);
+    assert.strictEqual(after0.palee_id, 'T-promoted');
     assert.strictEqual(getNonTopicCache().get(promoted), null, 'the invalidated marker is evicted');
   });
 
@@ -829,7 +865,9 @@ describe('loadTopics negative caching of non-topic notes (Issue #331)', () => {
 
     const after = loadTopics(tmpVault, { cache: new TrackingCache() });
     assert.strictEqual(after.length, 1, 'the disk verdict is still read fresh');
-    assert.strictEqual(after[0].palee_id, 'T-331-disk');
+    const [after0] = after;
+    assert.ok(after0 !== undefined);
+    assert.strictEqual(after0.palee_id, 'T-331-disk');
   });
 
   test('the negative cache cap is a bounded positive constant', () => {
@@ -876,7 +914,9 @@ describe('loadTopics input-size guard (Issue #332)', () => {
 
     assert.strictEqual(first.reads.get(dump), 0, 'the guard stats before reading');
     assert.strictEqual(first.result.length, 1, 'the healthy topic still loads');
-    assert.strictEqual(first.result[0].palee_id, 'T-332-ok');
+    const [firstResult0] = first.result;
+    assert.ok(firstResult0 !== undefined);
+    assert.strictEqual(firstResult0.palee_id, 'T-332-ok');
     assert.strictEqual(
       getNonTopicCache().get(dump),
       null,
@@ -907,7 +947,9 @@ describe('loadTopics input-size guard (Issue #332)', () => {
     const topics = loadTopics(tmpVault, { cache: new TrackingCache() });
 
     assert.strictEqual(topics.length, 1, 'the ceiling is inclusive');
-    assert.strictEqual(topics[0].palee_id, 'T-332-edge');
+    const [topic0] = topics;
+    assert.ok(topic0 !== undefined);
+    assert.strictEqual(topic0.palee_id, 'T-332-edge');
   });
 });
 

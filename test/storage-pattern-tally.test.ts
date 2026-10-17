@@ -27,7 +27,9 @@ describe('Per-pattern match tally (#312)', () => {
     assert.deepStrictEqual(tallies.map((t) => t.pattern), ['*lesson*']);
     assert.strictEqual(patternMatcher.tallyPatterns(scope, '').length, 0);
     assert.strictEqual(patternMatcher.tallyPatterns([], '*').length, 1);
-    assert.strictEqual(patternMatcher.tallyPatterns([], '*')[0].matches, 0, 'an empty scope makes every pattern dead');
+    const [emptyScopeTally] = patternMatcher.tallyPatterns([], '*');
+    assert.ok(emptyScopeTally !== undefined);
+    assert.strictEqual(emptyScopeTally.matches, 0, 'an empty scope makes every pattern dead');
   });
 
   test('backslash separators and a leading ./ normalise to the same entry the matcher uses', () => {
@@ -39,8 +41,10 @@ describe('Per-pattern match tally (#312)', () => {
 
   test('the tally is the same dialect matchesPattern OR-folds', () => {
     for (const pattern of ['*draft*', 'MODULES/**', 'a/*.md', '*TEMPLATE*', 'notes', '01-*']) {
+      const [tally] = patternMatcher.tallyPatterns(scope, pattern);
+      assert.ok(tally !== undefined);
       assert.strictEqual(
-        patternMatcher.tallyPatterns(scope, pattern)[0].matches > 0,
+        tally.matches > 0,
         scope.some((p) => patternMatcher.matchesPattern(p, pattern)),
         `pattern ${pattern} must be judged live by exactly the rule matchesPattern applies`
       );
@@ -50,6 +54,8 @@ describe('Per-pattern match tally (#312)', () => {
   test('an array input keeps its commas, as matchesPattern does', () => {
     const tallies = patternMatcher.tallyPatterns(scope, ['*draft*,*lesson*']);
     assert.strictEqual(tallies.length, 1, 'one entry, not two');
-    assert.strictEqual(tallies[0].matches, 0, 'and the comma is literal inside an array entry');
+    const [singleTally] = tallies;
+    assert.ok(singleTally !== undefined);
+    assert.strictEqual(singleTally.matches, 0, 'and the comma is literal inside an array entry');
   });
 });

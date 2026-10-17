@@ -40,11 +40,13 @@ describe('getNextTopics prerequisite gate (#305)', () => {
     assert.deepStrictEqual(result.dueTopics.map((t) => t.id), ['T-bb']);
     assert.strictEqual(result.totalTopics, 2, 'blocked topics are still loaded topics');
     assert.deepStrictEqual(result.blockedTopics.map((b) => b.id), ['T-aa']);
-    assert.deepStrictEqual(result.blockedTopics[0].waiting_on, [
+    const [blocked] = result.blockedTopics;
+    assert.ok(blocked !== undefined);
+    assert.deepStrictEqual(blocked.waiting_on, [
       'RootPrereq (T-bb) at mastery 0.0000, needs 0.70',
     ], 'the blocker is named with its mastery against the single-source threshold');
-    assert.strictEqual(result.blockedTopics[0].mastery, 0);
-    assert.strictEqual(result.blockedTopics[0].path, 'T-aa.md');
+    assert.strictEqual(blocked.mastery, 0);
+    assert.strictEqual(blocked.path, 'T-aa.md');
   });
 
   test('never-reviewed-first then oldest-due ordering survives inside the ready set', () => {
@@ -76,7 +78,9 @@ describe('getNextTopics prerequisite gate (#305)', () => {
   test('a missing prerequisite blocks and is worded as a dangling reference (INV-24)', () => {
     const result = getNextTopics([topic({ palee_id: 'T-aa', depends_on: ['T-ghost'] })], now);
     assert.deepStrictEqual(result.dueTopics, []);
-    assert.deepStrictEqual(result.blockedTopics[0].waiting_on, [
+    const [dangling] = result.blockedTopics;
+    assert.ok(dangling !== undefined);
+    assert.deepStrictEqual(dangling.waiting_on, [
       'T-ghost is not in the vault (run palee validate)',
     ]);
   });

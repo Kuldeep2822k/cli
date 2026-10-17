@@ -323,7 +323,10 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
 export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
   try {
     const reloaded = loadTopics(vaultPath, [tie.predecessorFilePath]);
-    return reloaded.length === 1 && reloaded[0].id === tie.predecessorId;
+    // `reloaded[0]` is `T | undefined` under `noUncheckedIndexedAccess`; the
+    // length check above does not narrow the index, so name the element.
+    const first = reloaded[0];
+    return reloaded.length === 1 && first !== undefined && first.id === tie.predecessorId;
   } catch {
     return false;
   }

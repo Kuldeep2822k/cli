@@ -18,7 +18,7 @@ describe('CI workflow matrix parity (#269 release health)', () => {
   };
 
   test('a pull request runs the same matrix a push to main runs', () => {
-    const combos = (doc.jobs['test-matrix'].strategy?.matrix?.include ?? [])
+    const combos = (doc.jobs['test-matrix']?.strategy?.matrix?.include ?? [])
       .map((entry) => `${entry.os}@${entry['node-version']}`)
       .sort();
 
@@ -49,7 +49,7 @@ describe('CI workflow matrix parity (#269 release health)', () => {
   test('the installed package is smoke-tested on macOS in a pull request too', () => {
     // `npm install -g` has to be proven on the set of platforms it ships to, not
     // merely on a set that happens to contain macOS plus two others.
-    assert.deepStrictEqual(doc.jobs['smoke-install'].strategy?.matrix?.os ?? [], [
+    assert.deepStrictEqual(doc.jobs['smoke-install']?.strategy?.matrix?.os ?? [], [
       'ubuntu-latest',
       'windows-latest',
       'macos-latest',
@@ -77,7 +77,7 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       }>;
     };
 
-    const ciMatrix = doc.jobs['test-matrix'].strategy?.matrix?.include ?? [];
+    const ciMatrix = doc.jobs['test-matrix']?.strategy?.matrix?.include ?? [];
     const releaseMatrix = release.jobs['test-platforms']?.strategy?.matrix?.include ?? [];
     assert.ok(ciMatrix.length > 0, 'precondition: CI declares a matrix');
     assert.deepStrictEqual(releaseMatrix, ciMatrix);

@@ -169,7 +169,10 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
   }
   const folded = foldNoteKey(canonical);
   const matches = listed.filter((p) => foldNoteKey(p) === folded);
-  return matches.length === 1 ? matches[0] : canonical;
+  // `length === 1` was checked, so a match exists; the fallback keeps the type
+  // honest rather than asserting it, and `canonical` is this function's own
+  // "no better casing" answer.
+  return matches.length === 1 ? (matches[0] ?? canonical) : canonical;
 }
 
 declare const CanonicalVaultRootBrand: unique symbol;
@@ -356,15 +359,23 @@ export function resolveWikilinkTarget(
   const key = foldNoteKey(targetBaseName(target));
   const hits = index.get(key) ?? [];
   if (hits.length === 1) {
-    return { absolutePath: hits[0], relativePath: relativeVaultPath(vaultPath, hits[0]) };
+    // `length === 1` was checked, so a hit exists; the guard keeps the type
+    // honest rather than asserting it, and an absent hit is unresolvable.
+    const hit = hits[0];
+    if (hit === undefined) throw new UnresolvedWikilinkError(target);
+    return { absolutePath: hit, relativePath: relativeVaultPath(vaultPath, hit) };
   }
   if (hits.length > 1) {
     const wanted = stemOfNote(targetBaseName(target)).normalize('NFC');
     const exactCase = hits.filter((h) => stemOfNote(path.basename(h)).normalize('NFC') === wanted);
     if (exactCase.length === 1) {
+      // `length === 1` was checked, so a hit exists; the guard keeps the type
+      // honest rather than asserting it, and an absent hit is unresolvable.
+      const winner = exactCase[0];
+      if (winner === undefined) throw new UnresolvedWikilinkError(target);
       return {
-        absolutePath: exactCase[0],
-        relativePath: relativeVaultPath(vaultPath, exactCase[0]),
+        absolutePath: winner,
+        relativePath: relativeVaultPath(vaultPath, winner),
       };
     }
     const candidates = hits.map((h) => relativeVaultPath(vaultPath, h)).sort();
