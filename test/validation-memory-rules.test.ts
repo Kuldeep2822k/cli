@@ -143,10 +143,12 @@ describe('valid-managed-note-kind rule (#27)', () => {
     });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-managed-note-kind');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].file, 'orphan.md');
-    assert.strictEqual(issues[0].field, 'palee_schema');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-managed-note-kind');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.file, 'orphan.md');
+    assert.strictEqual(firstIssue.field, 'palee_schema');
   });
 
   test('conflicting identities (palee_id + session_id) report a warning', () => {
@@ -160,7 +162,9 @@ describe('valid-managed-note-kind rule (#27)', () => {
     });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
   });
 
   test('identity key plus index marker reports a warning', () => {
@@ -193,7 +197,9 @@ describe('valid-managed-note-kind rule (#27)', () => {
     const context = makeContext({ sessions: [session] });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
   });
 
   test('session note carrying only the index marker conflicts with its location', () => {
@@ -204,7 +210,9 @@ describe('valid-managed-note-kind rule (#27)', () => {
     const context = makeContext({ sessions: [session] });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
   });
 
   test('hot memory carrying only session_id conflicts with its location', () => {
@@ -223,8 +231,10 @@ describe('valid-managed-note-kind rule (#27)', () => {
     });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
-    assert.strictEqual(issues[0].file, '.palee/hot.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
+    assert.strictEqual(firstIssue.file, '.palee/hot.md');
   });
 
   test('session note carrying only session_id is the canonical shape (no finding)', () => {
@@ -272,8 +282,10 @@ describe('valid-managed-note-kind rule (#27)', () => {
     const context = makeContext({ sessions: [conflicting] });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
-    assert.strictEqual(issues[0].file, conflicting.path);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
+    assert.strictEqual(firstIssue.file, conflicting.path);
   });
 
   test('internal session note with exactly one identity passes', () => {
@@ -331,8 +343,10 @@ describe('valid-managed-note-kind rule (#27)', () => {
     });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
-    assert.strictEqual(issues[0].file, '.palee/index.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
+    assert.strictEqual(firstIssue.file, '.palee/index.md');
   });
 
   test('index note with palee_schema but no identity is not #27\'s finding', () => {
@@ -393,8 +407,10 @@ describe('valid-managed-note-kind rule (#27)', () => {
     });
     const issues = validManagedNoteKindRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicting identities/);
-    assert.strictEqual(issues[0].file, '.palee/hot.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicting identities/);
+    assert.strictEqual(firstIssue.file, '.palee/hot.md');
   });
 
   test('unparseable or missing hot memory is never classified', () => {
@@ -430,10 +446,12 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [broken] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-session-schema');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].file, broken.path);
-    assert.match(issues[0].message, /bad yaml/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-session-schema');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.file, broken.path);
+    assert.match(firstIssue.message, /bad yaml/);
   });
 
   test('missing required fields report one error per field', () => {
@@ -457,8 +475,10 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [mismatch] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'session_id');
-    assert.match(issues[0].message, /does not match the filename stem/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'session_id');
+    assert.match(firstIssue.message, /does not match the filename stem/);
   });
 
   test('invalid status reports an error', () => {
@@ -468,7 +488,9 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [bad] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'status');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'status');
   });
 
   test('completed status in a DRAFT- file conflicts with the filename convention', () => {
@@ -483,7 +505,9 @@ describe('valid-session-schema rule (#41)', () => {
     // convention check fires; ended_at is a valid timestamp so no
     // third finding.
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicts with the DRAFT-/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicts with the DRAFT-/);
   });
 
   test('draft status in an S- file conflicts with the filename convention', () => {
@@ -495,7 +519,9 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [conflict] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /conflicts with the S-/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /conflicts with the S-/);
   });
 
   test('draft with non-null ended_at reports an error', () => {
@@ -515,7 +541,9 @@ describe('valid-session-schema rule (#41)', () => {
     // in a draft: reported as ended_at must be null? The rule reports
     // a draft with a non-null ended_at as an ended_at shape error.
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'ended_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'ended_at');
   });
 
   test('completed session with null ended_at reports an error', () => {
@@ -525,7 +553,9 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [bad] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'ended_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'ended_at');
   });
 
   test('ended_at before started_at reports the inversion', () => {
@@ -539,7 +569,9 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [bad] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /precedes started_at/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /precedes started_at/);
   });
 
   test('unparseable timestamp reports an error', () => {
@@ -552,7 +584,9 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [bad] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'started_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'started_at');
   });
 
   test('parsed session with malformed frontmatter is not schema-clean (parseError explicit)', () => {
@@ -589,10 +623,12 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [noSchema] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-session-schema');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].field, 'palee_schema');
-    assert.match(issues[0].message, /missing palee_schema/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-session-schema');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.field, 'palee_schema');
+    assert.match(firstIssue.message, /missing palee_schema/);
   });
 
   test('non-integer palee_schema reports an error', () => {
@@ -605,8 +641,10 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [bad] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'palee_schema');
-    assert.match(issues[0].message, /Invalid palee_schema/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'palee_schema');
+    assert.match(firstIssue.message, /Invalid palee_schema/);
   });
 
   test('unsupported palee_schema version reports an error', () => {
@@ -619,8 +657,10 @@ describe('valid-session-schema rule (#41)', () => {
     const context = makeContext({ sessions: [future] });
     const issues = validSessionSchemaRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'palee_schema');
-    assert.match(issues[0].message, /Unsupported palee_schema/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'palee_schema');
+    assert.match(firstIssue.message, /Unsupported palee_schema/);
   });
 
   test('read-failed session notes are skipped by the schema rule', () => {
@@ -748,11 +788,13 @@ describe('no-session-unknown-topic rule (#42)', () => {
     });
     const issues = noSessionUnknownTopicRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'no-session-unknown-topic');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].sessionId, 'S-1');
-    assert.strictEqual(issues[0].topicId, 'T-missing');
-    assert.strictEqual(issues[0].details?.topicId, 'T-missing');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'no-session-unknown-topic');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.sessionId, 'S-1');
+    assert.strictEqual(firstIssue.topicId, 'T-missing');
+    assert.strictEqual(firstIssue.details?.topicId, 'T-missing');
   });
 
   test('phantom T-general session reports like any other unknown topic', () => {
@@ -762,7 +804,9 @@ describe('no-session-unknown-topic rule (#42)', () => {
     });
     const issues = noSessionUnknownTopicRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-general');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-general');
   });
 
   test('T-general passes when a real topic with that ID exists', () => {
@@ -794,7 +838,9 @@ describe('no-session-unknown-topic rule (#42)', () => {
     const context = makeContext({ topics: [], sessions: [draft] });
     const issues = noSessionUnknownTopicRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-ghost');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-ghost');
   });
 
   test('rule metadata: id, warning severity, manual fixability', () => {
@@ -846,7 +892,9 @@ describe('no-session-unknown-topic rule (#42)', () => {
     });
     const issues = noSessionUnknownTopicRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-missing');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-missing');
   });
 });
 
@@ -871,10 +919,12 @@ describe('valid-session-index rule (#44)', () => {
     });
     const issues = validSessionIndexRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-session-index');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].file, '.palee/index.md');
-    assert.strictEqual(issues[0].details?.missingSession, 'S-gone');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-session-index');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.file, '.palee/index.md');
+    assert.strictEqual(firstIssue.details?.missingSession, 'S-gone');
   });
 
   test('index reference to a draft session is unknown (drafts are never indexed)', () => {
@@ -889,7 +939,9 @@ describe('valid-session-index rule (#44)', () => {
     });
     const issues = validSessionIndexRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.missingSession, 'DRAFT-S-1a2b3c4d');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.missingSession, 'DRAFT-S-1a2b3c4d');
   });
 
   test('empty index is legal even when sessions exist (staleness deferred)', () => {
@@ -906,8 +958,10 @@ describe('valid-session-index rule (#44)', () => {
     });
     const issues = validSessionIndexRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.match(issues[0].message, /unclosed fence/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.match(firstIssue.message, /unclosed fence/);
   });
 
   test('multiple unknown refs each report', () => {
@@ -951,10 +1005,12 @@ describe('read-failure rule over the memory subsystem', () => {
     });
     const issues = readFailureRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'read-failure');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].file, '.palee/sessions/S-20260912T100000-abcd.md');
-    assert.match(issues[0].message, /EBUSY: locked/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'read-failure');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.file, '.palee/sessions/S-20260912T100000-abcd.md');
+    assert.match(firstIssue.message, /EBUSY: locked/);
   });
 
   test('memory component read failures are reported', () => {
@@ -963,8 +1019,10 @@ describe('read-failure rule over the memory subsystem', () => {
     });
     const issues = readFailureRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].file, '.palee/sessions/');
-    assert.match(issues[0].message, /EPERM: denied/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.file, '.palee/sessions/');
+    assert.match(firstIssue.message, /EPERM: denied/);
   });
 
   test('note and memory read failures merge and sort by file', () => {

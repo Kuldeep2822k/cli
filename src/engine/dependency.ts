@@ -53,9 +53,16 @@ function canonicalizeCycle(path: string[]): string[] {
   if (nodes.length <= 1) return path.slice();
   let minIndex = 0;
   for (let i = 1; i < nodes.length; i++) {
-    if (nodes[i] < nodes[minIndex]) minIndex = i;
+    // Both indices are in bounds by construction; the guards keep the type
+    // honest rather than asserting it.
+    const candidate = nodes[i];
+    const current = nodes[minIndex];
+    if (candidate === undefined || current === undefined) continue;
+    if (candidate < current) minIndex = i;
   }
-  return nodes.slice(minIndex).concat(nodes.slice(0, minIndex), [nodes[minIndex]]);
+  const minNode = nodes[minIndex];
+  if (minNode === undefined) throw new Error('canonicalizeCycle: minimum node missing from non-empty list');
+  return nodes.slice(minIndex).concat(nodes.slice(0, minIndex), [minNode]);
 }
 
 /**
@@ -117,7 +124,10 @@ function enumerateSccCycles(
 ): boolean {
   const order = Array.from(scc).sort();
   for (let startIndex = 0; startIndex < order.length; startIndex++) {
+    // `startIndex` is in bounds, so this exists; the guard keeps the type
+    // honest rather than asserting it.
     const start = order[startIndex];
+    if (start === undefined) continue;
 
     // Textbook Johnson start handling: recompute SCCs of the RESIDUAL
     // subgraph — nodes at or after `startIndex`, edges restricted to it.
@@ -173,13 +183,22 @@ function enumerateSccCycles(
       // SCCs can contain exponentially many elementary cycles; callers get
       // a bounded sample plus a truncation flag instead of an unbounded wait.
       if (cycles.length >= maxCycles) return true;
+      // `path` is non-empty here (the `while` condition), so this exists.
+      // `break` (not `continue`) guards the impossible: `continue` would
+      // re-enter the loop with a non-empty path and never make progress.
       const current = path[path.length - 1];
+      if (current === undefined) break;
       const neighbors = edges.get(current) ?? [];
       let i = iterators.get(current) ?? 0;
       let advanced = false;
 
       while (i < neighbors.length) {
+        // `i < neighbors.length` is the loop condition, so this exists.
         const next = neighbors[i];
+        if (next === undefined) {
+          i++;
+          continue;
+        }
         i++;
         if (next === start) {
           // Closed a cycle through every node currently on the path.
@@ -339,7 +358,10 @@ function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): De
   for (const scc of sccs) {
     if (cycles.length >= probeBudget) break;
     if (scc.length === 1) {
+      // A single-node SCC holds exactly one node; the guard keeps the type
+      // honest rather than asserting it.
       const node = scc[0];
+      if (node === undefined) continue;
       if ((edges.get(node) ?? []).includes(node)) {
         cycles.push([node, node]);
       }
@@ -399,7 +421,9 @@ function computeSccs(edges: Map<string, string[]>): string[][] {
     frames.push([root, 0]);
 
     while (frames.length > 0) {
+      // `frames` is non-empty here (the `while` condition), so this exists.
       const frame = frames[frames.length - 1];
+      if (frame === undefined) break;
       const [node] = frame;
       if (!index.has(node)) {
         index.set(node, counter);
@@ -412,7 +436,15 @@ function computeSccs(edges: Map<string, string[]>): string[][] {
       const neighbors = edges.get(node) ?? [];
       let descended = false;
       while (frame[1] < neighbors.length) {
+        // `frame[1]` is a live cursor into `neighbors` (the `while`
+        // condition), so this exists; the guard keeps the type honest.
         const next = neighbors[frame[1]];
+        if (next === undefined) {
+          // Advance the cursor even on the (unreachable) narrowing miss, so
+          // the `while` bound always moves forward and can never spin.
+          frame[1]++;
+          continue;
+        }
         frame[1]++;
         if (!index.has(next)) {
           frames.push([next, 0]);
@@ -437,7 +469,10 @@ function computeSccs(edges: Map<string, string[]>): string[][] {
       }
       frames.pop();
       if (frames.length > 0) {
+        // Non-empty after the pop above, so this exists; the guard keeps the
+        // type honest rather than asserting it.
         const parent = frames[frames.length - 1];
+        if (parent === undefined) continue;
         lowlink.set(parent[0], Math.min(lowlink.get(parent[0])!, lowlink.get(node)!));
       }
     }
@@ -495,7 +530,10 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
         if (start === null || id < start) start = id;
       }
     } else {
+      // A single-node SCC holds exactly one node; the guard keeps the type
+      // honest rather than asserting it.
       const node = scc[0];
+      if (node === undefined) continue;
       if ((edges.get(node) ?? []).includes(node) && (start === null || node < start)) {
         start = node;
       }
@@ -534,7 +572,10 @@ function detectCycle(topics: Map<string, TopicNode>): string[] | null {
   const onPath = new Set<string>([start]);
 
   for (;;) {
+    // The walk only ever pushes, so `path` stays non-empty; throw loudly if
+    // that invariant ever breaks, matching this function's fail-loud style.
     const current = path[path.length - 1];
+    if (current === undefined) throw new Error('detectCycle: greedy walk lost its path');
     let moved = false;
     for (const next of neighbors.get(current)!) {
       if (next === start) {
@@ -618,8 +659,14 @@ function findCyclicSccNodes(topics: Map<string, TopicNode>): Set<string> {
   for (const scc of sccs) {
     if (scc.length > 1) {
       for (const id of scc) cyclic.add(id);
-    } else if ((edges.get(scc[0]) ?? []).includes(scc[0])) {
-      cyclic.add(scc[0]); // self-loop: T-a depends on T-a
+    } else if (scc.length === 1) {
+      // A one-node SCC holds exactly one node; the guard keeps the type
+      // honest rather than asserting it.
+      const node = scc[0];
+      if (node === undefined) continue;
+      if ((edges.get(node) ?? []).includes(node)) {
+        cyclic.add(node); // self-loop: T-a depends on T-a
+      }
     }
   }
 

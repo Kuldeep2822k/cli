@@ -55,6 +55,7 @@ describe('Property-Based & Fuzz Testing Suite', () => {
       for (let i = 0; i < 200; i++) {
         const tag1 = baseTags[Math.floor(Math.random() * baseTags.length)];
         const tag2 = baseTags[Math.floor(Math.random() * baseTags.length)];
+        assert.ok(tag1 !== undefined && tag2 !== undefined);
         const hierarchicalTag = `${tag1}/${tag2}`;
 
         // Exact match
@@ -104,7 +105,9 @@ describe('Property-Based & Fuzz Testing Suite', () => {
       assert.strictEqual(deltas[4], 0.0);
       // Lower qualities give strictly increasing penalties
       for (let q = 0; q < 5; q++) {
-        assert.ok(deltas[q] < deltas[q + 1], `Delta at q=${q} (${deltas[q]}) must be < delta at q=${q+1} (${deltas[q+1]})`);
+        const [lower, upper] = [deltas[q], deltas[q + 1]];
+        assert.ok(lower !== undefined && upper !== undefined);
+        assert.ok(lower < upper, `Delta at q=${q} (${lower}) must be < delta at q=${q+1} (${upper})`);
       }
     });
 
@@ -164,9 +167,13 @@ describe('Property-Based & Fuzz Testing Suite', () => {
           const depCount = rand(3);
           const deps: string[] = [];
           for (let d = 0; d < depCount; d++) {
-            deps.push(ids[rand(size)]);
+            const depId = ids[rand(size)];
+            assert.ok(depId !== undefined);
+            deps.push(depId);
           }
-          topics.set(ids[i], { palee_id: ids[i], depends_on: deps, topic_mastery: 0 });
+          const topicId = ids[i];
+          assert.ok(topicId !== undefined);
+          topics.set(topicId, { palee_id: topicId, depends_on: deps, topic_mastery: 0 });
         }
 
         const cycles = detectCycles(topics);

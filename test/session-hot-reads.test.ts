@@ -114,9 +114,10 @@ describe('Session hot.md read characterization', () => {
   function readDraftStart(): string | undefined {
     const draftsDir = path.join(vaultDir, '.palee', 'sessions');
     const drafts = fs.readdirSync(draftsDir).filter(f => f.startsWith('DRAFT-S-'));
-    if (drafts.length === 0) return undefined;
+    const [draftFile] = drafts;
+    if (draftFile === undefined) return undefined;
     const { frontmatter } = parseFrontmatter(
-      fs.readFileSync(path.join(draftsDir, drafts[0]), 'utf8')
+      fs.readFileSync(path.join(draftsDir, draftFile), 'utf8')
     );
     return frontmatter?.started_at as string | undefined;
   }
@@ -427,8 +428,10 @@ describe('Session hot.md read characterization', () => {
       const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
       const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1);
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(sessionsDir, confirmedFile), 'utf8')
       );
       assert.notStrictEqual(frontmatter?.started_at, old, 'a start older than 24h must be clamped, not recovered');
       assert.strictEqual(frontmatter?.duration_minutes, 1440, 'the floor caps the session at 24h');
@@ -450,8 +453,10 @@ describe('Session hot.md read characterization', () => {
       const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
       const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1);
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(sessionsDir, confirmedFile), 'utf8')
       );
       assert.ok(frontmatter?.started_at);
       assert.ok(
@@ -471,8 +476,10 @@ describe('Session hot.md read characterization', () => {
       const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
       const confirmed = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1);
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(sessionsDir, confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(sessionsDir, confirmedFile), 'utf8')
       );
       assert.ok(frontmatter?.started_at);
       assert.ok(

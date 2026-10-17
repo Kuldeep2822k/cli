@@ -233,8 +233,10 @@ function localeSuffixKind(stem: string): 'generic' | 'other' | null {
   if (!match) {
     return null;
   }
-  const base = match[1].toLowerCase();
-  const primary = match[2].toLowerCase();
+  // Groups 1 and 2 are mandatory in the pattern above, so they are always
+  // present on a match; the fallbacks keep the type honest.
+  const base = (match[1] ?? '').toLowerCase();
+  const primary = (match[2] ?? '').toLowerCase();
   if (inList(LOCALE_CODE_COLLISIONS, primary)) {
     return null;
   }
@@ -276,7 +278,8 @@ export function isValidPaleeId(value: unknown): value is string {
 export function isPhaseSubtree(relPath: string): boolean {
   const segments = relPath.split('/');
   for (let i = 0; i < segments.length - 1; i++) {
-    if (inList(PHASE_DIR_SEGMENTS, segments[i].toLowerCase())) {
+    // `i` is in bounds by the loop condition; the fallback keeps the type honest.
+    if (inList(PHASE_DIR_SEGMENTS, (segments[i] ?? '').toLowerCase())) {
       return true;
     }
   }
@@ -332,7 +335,7 @@ export function isContentDocName(basename: string): boolean {
 export function classifyNoteForChain(relPath: string, paleeId?: unknown): Tier0Decision {
   const normalized = relPath.replace(/\\/g, '/');
   const segments = normalized.split('/');
-  const basename = segments[segments.length - 1];
+  const basename = segments[segments.length - 1] ?? '';
   const stem = stemOf(basename);
 
   const dirSegments = segments.slice(0, -1).map((s) => s.toLowerCase());
@@ -389,6 +392,7 @@ function parseStemNumber(stem: string): number | null {
   if (!match) {
     return null;
   }
-  const n = parseInt(match[1], 10);
+  // Group 1 is mandatory in the pattern above; the fallback keeps the type honest.
+  const n = parseInt(match[1] ?? '', 10);
   return Number.isSafeInteger(n) ? n : null;
 }
