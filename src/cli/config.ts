@@ -138,12 +138,21 @@ function loadConfig(): PaleeConfig {
       console.error(`Warning: Invalid configuration format at ${configPath}. Falling back to default configuration.`);
       return {};
     }
+    // Captured to locals first: `typeof` narrowing does not apply through a
+    // type assertion, so narrowing the property access directly would leave
+    // `string | undefined` and trip `exactOptionalPropertyTypes`.
+    const parsedConfig = parsed as PaleeConfig;
+    const vaultPath = parsedConfig.vaultPath;
+    const aiProvider = parsedConfig.aiProvider;
+    const model = parsedConfig.model;
+    const baseUrl = parsedConfig.baseUrl;
+    const apiKey = parsedConfig.apiKey;
     const validConfig: PaleeConfig = {};
-    if (typeof (parsed as PaleeConfig).vaultPath === 'string') validConfig.vaultPath = (parsed as PaleeConfig).vaultPath;
-    if (typeof (parsed as PaleeConfig).aiProvider === 'string') validConfig.aiProvider = (parsed as PaleeConfig).aiProvider;
-    if (typeof (parsed as PaleeConfig).model === 'string') validConfig.model = (parsed as PaleeConfig).model;
-    if (typeof (parsed as PaleeConfig).baseUrl === 'string') validConfig.baseUrl = (parsed as PaleeConfig).baseUrl;
-    if (typeof (parsed as PaleeConfig).apiKey === 'string') validConfig.apiKey = (parsed as PaleeConfig).apiKey;
+    if (typeof vaultPath === 'string') validConfig.vaultPath = vaultPath;
+    if (typeof aiProvider === 'string') validConfig.aiProvider = aiProvider;
+    if (typeof model === 'string') validConfig.model = model;
+    if (typeof baseUrl === 'string') validConfig.baseUrl = baseUrl;
+    if (typeof apiKey === 'string') validConfig.apiKey = apiKey;
     return validConfig;
   } catch (e: unknown) {
     const err = e as NodeError;

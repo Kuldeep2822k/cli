@@ -97,7 +97,9 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
   function frontmatterKeys(content: string): string[] {
     const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
     if (!block) return [];
-    return block[1]
+    const body = block[1];
+    assert.ok(body !== undefined);
+    return body
       .split(/\r?\n/)
       .filter((line) => /^[A-Za-z_][\w-]*:|^#.+:/.test(line))
       .map((line) => line.slice(0, line.indexOf(':')));

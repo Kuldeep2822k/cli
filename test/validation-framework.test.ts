@@ -91,9 +91,11 @@ describe('Validation framework: runRules (#25)', () => {
     );
 
     const issues = runRules(makeContext(), [warn, err]);
+    const [firstIssue, secondIssue] = issues;
+    assert.ok(firstIssue !== undefined && secondIssue !== undefined);
 
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[1].severity, 'error');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(secondIssue.severity, 'error');
   });
 
   test('passes the same context object to every rule', () => {
@@ -127,10 +129,12 @@ describe('Validation framework: runRules (#25)', () => {
     ]);
 
     const issues = runRules(makeContext(), [rule]);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
 
-    assert.strictEqual(issues[0].file, 'notes/git.md');
-    assert.strictEqual(issues[0].topicId, 'T-git-rebase');
-    assert.deepStrictEqual(issues[0].details, { files: ['notes/git.md', 'notes/git-2.md'] });
+    assert.strictEqual(firstIssue.file, 'notes/git.md');
+    assert.strictEqual(firstIssue.topicId, 'T-git-rebase');
+    assert.deepStrictEqual(firstIssue.details, { files: ['notes/git.md', 'notes/git-2.md'] });
   });
 
   describe('Exception safety (#171.10)', () => {
@@ -147,15 +151,17 @@ describe('Validation framework: runRules (#25)', () => {
       const issues = runRules(makeContext(), [crashingRule]);
 
       assert.strictEqual(issues.length, 1);
-      assert.strictEqual(issues[0].ruleId, 'no-dependency-cycle');
-      assert.strictEqual(issues[0].severity, 'error');
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.strictEqual(firstIssue.ruleId, 'no-dependency-cycle');
+      assert.strictEqual(firstIssue.severity, 'error');
       assert.strictEqual(
-        issues[0].message,
+        firstIssue.message,
         'Validation rule no-dependency-cycle threw an unexpected error: cycle detected in graph traversal'
       );
-      assert.strictEqual(issues[0].file, '');
-      assert.strictEqual(issues[0].topicId, '');
-      assert.strictEqual(issues[0].field, 'rule-execution');
+      assert.strictEqual(firstIssue.file, '');
+      assert.strictEqual(firstIssue.topicId, '');
+      assert.strictEqual(firstIssue.field, 'rule-execution');
     });
 
     test('catches non-Error thrown by a rule and converts it to a validation finding', () => {
@@ -171,15 +177,17 @@ describe('Validation framework: runRules (#25)', () => {
       const issues = runRules(makeContext(), [throwingRule]);
 
       assert.strictEqual(issues.length, 1);
-      assert.strictEqual(issues[0].ruleId, 'crashing-rule');
-      assert.strictEqual(issues[0].severity, 'error');
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.strictEqual(firstIssue.ruleId, 'crashing-rule');
+      assert.strictEqual(firstIssue.severity, 'error');
       assert.strictEqual(
-        issues[0].message,
+        firstIssue.message,
         'Validation rule crashing-rule threw an unexpected error: unexpected string crash'
       );
-      assert.strictEqual(issues[0].file, '');
-      assert.strictEqual(issues[0].topicId, '');
-      assert.strictEqual(issues[0].field, 'rule-execution');
+      assert.strictEqual(firstIssue.file, '');
+      assert.strictEqual(firstIssue.topicId, '');
+      assert.strictEqual(firstIssue.field, 'rule-execution');
     });
 
     test('handles non-Error thrown value whose string conversion throws', () => {
@@ -198,14 +206,16 @@ describe('Validation framework: runRules (#25)', () => {
       const issues = runRules(makeContext(), [throwingRule, normalRule]);
 
       assert.strictEqual(issues.length, 2);
-      assert.strictEqual(issues[0].ruleId, 'unstringable-rule');
-      assert.strictEqual(issues[0].severity, 'error');
+      const [firstIssue, secondIssue] = issues;
+      assert.ok(firstIssue !== undefined && secondIssue !== undefined);
+      assert.strictEqual(firstIssue.ruleId, 'unstringable-rule');
+      assert.strictEqual(firstIssue.severity, 'error');
       assert.strictEqual(
-        issues[0].message,
+        firstIssue.message,
         'Validation rule unstringable-rule threw an unexpected error: unknown error'
       );
-      assert.strictEqual(issues[1].ruleId, 'after-unstringable');
-      assert.strictEqual(issues[1].message, 'continued');
+      assert.strictEqual(secondIssue.ruleId, 'after-unstringable');
+      assert.strictEqual(secondIssue.message, 'continued');
     });
 
     test('continues executing subsequent rules when an earlier rule throws', () => {
@@ -224,11 +234,13 @@ describe('Validation framework: runRules (#25)', () => {
       const issues = runRules(makeContext(), [crashingRule, normalRule]);
 
       assert.strictEqual(issues.length, 2);
-      assert.strictEqual(issues[0].ruleId, 'first-rule');
-      assert.strictEqual(issues[0].severity, 'error');
-      assert.strictEqual(issues[0].field, 'rule-execution');
-      assert.strictEqual(issues[1].ruleId, 'second-rule');
-      assert.strictEqual(issues[1].message, 'all good');
+      const [firstIssue, secondIssue] = issues;
+      assert.ok(firstIssue !== undefined && secondIssue !== undefined);
+      assert.strictEqual(firstIssue.ruleId, 'first-rule');
+      assert.strictEqual(firstIssue.severity, 'error');
+      assert.strictEqual(firstIssue.field, 'rule-execution');
+      assert.strictEqual(secondIssue.ruleId, 'second-rule');
+      assert.strictEqual(secondIssue.message, 'all good');
     });
   });
 });

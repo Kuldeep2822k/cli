@@ -449,10 +449,15 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
     it('preserves line structure so downstream line scans keep their positions', () => {
       const src = 'a\n```\nx\ny\n```\nb';
       const out = stripFencedCodeBlocks(src);
-      assert.strictEqual(out.split('\n').length, src.split('\n').length);
-      assert.strictEqual(out.split('\n')[0], 'a');
-      assert.strictEqual(out.split('\n')[5], 'b');
-      assert.strictEqual(out.split('\n')[2].length, 1);
+      const outLines = out.split('\n');
+      const [firstLine, , thirdLine] = outLines;
+      assert.ok(firstLine !== undefined && thirdLine !== undefined);
+      const sixthLine = outLines[5];
+      assert.ok(sixthLine !== undefined);
+      assert.strictEqual(outLines.length, src.split('\n').length);
+      assert.strictEqual(firstLine, 'a');
+      assert.strictEqual(sixthLine, 'b');
+      assert.strictEqual(thirdLine.length, 1);
     });
 
     // The one regex this replaced let either marker close the other's block, so
@@ -509,7 +514,9 @@ describe('Auto-Chain Engine (Issue #73, INV-46)', () => {
         links.map((l) => l.target),
         ['Alpha', 'beta/gamma']
       );
-      assert.strictEqual(links[1].alias, 'G');
+      const [, secondLink] = links;
+      assert.ok(secondLink !== undefined);
+      assert.strictEqual(secondLink.alias, 'G');
     });
 
     it('returns an empty array when no links are present', () => {

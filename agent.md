@@ -58,7 +58,7 @@ Storage (`src/storage/`):
 
 ## Verification loop — run before considering a change done
 
-1. `npm run typecheck` (strict `tsc --noEmit` — this is the real quality gate)
+1. `npm run typecheck` (strict `tsc --noEmit` — this is the real quality gate). `tsconfig.json` enables `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` (#381): guard an indexed read before using it (narrowing misses on provably non-empty sequences fail loud via Error/throw rather than silent skip), and when a value is absent omit the key (conditional spread) rather than widening an optional property to `?: T | undefined`.
 2. `npm run lint` (flat ESLint, mostly hygiene; the one armed gate is `@typescript-eslint/no-explicit-any` on `src/**`, which enforces the zero-`any`-in-`src/` PR rule; `test/**` keeps it off)
 3. `npm test` (node:test via `node --import tsx --test "test/**/*.test.ts"`); use `npm run test:coverage` (c8 thresholds: lines/statements ≥96%, functions ≥93%, branches ≥88%; CI also enforces changed-code ≥50% via diff-cover)
 4. `npm run build` (tsc + copies package.json to dist)

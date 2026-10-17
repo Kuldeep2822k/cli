@@ -293,7 +293,9 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
         const report = parseReport(fixed.out);
         assert.deepStrictEqual(repairsOf(report), [], 'a refused rebuild repairs nothing');
         assert.strictEqual(conflictsOf(report).length, 1, `expected one conflict: ${fixed.out}`);
-        assert.match(conflictsOf(report)[0], /\.palee\/hot\.md/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /\.palee\/hot\.md/, conflict);
 
         assert.strictEqual(readIfPresent(vaultPath, '.palee/index.md'), staleIndex);
 
@@ -319,7 +321,9 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
       const report = parseReport(fixed.out);
       assert.deepStrictEqual(repairsOf(report), [], 'no rebuild may run on a provisional snapshot');
       assert.strictEqual(conflictsOf(report).length, 1, `expected a refusal: ${fixed.out}`);
-      assert.match(conflictsOf(report)[0], /snapshot is incomplete/, conflictsOf(report)[0]);
+      const [conflict] = conflictsOf(report);
+      assert.ok(conflict !== undefined);
+      assert.match(conflict, /snapshot is incomplete/, conflict);
       assert.strictEqual(readIfPresent(vaultPath, '.palee/index.md'), staleIndex);
     });
   });
@@ -426,7 +430,9 @@ describe('#323 validate --fix: topic mastery is recomputed through the engine', 
         );
         assert.deepStrictEqual(repairsOf(report), [], 'a conflicting note must not be reported as repaired');
         assert.strictEqual(conflictsOf(report).length, 1, JSON.stringify(report.repair_conflicts));
-        assert.match(conflictsOf(report)[0], /alpha\.md/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /alpha\.md/, conflict);
         assert.strictEqual(fs.readFileSync(filePath, 'utf8'), before, 'conflicted note must stay byte-identical');
 
         const after = parseReport((await captureOutput(() => validateCommand({ json: true }))).out);
@@ -481,8 +487,10 @@ describe('#323 validate --fix: dispatch is authorized by rule metadata', () => {
         );
         assert.deepStrictEqual(repairsOf(report), []);
         assert.strictEqual(conflictsOf(report).length, 1, JSON.stringify(report.repair_conflicts));
-        assert.match(conflictsOf(report)[0], /phantom-safe-rule/, conflictsOf(report)[0]);
-        assert.match(conflictsOf(report)[0], /no repair is implemented/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /phantom-safe-rule/, conflict);
+        assert.match(conflict, /no repair is implemented/, conflict);
         assert.strictEqual(report.valid, true, 'a reported refusal never becomes an error');
         assert.strictEqual(process.exitCode, 0);
 

@@ -11,7 +11,9 @@ function getLockData(lockDir: string) {
   try {
     const files = fs.readdirSync(lockDir).filter(f => f.endsWith('.json'));
     if (files.length === 0) return null;
-    const content = fs.readFileSync(path.join(lockDir, files[0]), 'utf8');
+    const [recordFile] = files;
+    if (recordFile === undefined) return null;
+    const content = fs.readFileSync(path.join(lockDir, recordFile), 'utf8');
     if (!content.trim()) return null;
     return JSON.parse(content);
   } catch {
@@ -90,7 +92,9 @@ describe('File Locking', () => {
     await lock.acquire();
 
     const files = fs.readdirSync(lock.lockPath).filter(f => f.endsWith('.json'));
-    const lockFile = path.join(lock.lockPath, files[0]);
+    const [lockFileName] = files;
+    assert.ok(lockFileName !== undefined);
+    const lockFile = path.join(lock.lockPath, lockFileName);
     const initialMtime = fs.statSync(lockFile).mtimeMs;
 
     await new Promise(resolve => setTimeout(resolve, 1100));
@@ -116,7 +120,9 @@ describe('File Locking', () => {
     // Manually make lock stale by modifying mtime
     const lockData = getLockData(lockPath);
     const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
-    const lockFile = path.join(lockPath, files[0]);
+    const [lockFileName] = files;
+    assert.ok(lockFileName !== undefined);
+    const lockFile = path.join(lockPath, lockFileName);
     
     const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000);
     fs.utimesSync(lockFile, staleTime, staleTime);
@@ -143,7 +149,9 @@ describe('File Locking', () => {
     const lockPath = lock1.lockPath;
 
     const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
-    const lockFile = path.join(lockPath, files[0]);
+    const [lockFileName] = files;
+    assert.ok(lockFileName !== undefined);
+    const lockFile = path.join(lockPath, lockFileName);
     const original = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
 
     // Find a PID that is not running, using the same signal-0 check the
@@ -276,7 +284,9 @@ describe('File Locking', () => {
 
     const files = fs.readdirSync(faultLockDir).filter(f => f.endsWith('.json'));
     assert.ok(files.length > 0, 'precondition: seed lock should have a session file');
-    const faultLockFile = path.join(faultLockDir, files[0]);
+    const [faultLockFileName] = files;
+    assert.ok(faultLockFileName !== undefined);
+    const faultLockFile = path.join(faultLockDir, faultLockFileName);
     const staleTime = new Date(Date.now() - STALE_TIMEOUT - 5000);
     fs.utimesSync(faultLockFile, staleTime, staleTime);
     // Stop the heartbeat so it cannot refresh the lock mid-test.
@@ -380,7 +390,9 @@ describe('File Locking', () => {
     assert.ok(seedLockData, 'precondition: seed lock should parse');
 
     const files = fs.readdirSync(faultLockDir).filter(f => f.endsWith('.json'));
-    const faultLockFile = path.join(faultLockDir, files[0]);
+    const [faultLockFileName] = files;
+    assert.ok(faultLockFileName !== undefined);
+    const faultLockFile = path.join(faultLockDir, faultLockFileName);
     const staleTime = new Date(Date.now() - STALE_TIMEOUT - 5000);
     fs.utimesSync(faultLockFile, staleTime, staleTime);
     const seedTimer = (seedLock as unknown as { heartbeatTimer: ReturnType<typeof setInterval> | null }).heartbeatTimer;
@@ -439,7 +451,9 @@ describe('File Locking', () => {
     try {
       const lockPath = lock1.lockPath;
       const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
-      const lockFile = path.join(lockPath, files[0]);
+      const [lockFileName] = files;
+      assert.ok(lockFileName !== undefined);
+      const lockFile = path.join(lockPath, lockFileName);
       
       // Stop the heartbeat so it doesn't refresh concurrently with our manual aging
       clearInterval((lock1 as any).heartbeatTimer);

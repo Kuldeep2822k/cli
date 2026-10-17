@@ -49,7 +49,9 @@ describe('INV-29 network boundary (#24)', () => {
     for (const [label, pattern] of NETWORK_PRIMITIVES) {
       const lines = text.split(/\r?\n/);
       for (let index = 0; index < lines.length; index++) {
-        if (pattern.test(lines[index])) offenders.push(`${rel}:${index + 1} uses ${label}`);
+        const line = lines[index];
+        assert.ok(line !== undefined);
+        if (pattern.test(line)) offenders.push(`${rel}:${index + 1} uses ${label}`);
       }
     }
   }

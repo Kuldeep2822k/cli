@@ -285,7 +285,12 @@ function createLock(lockDir: string, targetPath: string): LockData {
 
       const freshLocks = parsedLocks.filter(l => !isLockStale(l));
       if (freshLocks.length > 0) {
-        const active = freshLocks[0].data;
+        // A fresh lock always conflicts; the throw is unconditional so a
+        // narrowing miss can never fall through to acquiring the lock.
+        // `length > 0` guarantees `first` exists; optional chaining keeps
+        // the type honest without a non-null assertion.
+        const first = freshLocks[0];
+        const active = first?.data;
         const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;

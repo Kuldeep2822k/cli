@@ -107,7 +107,11 @@ export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSectio
     // bullets keep extending the enclosing `##` section.
     const heading = /^\s*##(?!#)\s+(.+?)\s*$/.exec(line);
     if (heading) {
-      current = { track: heading[1].trim(), links: [] };
+      // Group 1 requires at least one character, so a match always fills it;
+      // the guard keeps the type honest rather than asserting it.
+      const name = heading[1];
+      if (name === undefined) continue;
+      current = { track: name.trim(), links: [] };
       sections.push(current);
       continue;
     }
@@ -122,7 +126,11 @@ export function parseWikilinkSections(rawContent: string): WikilinkRoadmapSectio
         current = { track: '', links: [] };
         sections.push(current);
       }
-      current.links.push(...extractWikilinks(bullet[1]));
+      // Group 1 requires at least one character, so a match always fills it;
+      // the guard keeps the type honest rather than asserting it.
+      const item = bullet[1];
+      if (item === undefined) continue;
+      current.links.push(...extractWikilinks(item));
     }
   }
 
@@ -187,7 +195,10 @@ export function parseRoadmapContent(rawContent: string, filePath?: string): Pars
   let match: RegExpExecArray | null;
   let codeBlockError: string | undefined;
   while ((match = codeBlockRegex.exec(rawContent)) !== null) {
+    // Group 1 always matches, possibly empty; the guard keeps the type honest
+    // rather than asserting it.
     const codeBlockContent = match[1];
+    if (codeBlockContent === undefined) continue;
     try {
       const parsed = yaml.parse(codeBlockContent);
       if (parsed && typeof parsed === 'object' && Array.isArray(parsed.topics)) {

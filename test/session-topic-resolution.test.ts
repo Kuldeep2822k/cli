@@ -213,8 +213,10 @@ describe('session --topic resolution (#302)', () => {
 
       const confirmed = sessionFiles(vaultPath).filter((f) => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1);
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmedFile), 'utf8')
       );
       assert.strictEqual(frontmatter?.topic_id, 'T-kubernetes-basics');
     });
@@ -236,8 +238,10 @@ describe('session --topic resolution (#302)', () => {
 
       const confirmed = sessionFiles(vaultPath).filter((f) => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1, 'the in-flight session must still be recorded');
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmedFile), 'utf8')
       );
       assert.strictEqual(frontmatter?.topic_id, 'T-kubernetes-basics');
     });
@@ -311,8 +315,10 @@ describe('session --topic resolution (#302)', () => {
       assert.strictEqual(process.exitCode, undefined, endOutput);
       const confirmed = sessionFiles(vaultPath).filter((f) => f.startsWith('S-'));
       assert.strictEqual(confirmed.length, 1, endOutput);
+      const [confirmedFile] = confirmed;
+      assert.ok(confirmedFile !== undefined);
       const { frontmatter } = parseFrontmatter(
-        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmed[0]), 'utf8')
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', confirmedFile), 'utf8')
       );
       assert.strictEqual(frontmatter?.topic_id, 'T-kubernetes-basics');
     });

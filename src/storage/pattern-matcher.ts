@@ -44,7 +44,10 @@ export function globValidationRegex(glob: string): RegExp {
   let inGroup = false;
 
   for (let i = 0; i < trimmed.length; i++) {
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const char = trimmed[i];
+    if (char === undefined) continue;
     const next = trimmed[i + 1];
     const next2 = trimmed[i + 2];
 
@@ -153,7 +156,10 @@ function compileSegment(pattern: string): RegExp {
   let regStr = '';
   let inGroup = false;
   for (let i = 0; i < pattern.length; i++) {
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const c = pattern[i];
+    if (c === undefined) continue;
     if (c === '[' && !inGroup) {
       const close = pattern.indexOf(']', i + 1);
       if (close !== -1) {
@@ -232,30 +238,47 @@ export function matchPathGlob(glob: string, target: string): boolean {
     seg === '**' ? null : compileSegment(seg),
   );
 
-  const dp = Array.from({ length: gParts.length + 1 }, () => Array(tParts.length + 1).fill(false));
-  dp[0][0] = true;
+  const dp: boolean[][] = Array.from({ length: gParts.length + 1 }, () => Array(tParts.length + 1).fill(false));
+  // The table is built with `gParts.length + 1` rows, so the first row exists;
+  // the guard keeps the type honest rather than asserting it.
+  const firstRow = dp[0];
+  if (firstRow !== undefined) {
+    firstRow[0] = true;
+  }
 
   for (let i = 1; i <= gParts.length; i++) {
+    // Rows `i - 1` and `i` are in bounds by construction; the guard keeps the
+    // type honest rather than asserting it.
+    const row = dp[i];
+    const prevRow = dp[i - 1];
+    if (row === undefined || prevRow === undefined) continue;
     if (gParts[i - 1] === '**') {
-      dp[i][0] = dp[i - 1][0];
+      row[0] = prevRow[0] ?? false;
       for (let j = 1; j <= tParts.length; j++) {
-        dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+        row[j] = (prevRow[j] ?? false) || (row[j - 1] ?? false);
       }
     } else {
-      dp[i][0] = false;
+      row[0] = false;
       const seg = gParts[i - 1];
+      // Safe: only '**' segments compile to null, and this branch excludes '**'.
       const re = compiledParts[i - 1] as RegExp;
       for (let j = 1; j <= tParts.length; j++) {
+        // `j - 1` is in bounds, so this exists; the guard keeps the type
+        // honest rather than asserting it.
         const t = tParts[j - 1];
+        if (t === undefined) continue;
         // Mirrors matchSegmentWildcard's fast-paths (literal and `*`) using the
         // precompiled RegExp: `seg === t` is the literal match and the compiled
         // RegExp subsumes the `*` case.
-        dp[i][j] = dp[i - 1][j - 1] && (seg === t || re.test(t));
+        row[j] = (prevRow[j - 1] ?? false) && (seg === t || re.test(t));
       }
     }
   }
 
-  return dp[gParts.length][tParts.length];
+  // The table holds `gParts.length + 1` rows of `tParts.length + 1` cells, so
+  // the final cell exists; the fallback keeps the type honest.
+  const lastRow = dp[gParts.length];
+  return lastRow?.[tParts.length] ?? false;
 }
 
 /**
