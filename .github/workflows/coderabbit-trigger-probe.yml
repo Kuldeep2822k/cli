@@ -17,6 +17,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment 458 \
-            --repo Kuldeep2822k/cli \
-            --body "@coderabbitai rate limit"
+          gh api repos/Kuldeep2822k/cli/issues/458/comments \
+            --method POST \
+            --field body='@coderabbitai rate limit'
