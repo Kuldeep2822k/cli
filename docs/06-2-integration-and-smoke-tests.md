@@ -77,7 +77,7 @@ In-process tests import command handlers directly (`adoptCommand`, `reviewComman
 
 ### Deterministic Exit Code Matrix (`test/cli-exit-codes.test.ts`)
 
-Tests in `test/cli-exit-codes.test.ts` systematically verify the 0–5 exit code contract across the eight commands the suite imports — `config`, `migrate`, `roadmap`, `dashboard`, `next`, `plan`, `progress`, and `validate`. Four of the twelve registered commands (`adopt`, `review`, `assess`, `session`) are not imported there and so fall outside this matrix:
+Tests in `test/cli-exit-codes.test.ts` systematically verify the 0–5 exit code contract across the eight commands the suite imports — `config`, `migrate`, `roadmap`, `dashboard`, `next`, `plan`, `progress`, and `validate`. 5 of the 13 registered commands (`adopt`, `review`, `assess`, `session`, `update`) are not imported there and so fall outside this matrix:
 
 | Exit Code | Classification | Trigger Scenarios Tested |
 |:---:|---|---|
@@ -89,7 +89,7 @@ Tests in `test/cli-exit-codes.test.ts` systematically verify the 0–5 exit code
 
 ### Machine-Readable JSON Output (`test/cli-json-output.test.ts`)
 
-Tests in `test/cli-json-output.test.ts` enforce Invariant #45 on the commands that support `--json`: the CLI registers 12 top-level commands, and only some of them stream machine-readable output:
+Tests in `test/cli-json-output.test.ts` enforce Invariant #45 on the commands that support `--json`: the CLI registers 13 top-level commands, and only some of them stream machine-readable output:
 
 - **Schema Stability**: Verifies that every command supporting `--json` emits valid, parseable JSON conforming to documented TypeScript interfaces.
 - **Empty State Resilience**: Ensures that uninitialized or empty vaults return structured JSON (with `null` fields or `[]` arrays) rather than crashing.
