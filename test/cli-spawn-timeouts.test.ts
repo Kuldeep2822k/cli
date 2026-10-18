@@ -48,10 +48,12 @@ const OPTIONS_WINDOW_LINES = 12;
 const CLOSES_CALL = /^\s*(?:\}\s*\)|\))/;
 /** A line that comments instead of binding: prose cannot set an option. */
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
-/** The `timeout: value` form, captured so a zero-valued limit can be rejected. */
-const TIMEOUT_VALUE = /\btimeout\s*:\s*([^,})\s]+)/;
-/** The `{ timeout }` shorthand: a bare `timeout` property on its own line. */
-const TIMEOUT_SHORTHAND = /^\s*timeout\s*[,}]/;
+/** A trailing comment, safe to cut once quoted spans are blanked. */
+const TRAILING_COMMENT = /\/\/.*$/;
+/** A `timeout: value` key anchored at the scanned column. */
+const TIMEOUT_VALUE_AT = /\btimeout\s*:\s*([^,})\s]+)/y;
+/** A `{ timeout }` shorthand key anchored at the scanned column. */
+const TIMEOUT_SHORTHAND_AT = /timeout\s*[,}]/y;
 /** A value written as a number literal, as opposed to an identifier or expression. */
 const NUMERIC_LITERAL = /^[+-]?\d+(?:\.\d+)?$/;
 /** One closed quoted span, blanked so a string is never read as code. */
@@ -60,38 +62,67 @@ const QUOTED_SPAN = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
 const OPTIONS_DEPTH = 1;
 
 /**
- * The timeout key one line sets, and the object depth it sits at.
+ * Every timeout key a line sets, each with the object depth it sits at.
  *
  * @remarks
- * Depth is counted in braces starting from the call's own line, so the options
- * argument's keys land at `OPTIONS_DEPTH`. Quoted spans are blanked first, so
- * neither a brace nor the word `timeout` inside a string is mistaken for code.
+ * Depth is counted in braces from `fromIndex`, which is the call itself on the
+ * window's opening line — so a brace that merely encloses the statement, as in
+ * `if (ok) { spawnSync(a, b, { timeout: 1 }); }`, cannot push the options
+ * argument a level deeper and turn bounded code into reported debt. Every key
+ * on the line is collected, not just the first, so a nested `{ retry: { timeout: 0 } }`
+ * ahead of a real top-level `timeout` does not hide it. Quoted spans are
+ * blanked and a trailing comment cut before any of this, so neither a brace, a
+ * `timeout` in a string, nor one in prose is mistaken for code.
  *
  * @param line - One source line of a call's window.
  * @param enteredAt - Object depth when the line begins.
- * @returns The key's depth and value (empty value means the `{ timeout }`
- * shorthand), whether one was found, and the depth the line ends at.
+ * @param fromIndex - Column on this line to count depth from.
+ * @returns The keys found (empty value means the `{ timeout }` shorthand) and
+ * the depth the line ends at.
  */
-function optionsKeyOnLine(
+function timeoutKeysOnLine(
   line: string,
-  enteredAt: number
-): { found: boolean; depth: number; value: string; exitAt: number } {
-  const code = line.replace(QUOTED_SPAN, ' ');
-  const explicit = TIMEOUT_VALUE.exec(code);
-  const match = explicit ?? TIMEOUT_SHORTHAND.exec(code);
+  enteredAt: number,
+  fromIndex: number
+): { keys: Array<{ depth: number; value: string }>; exitAt: number } {
+  let code = line.replace(QUOTED_SPAN, ' ');
+  if (!COMMENT_LINE.test(code)) code = code.replace(TRAILING_COMMENT, ' ');
+  const keys: Array<{ depth: number; value: string }> = [];
   let depth = enteredAt;
-  let atKey = enteredAt;
-  for (let i = 0; i < code.length; i++) {
-    if (match !== null && i === match.index) atKey = depth;
+  for (let i = fromIndex; i < code.length; i++) {
+    TIMEOUT_VALUE_AT.lastIndex = i;
+    const explicit = TIMEOUT_VALUE_AT.exec(code);
+    if (explicit !== null) {
+      keys.push({ depth, value: explicit[1] ?? '' });
+      i = TIMEOUT_VALUE_AT.lastIndex - 1;
+      continue;
+    }
+    TIMEOUT_SHORTHAND_AT.lastIndex = i;
+    if (TIMEOUT_SHORTHAND_AT.exec(code) !== null && opensKey(code, i)) {
+      keys.push({ depth, value: '' });
+      i = TIMEOUT_SHORTHAND_AT.lastIndex - 1;
+      continue;
+    }
     if (code[i] === '{') depth++;
     else if (code[i] === '}') depth--;
   }
-  return {
-    found: match !== null,
-    depth: atKey,
-    value: explicit ? (explicit[1] ?? '') : '',
-    exitAt: depth,
-  };
+  return { keys, exitAt: depth };
+}
+
+/**
+ * Whether the word at `index` sits in key position rather than value position.
+ *
+ * @remarks
+ * `{ timeout }` and `{ retry: timeout }` differ only by what precedes the word,
+ * and telling them apart is the difference between a bound and a false one.
+ *
+ * @param code - The line with quoted spans already blanked.
+ * @param index - Column of the `timeout` occurrence.
+ * @returns True when nothing but an object opener or separator precedes it.
+ */
+function opensKey(code: string, index: number): boolean {
+  const before = code.slice(0, index).replace(/\s+$/, '').slice(-1);
+  return before === '' || before === '{' || before === ',';
 }
 
 /**
@@ -109,17 +140,20 @@ function optionsKeyOnLine(
  * would flag code that is genuinely bounded.
  *
  * @param window - The source lines belonging to one call, opening line included.
+ * @param callIndex - Column of the call on the window's opening line.
  * @returns True when the call carries an active, positive, top-level timeout.
  */
-function hasActiveTimeout(window: string[]): boolean {
+function hasActiveTimeout(window: string[], callIndex: number): boolean {
   let depth = 0;
-  for (const line of window) {
+  for (const [offset, line] of window.entries()) {
     if (COMMENT_LINE.test(line)) continue;
-    const key = optionsKeyOnLine(line, depth);
-    depth = key.exitAt;
-    if (!key.found || key.depth !== OPTIONS_DEPTH) continue;
-    if (!NUMERIC_LITERAL.test(key.value)) return true;
-    if (Number(key.value) > 0) return true;
+    const scan = timeoutKeysOnLine(line, depth, offset === 0 ? callIndex : 0);
+    depth = scan.exitAt;
+    for (const key of scan.keys) {
+      if (key.depth !== OPTIONS_DEPTH) continue;
+      if (!NUMERIC_LITERAL.test(key.value)) return true;
+      if (Number(key.value) > 0) return true;
+    }
   }
   return false;
 }
@@ -174,7 +208,7 @@ function countUnboundedSpawns(source: string): number {
         break;
       }
     }
-    if (!hasActiveTimeout(lines.slice(i, end))) unbounded++;
+    if (!hasActiveTimeout(lines.slice(i, end), CALL.exec(line)?.index ?? 0)) unbounded++;
   }
   return unbounded;
 }
@@ -374,6 +408,51 @@ describe('direct CLI spawn timeouts', () => {
     // rejecting every single-line form.
     const source = ['spawnSync(process.execPath, argv, { timeout: 120000 });'].join('\n');
     assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a brace that merely encloses the call does not bury its timeout', () => {
+    // Depth is counted from the call, not from column 0 of the line. Starting
+    // anywhere else turns this into reported debt on genuinely bounded code,
+    // and the false positive is permanent: the file must join the allow-list,
+    // and dropping it back off then fails the stale-entry assertion.
+    const source = [
+      'if (enabled) { const r = spawnSync(process.execPath, argv, { timeout: CLI_SPAWN_TIMEOUT_MS }); }',
+    ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a nested key does not hide a real timeout further along the same line', () => {
+    // Only the first key used to be examined, so the nested one below decided
+    // the verdict and the genuine top-level timeout went unseen.
+    const source = [
+      'spawnSync(process.execPath, argv, { retry: { timeout: 0 }, timeout: CLI_SPAWN_TIMEOUT_MS });',
+    ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a timeout in a trailing comment does not bound the call', () => {
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT, // timeout: CLI_SPAWN_TIMEOUT_MS was dropped here',
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'a key after the comment marker is not an option'
+    );
+  });
+
+  test('an inline shorthand property bounds the call', () => {
+    const source = ['spawnSync(process.execPath, argv, { timeout });'].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a timeout used as a value is not a key', () => {
+    // `{ retry: timeout }` sets `retry`; only the column before the word tells
+    // this from `{ timeout }`, and getting it backwards would bound nothing.
+    const source = ['spawnSync(process.execPath, argv, { retry: timeout });'].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 1);
   });
 
   test('the allow-list has no entries that are already fully bounded', () => {
