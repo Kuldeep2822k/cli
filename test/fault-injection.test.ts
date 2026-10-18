@@ -80,7 +80,9 @@ describe('Storage & Memory Fault Injection Test Suite', () => {
 
       const loaded = loadTopics(testVault);
       assert.strictEqual(loaded.length, 1);
-      assert.strictEqual(loaded[0].palee_id, 'T-ok');
+      const [firstLoaded] = loaded;
+      assert.ok(firstLoaded !== undefined);
+      assert.strictEqual(firstLoaded.palee_id, 'T-ok');
 
       fs.unlinkSync(normalNote);
       fs.unlinkSync(corruptedNote);
@@ -111,7 +113,8 @@ practical: -2.0
 
       const loaded = loadTopics(testVault);
       assert.strictEqual(loaded.length, 1);
-      const topic = loaded[0];
+      const [topic] = loaded;
+      assert.ok(topic !== undefined);
 
       // topic_mastery clamped to 0..1
       assert.strictEqual(topic.topic_mastery, 1.0);
@@ -218,7 +221,9 @@ practical: -2.0
 
       const drafts = getDrafts(testVault);
       assert.strictEqual(drafts.length, 1);
-      assert.ok(drafts[0].includes('DRAFT-S-12345678.md'));
+      const [draftName] = drafts;
+      assert.ok(draftName !== undefined);
+      assert.ok(draftName.includes('DRAFT-S-12345678.md'));
     });
   });
 

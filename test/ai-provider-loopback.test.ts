@@ -14,7 +14,7 @@ import { OpenAICompatibleProvider, ProviderError, resolveProviderSettings } from
  * It lives in its own file because `npm test` runs one process per file, so a lingering
  * keep-alive socket cannot delay or hang any other suite.
  */
-type Hit = { method?: string; url?: string; authorization?: string; body: string };
+type Hit = { method?: string | undefined; url?: string | undefined; authorization?: string | undefined; body: string };
 
 describe('provider over a real socket (#24)', () => {
   const hits: Hit[] = [];
@@ -78,6 +78,7 @@ describe('provider over a real socket (#24)', () => {
 
     assert.strictEqual(hits.length, 1);
     const [hit] = hits;
+    assert.ok(hit !== undefined);
     assert.strictEqual(hit.method, 'POST');
     assert.strictEqual(hit.url, '/v1/chat/completions', 'the configured prefix is kept and the path added once');
     assert.strictEqual(hit.authorization, 'Bearer testkey-loopback-42');

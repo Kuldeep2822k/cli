@@ -53,6 +53,7 @@ The `smoke-install` job verifies the integrity of the NPM package by simulating 
 2. Verify: Runs `scripts/verify-tarball.js` to assert the contents of the package [.github/workflows/ci.yml#111-113](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L111-L113)
 3. Install: Installs the CLI globally from the local tarball [.github/workflows/ci.yml#115-116](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L115-L116)
 4. Version Match: Compares `palee --version` output against the `package.json` version [.github/workflows/ci.yml#118-127](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L118-L127)
+5. Real Command: Runs `scripts/smoke-installed.js`, which executes `palee next --json` against an isolated temporary vault and asserts the documented empty-state JSON contract [.github/workflows/ci.yml#170-171](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml#L170-L171)
 
 ### Data Flow: CI Pipeline Execution
 
@@ -70,6 +71,7 @@ flowchart TD
     Pack["npm pack"]
     GlobalInstall["npm install -g"]
     VersionCheck["palee --version"]
+    SmokeCmd["palee next --json smoke"]
     Success["ci-success"]
     subgraph Matrix ["Test Matrix (OS x Node)"]
         TM["test-matrix job"]
@@ -88,7 +90,8 @@ flowchart TD
     SI --> Pack
     Pack --> GlobalInstall
     GlobalInstall --> VersionCheck
-    VersionCheck --> Success
+    VersionCheck --> SmokeCmd
+    SmokeCmd --> Success
     Matrix --> SI
 ```
 

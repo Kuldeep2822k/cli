@@ -309,7 +309,9 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
       const sessions = env.listSessions();
       assert.strictEqual(sessions.drafts.length, 1);
 
-      const draftPath = path.join(env.vaultDir, '.palee', 'sessions', sessions.drafts[0]);
+      const [draftName] = sessions.drafts;
+      assert.ok(draftName !== undefined);
+      const draftPath = path.join(env.vaultDir, '.palee', 'sessions', draftName);
       const content = fs.readFileSync(draftPath, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
       assert.strictEqual(frontmatter?.topic_id, 'T-typescript-basics');
@@ -358,7 +360,9 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
       const sessions = env.listSessions();
       assert.strictEqual(sessions.confirmed.length, 1);
 
-      const sessionFile = path.join(env.vaultDir, '.palee', 'sessions', sessions.confirmed[0]);
+      const [confirmedName] = sessions.confirmed;
+      assert.ok(confirmedName !== undefined);
+      const sessionFile = path.join(env.vaultDir, '.palee', 'sessions', confirmedName);
       const content = fs.readFileSync(sessionFile, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
       assert.strictEqual(frontmatter?.status, 'completed');
@@ -390,7 +394,9 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
       assert.strictEqual(sessions.confirmed.length, 1);
       assert.strictEqual(sessions.drafts.length, 1, 'Draft for T-other should remain');
 
-      const remainingDraftPath = path.join(env.vaultDir, '.palee', 'sessions', sessions.drafts[0]);
+      const [remainingDraftName] = sessions.drafts;
+      assert.ok(remainingDraftName !== undefined);
+      const remainingDraftPath = path.join(env.vaultDir, '.palee', 'sessions', remainingDraftName);
       const remainingContent = fs.readFileSync(remainingDraftPath, 'utf8');
       const parsed = parseFrontmatter(remainingContent);
       assert.strictEqual(parsed.frontmatter?.topic_id, 'T-other');
@@ -401,7 +407,9 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
       env.run(['session', 'start', '--topic', 'T-hot-update']);
       env.run(['session', 'end', '--topic', 'T-hot-update']);
       const sessions = env.listSessions();
-      const completedId = sessions.confirmed[0].replace('.md', '');
+      const [completedName] = sessions.confirmed;
+      assert.ok(completedName !== undefined);
+      const completedId = completedName.replace('.md', '');
 
       const hot = env.readHotMemory();
       assert.ok(hot);

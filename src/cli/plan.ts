@@ -51,14 +51,17 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const now = new Date();
 
     for (const t of loaded) {
+      // `exactOptionalPropertyTypes` rejects explicit `undefined` for the
+      // optional fields, so only present values are assigned; the engine reads
+      // a missing `depends_on` the same as `undefined` (`?? []`).
       topics.set(t.palee_id, {
         palee_id: t.palee_id,
         title: t.title,
         path: t.path,
         topic_mastery: t.topic_mastery,
-        status: t.status,
-        depends_on: t.depends_on,
-        depends_on_source: t.depends_on_source,
+        ...(t.status !== undefined ? { status: t.status } : {}),
+        ...(t.depends_on !== undefined ? { depends_on: t.depends_on } : {}),
+        ...(t.depends_on_source !== undefined ? { depends_on_source: t.depends_on_source } : {}),
         due_at: normalizeDueDate(t.due_at),
         repetition: t.repetition ?? 0,
         difficulty: t.difficulty ?? 'intermediate',
@@ -207,8 +210,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // Section 1: Due for review
     console.log(`Reviews Due: ${dueTopics.length}`);
     if (dueTopics.length > 0) {
-      for (let i = 0; i < Math.min(5, sortedDue.length); i++) {
-        const topic = sortedDue[i];
+      for (const topic of sortedDue.slice(0, 5)) {
         const dueStr = topic.due_at
           ? topic.due_at.toISOString().split('T')[0]
           : 'Never reviewed';
@@ -224,8 +226,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // Section 2: Ready to learn
     console.log(`Ready to Learn: ${readyTopics.length}`);
     if (readyTopics.length > 0) {
-      for (let i = 0; i < Math.min(5, sortedReady.length); i++) {
-        const topic = sortedReady[i];
+      for (const topic of sortedReady.slice(0, 5)) {
         console.log(`  • ${topic.title} (${topic.palee_id}) - ${topic.difficulty}`);
       }
 

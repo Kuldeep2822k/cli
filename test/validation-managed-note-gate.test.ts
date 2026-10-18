@@ -63,6 +63,7 @@ describe('palee_schema-only note: the #324 cross-rule contract', () => {
     assert.strictEqual(issues.length, 1, 'a schema-only note must be surfaced exactly once');
 
     const [issue] = issues;
+    assert.ok(issue !== undefined);
     assert.strictEqual(issue.ruleId, 'valid-managed-note-kind');
     assert.strictEqual(issue.severity, 'warning', 'the false-positive error must not remain');
     assert.strictEqual(issue.field, 'palee_schema');
@@ -110,8 +111,10 @@ describe('the three gates agree on eligibility', () => {
     assert.deepStrictEqual(validTopicIdFormatRule.run(makeContext([makeNote(fm)])), []);
     const kind = validManagedNoteKindRule.run(makeContext([makeNote(fm)]));
     assert.strictEqual(kind.length, 1);
-    assert.strictEqual(kind[0].ruleId, 'valid-managed-note-kind');
-    assert.strictEqual(kind[0].severity, 'warning');
+    const [kindIssue] = kind;
+    assert.ok(kindIssue !== undefined);
+    assert.strictEqual(kindIssue.ruleId, 'valid-managed-note-kind');
+    assert.strictEqual(kindIssue.severity, 'warning');
   });
 });
 
@@ -119,8 +122,10 @@ describe('#324 did not weaken the real #29 catch', () => {
   test('malformed palee_id on an eligible topic note is STILL an error', () => {
     const issues = gateIssues({ palee_schema: 1, palee_id: 'git_rebase' });
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-id-format');
-    assert.strictEqual(issues[0].severity, 'error');
+    const [idIssue] = issues;
+    assert.ok(idIssue !== undefined);
+    assert.strictEqual(idIssue.ruleId, 'valid-topic-id-format');
+    assert.strictEqual(idIssue.severity, 'error');
   });
 
   test('conflicting identities report ONE kind warning, never a topic-id error', () => {

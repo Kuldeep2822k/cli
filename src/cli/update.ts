@@ -7,7 +7,7 @@
  * `validateVaultPath` — an update is machine-level, like `config`, and a fresh
  * install with no vault configured is exactly the user who needs to update —
  * and no `--json` surface: during a real install npm owns stdout, so promising
- * one machine document there could not be kept (ADR-0030). The error shape
+ * one machine document there could not be kept (ADR-0032). The error shape
  * follows `config test-connection`, the only other network-touching command.
  */
 

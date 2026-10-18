@@ -98,7 +98,8 @@ describe('first-creation writes keep OCC enabled (#327)', () => {
     assert.strictEqual(fulfilled.length, 1, `exactly one creator may win, got ${fulfilled.length} successes`);
     assert.strictEqual(rejected.length, 1, `the other must be refused, got ${rejected.length} failures`);
 
-    const loser = rejected[0];
+    const [loser] = rejected;
+    assert.ok(loser !== undefined);
     if (loser.status === 'rejected') {
       const err = loser.reason as Error & { code?: string };
       assert.strictEqual(
@@ -110,7 +111,8 @@ describe('first-creation writes keep OCC enabled (#327)', () => {
 
     // And the survivor is the writer that reported success, not an arbitrary one.
     const content = fs.readFileSync(hotPath, 'utf8');
-    const winner = fulfilled[0];
+    const [winner] = fulfilled;
+    assert.ok(winner !== undefined);
     assert.strictEqual(
       winner.status === 'fulfilled' ? winner.value : null,
       hotPath,

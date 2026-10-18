@@ -1021,9 +1021,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // commit instead of being silently extended.
       for (const topic of existingTopics) {
         if (!plannedGraph.has(topic.id)) {
+          // `exactOptionalPropertyTypes` rejects explicit `undefined` for
+          // `depends_on`; the cycle detector reads a missing key the same as
+          // `undefined` (`?? []`), so only set it when present.
           plannedGraph.set(topic.id, {
             palee_id: topic.id,
-            depends_on: topic.depends_on,
+            ...(topic.depends_on !== undefined ? { depends_on: topic.depends_on } : {}),
             topic_mastery: 0,
           });
         }
