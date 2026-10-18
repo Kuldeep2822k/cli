@@ -238,7 +238,11 @@ function readSessionIndex(
   const refs: string[] = [];
   const seen = new Set<string>();
   for (const match of body.matchAll(INDEX_REF_PATTERN)) {
-    const ref = match[1].trim();
+    // Group 1 requires at least one character, so a match always fills it;
+    // the guard keeps the type honest rather than asserting it.
+    const rawRef = match[1];
+    if (rawRef === undefined) continue;
+    const ref = rawRef.trim();
     // Only session-shaped links are index entries; a topic link or a
     // hand-added note link in the editable body is not a session ref.
     if (ref.length === 0 || !(ref.startsWith('S-') || ref.startsWith('DRAFT-S-'))) continue;

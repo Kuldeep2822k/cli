@@ -110,7 +110,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const learningPct = total > 0 ? (learning / total * 100).toFixed(1) : '0.0';
     const newPct = total > 0 ? (newTopics / total * 100).toFixed(1) : '0.0';
 
-    const byDiff: Record<string, DashboardTopic[]> = {
+    // Concrete object type (not `Record<string, …>`) so the difficulty keys
+    // used below are statically known to exist.
+    const byDiff: { beginner: DashboardTopic[]; intermediate: DashboardTopic[]; advanced: DashboardTopic[] } = {
       beginner: activeTopics.filter(t => t.difficulty === 'beginner'),
       intermediate: activeTopics.filter(t => t.difficulty === 'intermediate'),
       advanced: activeTopics.filter(t => t.difficulty === 'advanced'),

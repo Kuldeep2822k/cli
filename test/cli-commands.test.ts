@@ -620,7 +620,9 @@ Body content.
     const files = fs.readdirSync(sessionsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(files.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(sessionsDir, files[0]), 'utf8');
+    const [sessionFile] = files;
+    assert.ok(sessionFile);
+    const sessionContent = fs.readFileSync(path.join(sessionsDir, sessionFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-docker-basics');
 

@@ -719,9 +719,11 @@ ${body}
 
       assert.strictEqual(result.errors.length, 1);
       assert.strictEqual(result.deleted.length, 0);
+      const [firstError] = result.errors;
+      assert.ok(firstError !== undefined);
       assert.ok(
-        (result.errors[0].error as NodeJS.ErrnoException).code === 'EACCES' ||
-        result.errors[0].error.message.includes('EACCES')
+        (firstError.error as NodeJS.ErrnoException).code === 'EACCES' ||
+        firstError.error.message.includes('EACCES')
       );
     } finally {
       (fs as any).unlinkSync = originalUnlinkSync;

@@ -96,13 +96,16 @@ Sources: [.github/workflows/release.yml#117-139](https://github.com/Kuldeep2822k
 
 The final job runs on `windows-latest` to verify the package's behavior in a non-POSIX environment.
 
-Because the NPM registry often has a slight propagation delay (replication lag), the smoke test implements a retry loop. It attempts to install the package globally up to 12 times, waiting 10 seconds between each attempt [.github/workflows/release.yml#150-165](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L150-L165)
+Because the NPM registry often has a slight propagation delay (replication lag), the smoke test implements a retry loop. It attempts to install the package globally up to 30 times, waiting 10 seconds between each attempt [.github/workflows/release.yml#222-234](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L222-L234)
+
+The real-command smoke ships with the repository, not with the published package, so the job's first step is a pinned `actions/checkout` [.github/workflows/release.yml#210-213](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L210-L213)
 
 After installation, it verifies:
 
-1. Binary Availability: Running `palee --version`[.github/workflows/release.yml#170](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L170-L170)
-2. Version Accuracy: The CLI output must exactly match the release version [.github/workflows/release.yml#171-174](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L171-L174)
-3. Command Execution: Running `palee --help` to ensure dependencies like `commander` are correctly resolved [.github/workflows/release.yml#178](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L178-L178)
+1. Binary Availability: Running `palee --version`[.github/workflows/release.yml#240](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L240-L240)
+2. Version Accuracy: The CLI output must exactly match the release version [.github/workflows/release.yml#239-245](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L239-L245)
+3. Command Execution: Running `palee --help` to ensure dependencies like `commander` are correctly resolved [.github/workflows/release.yml#248](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L248-L248)
+4. Real Command: Runs `scripts/smoke-installed.js`, which executes `palee next --json` against an isolated temporary vault outside the checkout and asserts the documented empty-state JSON contract [.github/workflows/release.yml#250-251](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L250-L251)
 
 "Smoke Test Execution Flow"
 
@@ -119,9 +122,11 @@ sequenceDiagram
     Note over Runner: Compare ACTUAL vs EXPECTED
     Runner->>CLI: palee --help
     CLI-->>Runner: Display Help
+    Runner->>CLI: palee next --json (isolated temp vault)
+    CLI-->>Runner: exit 0; empty-vault JSON contract
 ```
 
-Sources: [.github/workflows/release.yml#140-179](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L140-L179)
+Sources: [.github/workflows/release.yml#201-251](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml#L201-L251)
 
 ## Distribution Configuration
 

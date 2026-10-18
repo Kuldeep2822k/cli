@@ -73,7 +73,13 @@ export function parseNumericPrefix(name: string): NumericPrefix | null {
   if (!match) {
     return null;
   }
-  const n = parseInt(match[1], 10);
+  // The regex's digit group is always filled on a match; the guard keeps the
+  // type honest rather than asserting it.
+  const digits = match[1];
+  if (digits === undefined) {
+    return null;
+  }
+  const n = parseInt(digits, 10);
   // No range guard: NUMERIC_PREFIX caps the digit run at 3, so `n` is always
   // 0..999 and `parseInt` of it can never be anything but a safe integer.
   return { n, rest: match[2] ?? '' };
@@ -193,8 +199,13 @@ function compareDirs(a: string, b: string): number {
   const kb = dirSortKey(b);
   const len = Math.min(ka.length, kb.length);
   for (let i = 0; i < len; i++) {
+    // `i` is below both key lengths by construction; the guards keep the type
+    // honest rather than asserting it.
     const sa = ka[i];
     const sb = kb[i];
+    if (sa === undefined || sb === undefined) {
+      continue;
+    }
     if (sa.n !== null && sb.n !== null) {
       if (sa.n !== sb.n) {
         return sa.n - sb.n;
@@ -288,11 +299,18 @@ function orderedBySegmentName(segments: string[][]): boolean {
   }
   const byName = new Map<string, string[][]>();
   for (const rest of segments) {
-    const list = byName.get(rest[0]);
+    // Segments are non-empty by construction (`split('/')` never yields `[]`
+    // and recursion filters `rest.length > 0`); the guard keeps the type
+    // honest rather than asserting it.
+    const head = rest[0];
+    if (head === undefined) {
+      continue;
+    }
+    const list = byName.get(head);
     if (list) {
       list.push(rest.slice(1));
     } else {
-      byName.set(rest[0], [rest.slice(1)]);
+      byName.set(head, [rest.slice(1)]);
     }
   }
   const names = [...byName.keys()];
@@ -311,8 +329,13 @@ function orderedBySegmentName(segments: string[][]): boolean {
     );
   }
   // Nothing was decided here; the only siblings share this prefix, so the
-  // choice — if any — happens one level down.
-  return orderedBySegmentName((byName.get(names[0]) ?? []).filter((rest) => rest.length > 0));
+  // choice — if any — happens one level down. `byName` holds at least one key
+  // (built from two or more segments), so a first name exists here.
+  const firstName = names[0];
+  if (firstName === undefined) {
+    return false;
+  }
+  return orderedBySegmentName((byName.get(firstName) ?? []).filter((rest) => rest.length > 0));
 }
 
 /**
@@ -478,10 +501,17 @@ function dirTransitionJustified(fromDir: string, toDir: string): boolean {
   const b = dirSortKey(toDir);
   const len = Math.min(a.length, b.length);
   for (let i = 0; i < len; i++) {
-    if (a[i].name === b[i].name) {
+    // `i` is below both key lengths by construction; the guards keep the type
+    // honest rather than asserting it.
+    const keyA = a[i];
+    const keyB = b[i];
+    if (keyA === undefined || keyB === undefined) {
       continue;
     }
-    return a[i].n !== null && b[i].n !== null;
+    if (keyA.name === keyB.name) {
+      continue;
+    }
+    return keyA.n !== null && keyB.n !== null;
   }
   // One path is a prefix of the other: pure nesting, no alphabetical choice.
   return true;
@@ -707,7 +737,11 @@ export function planAutoChainWithHygiene(
   const rootAt = runs.findIndex((r) => r.dir === '.');
   if (rootAt > 0) {
     const [rootRun] = runs.splice(rootAt, 1);
-    runs.unshift(rootRun);
+    // `rootAt > 0` means the splice removed exactly one run; the guard keeps
+    // the type honest rather than asserting it.
+    if (rootRun !== undefined) {
+      runs.unshift(rootRun);
+    }
   }
 
   const orderedPaths: string[] = [];
@@ -825,7 +859,13 @@ export function parseWikilink(text: string): ParsedWikilink | null {
   if (!match) {
     return null;
   }
-  let target = match[1].trim();
+  // Group 1 requires at least one character, so a match always fills it; the
+  // guard keeps the type honest rather than asserting it.
+  const rawTarget = match[1];
+  if (rawTarget === undefined) {
+    return null;
+  }
+  let target = rawTarget.trim();
   if (target.length === 0) {
     return null;
   }
@@ -945,19 +985,27 @@ export function stripFencedCodeBlocks(text: string): string {
   const parts = text.split(/(\r?\n)/);
   let fence: OpenFence | null = null;
   for (let i = 0; i < parts.length; i++) {
+    // `split` always yields at least one element and `i` is in bounds, so
+    // this exists; the guard keeps the type honest rather than asserting it.
     const line = parts[i];
+    if (line === undefined) {
+      continue;
+    }
     if (line.length === 0 || /^\r?\n$/.test(line)) {
       continue;
     }
     const marker = FENCE_LINE.exec(line);
+    // A match always fills both capture groups (the fence run and the rest of
+    // the line); the guards keep the type honest rather than asserting it.
+    const run = marker?.[1];
+    const info = marker?.[2] ?? '';
     if (fence === null) {
-      if (!marker) {
+      if (run === undefined) {
         continue;
       }
-      const run = marker[1];
       // An info string may not contain the opening character: ```` ```js ````
       // opens, ```` ``` a`b ```` is just text that starts with backticks.
-      if (run[0] === '`' && marker[2].includes('`')) {
+      if (run[0] === '`' && info.includes('`')) {
         continue;
       }
       fence = { char: run[0] as '`' | '~', length: run.length };
@@ -966,10 +1014,10 @@ export function stripFencedCodeBlocks(text: string): string {
     }
     parts[i] = maskLine(line);
     if (
-      marker &&
-      marker[1][0] === fence.char &&
-      marker[1].length >= fence.length &&
-      marker[2].trim().length === 0
+      run !== undefined &&
+      run[0] === fence.char &&
+      run.length >= fence.length &&
+      info.trim().length === 0
     ) {
       fence = null;
     }

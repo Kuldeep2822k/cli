@@ -107,11 +107,13 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-review-fields');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-bad-ef');
-    assert.strictEqual(issues[0].field, 'ease_factor');
-    assert.strictEqual(issues[0].details?.actual, 1.2);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-review-fields');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-bad-ef');
+    assert.strictEqual(firstIssue.field, 'ease_factor');
+    assert.strictEqual(firstIssue.details?.actual, 1.2);
   });
 
   test('negative interval_days reports an error', () => {
@@ -120,8 +122,10 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'interval_days');
-    assert.strictEqual(issues[0].details?.actual, -3);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'interval_days');
+    assert.strictEqual(firstIssue.details?.actual, -3);
   });
 
   test('negative repetition reports an error', () => {
@@ -130,7 +134,9 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'repetition');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'repetition');
   });
 
   test('negative lapses reports an error', () => {
@@ -139,7 +145,9 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'lapses');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'lapses');
   });
 
   test('non-integer interval_days reports an error', () => {
@@ -148,8 +156,10 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'interval_days');
-    assert.strictEqual(issues[0].details?.actual, 4.5);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'interval_days');
+    assert.strictEqual(firstIssue.details?.actual, 4.5);
   });
 
   test('non-integer last_quality reports an error', () => {
@@ -158,8 +168,10 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'last_quality');
-    assert.strictEqual(issues[0].details?.actual, 4.5);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'last_quality');
+    assert.strictEqual(firstIssue.details?.actual, 4.5);
   });
 
   test('last_quality outside 0-5 reports an error', () => {
@@ -168,7 +180,9 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'last_quality');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'last_quality');
   });
 
   test('stringified numeric field reports an error (raw read, pre-coercion)', () => {
@@ -179,8 +193,10 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'ease_factor');
-    assert.strictEqual(issues[0].details?.actual, '2.5');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'ease_factor');
+    assert.strictEqual(firstIssue.details?.actual, '2.5');
   });
 
   test('null numeric state fields report errors (never any PALEE writer output)', () => {
@@ -220,13 +236,15 @@ describe('valid-review-fields rule (#38)', () => {
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 3);
-    assert.strictEqual(issues[0].field, 'ease_factor');
-    assert.strictEqual(issues[0].details?.actual, 'NaN');
-    assert.match(issues[0].message, /NaN/);
-    assert.strictEqual(issues[1].field, 'repetition');
-    assert.strictEqual(issues[1].details?.actual, 'Infinity');
-    assert.strictEqual(issues[2].field, 'lapses');
-    assert.strictEqual(issues[2].details?.actual, '-Infinity');
+    const [firstIssue, secondIssue, thirdIssue] = issues;
+    assert.ok(firstIssue !== undefined && secondIssue !== undefined && thirdIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'ease_factor');
+    assert.strictEqual(firstIssue.details?.actual, 'NaN');
+    assert.match(firstIssue.message, /NaN/);
+    assert.strictEqual(secondIssue.field, 'repetition');
+    assert.strictEqual(secondIssue.details?.actual, 'Infinity');
+    assert.strictEqual(thirdIssue.field, 'lapses');
+    assert.strictEqual(thirdIssue.details?.actual, '-Infinity');
   });
 
   test('rule metadata: id, error severity, manual fixability', () => {
@@ -266,10 +284,12 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-review-dates');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].field, 'due_at');
-    assert.strictEqual(issues[0].details?.actual, '2026-09-01T12:00:00Z');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-review-dates');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.field, 'due_at');
+    assert.strictEqual(firstIssue.details?.actual, '2026-09-01T12:00:00Z');
   });
 
   test('impossible calendar date fails (2026-02-31 is not normalized)', () => {
@@ -278,7 +298,9 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'last_reviewed_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'last_reviewed_at');
   });
 
   test('single-digit date spelling fails strict zero-padded form', () => {
@@ -287,7 +309,9 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'due_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'due_at');
   });
 
   test('due_at earlier than last_reviewed_at reports the inversion', () => {
@@ -297,11 +321,13 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-review-dates');
-    assert.strictEqual(issues[0].topicId, 'T-inverted');
-    assert.strictEqual(issues[0].field, 'due_at');
-    assert.strictEqual(issues[0].details?.due_at, '2026-09-01');
-    assert.strictEqual(issues[0].details?.last_reviewed_at, '2026-09-10');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-review-dates');
+    assert.strictEqual(firstIssue.topicId, 'T-inverted');
+    assert.strictEqual(firstIssue.field, 'due_at');
+    assert.strictEqual(firstIssue.details?.due_at, '2026-09-01');
+    assert.strictEqual(firstIssue.details?.last_reviewed_at, '2026-09-10');
   });
 
   test('inversion is not double-reported when a field is also invalid', () => {
@@ -312,8 +338,10 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'due_at');
-    assert.match(issues[0].message, /YYYY-MM-DD/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'due_at');
+    assert.match(firstIssue.message, /YYYY-MM-DD/);
   });
 
   test('non-string date values fail (numbers, booleans)', () => {
@@ -322,8 +350,10 @@ describe('valid-review-dates rule (#39)', () => {
     })];
     const issues = validReviewDatesRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'due_at');
-    assert.strictEqual(issues[0].details?.actual, 20260901);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'due_at');
+    assert.strictEqual(firstIssue.details?.actual, 20260901);
   });
 
   test('both fields invalid report two errors in read order', () => {
@@ -407,7 +437,9 @@ describe('valid-dependency-list rule (#33)', () => {
       const topics = [makeTopic({ palee_id: 'T-cycle', frontmatter })];
       const issues = validDependencyListRule.run(makeContext(topics));
       assert.strictEqual(issues.length, 1, `exactly one finding for a cycle: ${JSON.stringify(issues)}`);
-      assert.match(issues[0].message, /\[circular\]/, 'the message names the shape without walking it');
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.match(firstIssue.message, /\[circular\]/, 'the message names the shape without walking it');
       assert.strictEqual(
         JSON.parse(JSON.stringify(issues))[0].details.actual,
         '[circular]',
@@ -455,9 +487,11 @@ describe('valid-dependency-list rule (#33)', () => {
       })];
       const issues = validDependencyListRule.run(makeContext(topics));
       assert.strictEqual(issues.length, 1, `${JSON.stringify(label)} is outside the domain`);
-      assert.strictEqual(issues[0].severity, 'error', 'a gate that never lifts is not a warning');
-      assert.strictEqual(issues[0].field, 'depends_on_source');
-      assert.match(issues[0].message, /gates the note/);
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.strictEqual(firstIssue.severity, 'error', 'a gate that never lifts is not a warning');
+      assert.strictEqual(firstIssue.field, 'depends_on_source');
+      assert.match(firstIssue.message, /gates the note/);
     }
   });
 
@@ -468,11 +502,13 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-str');
-    assert.strictEqual(issues[0].field, 'depends_on');
-    assert.strictEqual(issues[0].details?.actual, 'T-a, T-b');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-dependency-list');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-str');
+    assert.strictEqual(firstIssue.field, 'depends_on');
+    assert.strictEqual(firstIssue.details?.actual, 'T-a, T-b');
   });
 
   test('non-string array items report errors (no String() coercion)', () => {
@@ -495,8 +531,10 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].details?.actual, '');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.details?.actual, '');
   });
 
   test('self-dependency reports an error', () => {
@@ -506,10 +544,12 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-self');
-    assert.match(issues[0].message, /itself/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-dependency-list');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-self');
+    assert.match(firstIssue.message, /itself/);
   });
 
   test('duplicate dependency entries report a warning per duplicated ID', () => {
@@ -550,8 +590,10 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].details?.actual, 'T-a');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.details?.actual, 'T-a');
   });
 
   test('padded self-dependency reports an error (loader-trim semantics)', () => {
@@ -563,9 +605,11 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.match(issues[0].message, /itself/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-dependency-list');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.match(firstIssue.message, /itself/);
   });
 
   test('legacy dependencies alias emits migration advisory warning on valid array (#171.2, #181)', () => {
@@ -575,12 +619,14 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].topicId, 'T-legacy');
-    assert.strictEqual(issues[0].field, 'dependencies');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-dependency-list');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.topicId, 'T-legacy');
+    assert.strictEqual(firstIssue.field, 'dependencies');
     assert.strictEqual(
-      issues[0].message,
+      firstIssue.message,
       'Topic T-legacy: legacy dependencies alias is deprecated; migrate to depends_on'
     );
   });
@@ -592,9 +638,11 @@ describe('valid-dependency-list rule (#33)', () => {
     })];
     const issues = validDependencyListRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-dependency-list');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].field, 'dependencies');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-dependency-list');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.field, 'dependencies');
   });
 
   test('legacy dependencies with non-array shape diagnoses defects (#171.2, #181)', () => {
@@ -615,21 +663,25 @@ describe('valid-dependency-list rule (#33)', () => {
 
     const numIssues = issues.filter((i) => i.topicId === 'T-num-deps');
     assert.strictEqual(numIssues.length, 2);
-    assert.strictEqual(numIssues[0].severity, 'warning');
-    assert.strictEqual(numIssues[1].severity, 'error');
-    assert.strictEqual(numIssues[1].field, 'dependencies');
+    const [numWarning, numError] = numIssues;
+    assert.ok(numWarning !== undefined && numError !== undefined);
+    assert.strictEqual(numWarning.severity, 'warning');
+    assert.strictEqual(numError.severity, 'error');
+    assert.strictEqual(numError.field, 'dependencies');
     assert.strictEqual(
-      numIssues[1].message,
+      numError.message,
       'Topic T-num-deps: dependencies must be an array of topic IDs, got 123'
     );
 
     const strIssues = issues.filter((i) => i.topicId === 'T-str-deps');
     assert.strictEqual(strIssues.length, 2);
-    assert.strictEqual(strIssues[0].severity, 'warning');
-    assert.strictEqual(strIssues[1].severity, 'error');
-    assert.strictEqual(strIssues[1].field, 'dependencies');
+    const [strWarning, strError] = strIssues;
+    assert.ok(strWarning !== undefined && strError !== undefined);
+    assert.strictEqual(strWarning.severity, 'warning');
+    assert.strictEqual(strError.severity, 'error');
+    assert.strictEqual(strError.field, 'dependencies');
     assert.strictEqual(
-      strIssues[1].message,
+      strError.message,
       'Topic T-str-deps: dependencies must be an array of topic IDs, got "T-a, T-b"'
     );
   });
@@ -642,15 +694,17 @@ describe('valid-dependency-list rule (#33)', () => {
     const issues = validDependencyListRule.run(makeContext(topics));
     // 1 advisory warning, 2 item errors ('', 42), 1 self-ref error, 1 dup warning (T-a)
     assert.strictEqual(issues.length, 5);
+    const [firstIssue, secondIssue, thirdIssue, fourthIssue, fifthIssue] = issues;
+    assert.ok(firstIssue !== undefined && secondIssue !== undefined && thirdIssue !== undefined && fourthIssue !== undefined && fifthIssue !== undefined);
     assert.deepStrictEqual(
       issues.map((i) => i.severity),
       ['warning', 'error', 'error', 'error', 'warning']
     );
-    assert.strictEqual(issues[0].message, 'Topic T-messy-legacy: legacy dependencies alias is deprecated; migrate to depends_on');
-    assert.match(issues[1].message, /every dependencies entry must be a non-empty topic ID string/);
-    assert.match(issues[2].message, /every dependencies entry must be a non-empty topic ID string/);
-    assert.match(issues[3].message, /dependencies must not reference the topic itself/);
-    assert.strictEqual(issues[4].message, 'Topic T-messy-legacy: duplicate dependency entry T-a in dependencies');
+    assert.strictEqual(firstIssue.message, 'Topic T-messy-legacy: legacy dependencies alias is deprecated; migrate to depends_on');
+    assert.match(secondIssue.message, /every dependencies entry must be a non-empty topic ID string/);
+    assert.match(thirdIssue.message, /every dependencies entry must be a non-empty topic ID string/);
+    assert.match(fourthIssue.message, /dependencies must not reference the topic itself/);
+    assert.strictEqual(fifthIssue.message, 'Topic T-messy-legacy: duplicate dependency entry T-a in dependencies');
   });
 
   test('rule metadata: id, error severity (mixed rule), manual fixability', () => {

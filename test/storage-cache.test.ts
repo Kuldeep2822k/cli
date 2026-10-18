@@ -169,7 +169,9 @@ describe('File Cache', () => {
 
       // All cap entries are present.
       for (let i = 0; i < cap; i++) {
-        assert.deepStrictEqual(bounded.get(files[i]), { id: i });
+        const cachedFile = files[i];
+        assert.ok(cachedFile !== undefined);
+        assert.deepStrictEqual(bounded.get(cachedFile), { id: i });
       }
 
       // get() above refreshed lastVerified for files[0..cap-1] in order, so
@@ -180,14 +182,18 @@ describe('File Cache', () => {
       bounded.set(overflow, { id: 999 }, computeFingerprint(overflowBody));
 
       // The oldest-lastVerified entry (files[0]) must have been evicted.
+      const [oldestFile, secondFile] = files;
+      assert.ok(oldestFile !== undefined && secondFile !== undefined);
+      const newestFile = files[cap - 1];
+      assert.ok(newestFile !== undefined);
       assert.strictEqual(
-        bounded.get(files[0]),
+        bounded.get(oldestFile),
         null,
         'Oldest-lastVerified entry should be evicted once the cap is exceeded',
       );
       // Newer entries and the overflow entry survive.
-      assert.deepStrictEqual(bounded.get(files[1]), { id: 1 });
-      assert.deepStrictEqual(bounded.get(files[cap - 1]), { id: cap - 1 });
+      assert.deepStrictEqual(bounded.get(secondFile), { id: 1 });
+      assert.deepStrictEqual(bounded.get(newestFile), { id: cap - 1 });
       assert.deepStrictEqual(bounded.get(overflow), { id: 999 });
     } finally {
       fs.rmSync(capDir, { recursive: true, force: true });

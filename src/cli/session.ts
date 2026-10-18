@@ -647,7 +647,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
         // Stale draft tolerance: clamp to no earlier than 24h before now (matches draft-write path)
         const minStart = nowTime - 24 * 60 * 60 * 1000;
-        const draftStart = Math.max(new Date(matchingDrafts[0].started_at).getTime(), minStart);
+        const earliestDraft = matchingDrafts[0];
+        if (earliestDraft === undefined) {
+          // Unreachable: the `matchingDrafts.length > 0` check above
+          // guarantees an element.
+          throw new Error('Internal error: expected at least one matching draft.');
+        }
+        const draftStart = Math.max(new Date(earliestDraft.started_at).getTime(), minStart);
         startedAt = new Date(Math.min(draftStart, nowTime)).toISOString();
       }
 

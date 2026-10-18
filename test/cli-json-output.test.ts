@@ -67,7 +67,7 @@ describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
 
   describe('Configuration & Setup Error Output in JSON mode', () => {
     test('validate --json emits structured JSON error when vault not configured', async () => {
-      saveConfig({ vaultPath: undefined });
+      saveConfig({});
       await validateCommand({ json: true });
       const err = getLastParsedJsonError();
       assert.ok(err.error.includes('Vault path not configured'));
@@ -563,7 +563,7 @@ depends_on: []
       // Ready-to-Learn section (heading `Ready to Learn: N`) keeps the
       // acyclic topic and drops the pair. The colon anchors on the section
       // heading, not the exclusion note above, which also says the phrase.
-      const readySection = (humanOutput.split('Ready to Learn: ')[1] ?? '').split('Progress Summary')[0];
+      const [readySection = ''] = (humanOutput.split('Ready to Learn: ')[1] ?? '').split('Progress Summary');
       assert.ok(readySection.includes('T-free'), 'ready list must keep the independent topic');
       assert.ok(!readySection.includes('T-cycle-a'), 'ready list must exclude the cyclic pair');
       assert.strictEqual(process.exitCode, 0, 'plan continues on valid acyclic components');
@@ -621,7 +621,7 @@ depends_on: []
 
       await planCommand({});
       const human = loggedOutputs.join('\n');
-      const section = (human.split('Blocked by prerequisites: ')[1] ?? '').split('Progress Summary')[0];
+      const [section = ''] = (human.split('Blocked by prerequisites: ')[1] ?? '').split('Progress Summary');
 
       assert.ok(section.includes('T-gated-live'), 'a topic behind an unmet prereq must be named');
       assert.ok(section.includes('needs 0.70'), 'the report must state the threshold it is waiting on');

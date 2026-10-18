@@ -85,11 +85,13 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-palee-schema');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].file, 'future.md');
-    assert.strictEqual(issues[0].field, 'palee_schema');
-    assert.strictEqual(issues[0].details?.actual, 999);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-palee-schema');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.file, 'future.md');
+    assert.strictEqual(firstIssue.field, 'palee_schema');
+    assert.strictEqual(firstIssue.details?.actual, 999);
   });
 
   test('string schema "1" is an error (type, not just value)', () => {
@@ -100,7 +102,9 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.actual, '1');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.actual, '1');
   });
 
   test('missing schema on a managed topic note is an error', () => {
@@ -112,8 +116,10 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.actual, null);
-    assert.match(issues[0].message, /missing/i);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.actual, null);
+    assert.match(firstIssue.message, /missing/i);
   });
 
   test('missing schema on an unrelated non-managed note is not reported', () => {
@@ -135,9 +141,11 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-palee-schema');
-    assert.strictEqual(issues[0].file, 'numid.md');
-    assert.match(issues[0].message, /missing palee_schema/i);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-palee-schema');
+    assert.strictEqual(firstIssue.file, 'numid.md');
+    assert.match(firstIssue.message, /missing palee_schema/i);
   });
 
   test('null palee_id still counts as managed (key presence, not type)', () => {
@@ -148,7 +156,9 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].file, 'nullid.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.file, 'nullid.md');
   });
 
   test('array session_id still counts as managed', () => {
@@ -159,7 +169,9 @@ describe('valid-palee-schema rule (#28)', () => {
     const issues = validPaleeSchemaRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].file, 'sess.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.file, 'sess.md');
   });
 
   test('rule metadata: error severity, manual fixability', () => {
@@ -197,11 +209,13 @@ describe('valid-topic-id-format rule (#29)', () => {
     const issues = validTopicIdFormatRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-id-format');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].file, 'num.md');
-    assert.strictEqual(issues[0].field, 'palee_id');
-    assert.strictEqual(issues[0].details?.actual, 123);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-topic-id-format');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.file, 'num.md');
+    assert.strictEqual(firstIssue.field, 'palee_id');
+    assert.strictEqual(firstIssue.details?.actual, 123);
   });
 
   test('palee_schema-only note is NOT a topic note — no id-format error (#324)', () => {
@@ -249,7 +263,9 @@ describe('valid-topic-id-format rule (#29)', () => {
     const issues = validTopicIdFormatRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.actual, null);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.actual, null);
   });
 
   test('blank palee_id is an error', () => {
@@ -268,9 +284,11 @@ describe('valid-topic-id-format rule (#29)', () => {
     const issues = validTopicIdFormatRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'git_rebase');
-    assert.strictEqual(issues[0].field, 'palee_id');
-    assert.ok(issues[0].details?.expected);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'git_rebase');
+    assert.strictEqual(firstIssue.field, 'palee_id');
+    assert.ok(firstIssue.details?.expected);
   });
 
   test('empty-slug ID T- is an error', () => {
@@ -281,7 +299,9 @@ describe('valid-topic-id-format rule (#29)', () => {
     const issues = validTopicIdFormatRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-');
   });
 
   test('uppercase in slug is an error (policy: lowercase kebab)', () => {
@@ -355,11 +375,13 @@ describe('valid-topic-status rule (#31)', () => {
     const issues = validTopicStatusRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-status');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-done');
-    assert.strictEqual(issues[0].field, 'status');
-    assert.deepStrictEqual(issues[0].details?.allowed, ['not_started', 'learning', 'paused', 'archived']);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-topic-status');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-done');
+    assert.strictEqual(firstIssue.field, 'status');
+    assert.deepStrictEqual(firstIssue.details?.allowed, ['not_started', 'learning', 'paused', 'archived']);
   });
 
   test('done is an error', () => {
@@ -386,7 +408,9 @@ describe('valid-topic-status rule (#31)', () => {
     const issues = validTopicStatusRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.actual, 1);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.actual, 1);
   });
 
   test('missing status is tolerated as not_started (loader default policy)', () => {
@@ -423,9 +447,11 @@ describe('valid-topic-status rule (#31)', () => {
     const issues = validTopicStatusRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-status');
-    assert.strictEqual(issues[0].topicId, 'T-null');
-    assert.strictEqual(issues[0].details?.actual, null);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-topic-status');
+    assert.strictEqual(firstIssue.topicId, 'T-null');
+    assert.strictEqual(firstIssue.details?.actual, null);
   });
 
   test('array status fails even when its coerced form is an allowed word', () => {
@@ -443,7 +469,9 @@ describe('valid-topic-status rule (#31)', () => {
     const issues = validTopicStatusRule.run(context);
 
     assert.strictEqual(issues.length, 1);
-    assert.deepStrictEqual(issues[0].details?.actual, ['learning']);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.deepStrictEqual(firstIssue.details?.actual, ['learning']);
   });
 
   test('rule metadata: error severity, manual fixability', () => {
