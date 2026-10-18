@@ -54,29 +54,74 @@ const TIMEOUT_VALUE = /\btimeout\s*:\s*([^,})\s]+)/;
 const TIMEOUT_SHORTHAND = /^\s*timeout\s*[,}]/;
 /** A value written as a number literal, as opposed to an identifier or expression. */
 const NUMERIC_LITERAL = /^[+-]?\d+(?:\.\d+)?$/;
+/** One closed quoted span, blanked so a string is never read as code. */
+const QUOTED_SPAN = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
+/** The object depth of the options argument's own keys, counted from the call. */
+const OPTIONS_DEPTH = 1;
 
 /**
- * Whether the lines spanning one call's options set a timeout that will actually fire.
+ * The timeout key one line sets, and the object depth it sits at.
  *
  * @remarks
- * Node honours `timeout` only when it is non-zero, so `timeout: 0` leaves the
- * synchronous spawn as unbounded as no option at all. A `timeout` written in a
- * comment binds nothing either. Matching the key name alone accepts both, which
- * is how a new unbounded call would pass this guard. Anything that cannot be
- * evaluated statically — the shorthand, an identifier, a positive literal — is
- * taken as bounding the call, since guessing otherwise would report false
- * positives against code that is genuinely bounded.
+ * Depth is counted in braces starting from the call's own line, so the options
+ * argument's keys land at `OPTIONS_DEPTH`. Quoted spans are blanked first, so
+ * neither a brace nor the word `timeout` inside a string is mistaken for code.
+ *
+ * @param line - One source line of a call's window.
+ * @param enteredAt - Object depth when the line begins.
+ * @returns The key's depth and value (empty value means the `{ timeout }`
+ * shorthand), whether one was found, and the depth the line ends at.
+ */
+function optionsKeyOnLine(
+  line: string,
+  enteredAt: number
+): { found: boolean; depth: number; value: string; exitAt: number } {
+  const code = line.replace(QUOTED_SPAN, ' ');
+  const explicit = TIMEOUT_VALUE.exec(code);
+  const match = explicit ?? TIMEOUT_SHORTHAND.exec(code);
+  let depth = enteredAt;
+  let atKey = enteredAt;
+  for (let i = 0; i < code.length; i++) {
+    if (match !== null && i === match.index) atKey = depth;
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}') depth--;
+  }
+  return {
+    found: match !== null,
+    depth: atKey,
+    value: explicit ? (explicit[1] ?? '') : '',
+    exitAt: depth,
+  };
+}
+
+/**
+ * Whether the lines spanning one call set an active timeout on the call itself.
+ *
+ * @remarks
+ * Three ways a window can look bounded and not be. A `timeout` in a comment
+ * binds nothing. `timeout: 0` is Node's "no limit" — the option applies only
+ * when non-zero. And a `timeout` below the options argument's own level, as in
+ * `{ retry: { timeout: 1 } }`, is a property of some other object, which
+ * `spawnSync` ignores: verified against a live child, which ran to completion
+ * under a nested `timeout: 1` and died at `ETIMEDOUT` under a top-level one.
+ * Anything not statically resolvable — the shorthand, an identifier, a
+ * `120_000` separator — counts as bounding the call, since guessing otherwise
+ * would flag code that is genuinely bounded.
  *
  * @param window - The source lines belonging to one call, opening line included.
- * @returns True when the call carries an active, positive timeout.
+ * @returns True when the call carries an active, positive, top-level timeout.
  */
 function hasActiveTimeout(window: string[]): boolean {
-  return window.some((line) => {
-    if (COMMENT_LINE.test(line)) return false;
-    const value = TIMEOUT_VALUE.exec(line)?.[1];
-    if (value === undefined) return TIMEOUT_SHORTHAND.test(line);
-    return NUMERIC_LITERAL.test(value) ? Number(value) > 0 : true;
-  });
+  let depth = 0;
+  for (const line of window) {
+    if (COMMENT_LINE.test(line)) continue;
+    const key = optionsKeyOnLine(line, depth);
+    depth = key.exitAt;
+    if (!key.found || key.depth !== OPTIONS_DEPTH) continue;
+    if (!NUMERIC_LITERAL.test(key.value)) return true;
+    if (Number(key.value) > 0) return true;
+  }
+  return false;
 }
 
 /**
@@ -270,6 +315,64 @@ describe('direct CLI spawn timeouts', () => {
       '  timeout,',
       '});',
     ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a timeout nested in another options object does not bound the call', () => {
+    // `{ nested: { timeout: 1 } }` is a property of `nested`, not of the options
+    // argument, and `spawnSync` ignores it. Verified against a live child: under
+    // a nested `timeout: 1` it ran to completion, under a top-level one it died
+    // at `ETIMEDOUT`.
+    const source = ['spawnSync(process.execPath, argv, { nested: { timeout: 1 } });'].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'a timeout below the options level binds nothing'
+    );
+  });
+
+  test('a timeout nested across lines does not bound the call', () => {
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  retry: {',
+      '    timeout: 1,',
+      '  },',
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'depth carries across lines, so a nested key stays nested'
+    );
+  });
+
+  test('a timeout inside a string does not bound the call', () => {
+    // The key sits at the options level here, so only blanking the quoted span
+    // keeps this from reading as `timeout: 5`.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      "  input: 'palee export --label timeout: 5',",
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'a key inside a quoted span is not an option'
+    );
+  });
+
+  test('a brace inside a string does not bury the real timeout', () => {
+    // Without blanking, the brace in the argument array counts toward depth and
+    // the genuine top-level timeout lands at depth 2 — a false positive that
+    // would report bounded code as debt.
+    const source = ["spawnSync(process.execPath, ['--label', '{'], { timeout: 120000 });"].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a top-level timeout on the call line still bounds the call', () => {
+    // The control for the nesting checks, so depth matching cannot pass by
+    // rejecting every single-line form.
+    const source = ['spawnSync(process.execPath, argv, { timeout: 120000 });'].join('\n');
     assert.strictEqual(countUnboundedSpawns(source), 0);
   });
 
