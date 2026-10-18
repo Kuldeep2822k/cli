@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A non-numeric stored SM-2 field is refused, not scheduled** ([#342](https://github.com/Kuldeep2822k/cli/issues/342)): `interval_days: soon` slipped past the range guards because `"soon" < 1` is false, and the note was written back with a `NaN` interval; `processReview` now refuses a value that is not a finite number, so the field is named and `validate --fix` can repair it.
 - **`palee review` never mints pillar scores and names an off-schedule (early) review** ([#300](https://github.com/Kuldeep2822k/cli/issues/300), [#301](https://github.com/Kuldeep2822k/cli/issues/301)).
 - **`atomicWrite` preserves the destination's permission mode and fsyncs the parent directory** ([#318](https://github.com/Kuldeep2822k/cli/issues/318), [#333](https://github.com/Kuldeep2822k/cli/issues/333)).
 - **The machine-readable error contract holds on every failure path** ([#320](https://github.com/Kuldeep2822k/cli/issues/320), [#325](https://github.com/Kuldeep2822k/cli/issues/325), [#326](https://github.com/Kuldeep2822k/cli/issues/326), [#338](https://github.com/Kuldeep2822k/cli/issues/338)): JSON mode and exit codes stay consistent, no raw error object is dumped, and `process.exit()` no longer truncates output.

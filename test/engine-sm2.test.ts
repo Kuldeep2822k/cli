@@ -39,6 +39,72 @@ describe('SM-2 Algorithm', () => {
     );
   });
 
+  // The three tests above are the numeric half of the precondition block. The
+  // non-numeric half is what #342 found unpinned: a stored scalar that is not a
+  // number sails straight through a range comparison — `"soon" < 1`, `true < 1`,
+  // `NaN < 1` and `Infinity < 1.3` are all false — so the value reached the INV-17
+  // ladder and came back as a NaN interval written to the note. ADR-0021 refuses a
+  // corrupt stored value and names it rather than clamping it, and
+  // `src/cli/review.ts` matches the `Invalid <field>:` prefix to decide whether to
+  // print the `validate --fix` hint. Both halves of that message — the prefix and
+  // `got <value>` — are therefore asserted here, not just one of them.
+  //
+  // The `as unknown as number` casts are the shape the engine really receives:
+  // `src/application/record-review.ts` passes raw frontmatter through as
+  // `frontmatter.interval_days as number`, so a corrupt note arrives mistyped and
+  // type-corrected, never sanitized.
+
+  test('interval_days refuses a stored string, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 'soon' as unknown as number, repetition: 2 },
+        4
+      ),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got soon' }
+    );
+  });
+
+  test('interval_days refuses a stored boolean, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: true as unknown as number, repetition: 2 },
+        4
+      ),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got true' }
+    );
+  });
+
+  test('interval_days refuses NaN, which no range comparison can catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: NaN, repetition: 2 }, 4),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got NaN' }
+    );
+  });
+
+  test('ease_factor refuses Infinity, which no range comparison can catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: Infinity, interval_days: 6, repetition: 3 }, 4),
+      { message: 'Invalid ease_factor: must be a finite number >= 1.3, got Infinity' }
+    );
+  });
+
+  test('repetition refuses a stored string, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
+        4
+      ),
+      { message: 'Invalid repetition: must be an integer >= 0, got x' }
+    );
+  });
+
+  test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),
+      { message: 'Invalid repetition: must be an integer >= 0, got 2.5' }
+    );
+  });
+
   test('quality < 3 resets repetition and interval to 1', () => {
     const result = processReview(
       { ease_factor: 2.5, interval_days: 10, repetition: 5 },

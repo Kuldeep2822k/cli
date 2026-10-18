@@ -99,15 +99,17 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
     repetition = 0,
   } = current;
 
-  // Validate current state
-  if (ease_factor < 1.3) {
-    throw new Error(`Invalid ease_factor: must be >= 1.3, got ${ease_factor}`);
+  // Validate current state. The range tests alone do not refuse a stored scalar
+  // that is not a number: `"soon" < 1` and `true < 1` are both false, so the
+  // value would reach the schedule and store a NaN interval (INV-13).
+  if (!Number.isFinite(ease_factor) || ease_factor < 1.3) {
+    throw new Error(`Invalid ease_factor: must be a finite number >= 1.3, got ${ease_factor}`);
   }
-  if (interval_days < 1) {
-    throw new Error(`Invalid interval_days: must be >= 1, got ${interval_days}`);
+  if (!Number.isFinite(interval_days) || interval_days < 1) {
+    throw new Error(`Invalid interval_days: must be a finite number >= 1, got ${interval_days}`);
   }
-  if (repetition < 0) {
-    throw new Error(`Invalid repetition: must be >= 0, got ${repetition}`);
+  if (!Number.isInteger(repetition) || repetition < 0) {
+    throw new Error(`Invalid repetition: must be an integer >= 0, got ${repetition}`);
   }
 
   let newRepetition: number;
