@@ -39,8 +39,13 @@ const PARTIALLY_BOUNDED: readonly string[] = [
 ];
 
 const CALL = /\b(execSync|spawnSync|execFileSync)\s*\(/;
-/** Options for one call can span a dozen lines; look far enough to see `timeout`. */
+/** Options for one call can span a dozen lines; look no further than that. */
 const OPTIONS_WINDOW_LINES = 12;
+/**
+ * A line that closes the call: `});`, `}).trim()`, `)`, `);`. Anything after it
+ * belongs to some other construct, so its `timeout` must not vouch for this call.
+ */
+const CLOSES_CALL = /^\s*(?:\}\s*\)|\))/;
 /** Matches both `timeout: value` and the `{ timeout }` shorthand property. */
 const TIMEOUT_OPTION = /\btimeout\s*:|^\s*timeout\s*[,}]/m;
 
@@ -67,11 +72,13 @@ function collectTestFiles(dir: string): string[] {
  * Counts direct spawn calls in a source text that carry no `timeout` option.
  *
  * @remarks
- * Each call's options window stops at the *next* call, not at a fixed line
- * count: without that bound an unbounded call followed by a bounded one is read
- * as bounded by its neighbour's `timeout`, which is the exact false negative
- * this guard exists to prevent. Comment lines are skipped, since `palee-cli.ts`
- * names `spawnSync` in prose.
+ * Each call's window ends at whichever comes first: the closing line of the
+ * call, the next call, or the line cap. Without the closing bound a `timeout`
+ * belonging to a later construct — a `test('x', { timeout })` option, a nested
+ * object — would satisfy an unbounded spawn above it, and without the
+ * next-call bound a bounded neighbour would vouch for it. Both are false
+ * negatives of exactly the kind this guard exists to catch. Comment lines are
+ * skipped, since `palee-cli.ts` names `spawnSync` in prose.
  *
  * @param source - Whole file contents to scan.
  * @returns How many call sites lack a timeout.
@@ -85,7 +92,8 @@ function countUnboundedSpawns(source: string): number {
     if (/^\s*(\*|\/\/)/.test(line)) continue;
     let end = Math.min(i + OPTIONS_WINDOW_LINES, lines.length);
     for (let j = i + 1; j < end; j++) {
-      if (CALL.test(lines[j] ?? '')) {
+      const next = lines[j] ?? '';
+      if (CALL.test(next) || CLOSES_CALL.test(next)) {
         end = j;
         break;
       }
@@ -147,6 +155,23 @@ describe('direct CLI spawn timeouts', () => {
       countUnboundedSpawns(source),
       1,
       'the first call has no timeout; the second must not cover for it'
+    );
+  });
+
+  test('a timeout on a later construct does not vouch for the spawn', () => {
+    // The window used to run to a fixed line count, so a `timeout` that belongs
+    // to something after the call — here a test option, not a spawn option at
+    // all — satisfied the unbounded spawn above it.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '});',
+      "test('next', { timeout: 5000 }, () => {});",
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'the call closes on line 3; the timeout on line 4 is not its option'
     );
   });
 
