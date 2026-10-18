@@ -16,7 +16,7 @@ Sampling three direct-spawn files at `0204f39` — `test/cli-vault-echo.test.ts`
 
 It is worth being precise about which ADR-0029 claim survived and which did not, because they are easy to conflate:
 
-- **True, and still true:** every `execSync`- and `spawnSync`-launched CLI child goes through one pair of exports in `test/palee-cli.ts` — `PALEE_ARGV` for spawn-style launches, `PALEE_CMD` for shell-string launches. `test/cli-vault-echo.test.ts:40` is the proof case: it does not call `runPalee`, and it still spawns `[...PALEE_ARGV, ...args]`.
+- **True in substance, and still true:** every `execSync`- and `spawnSync`-launched CLI child goes through one pair of exports in `test/palee-cli.ts` — `PALEE_ARGV` for spawn-style launches, `PALEE_CMD` for shell-string launches. `test/cli-vault-echo.test.ts:40` is the proof case: it does not call `runPalee`, and it still spawns `[...PALEE_ARGV, ...args]`. It is not literally universal — of the 30 direct call sites under `test/`, 28 reference the pair — but the two exceptions are not launches the premise was ever about: `test/cli-config-provider-credentials.test.ts:392` runs a Windows 8.3-path probe that starts no CLI, and `test/cli-program-name.test.ts:66` spawns a deliberately *copied* entry, which is the thing that test exists to exercise and which ADR-0029's own final section records.
 - **False:** that centralisation implies a bound. Centralised *command material* is not a centralised *launch policy*. A file can honour the first and ignore the second completely, which is exactly what 24 files did.
 
 The repo then produced two records that disagree with the ADR and with each other:
