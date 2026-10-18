@@ -565,7 +565,14 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
         return originalRename(from, to);
       }) as typeof fs.renameSync;
 
-      await migrateCommand({ relabelTies: true });
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
+      assert.match(output, /Failed to relabel .*02-b\.md: EACCES: permission denied/,
+        'the refused note and the OS error behind it are both named');
+      assert.match(output, /\(1 write error\(s\)\)/, 'and the summary counts it as a write error');
+      assert.match(output, /1 relabel write\(s\) failed\. The notes remain gated\./,
+        'and the caller is told the gate is still in place');
       assert.strictEqual(process.exitCode, 5, 'a non-conflict write failure must not exit 0');
     } finally {
       (fs as unknown as { renameSync: unknown }).renameSync = originalRename;
@@ -612,8 +619,13 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
         return out;
       }) as typeof fs.readFileSync;
 
-      await migrateCommand({ relabelTies: true });
+      const output = await withCapturedOutput(async () => {
+        await migrateCommand({ relabelTies: true });
+      });
       assert.strictEqual(tampered, true, 'the write loop must have re-read the note');
+      assert.match(output, /Skipped .*02-b\.md: .*02-a\.md or the note itself changed while the pass was running/,
+        'the refusal names both the note and the predecessor that moved');
+      assert.match(output, /\(1 skipped: changed while writing\)/, 'and the summary counts it as skipped');
       assert.strictEqual(process.exitCode, 4, 'drift under the pass is a conflict, not a success');
     } finally {
       (fs as unknown as { readFileSync: unknown }).readFileSync = originalRead;
