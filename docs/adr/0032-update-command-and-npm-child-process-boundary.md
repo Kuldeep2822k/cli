@@ -1,4 +1,4 @@
-# ADR-0030: The Update Command and Its npm Child Process
+# ADR-0032: The Update Command and Its npm Child Process
 
 ## Status
 
@@ -43,6 +43,23 @@ make spawning a `.cmd` without a shell throw `EINVAL` — so win32 spawns `npm.c
 decision lives in `npmInvocationFor(platform, args)` rather than an inline ternary so the win32 arm
 is unit-tested on every CI leg; the CI coverage floors (96/96/93/88) leave no room for a
 permanently-uncovered platform branch.
+
+### The child's working directory is pinned, not inherited
+
+The shell that CVE-2024-27980 forces has a consequence fixed argv does not cover: `cmd.exe` searches
+the current directory before `PATH` for a `.cmd`. Inheriting the directory meant a `palee` run inside
+a cloned or downloaded tree would execute an `npm.cmd` planted in that tree, as the user, without
+being asked — the notice path reaches a spawn on the first interactive command each day. The same
+directory is where npm reads a project-level `.npmrc`, so one planted file could also answer
+`npm view` with an attacker's version or point `install -g` at an attacker's registry.
+
+So `spawnNpm` pins `cwd` to `os.homedir()` and omits `cwd` from its options type, which makes the pin
+structural rather than a convention every new call site has to remember. Home is not a directory an
+attacker gets files into merely by persuading someone to `cd` somewhere, and npm reads the user and
+global `.npmrc` regardless of the working directory, so mirrors, proxies and credentials keep working.
+Verified on win32 with Node 24: with a fake `npm.cmd` in the working directory the pre-fix code
+returned the version that file printed, bypassing the real npm on `PATH`; the regression test
+asserts the planted file never executes and the shim answers instead.
 
 ### The notice is cached, stderr-only, and human-gated
 
