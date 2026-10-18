@@ -59,6 +59,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
     return name;
   }
 
+  /** Reads a note back out of this suite's vault by name. */
   function readNote(name: string): string {
     return fs.readFileSync(path.join(vaultDir, name), 'utf8');
   }
