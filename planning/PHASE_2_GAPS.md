@@ -8,7 +8,7 @@ Captured from design review on 2026-08-11.
 
 ### Problem
 
-`palee roadmap --from` currently only accepts `.yaml` files (`yaml.parse()` on the whole file). But:
+`palee roadmap --from` accepted only `.yaml` files when this review was captured (`yaml.parse()` on the whole file). That gap has since been closed — `--from` also reads Markdown frontmatter, fenced YAML code blocks, and `[[wikilink]]` lists, the last only from a Markdown document whose frontmatter sets `palee_roadmap: true` [src/storage/roadmap-parser.ts#L238](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/roadmap-parser.ts#L238). The reasons `.md` support mattered:
 
 - The design spec (`roadmap_design.md` line 10) shows `kubernetes-roadmap.md` as the example — `.md` was the original intent.
 - PALEE is an Obsidian-native tool; `.yaml` files are invisible/ugly in Obsidian.
@@ -82,7 +82,8 @@ Add batch adopt support:
 palee adopt --all
 
 # Adopt all .md files in a specific folder
-palee adopt --dir "devops/"
+# (`--dir` was proposed here but never shipped — the directory is a positional argument)
+palee adopt "devops/"
 
 # Preview what would be adopted (dry run)
 palee adopt --all --dry-run
@@ -152,7 +153,8 @@ When `palee test` is implemented:
 Running `palee roadmap` without `--from` currently prints:
 
 ```
-Error: Phase 1 only supports --from <file>
+Error: --from <file> is required
+Usage: palee roadmap --from <roadmap.yaml|roadmap.md>
 ```
 
 This is the AI-powered interview mode described in `roadmap_design.md`. It requires an AI provider and is a Phase 2 feature.
@@ -268,16 +270,16 @@ The design separates "review" (recall scheduling) from "assessment" (understandi
 2. **Accept the gap**: Document that mastery requires AI provider. Add a note in `progress` output: "Mastery scores require AI testing (`palee test`). Currently showing review-only data."
 3. **Wait for Phase 2**: Implement `palee test` first, which properly sets assessment scores and triggers mastery computation.
 
-### Missing Code
+### Missing Code (since implemented)
 
-No `computeTopicMastery()` function exists anywhere in the codebase. Even when `palee test` is built, someone will need to implement the formula: `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)`.
+`computeTopicMastery()` did not exist when this review was captured; it now lives in `src/engine/mastery.ts` with exactly this formula — `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)` — and `palee assess` resolves the four scores from supplied values and stored frontmatter values, but writes only the supplied pillar fields. When `palee test` is built, it only needs to call the same computation.
 
 ---
 
 ## Priority Order
 
 1. **Batch adopt** — Biggest onboarding blocker. Users can't start easily.
-2. **Roadmap `.md` support** — Design intent was `.md`; current YAML-only is a bug.
+2. **Roadmap `.md` support** — shipped (see §1): `--from` reads `.yaml`, Markdown frontmatter, fenced YAML blocks, and `[[wikilink]]` lists from documents marked `palee_roadmap: true`.
 3. **README cleanup** — Remove or stub unimplemented commands.
 4. **Beginner's guide** — Helps adoption after the above are fixed.
 5. **`test` / `tutor` commands** — Phase 2 AI features, implement after provider layer is solid.

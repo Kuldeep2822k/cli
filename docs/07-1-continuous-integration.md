@@ -183,7 +183,7 @@ The project uses `typescript-eslint` for static analysis. The configuration in `
 Code coverage is managed by `c8` with thresholds defined in `.c8rc.json`[.c8rc.json#1-12](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L1-L12)
 
 - Inclusions: Targets all `.ts` files within the `src` directory [.c8rc.json#3-4](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L3-L4)
-- Thresholds: Enforces a minimum of 60% line/statement coverage and 75% function coverage [.c8rc.json#8-11](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L8-L11)
+- Thresholds: Enforces a minimum of 96% line/statement coverage, 93% function coverage, and 88% branch coverage [.c8rc.json#8-11](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L8-L11)
 
 Toolchain Entity Mapping
 

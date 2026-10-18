@@ -37,6 +37,8 @@ PALEE helps you learn efficiently by:
 npm install -g @kuldeep2822k/palee
 ```
 
+Requires Node `>=22.12.0` (the package's `engines` floor).
+
 Upgrade later with `palee update` (`--dry-run` reports current and latest without installing).
 PALEE itself opens no network connection — it delegates to your own `npm`, your `.npmrc` included.
 On an interactive terminal a newer release is also announced once per 24 hours with a single `⚠`
@@ -64,7 +66,7 @@ instead refuses to store the key when the config directory is outside your user 
 
 `test-connection` sends one short prompt and reports the URL it called, which key source won, how long
 the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
-in `palee next`, `plan`, `review`, `validate`, `adopt`, `roadmap --from` or `migrate` can do the same —
+in `palee next`, `palee plan`, `palee review`, `palee validate`, `palee adopt`, `palee roadmap --from` or `palee migrate` can do the same —
 `test/ai-network-boundary.test.ts` fails if a second socket site appears. It refuses plain HTTP to any
 host that is not loopback, refuses endpoints in reserved address space (link-local and the cloud metadata
 address, the unspecified and multicast ranges, IPv4-mapped literals, and `.internal` names), refuses
@@ -126,7 +128,7 @@ palee next
 # → Learn: Pod Lifecycle in Kubernetes
 
 # 3. Record a review after studying it
-palee review T-pod-lifecycle-k8s --quality 4
+palee review T-pod-lifecycle-k8s 4
 # → SM-2 reschedules the next review date
 
 # 4. Track progress
@@ -141,9 +143,12 @@ palee progress
 | `palee next` | Show next recommended action |
 | `palee plan` | Build study session plan |
 | `palee progress` | View mastery statistics |
-| `palee review <topic> --quality N` | Record review result (0-5) |
+| `palee review <topic> <quality>` | Record review result (0-5) |
+| `palee assess <topic>` | Record a four-pillar assessment (conceptual, practical, debug, Feynman) and recompute mastery |
 | `palee session start` | Resume learning from hot memory; starts AI tutor if provider is configured |
 | `palee session end` | Save a confirmed session summary and refresh hot memory |
+| `palee session draft` | Save a recoverable draft checkpoint for the active session |
+| `palee session list` | List session history and pending drafts |
 | `palee migrate` | Upgrade versioned PALEE data safely |
 | `palee adopt <note>` | Adopt Obsidian note into PALEE |
 | `palee roadmap --from <file>` | Validate and import a user-provided roadmap (no AI, no network) |
@@ -163,6 +168,23 @@ palee progress
 None of the three is implemented: `palee test` and `palee tutor` are not registered commands,
 and `palee roadmap` without `--from` exits `2` rather than starting an interview.*
 
+### Key Options
+
+Flags that change what a command does, rather than which rows it prints:
+
+| Option | Description |
+|--------|-------------|
+| `palee adopt <path> --undo` | Reverse an adoption: strip only the PALEE-owned frontmatter keys, preserving every other key, comment and body byte |
+| `palee adopt <path> --undo --drop-title` | With `--undo`: also remove the `title` key |
+| `palee adopt <path> --auto-chain` | Wire `depends_on` from a note's own prerequisites, else the numbered tree (batch mode) |
+| `palee adopt <path> --auto-chain --chain-tier <tier>` | `strict` (default) consumes numbers only; `full` adds listing order, which never gates |
+| `palee adopt <path> --dry-run` | Preview an adoption without writing — likewise `palee roadmap` and `palee migrate` |
+| `palee validate --fix` | Repair corrupted SM-2 review fields to adopt defaults |
+| `palee migrate --fix` | Upgrade notes missing `palee_schema` to schema v1 |
+| `palee migrate --relabel-ties` | Store an alphabetical tiebreak as `tie` rather than `numbered`, so ties stop gating; `depends_on` is never changed |
+| `palee migrate --relabel-ties --include-unlabeled-ties` | Also relabel ties with no `depends_on_source` key at all (opt-in; combine with `--dry-run` to preview) |
+| `palee roadmap --from <file> --auto-chain` | Chain imported topics in order (ascending `order` field; unordered notes follow in file order) |
+
 ## Configuration
 
 ### Provider Setup
@@ -176,7 +198,7 @@ palee config set-api-key --from-env OPENCODE_API_KEY
 
 The key is kept in the config file, stored as plaintext at rest under a `0600` mode on POSIX, and no
 command prints it. On Windows the file mode does not apply, so the key's privacy rests on the config
-directory's ACL; see Windows Notes for how `set-api-key` guards that. `palee roadmap` and every offline
+directory's ACL; see Windows Notes for how `set-api-key` guards that. `palee roadmap --from <file>` and every offline
 command work without any of this.
 
 ### Vault Connection

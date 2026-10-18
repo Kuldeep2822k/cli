@@ -132,7 +132,7 @@ And the **fingerprint is taken twice** — once when the topic was loaded, once 
 
 Five properties are the project's actual quality signal, and each is checkable rather than arguable:
 
-1. **Zero circular imports, zero upward imports.** `node scripts/arch-import-graph.cjs`.
+1. **Zero circular imports, zero upward imports.** Recorded from a historical import-graph snapshot (60 modules, 216 edges, dated 2026-09-22); the generator script is not in this repository.
 2. **Exit codes are a contract, not logging.** 0 success, 1 partial import failure, 2 usage/config, 3 validation, 4 OCC conflict, 5 unexpected — and CI asserts on them, so changing one is a breaking change.
 3. **A hand-edited note never loses formatting.** `updateFrontmatter` mutates a YAML CST, so comments, key order and unknown plugin keys survive; malformed frontmatter throws rather than rewriting.
 4. **A crash leaves the vault consistent.** Temp-file-plus-rename plus `fsync`, a lock that survives a killed process (quarantine-rename stale recovery), and zero-byte session files dropped on rebuild.

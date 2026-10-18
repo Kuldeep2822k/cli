@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`session` resolves `--topic` against the vault and still ends a session whose note was deleted mid-flight** ([#302](https://github.com/Kuldeep2822k/cli/issues/302), [#313](https://github.com/Kuldeep2822k/cli/issues/313)).
 - **A first-creation write and a lost lock are detectable, so concurrent `hot.md`/`index.md` writes cannot silently clobber** ([#327](https://github.com/Kuldeep2822k/cli/issues/327), [#334](https://github.com/Kuldeep2822k/cli/issues/334)).
 - **`palee` usage text prints the program name the process was actually invoked as** ([#314](https://github.com/Kuldeep2822k/cli/issues/314)).
+- **Documentation drift corrected after the repo-wide command-invocation audit** ([#451](https://github.com/Kuldeep2822k/cli/issues/451)): `agent.md` and `docs/07-1` state the real c8 thresholds (96/96/93/88) and the test launch policy from ADR-0029; `docs/06-2` drops hard-coded per-suite test counts and the "11 commands" claim; `docs/05-0` names the real config path; `README` documents `palee assess`, `session draft`/`list` and the previously missing options, and states the Node floor; the planning and architecture documents are labeled for what they are — unshipped proposals and a dated evidence snapshot — and ADR-0031 records the policy.
 
 ### Security
 
