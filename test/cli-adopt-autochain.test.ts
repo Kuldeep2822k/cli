@@ -19,10 +19,11 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   });
 
   /**
-   * Runs the real CLI (`node dist/bin/palee.js`) with `PALEE_CONFIG_DIR` pointed
-   * at {@link configDir}; captures exit status, stdout and stderr instead of
-   * throwing on a non-zero exit. Args containing glob/space characters are
-   * shell-quoted.
+   * Runs the real CLI through the shared launch command (`PALEE_CMD`: the
+   * prebuilt dist entry normally, the TypeScript sources behind tsx under
+   * coverage) with `PALEE_CONFIG_DIR` pointed at {@link configDir}; captures
+   * exit status, stdout and stderr instead of throwing on a non-zero exit.
+   * Args containing glob/space characters are shell-quoted.
    */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
     try {
@@ -101,12 +102,17 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       }
       const dep = /^ {2}• (\S+) depends on (\S+)$/.exec(line);
       if (dep) {
-        edges.push({ path: dep[1], dependsOn: dep[2] });
+        const depPath = dep[1];
+        const depOn = dep[2];
+        assert.ok(depPath !== undefined && depOn !== undefined);
+        edges.push({ path: depPath, dependsOn: depOn });
         continue;
       }
       const head = /^ {2}• (\S+) \(chain head\)$/.exec(line);
       if (head) {
-        edges.push({ path: head[1], dependsOn: null });
+        const headPath = head[1];
+        assert.ok(headPath !== undefined);
+        edges.push({ path: headPath, dependsOn: null });
         continue;
       }
       break;
@@ -265,7 +271,9 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     // 02-b still chains to 01-a; the excluded template is skipped, not a gap
     const bDeps = dependsOn(vaultDir, 'MODULES/01-foundations/02-b.md');
     assert.strictEqual(bDeps.length, 1);
-    assert.strictEqual(ids.get(bDeps[0]), 'MODULES/01-foundations/01-a.md');
+    const [firstDep] = bDeps;
+    assert.ok(firstDep !== undefined);
+    assert.strictEqual(ids.get(firstDep), 'MODULES/01-foundations/01-a.md');
   });
 
   // Regression (#73, plan 006 variant A, INV-46): an already-adopted note inside
@@ -428,8 +436,10 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
     assert.deepStrictEqual(edges.map((e) => e.path), newRel);
     // The bridge onto the adopted tail, then the chain continuing past it.
-    assert.strictEqual(edges[0].dependsOn, 'MODULES/02-linux/02-g.md');
-    assert.strictEqual(edges[1].dependsOn, 'MODULES/02-linux/03-h.md');
+    const [firstEdge, secondEdge] = edges;
+    assert.ok(firstEdge !== undefined && secondEdge !== undefined);
+    assert.strictEqual(firstEdge.dependsOn, 'MODULES/02-linux/02-g.md');
+    assert.strictEqual(secondEdge.dependsOn, 'MODULES/02-linux/03-h.md');
 
     // Adopted notes are still disclosed — as bridged predecessors, not as writes.
     assert.match(dry.stdout, /Bridged over/);

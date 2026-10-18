@@ -28,11 +28,11 @@ Integration and smoke tests in PALEE ensure that the CLI commands, storage layer
 
 ## 1. CLI Subprocess Integration Tests
 
-Subprocess integration tests spawn real child processes executing `bin/palee.ts` in isolated OS temporary directories. They verify end-to-end command execution, flag handling, environment variable redirection, and disk mutation.
+Subprocess integration tests spawn real child processes through the shared launcher in `test/palee-cli.ts` — the prebuilt `dist/bin/palee.js` in normal runs, the TypeScript sources behind `--import tsx` under coverage (ADR-0029). They run in isolated OS temporary directories and verify end-to-end command execution, flag handling, environment variable redirection, and disk mutation.
 
 ### Command Pipeline Suite (`test/cli-commands.test.ts`)
 
-Tests in `test/cli-commands.test.ts` (19 tests) exercise complete multi-command workflows:
+Tests in `test/cli-commands.test.ts` exercise complete multi-command workflows:
 
 - **Configuration Management**: Verifies `palee config set-vault <path>` creates `.palee/config.json` and updates the active vault path.
 - **Topic Adoption & State Preservation**: Confirms `palee adopt` initializes note frontmatter (`palee_id`, `topic_mastery`, `due_at`, `repetition`), and subsequent `palee roadmap` imports never overwrite existing progress.
@@ -42,7 +42,7 @@ Tests in `test/cli-commands.test.ts` (19 tests) exercise complete multi-command 
 
 ### Batch Adoption Suite (`test/cli-adopt-batch.test.ts`)
 
-Tests in `test/cli-adopt-batch.test.ts` (9 tests) verify multi-note batch onboarding:
+Tests in `test/cli-adopt-batch.test.ts` verify multi-note batch onboarding:
 
 - **Directory Scoping & Recursive Discovery**: Verifies adopting entire directories (`palee adopt src/notes/`) or vaults (`palee adopt --all`).
 - **Dry-Run Mode**: Asserts that `palee adopt --dry-run` reports planned adoptions without modifying any files on disk.
@@ -56,7 +56,7 @@ flowchart TD
     subgraph Subprocess ["Subprocess Integration Flow"]
         TestFile["test/cli-commands.test.ts<br/>test/cli-adopt-batch.test.ts"]
         Helper["runCLI() Helper"]
-        ChildProc["Child Process (bin/palee.ts)"]
+        ChildProc["Child Process<br/>dist/bin/palee.js in normal runs<br/>bin/palee.ts via --import tsx under coverage"]
         TempVault["Isolated Temp Vault (PALEE_CONFIG_DIR)"]
         Frontmatter["YAML Frontmatter on Disk"]
     end
@@ -77,7 +77,7 @@ In-process tests import command handlers directly (`adoptCommand`, `reviewComman
 
 ### Deterministic Exit Code Matrix (`test/cli-exit-codes.test.ts`)
 
-Tests in `test/cli-exit-codes.test.ts` (32 tests) systematically verify the 0–5 exit code contract across all commands:
+Tests in `test/cli-exit-codes.test.ts` systematically verify the 0–5 exit code contract across the eight commands the suite imports — `config`, `migrate`, `roadmap`, `dashboard`, `next`, `plan`, `progress`, and `validate`. Four of the twelve registered commands (`adopt`, `review`, `assess`, `session`) are not imported there and so fall outside this matrix:
 
 | Exit Code | Classification | Trigger Scenarios Tested |
 |:---:|---|---|
@@ -89,7 +89,7 @@ Tests in `test/cli-exit-codes.test.ts` (32 tests) systematically verify the 0–
 
 ### Machine-Readable JSON Output (`test/cli-json-output.test.ts`)
 
-Tests in `test/cli-json-output.test.ts` (22 tests) enforce Invariant #45 across all 11 CLI commands:
+Tests in `test/cli-json-output.test.ts` enforce Invariant #45 on the commands that support `--json`: the CLI registers 12 top-level commands, and only some of them stream machine-readable output:
 
 - **Schema Stability**: Verifies that every command supporting `--json` emits valid, parseable JSON conforming to documented TypeScript interfaces.
 - **Empty State Resilience**: Ensures that uninitialized or empty vaults return structured JSON (with `null` fields or `[]` arrays) rather than crashing.
@@ -98,7 +98,7 @@ Tests in `test/cli-json-output.test.ts` (22 tests) enforce Invariant #45 across 
 
 ### In-Process Session CLI Dispatch (`test/session-cli.test.ts`)
 
-Tests in `test/session-cli.test.ts` (8 tests) exercise the active session command layer:
+Tests in `test/session-cli.test.ts` exercise the active session command layer:
 
 - **Topic Resolution Fallback**: Tests `resolveSessionTopic` resolution hierarchy: explicit CLI argument $\rightarrow$ `.palee/hot.md` active topic frontmatter $\rightarrow$ clean exit code 2 on failure.
 - **Session Lifecycle**: Verifies `start`, `draft`, `end`, and `list` subcommands.

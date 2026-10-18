@@ -167,6 +167,9 @@ jobs:
       - name: Test global binary --help
         run: palee --help
 
+      - name: Smoke-test the installed binary against an isolated vault
+        run: node scripts/smoke-installed.js
+
   # package.json engines.node is a promise, and dist/bin/palee.js breaks it on
   # Node 22.0-22.11: tsc emits `require("commander")` (dist/bin/palee.js:11) and
   # commander 15 is ESM-only, so require(esm) has to be unflagged — Node >=22.12.0.

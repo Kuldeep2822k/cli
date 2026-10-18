@@ -275,7 +275,10 @@ function buildBracketBalance(text: string, openCh: string, closeCh: string): Bra
   minFrom[length] = noCloser;
   let lowest = noCloser;
   for (let j = length - 1; j >= 0; j--) {
-    if (after[j] < lowest) lowest = after[j];
+    // Every index below `length` was filled by the forward scan; the guard
+    // keeps the type honest rather than asserting it.
+    const bal = after[j];
+    if (bal !== undefined && bal < lowest) lowest = bal;
     minFrom[j] = lowest;
   }
   return { after, minFrom };
@@ -283,7 +286,13 @@ function buildBracketBalance(text: string, openCh: string, closeCh: string): Bra
 
 /** True when {@link findLabelEnd} would walk this label to end-of-text and return `-1`. */
 function labelCannotClose(balance: BracketBalance, open: number): boolean {
-  return balance.minFrom[open + 1] >= balance.after[open];
+  // `open` is an index into the same text the table was built from, so both
+  // reads are in bounds; when the table cannot answer, decline the bail and
+  // let the real walk decide rather than asserting.
+  const min = balance.minFrom[open + 1];
+  const bal = balance.after[open];
+  if (min === undefined || bal === undefined) return false;
+  return min >= bal;
 }
 
 /**
@@ -307,7 +316,13 @@ function labelCannotClose(balance: BracketBalance, open: number): boolean {
  */
 function destinationCannotClose(balance: BracketBalance, text: string, start: number): boolean {
   if (text[start] === '<') return false;
-  return balance.minFrom[start] >= balance.after[start - 1];
+  // `start` points at or after a real `)` in the same text the table was built
+  // from, so both reads are in bounds; when the table cannot answer, decline
+  // the bail and let the real walk decide rather than asserting.
+  const min = balance.minFrom[start];
+  const bal = balance.after[start - 1];
+  if (min === undefined || bal === undefined) return false;
+  return min >= bal;
 }
 
 /**
@@ -346,7 +361,10 @@ function buildAngleClosers(text: string): AngleClosers {
   // honoured. `\d` is two literal characters and stops nowhere near a delimiter.
   let i = 0;
   while (i < length) {
-    if (text[i] === '\\' && i + 1 < length && isAsciiPunctuation(text[i + 1])) {
+    // `i + 1 < length` is implied by the read succeeding: past-the-end reads
+    // yield `undefined` and never satisfy the punctuation check.
+    const next = text[i + 1];
+    if (text[i] === '\\' && next !== undefined && isAsciiPunctuation(next)) {
       i += 2;
       continue;
     }
@@ -370,9 +388,15 @@ function buildAngleClosers(text: string): AngleClosers {
 
 /** True when the angle branch would walk this destination to end-of-text. */
 function angleCannotClose(closers: AngleClosers, start: number): boolean {
+  // `start` indexes the same text the tables were built from, so the reads are
+  // in bounds; when a table cannot answer, decline the bail and let the real
+  // walk decide rather than asserting.
   const gt = closers.gt[start];
+  if (gt === undefined) return false;
   if (gt < 0) return true;
-  return closers.rp[gt + 1] < 0;
+  const rp = closers.rp[gt + 1];
+  if (rp === undefined) return false;
+  return rp < 0;
 }
 
 interface RawDestination {
@@ -491,7 +515,10 @@ function readDestination(text: string, start: number): RawDestination | null {
     let out = '';
     for (let i = start + 1; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\\' && i + 1 < text.length && isAsciiPunctuation(text[i + 1])) {
+      // `i + 1 < text.length` is implied by the read succeeding: past-the-end
+      // reads yield `undefined` and never satisfy the punctuation check.
+      const nextCh = text[i + 1];
+      if (ch === '\\' && nextCh !== undefined && isAsciiPunctuation(nextCh)) {
         // The escape grammar here is the *same* {@link isAsciiPunctuation} rule
         // the bare branch below uses — CommonMark resolves `\` + punctuation in
         // both forms (§2.4; verified against commonmark.js and markdown-it:
@@ -503,7 +530,7 @@ function readDestination(text: string, start: number): RawDestination | null {
         // So `\>` below is data and deliberately does not close the destination.
         // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
         // {@link keepsEscapeMark}.
-        out += keepsEscapeMark(text[i + 1]) ? ch + text[i + 1] : text[i + 1];
+        out += keepsEscapeMark(nextCh) ? ch + nextCh : nextCh;
         i++;
         continue;
       }
@@ -526,10 +553,17 @@ function readDestination(text: string, start: number): RawDestination | null {
     else out += ch;
   };
   for (let i = start; i < text.length; i++) {
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const ch = text[i];
+    if (ch === undefined) {
+      continue;
+    }
     if (ch === '\\' && i + 1 < text.length) {
+      // The `i + 1 < text.length` guard above means this exists; the check
+      // keeps the type honest rather than asserting it.
       const next = text[i + 1];
-      if (isAsciiPunctuation(next)) {
+      if (next !== undefined && isAsciiPunctuation(next)) {
         // An escape sequence: the backslash is syntax, the character is data.
         // Same class as the angle-bracket branch — see {@link isAsciiPunctuation}.
         // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
@@ -648,7 +682,10 @@ function decodePercents(text: string): string {
 function applyEscapeMarks(text: string): string {
   let out = '';
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\\' && i + 1 < text.length && keepsEscapeMark(text[i + 1])) {
+    // `i + 1 < text.length` is implied by the read succeeding: past-the-end
+    // reads yield `undefined` and never satisfy the mark check.
+    const next = text[i + 1];
+    if (text[i] === '\\' && next !== undefined && keepsEscapeMark(next)) {
       out += text[++i];
       continue;
     }
@@ -775,12 +812,16 @@ export function assertBackwardEdges(orderedPaths: string[], predecessorOf: Map<s
   const index = new Map<string, number>();
   orderedPaths.forEach((p, i) => index.set(p, i));
   for (let i = 0; i < orderedPaths.length; i++) {
-    const pred = predecessorOf.get(orderedPaths[i]) ?? null;
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
+    const path = orderedPaths[i];
+    if (path === undefined) continue;
+    const pred = predecessorOf.get(path) ?? null;
     if (pred === null) continue;
     const predIndex = index.get(pred);
     if (predIndex === undefined || predIndex >= i) {
       throw new Error(
-        `toc-chain invariant violated: ${orderedPaths[i]} gates on ${pred} which is not strictly earlier in the chain`
+        `toc-chain invariant violated: ${path} gates on ${pred} which is not strictly earlier in the chain`
       );
     }
   }
@@ -852,7 +893,11 @@ function tocLessonRank(basename: string): TocLessonRank {
   const prefix = parseNumericPrefix(basename);
   if (prefix !== null) return { rank: 1, n: prefix.n, phase: -1 };
   for (let i = 0; i < TOC_PHASE_PREFIXES.length; i++) {
-    if (hasKeywordPrefix(stem, TOC_PHASE_PREFIXES[i])) return { rank: 2, n: -1, phase: i };
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
+    const keyword = TOC_PHASE_PREFIXES[i];
+    if (keyword === undefined) continue;
+    if (hasKeywordPrefix(stem, keyword)) return { rank: 2, n: -1, phase: i };
   }
   if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) {
     return { rank: 4, n: -1, phase: -1 };
@@ -1015,9 +1060,17 @@ export function isInNumberedTree(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, '/');
   const segments = normalized.split('/');
   for (let i = 0; i < segments.length - 1; i++) {
-    if (parseNumericPrefix(segments[i]) !== null) return true;
+    // `i` is below `segments.length - 1`, so this exists; the guard keeps the
+    // type honest rather than asserting it.
+    const segment = segments[i];
+    if (segment === undefined) continue;
+    if (parseNumericPrefix(segment) !== null) return true;
   }
-  return parseNumericPrefix(segments[segments.length - 1]) !== null;
+  // `split` never yields an empty array, so the last segment exists; the guard
+  // keeps the type honest rather than asserting it.
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  return parseNumericPrefix(last) !== null;
 }
 
 /**

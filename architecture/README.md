@@ -2,7 +2,9 @@
 
 Produced 2026-09-22 against `@kuldeep2822k/palee` v0.5.2 at commit `d4e02a4`, with the **architecture-visualization** plugin (`system-modeler`, `dependency-impact-analyzer`, `architecture-health`, `architecture-communicator`; `c4model` + `graphviz` as diagram-source foundations).
 
-Everything here is derived from the repo, and the numbers regenerate.
+Everything here is derived from the repo, but the counts are a dated snapshot: the
+scripts that produced them are not in this repository, so nothing here regenerates
+in place (see [Provenance](#provenance)).
 
 ## Status against `main`
 
@@ -18,8 +20,9 @@ and everything derived from them, including the blast-radius figures in
 `02-dependency-impact.md`, are low. The layer rules and boundary exceptions describe
 invariants the new code was written to obey, but they were not re-checked against it.
 
-Regenerate the import graph before quoting a number from this directory. A file here
-that states a count without this caveat is the bug.
+Quote a number from this directory only together with the caveat above; the graph
+cannot be regenerated from this checkout. A file here that states a count without
+this caveat is the bug.
 
 ## Start here
 
@@ -50,16 +53,9 @@ Already generated into [`export/`](export/) — each view exists as both `.svg` 
 
 `04-stakeholder-explainer.md` carries Mermaid versions of the layer and `palee review` views, so they render in the existing VitePress site without new tooling.
 
-## Regenerate
+## Provenance
 
-```bash
-node scripts/arch-import-graph.cjs    # scans src/ + bin/ -> architecture/_evidence/import-graph.{json,md}
-node scripts/arch-render-dot.cjs      # graph -> 3 generated .dot views + _evidence/evidence-model.json
-node scripts/mermaid-lint.cjs         # structural check of every ```mermaid block in docs/, architecture/, planning/
-node scripts/mermaid-lint.cjs --self-test   # proves the linter's checks can actually fail (8/8)
-```
-
-All three are read-only against `src/` (boundary-exceptions.dot is hand-maintained); the two `arch-*` scripts only write into `architecture/`.
+The evidence in this directory is a historical snapshot, not something this checkout produces: the import graph, the DOT views and the Mermaid lint were generated on 2026-09-22 (60 modules, 216 import edges) by session scripts that are not in this repository (`scripts/arch-import-graph.cjs`, `scripts/arch-render-dot.cjs`, `scripts/mermaid-lint.cjs` — all read-only against `src/`; `boundary-exceptions.dot` is hand-maintained). There is no in-place way to regenerate them. Re-derive the whole set, or leave the counts as recorded.
 
 ## Render the diagram sources
 

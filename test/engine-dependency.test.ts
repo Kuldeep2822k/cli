@@ -680,8 +680,11 @@ describe('Dependency Graph', () => {
     const result = validateDependencyGraph(topics);
     assert.strictEqual(result.valid, false);
     assert.strictEqual(result.errors.length, 1);
-    assert.strictEqual(result.errors[0].type, 'missing_dependency');
-    assert.strictEqual(result.errors[0].missing, 'T-missing');
+    const [firstError] = result.errors;
+    assert.ok(firstError !== undefined);
+    assert.strictEqual(firstError.type, 'missing_dependency');
+    if (firstError.type !== 'missing_dependency') assert.fail('expected a missing_dependency error');
+    assert.strictEqual(firstError.missing, 'T-missing');
   });
 
   test('validateDependencyGraph detects cycles', () => {

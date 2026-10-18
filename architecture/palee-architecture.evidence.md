@@ -75,8 +75,8 @@ Details, severity and fixes: [`03-docs-audit-findings.md`](03-docs-audit-finding
 | Check | Command | Result on 2026-09-22 |
 | --- | --- | --- |
 | every `sourceRef` in the evidence model resolves to a file in this tree | ad-hoc check over `_evidence/evidence-model.json` | **276 refs checked, 0 unresolved** |
-| import graph, cycles, forbidden-direction edges | `node scripts/arch-import-graph.cjs` | 60 modules · 216 edges · 33 `import type` · **0 cycles · 0 forbidden edges** |
-| regenerate both DOT views from the graph | `node scripts/arch-render-dot.cjs` | `dependency-graph.dot` (60/216), `layer-summary.dot` (6/18) |
+| import graph, cycles, forbidden-direction edges | historical snapshot, 2026-09-22 (generator not in this repository) | 60 modules · 216 edges · 33 `import type` · **0 cycles · 0 forbidden edges** |
+| rendered both DOT views from the graph | historical snapshot, 2026-09-22 (generator not in this repository) | `dependency-graph.dot` (60/216), `layer-summary.dot` (6/18) |
 | Mermaid frame and delimiter checks over every diagram in `docs/`, `architecture/`, `planning/` | `node scripts/mermaid-lint.cjs` | **53 blocks in `docs/` (55 scanned), 0 findings** |
 | the linter's own checks can fail | `node scripts/mermaid-lint.cjs --self-test` | **8/8 behaved as intended**; fixture kept at `_fixtures/negative-mermaid.md` |
 

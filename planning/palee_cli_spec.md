@@ -221,7 +221,7 @@ The proposal must include topic IDs, dependencies, difficulty, rationale, and as
 
 ## Platform Support
 
-PALEE targets Windows as a first-class platform. All file paths use Node's `path` module so separators are normalized. Atomic-write behavior, lock handling, and retry logic contain explicit Windows-specific handling documented in [storage_design.md](storage_design.md). Vault paths may be configured with either forward or backslashes; PALEE normalizes them internally. The npm distribution runs on Node 20+ LTS; no native modules are used in Phase 1 or Phase 2.
+PALEE targets Windows as a first-class platform. All file paths use Node's `path` module so separators are normalized. Atomic-write behavior, lock handling, and retry logic contain explicit Windows-specific handling documented in [storage_design.md](storage_design.md). Vault paths may be configured with either forward or backslashes; PALEE normalizes them internally. The npm distribution requires Node `>=22.12.0`; no native modules are used in Phase 1 or Phase 2.
 
 ## Technical Findings
 

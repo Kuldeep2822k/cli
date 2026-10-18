@@ -7,9 +7,12 @@ import {
   buildVaultNoteIndex,
   resolveWikilinkTarget,
   resolveWikilinkRoadmap,
+  canonicalizeVaultRoot,
+  isWithinVault,
   AmbiguousWikilinkError,
   UnresolvedWikilinkError,
   type WikilinkRoadmapSection,
+  type CanonicalVaultRoot,
 } from '../src/storage/wikilink';
 import { parseWikilink, extractWikilinks } from '../src/engine/auto-chain';
 import { relativeVaultPath, foldNoteKey } from '../src/storage/vault-walker';
@@ -91,6 +94,11 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
   });
 
   describe('resolveWikilinkTarget', () => {
+    it('holds identity isWithinVault for the canonical vault root', () => {
+      const canonical = fs.realpathSync(vaultPath);
+      assert.ok(isWithinVault(canonical, canonical));
+    });
+
     it('resolves an exact vault-relative path with or without .md', () => {
       const index = buildVaultNoteIndex(vaultPath);
       const withExt = resolveWikilinkTarget(
@@ -255,7 +263,9 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
     function assertHijackRouteIsLive(index: Map<string, string[]>): void {
       const hits = index.get('note') ?? [];
       assert.strictEqual(hits.length, 1, 'the colliding basename must be indexed once');
-      assert.ok(hits[0].endsWith('note.md'));
+      const [hit] = hits;
+      assert.ok(hit !== undefined);
+      assert.ok(hit.endsWith('note.md'));
     }
 
     it('fails closed on an escaping target that does not exist on disk', () => {
@@ -513,6 +523,7 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       assert.strictEqual(roadmap.topics.length, 3);
 
       const [first, second, third] = roadmap.topics;
+      assert.ok(first !== undefined && second !== undefined && third !== undefined);
       assert.strictEqual(first.path, 'MODULES/01-foundations/01-systems.md');
       assert.strictEqual(first.title, 'Systems Thinking');
       assert.deepStrictEqual(first.depends_on, []);
@@ -535,8 +546,10 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       const roadmap = resolveWikilinkRoadmap(vaultPath, [
         { track: '', links: [link('[[adopted]]')] },
       ]);
-      assert.strictEqual(roadmap.topics[0].id, 'T-existing-1');
-      assert.strictEqual(roadmap.topics[0].title, 'Adopted Note');
+      const [adoptedTopic] = roadmap.topics;
+      assert.ok(adoptedTopic !== undefined);
+      assert.strictEqual(adoptedTopic.id, 'T-existing-1');
+      assert.strictEqual(adoptedTopic.title, 'Adopted Note');
       fs.rmSync(adopted);
     });
 
@@ -554,8 +567,10 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         const roadmap = resolveWikilinkRoadmap(vaultPath, [
           { track: '', links: [link('[[upper case]]')] },
         ]);
-        assert.strictEqual(roadmap.topics[0].id, 'T-upper-1', 'the note keeps the id it carries');
-        assert.strictEqual(roadmap.topics[0].path, 'Upper Case.MD');
+        const [upperTopic] = roadmap.topics;
+        assert.ok(upperTopic !== undefined);
+        assert.strictEqual(upperTopic.id, 'T-upper-1', 'the note keeps the id it carries');
+        assert.strictEqual(upperTopic.path, 'Upper Case.MD');
       } finally {
         fs.rmSync(upper, { force: true });
       }
@@ -680,12 +695,14 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
           const roadmap = resolveWikilinkRoadmap(vaultPath, [
             { track: '', links: [link('[[adopted mixed]]')] },
           ]);
+          const [mixedTopic] = roadmap.topics;
+          assert.ok(mixedTopic !== undefined);
           assert.strictEqual(
-            roadmap.topics[0].id,
+            mixedTopic.id,
             'T-mixed-1',
             'a differently-cased link must not re-mint an adopted note\'s id'
           );
-          assert.strictEqual(roadmap.topics[0].path, 'Adopted Mixed.md');
+          assert.strictEqual(mixedTopic.path, 'Adopted Mixed.md');
         } finally {
           fs.rmSync(adoptedMixed(), { force: true });
         }
@@ -724,6 +741,94 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
           ]),
         /Duplicate wikilink target/
       );
+    });
+  });
+
+  describe('vault root canonicalization (#373)', () => {
+    type Realpath = typeof fs.realpathSync;
+
+    // The fixture vault may live under a symlinked temp root (macOS /var ->
+    // /private/var). Passing the canonical root keeps every path comparison
+    // exact on all platforms, and keeps relativeVaultPath on its fast path.
+    function canonicalFixtureVault(): CanonicalVaultRoot {
+      return canonicalizeVaultRoot(vaultPath);
+    }
+
+    /** Counts realpathSync calls that canonicalize the vault root itself. */
+    function countVaultRootCanonicalizations(canonicalVault: string, fn: () => void): number {
+      const realRealpath = fs.realpathSync;
+      let count = 0;
+      const fsAny = fs as unknown as { realpathSync: Realpath };
+      fsAny.realpathSync = ((p: fs.PathLike, ...rest: unknown[]): string => {
+        if (typeof p === 'string' && path.resolve(p) === canonicalVault) count++;
+        return (realRealpath as (...args: unknown[]) => string)(p, ...rest);
+      }) as Realpath;
+      try {
+        fn();
+      } finally {
+        fsAny.realpathSync = realRealpath;
+      }
+      return count;
+    }
+
+    it('canonicalizes the vault root once no matter how many links a roadmap resolves', () => {
+      const canonicalVault = canonicalFixtureVault();
+      const twoLinks: WikilinkRoadmapSection[] = [
+        {
+          track: '',
+          links: [link('[[MODULES/01-foundations/01-systems]]'), link('[[01-processes]]')],
+        },
+      ];
+      const sixLinks: WikilinkRoadmapSection[] = [
+        {
+          track: '',
+          links: [
+            link('[[MODULES/01-foundations/01-systems]]'),
+            link('[[01-processes]]'),
+            link('[[Case]]'),
+            link('[[MODULES/case.md]]'),
+            link('[[note]]'),
+            link('[[outside-note]]'),
+          ],
+        },
+      ];
+      const two = countVaultRootCanonicalizations(canonicalVault, () =>
+        resolveWikilinkRoadmap(canonicalVault, twoLinks)
+      );
+      const six = countVaultRootCanonicalizations(canonicalVault, () =>
+        resolveWikilinkRoadmap(canonicalVault, sixLinks)
+      );
+      assert.strictEqual(
+        six,
+        two,
+        `6 links must not canonicalize the vault root more often than 2 links (got ${six} vs ${two})`
+      );
+      assert.ok(two >= 1, 'the roadmap path must canonicalize the vault root at least once (guards against a process-wide memo that drops it to 0 and makes the equality vacuous)');
+    });
+
+    it('never calls realpathSync for the vault root when resolvedVaultPath is passed', () => {
+      const realRealpath = fs.realpathSync;
+      const canonicalVault = canonicalFixtureVault();
+      // Built before the patch: walkVault canonicalizes the root once itself.
+      const index = buildVaultNoteIndex(canonicalVault);
+      const fsAny = fs as unknown as { realpathSync: Realpath };
+      fsAny.realpathSync = ((p: fs.PathLike, ...rest: unknown[]): string => {
+        if (typeof p === 'string' && path.resolve(p) === canonicalVault) {
+          throw new Error('realpathSync must not be called for the vault root here');
+        }
+        return (realRealpath as (...args: unknown[]) => string)(p, ...rest);
+      }) as Realpath;
+      try {
+        const resolved = resolveWikilinkTarget(
+          canonicalVault,
+          link('[[MODULES/01-foundations/01-systems]]'),
+          index,
+          canonicalVault
+        );
+        assert.strictEqual(resolved.relativePath, 'MODULES/01-foundations/01-systems.md');
+      } finally {
+        fsAny.realpathSync = realRealpath;
+      }
     });
   });
 });

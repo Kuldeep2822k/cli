@@ -46,7 +46,9 @@ describe('program name follows the invoked bin (#314)', () => {
    * its dependencies relative to its own directory.
    */
   function runAs(invokedName: string, args: string[], env?: Record<string, string>): Run {
-    const realEntry = path.resolve(ROOT, PALEE_ARGV[PALEE_ARGV.length - 1]);
+    const lastArg = PALEE_ARGV[PALEE_ARGV.length - 1];
+    assert.ok(lastArg !== undefined);
+    const realEntry = path.resolve(ROOT, lastArg);
     // Everything after the entry must be loaded the same way the real entry is.
     // Under coverage (`npm run test:coverage`, which is what CI's test matrix
     // runs) PALEE_ARGV points at the TypeScript source behind `--import tsx`;

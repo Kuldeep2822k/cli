@@ -77,11 +77,13 @@ describe('valid-assessment-fields rule (#36)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-assessment-fields');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-bad');
-    assert.strictEqual(issues[0].field, 'conceptual');
-    assert.strictEqual(issues[0].details?.actual, -0.2);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-assessment-fields');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-bad');
+    assert.strictEqual(firstIssue.field, 'conceptual');
+    assert.strictEqual(firstIssue.details?.actual, -0.2);
   });
 
   test('score above 1.0 reports an error', () => {
@@ -90,8 +92,10 @@ describe('valid-assessment-fields rule (#36)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'practical');
-    assert.strictEqual(issues[0].details?.actual, 1.5);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'practical');
+    assert.strictEqual(firstIssue.details?.actual, 1.5);
   });
 
   test('string score reports an error (raw frontmatter, pre-normalization)', () => {
@@ -100,8 +104,10 @@ describe('valid-assessment-fields rule (#36)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'conceptual');
-    assert.strictEqual(issues[0].details?.actual, 'high');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'conceptual');
+    assert.strictEqual(firstIssue.details?.actual, 'high');
   });
 
   test('invalid assessed_at reports an error', () => {
@@ -110,7 +116,9 @@ describe('valid-assessment-fields rule (#36)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'assessed_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'assessed_at');
   });
 
   test('multiple invalid fields report multiple errors in field order', () => {
@@ -128,7 +136,9 @@ describe('valid-assessment-fields rule (#36)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'conceptual');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'conceptual');
   });
 
   test('missing assessment fields follow the documented default policy (pass)', () => {
@@ -163,11 +173,13 @@ describe('valid-topic-mastery rule (#37)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'valid-topic-mastery');
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].topicId, 'T-stale');
-    assert.strictEqual(issues[0].details?.actual, 0.5);
-    assert.strictEqual(issues[0].details?.expected, 0.82);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'valid-topic-mastery');
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.topicId, 'T-stale');
+    assert.strictEqual(firstIssue.details?.actual, 0.5);
+    assert.strictEqual(firstIssue.details?.expected, 0.82);
   });
 
   test('missing assessment data does not crash and does not report', () => {
@@ -198,9 +210,11 @@ describe('valid-topic-mastery rule (#37)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-garbage');
-    assert.strictEqual(issues[0].details?.actual, 'high');
-    assert.strictEqual(issues[0].details?.expected, 0);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-garbage');
+    assert.strictEqual(firstIssue.details?.actual, 'high');
+    assert.strictEqual(firstIssue.details?.expected, 0);
   });
 
   test('absent stored mastery adopts the documented 0 default', () => {
@@ -224,9 +238,11 @@ describe('valid-topic-mastery rule (#37)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-clamped');
-    assert.strictEqual(issues[0].details?.actual, 2);
-    assert.strictEqual(issues[0].details?.expected, 1);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-clamped');
+    assert.strictEqual(firstIssue.details?.actual, 2);
+    assert.strictEqual(firstIssue.details?.expected, 1);
   });
 
   test('negative out-of-range stored mastery warns against the raw value', () => {
@@ -239,8 +255,10 @@ describe('valid-topic-mastery rule (#37)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.actual, -0.5);
-    assert.strictEqual(issues[0].details?.expected, 0);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.actual, -0.5);
+    assert.strictEqual(firstIssue.details?.expected, 0);
   });
 
   test('invalid assessment fields are left to valid-assessment-fields (no mastery report)', () => {
@@ -260,7 +278,9 @@ describe('valid-topic-mastery rule (#37)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-archived');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-archived');
   });
 
   test('epsilon tolerance: serialized mastery within 1e-5 passes', () => {
@@ -316,7 +336,9 @@ describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'assessed_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'assessed_at');
   });
 
   test('partial pillars still validate mastery (Greptile P1)', () => {
@@ -337,8 +359,10 @@ describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].topicId, 'T-partial-stale');
-    assert.strictEqual(issues[0].details?.expected, 0.36);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.topicId, 'T-partial-stale');
+    assert.strictEqual(firstIssue.details?.expected, 0.36);
   });
 
   test('invalid assessed_at skips mastery rule — no double report (Greptile P2)', () => {
@@ -369,7 +393,9 @@ describe('assessed_at calendar strictness (PR #163 round 2)', () => {
       })];
       const issues = validAssessmentFieldsRule.run(makeContext(topics));
       assert.strictEqual(issues.length, 1, `expected ${bad} to be rejected`);
-      assert.strictEqual(issues[0].field, 'assessed_at');
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.strictEqual(firstIssue.field, 'assessed_at');
     }
   });
 
@@ -437,7 +463,9 @@ describe('assessed_at timezone and ISO strictness (PR #163 round 3)', () => {
       })];
       const issues = validAssessmentFieldsRule.run(makeContext(topics));
       assert.strictEqual(issues.length, 1, `expected ${bad} to be rejected`);
-      assert.strictEqual(issues[0].field, 'assessed_at');
+      const [firstIssue] = issues;
+      assert.ok(firstIssue !== undefined);
+      assert.strictEqual(firstIssue.field, 'assessed_at');
     }
   });
 
@@ -488,7 +516,9 @@ describe('assessed_at timezone and ISO strictness (PR #163 round 3)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(bad));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'assessed_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'assessed_at');
   });
 });
 
@@ -516,6 +546,8 @@ describe('assessed_at UTC round-trip (PR #163 round 4)', () => {
     })];
     const issues = validAssessmentFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'assessed_at');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'assessed_at');
   });
 });

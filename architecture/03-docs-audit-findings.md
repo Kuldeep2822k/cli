@@ -180,7 +180,7 @@ Every finding class above is mechanically checkable except F1's semantics. Sugge
 | counts cross-checked against source: registered rules == barrel exports == `.length` cited in `agent.md`/`docs/02-3`; layer module counts == directory listing | F4, F7, F9's tier count |
 | workflow pinning: parse every `uses:` from `.github/workflows/*` and diff against the `docs/07-1` table | F9's last two rows |
 
-`node scripts/arch-import-graph.cjs` already emits the import graph, cycles and layer matrix this would consume, and `scripts/arch-render-dot.cjs` regenerates the two dependency views from it.
+The import graph, cycles and layer matrix this would consume already exist as a historical snapshot (60 modules, 216 edges, dated 2026-09-22); the scripts that emitted them are not in this repository, so a future guard would need to re-derive them.
 
 ## Verification performed (and its limits)
 

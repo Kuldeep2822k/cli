@@ -87,7 +87,9 @@ describe('topic path resolution (#313)', () => {
       const before = loadTopics(vaultPath);
       // The string `next`/`plan` show is `LoadedTopic.path`, so that is the string
       // fed back here — nothing else in this test names the topic.
-      const displayed = before[0].path;
+      const [firstTopic] = before;
+      assert.ok(firstTopic);
+      const displayed = firstTopic.path;
       assert.strictEqual(displayed, 'w/one.md');
 
       const output = await captureOutput(() => reviewCommand(displayed, '5'));

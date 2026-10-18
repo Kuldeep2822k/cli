@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { globToRegex, matchesPattern, matchesTags } from '../src/storage/pattern-matcher';
+import { globValidationRegex, matchesPattern, matchesTags } from '../src/storage/pattern-matcher';
 import { normalizeDifficulty } from '../src/types';
 import { calculateEaseFactorDelta, processReview } from '../src/engine/sm2';
 import { detectCycle } from '../src/engine/dependency';
@@ -8,7 +8,7 @@ import { TopicNode } from '../src/types';
 
 describe('Property-Based & Fuzz Testing Suite', () => {
   describe('Glob Pattern Fuzzing & ReDoS Safety', () => {
-    test('globToRegex compiles 300+ randomized glob combinations without throwing or hanging', () => {
+    test('globValidationRegex compiles 300+ randomized glob combinations without throwing or hanging', () => {
       const globTokens = ['*', '**', '?', '[0-9]', '[!a-z]', 'notes', 'sub', 'md', '/', '\\', '.', '-', '_', '{a,b}'];
 
       for (let i = 0; i < 300; i++) {
@@ -20,7 +20,9 @@ describe('Property-Based & Fuzz Testing Suite', () => {
         }
 
         const start = Date.now();
-        const regex = globToRegex(randomGlob);
+        // Validation-only regex: the timed `.test()` below is a deliberate
+        // ReDoS probe on the compiled output, not matcher usage.
+        const regex = globValidationRegex(randomGlob);
         assert.ok(regex instanceof RegExp);
         // Test matching speed against a standard path to ensure no catastrophic backtracking (ReDoS)
         regex.test('notes/2026/concepts/kubernetes-architecture-overview.md');
@@ -53,6 +55,7 @@ describe('Property-Based & Fuzz Testing Suite', () => {
       for (let i = 0; i < 200; i++) {
         const tag1 = baseTags[Math.floor(Math.random() * baseTags.length)];
         const tag2 = baseTags[Math.floor(Math.random() * baseTags.length)];
+        assert.ok(tag1 !== undefined && tag2 !== undefined);
         const hierarchicalTag = `${tag1}/${tag2}`;
 
         // Exact match
@@ -102,7 +105,9 @@ describe('Property-Based & Fuzz Testing Suite', () => {
       assert.strictEqual(deltas[4], 0.0);
       // Lower qualities give strictly increasing penalties
       for (let q = 0; q < 5; q++) {
-        assert.ok(deltas[q] < deltas[q + 1], `Delta at q=${q} (${deltas[q]}) must be < delta at q=${q+1} (${deltas[q+1]})`);
+        const [lower, upper] = [deltas[q], deltas[q + 1]];
+        assert.ok(lower !== undefined && upper !== undefined);
+        assert.ok(lower < upper, `Delta at q=${q} (${lower}) must be < delta at q=${q+1} (${upper})`);
       }
     });
 
@@ -162,9 +167,13 @@ describe('Property-Based & Fuzz Testing Suite', () => {
           const depCount = rand(3);
           const deps: string[] = [];
           for (let d = 0; d < depCount; d++) {
-            deps.push(ids[rand(size)]);
+            const depId = ids[rand(size)];
+            assert.ok(depId !== undefined);
+            deps.push(depId);
           }
-          topics.set(ids[i], { palee_id: ids[i], depends_on: deps, topic_mastery: 0 });
+          const topicId = ids[i];
+          assert.ok(topicId !== undefined);
+          topics.set(topicId, { palee_id: topicId, depends_on: deps, topic_mastery: 0 });
         }
 
         const cycles = detectCycles(topics);
