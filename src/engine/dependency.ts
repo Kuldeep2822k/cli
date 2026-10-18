@@ -88,6 +88,29 @@ function buildEdgeMap(topics: Map<string, TopicNode>): Map<string, string[]> {
 }
 
 /**
+ * An adjacency map with its SCC decomposition, built once per graph walk.
+ *
+ * @remarks
+ * Quarantine asks two questions of the same graph — SCC membership decides what
+ * to drop, the bounded enumeration reports the cycles — and each helper rebuilt
+ * this pair from `topics` on entry. The pair is read-only once built: no
+ * consumer mutates an adjacency list or the component list, so sharing one
+ * object cannot change what either helper sees (#345). A supplied `graph`
+ * replaces the adjacency derived from `topics`, so it must be the decomposition
+ * of that same map.
+ */
+interface DecomposedGraph {
+  edges: Map<string, string[]>;
+  sccs: string[][];
+}
+
+/** Builds the adjacency map and its SCC decomposition in one pass. */
+function decomposeGraph(topics: Map<string, TopicNode>): DecomposedGraph {
+  const edges = buildEdgeMap(topics);
+  return { edges, sccs: computeSccs(edges) };
+}
+
+/**
  * Enumerates the simple (elementary) cycles of one strongly connected component
  * using an explicit-stack adaptation of Johnson's algorithm.
  *
@@ -302,7 +325,8 @@ export interface DetectCyclesResult {
  */
 function detectCyclesBounded(
   topics: Map<string, TopicNode>,
-  maxCycles: number = 1000
+  maxCycles: number = 1000,
+  graph?: DecomposedGraph
 ): DetectCyclesResult {
   // The cap is this function's public contract, so it must fail loudly on
   // impossible values instead of throwing a confusing RangeError deep inside
@@ -311,7 +335,7 @@ function detectCyclesBounded(
   if (!Number.isInteger(maxCycles) || maxCycles < 0) {
     throw new RangeError(`maxCycles must be a non-negative integer (got ${maxCycles})`);
   }
-  return detectCyclesCore(topics, maxCycles);
+  return detectCyclesCore(topics, maxCycles, graph);
 }
 
 /**
@@ -322,9 +346,13 @@ function detectCyclesBounded(
  * the cap is what PROVES truncation, so `truncated` can never be reported
  * for a graph whose cycle count happens to equal `maxCycles` exactly.
  */
-function detectCyclesCore(topics: Map<string, TopicNode>, maxCycles: number): DetectCyclesResult {
-  const edges = buildEdgeMap(topics);
-  const sccs = computeSccs(edges);
+function detectCyclesCore(
+  topics: Map<string, TopicNode>,
+  maxCycles: number,
+  graph?: DecomposedGraph
+): DetectCyclesResult {
+  const edges = graph?.edges ?? buildEdgeMap(topics);
+  const sccs = graph?.sccs ?? computeSccs(edges);
 
   // ── Stage 2: enumerate cycles in each SCC ───────────────────────────
   // Multi-node SCCs: full elementary-cycle enumeration. Singleton SCCs:
@@ -608,9 +636,12 @@ function canReachAvoiding(
  * @param topics - Map of topic ID to {@link TopicNode}
  * @returns Set of IDs on at least one cycle
  */
-function findCyclicSccNodes(topics: Map<string, TopicNode>): Set<string> {
-  const edges = buildEdgeMap(topics);
-  const sccs = computeSccs(edges);
+function findCyclicSccNodes(
+  topics: Map<string, TopicNode>,
+  graph?: DecomposedGraph
+): Set<string> {
+  const edges = graph?.edges ?? buildEdgeMap(topics);
+  const sccs = graph?.sccs ?? computeSccs(edges);
 
   // A node is cyclic iff it is in a multi-node SCC or has a self-edge;
   // SCC structure alone cannot see the self-loop, hence the edge check.
@@ -720,9 +751,12 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
   cycles: string[][];
   truncated: boolean;
 } {
+  // One adjacency + SCC build serves both questions below — membership decides
+  // what to drop and the enumeration reports the cycles (#345).
+  const graph = decomposeGraph(topics);
   // Membership first: SCC analysis decides WHAT to quarantine in O(V+E),
   // independent of how many cycles the (bounded) enumeration lists.
-  const cyclicNodes = findCyclicSccNodes(topics);
+  const cyclicNodes = findCyclicSccNodes(topics, graph);
   if (cyclicNodes.size === 0) {
     return { acyclic: new Map(topics), cycles: [], truncated: false };
   }
@@ -730,7 +764,7 @@ function quarantineCyclicTopics(topics: Map<string, TopicNode>): {
   // Display sample: bounded enumeration so pathological-but-valid vaults
   // (dense SCCs with exponentially many elementary cycles) cannot stall
   // `plan`; `truncated` tells callers the list is a sample, not a census.
-  const { cycles, truncated } = detectCyclesBounded(topics);
+  const { cycles, truncated } = detectCyclesBounded(topics, undefined, graph);
 
   const blocked = collectBlockedFromCycles(topics, cycles, cyclicNodes);
   const acyclic = new Map<string, TopicNode>();

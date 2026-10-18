@@ -451,6 +451,53 @@ describe('Dependency Graph', () => {
     assert.ok(!cyclic.has('T-free'), 'acyclic node');
   });
 
+  test('quarantine shares one decomposition without perturbing it (#345)', () => {
+    // quarantineCyclicTopics builds the adjacency + SCC pair once and lets both
+    // helpers read it, so the membership pass runs before the enumeration and
+    // could poison what the enumeration sees. Pop one adjacency entry inside
+    // `findCyclicSccNodes` when a graph was supplied and this test fails,
+    // alongside the two quarantine tests below it.
+    //
+    // What it does NOT catch: order-only mutation. Reversing an adjacency list
+    // in place passes, because the enumerated cycles are canonicalized before
+    // they are returned — so this pins the CONTENT of the shared graph, not the
+    // order it was built in. Nothing here claims the double build went away;
+    // that needs a counter seam, and an assertion that cannot fail from a
+    // behavior standpoint is the thing ADR-0026 rejects.
+    //
+    // Seeded rather than hand-listed: the drift needs a graph whose cycle
+    // sample is sensitive to an edge disappearing, and at cap 1000 that is a
+    // property of the shape, not of one fixture.
+    let seed = 20261018;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (let round = 0; round < 2000; round++) {
+      const n = 2 + Math.floor(rand() * 6);
+      const topics = new Map<string, TopicNode>();
+      for (let i = 0; i < n; i++) {
+        const deps: string[] = [];
+        for (let j = 0; j < n; j++) {
+          if (rand() < 0.35) deps.push(`T-${j}`);
+        }
+        topics.set(`T-${i}`, { palee_id: `T-${i}`, depends_on: deps, topic_mastery: 0 });
+      }
+      const isolated = detectCyclesBounded(topics);
+      const shared = quarantineCyclicTopics(topics);
+      assert.deepStrictEqual(
+        shared.cycles,
+        isolated.cycles,
+        `round ${round}: quarantine's shared decomposition drifted from a private one`
+      );
+      assert.strictEqual(
+        shared.truncated,
+        isolated.truncated,
+        `round ${round}: the truncation flag drifted`
+      );
+    }
+  });
+
   test('detectCycles output order is independent of map insertion order (#79 review fix)', () => {
     // greptile P2: same graph built twice with different insertion orders must
     // produce the identical cycle list (JSDoc contract: stable output).

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Quarantine builds the adjacency and its SCC decomposition once** ([#345](https://github.com/Kuldeep2822k/cli/issues/345)): `findCyclicSccNodes` and `detectCyclesBounded` each rebuilt the pair from the same graph, so a vault with cycles paid for two identical `O(V+E)` passes per `plan`/`next`. No output changes — a 400-graph differential run of the old and new code is byte-identical — and an acyclic vault already cost one pass, which is still one.
 - **Auto-chain tiers are now `strict` and `full`**: the redundant `toc` alias was removed; `full` adds advisory TOC enumeration to the numbered plan.
 - **`ValidationError` is a discriminated union and `TopicNode` drops its catch-all index signature** ([#337](https://github.com/Kuldeep2822k/cli/issues/337)).
 - **`prepublishOnly` rebuilds `dist/` on publish** ([#336](https://github.com/Kuldeep2822k/cli/issues/336)) so a manual `npm publish` cannot ship a stale build.
