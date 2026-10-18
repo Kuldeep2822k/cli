@@ -46,8 +46,38 @@ const OPTIONS_WINDOW_LINES = 12;
  * belongs to some other construct, so its `timeout` must not vouch for this call.
  */
 const CLOSES_CALL = /^\s*(?:\}\s*\)|\))/;
-/** Matches both `timeout: value` and the `{ timeout }` shorthand property. */
-const TIMEOUT_OPTION = /\btimeout\s*:|^\s*timeout\s*[,}]/m;
+/** A line that comments instead of binding: prose cannot set an option. */
+const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
+/** The `timeout: value` form, captured so a zero-valued limit can be rejected. */
+const TIMEOUT_VALUE = /\btimeout\s*:\s*([^,})\s]+)/;
+/** The `{ timeout }` shorthand: a bare `timeout` property on its own line. */
+const TIMEOUT_SHORTHAND = /^\s*timeout\s*[,}]/;
+/** A value written as a number literal, as opposed to an identifier or expression. */
+const NUMERIC_LITERAL = /^[+-]?\d+(?:\.\d+)?$/;
+
+/**
+ * Whether the lines spanning one call's options set a timeout that will actually fire.
+ *
+ * @remarks
+ * Node honours `timeout` only when it is non-zero, so `timeout: 0` leaves the
+ * synchronous spawn as unbounded as no option at all. A `timeout` written in a
+ * comment binds nothing either. Matching the key name alone accepts both, which
+ * is how a new unbounded call would pass this guard. Anything that cannot be
+ * evaluated statically — the shorthand, an identifier, a positive literal — is
+ * taken as bounding the call, since guessing otherwise would report false
+ * positives against code that is genuinely bounded.
+ *
+ * @param window - The source lines belonging to one call, opening line included.
+ * @returns True when the call carries an active, positive timeout.
+ */
+function hasActiveTimeout(window: string[]): boolean {
+  return window.some((line) => {
+    if (COMMENT_LINE.test(line)) return false;
+    const value = TIMEOUT_VALUE.exec(line)?.[1];
+    if (value === undefined) return TIMEOUT_SHORTHAND.test(line);
+    return NUMERIC_LITERAL.test(value) ? Number(value) > 0 : true;
+  });
+}
 
 /**
  * Recursively lists the TypeScript files under a directory.
@@ -69,7 +99,7 @@ function collectTestFiles(dir: string): string[] {
 }
 
 /**
- * Counts direct spawn calls in a source text that carry no `timeout` option.
+ * Counts direct spawn calls in a source text that carry no active `timeout`.
  *
  * @remarks
  * Each call's window ends at whichever comes first: the closing line of the
@@ -78,10 +108,11 @@ function collectTestFiles(dir: string): string[] {
  * object — would satisfy an unbounded spawn above it, and without the
  * next-call bound a bounded neighbour would vouch for it. Both are false
  * negatives of exactly the kind this guard exists to catch. Comment lines are
- * skipped, since `palee-cli.ts` names `spawnSync` in prose.
+ * skipped outright: `palee-cli.ts` names `spawnSync` in prose, and a `timeout`
+ * written in a comment bounds nothing.
  *
  * @param source - Whole file contents to scan.
- * @returns How many call sites lack a timeout.
+ * @returns How many call sites lack a timeout that will actually fire.
  */
 function countUnboundedSpawns(source: string): number {
   const lines = source.split(/\r?\n/);
@@ -89,7 +120,7 @@ function countUnboundedSpawns(source: string): number {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
     if (!CALL.test(line)) continue;
-    if (/^\s*(\*|\/\/)/.test(line)) continue;
+    if (COMMENT_LINE.test(line)) continue;
     let end = Math.min(i + OPTIONS_WINDOW_LINES, lines.length);
     for (let j = i + 1; j < end; j++) {
       const next = lines[j] ?? '';
@@ -98,7 +129,7 @@ function countUnboundedSpawns(source: string): number {
         break;
       }
     }
-    if (!TIMEOUT_OPTION.test(lines.slice(i, end).join('\n'))) unbounded++;
+    if (!hasActiveTimeout(lines.slice(i, end))) unbounded++;
   }
   return unbounded;
 }
@@ -180,6 +211,63 @@ describe('direct CLI spawn timeouts', () => {
       'const a = spawnSync(process.execPath, argv, {',
       '  cwd: ROOT,',
       '  timeout: CLI_SPAWN_TIMEOUT_MS,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('a commented-out timeout does not bound the call', () => {
+    // Matching the key name alone accepted this: the `timeout` exists only in
+    // prose, so the spawn it "documents" still blocks its worker forever.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  // timeout: CLI_SPAWN_TIMEOUT_MS,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'a timeout written in a comment binds nothing'
+    );
+  });
+
+  test('a zero-valued timeout is no limit, not a bound', () => {
+    // Node applies `timeout` only when it is non-zero, so this call is unbounded
+    // despite carrying the option.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  timeout: 0,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'timeout: 0 leaves the synchronous spawn unbounded'
+    );
+  });
+
+  test('a positive numeric timeout bounds the call', () => {
+    // The control for the zero case, so rejecting 0 cannot pass by rejecting
+    // every literal.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  timeout: 120000,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
+  });
+
+  test('the shorthand property still bounds the call', () => {
+    // `runPalee` passes `{ timeout }` by name; the guard recognises that form
+    // only through the shorthand branch, so it must not go dead.
+    const source = [
+      'const timeout = 120000;',
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  timeout,',
       '});',
     ].join('\n');
     assert.strictEqual(countUnboundedSpawns(source), 0);
