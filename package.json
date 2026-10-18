@@ -28,7 +28,7 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "pretest": "npm run build",
-    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=4 \"test/**/*.test.ts\"",
     "test:unit": "node --import tsx --test \"test/storage-*.test.ts\" \"test/engine-*.test.ts\" \"test/types-*.test.ts\" \"test/smoke.test.ts\"",
     "pretest:fast": "npm run build",
     "test:fast": "node --import tsx --test \"test/cli-*.test.ts\" \"test/engine-*.test.ts\" \"test/fault-injection.test.ts\" \"test/property-fuzz.test.ts\" \"test/session-*.test.ts\" \"test/smoke.test.ts\" \"test/storage-*.test.ts\" \"test/stress-concurrency.test.ts\" \"test/timezone-matrix.test.ts\" \"test/types-*.test.ts\"",
