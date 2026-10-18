@@ -72,3 +72,17 @@ export const PALEE_ARGV: string[] = underCoverage
 export const PALEE_CMD: string = underCoverage
   ? `"${process.execPath}" --import tsx "${path.join(ROOT, 'bin', 'palee.ts')}"`
   : `"${process.execPath}" "${PALEE_DIST_ENTRY}"`;
+
+/**
+ * Per-spawn budget for a CLI child process launched directly.
+ *
+ * @remarks
+ * `execSync` and `spawnSync` block their worker with no way back, so an
+ * unbounded call that hangs takes the whole file down and reports nothing about
+ * what hung. 120 s is roughly two orders of magnitude above the slowest single
+ * invocation measured across the direct-spawn suites (all under 1 s; the
+ * multi-spawn suites that aggregate several calls top out near 32 s), and it is
+ * the budget `runPalee` has carried in `test/e2e/test-env.ts` since #456, so
+ * both launch styles fail on the same clock.
+ */
+export const CLI_SPAWN_TIMEOUT_MS = 120_000;

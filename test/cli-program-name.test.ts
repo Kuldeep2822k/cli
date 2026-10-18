@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { PALEE_ARGV } from './palee-cli';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { deriveProgramName, programName } from '../src/cli/program-name';
 
 /**
@@ -68,6 +68,7 @@ describe('program name follows the invoked bin (#314)', () => {
         env: { ...process.env, PALEE_CONFIG_DIR: configDir, ...(env || {}) },
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
       });
       return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
     } finally {
@@ -81,6 +82,7 @@ describe('program name follows the invoked bin (#314)', () => {
       env: { ...process.env, PALEE_CONFIG_DIR: configDir },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
   }

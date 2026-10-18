@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { PALEE_ARGV } from './palee-cli';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { Lock } from '../src/storage';
 
 /**
@@ -48,6 +48,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
       env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   }
@@ -632,6 +633,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
       env: { ...process.env, PALEE_CONFIG_DIR: orphanConfig },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     assert.strictEqual(result.status, 2, result.stdout + result.stderr);
     assert.match(result.stderr, /Vault path not configured/, result.stderr);
