@@ -76,6 +76,12 @@ describe('program name follows the invoked bin (#314)', () => {
     }
   }
 
+  /**
+   * Runs the real CLI as a child process against this suite's isolated config dir.
+   *
+   * @param args - Arguments following the program name, passed through untouched.
+   * @returns The exit status and whatever the child wrote to stdout and stderr.
+   */
   function runPalee(args: string[]): Run {
     const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: ROOT,

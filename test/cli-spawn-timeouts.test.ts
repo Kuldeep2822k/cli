@@ -44,6 +44,12 @@ const OPTIONS_WINDOW_LINES = 12;
 /** Matches both `timeout: value` and the `{ timeout }` shorthand property. */
 const TIMEOUT_OPTION = /\btimeout\s*:|^\s*timeout\s*[,}]/m;
 
+/**
+ * Recursively lists the TypeScript files under a directory.
+ *
+ * @param dir - Directory to walk.
+ * @returns Every `.ts` file beneath it, including nested suites such as `e2e/`.
+ */
 function collectTestFiles(dir: string): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -58,11 +64,39 @@ function collectTestFiles(dir: string): string[] {
 }
 
 /**
- * Maps each repo-relative test file to its unbounded direct-spawn calls.
+ * Counts direct spawn calls in a source text that carry no `timeout` option.
  *
  * @remarks
- * Comment lines are skipped: `palee-cli.ts` names `spawnSync` in prose, and a
- * doc comment is not a call site.
+ * Each call's options window stops at the *next* call, not at a fixed line
+ * count: without that bound an unbounded call followed by a bounded one is read
+ * as bounded by its neighbour's `timeout`, which is the exact false negative
+ * this guard exists to prevent. Comment lines are skipped, since `palee-cli.ts`
+ * names `spawnSync` in prose.
+ *
+ * @param source - Whole file contents to scan.
+ * @returns How many call sites lack a timeout.
+ */
+function countUnboundedSpawns(source: string): number {
+  const lines = source.split(/\r?\n/);
+  let unbounded = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (!CALL.test(line)) continue;
+    if (/^\s*(\*|\/\/)/.test(line)) continue;
+    let end = Math.min(i + OPTIONS_WINDOW_LINES, lines.length);
+    for (let j = i + 1; j < end; j++) {
+      if (CALL.test(lines[j] ?? '')) {
+        end = j;
+        break;
+      }
+    }
+    if (!TIMEOUT_OPTION.test(lines.slice(i, end).join('\n'))) unbounded++;
+  }
+  return unbounded;
+}
+
+/**
+ * Maps each repo-relative test file to its unbounded direct-spawn calls.
  *
  * @returns Relative path to count of calls with no `timeout` in their options.
  */
@@ -75,15 +109,7 @@ function unboundedSpawns(): Map<string, number> {
   for (const abs of collectTestFiles(testDir)) {
     const rel = path.relative(root, abs).replace(/\\/g, '/');
     if (rel === self) continue;
-    const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
-    let unbounded = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? '';
-      if (!CALL.test(line)) continue;
-      if (/^\s*(\*|\/\/)/.test(line)) continue;
-      const window = lines.slice(i, i + OPTIONS_WINDOW_LINES).join('\n');
-      if (!TIMEOUT_OPTION.test(window)) unbounded++;
-    }
+    const unbounded = countUnboundedSpawns(fs.readFileSync(abs, 'utf8'));
     if (unbounded > 0) result.set(rel, unbounded);
   }
   return result;
@@ -101,6 +127,37 @@ describe('direct CLI spawn timeouts', () => {
       'every direct execSync/spawnSync/execFileSync must pass `timeout: CLI_SPAWN_TIMEOUT_MS` — ' +
         'an unbounded call hangs its worker with no diagnostic'
     );
+  });
+
+  test('an unbounded call is not vouched for by a bounded neighbour below it', () => {
+    // The first draft read a fixed 12-line window that did not stop at the next
+    // call, so the second call's `timeout` satisfied the first and the unbounded
+    // site passed silently — the exact false negative this guard exists to catch.
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      "  encoding: 'utf8',",
+      '});',
+      'const b = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  timeout: CLI_SPAWN_TIMEOUT_MS,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(
+      countUnboundedSpawns(source),
+      1,
+      'the first call has no timeout; the second must not cover for it'
+    );
+  });
+
+  test('a bounded call is not counted, so the check is not always-red', () => {
+    const source = [
+      'const a = spawnSync(process.execPath, argv, {',
+      '  cwd: ROOT,',
+      '  timeout: CLI_SPAWN_TIMEOUT_MS,',
+      '});',
+    ].join('\n');
+    assert.strictEqual(countUnboundedSpawns(source), 0);
   });
 
   test('the allow-list has no entries that are already fully bounded', () => {
