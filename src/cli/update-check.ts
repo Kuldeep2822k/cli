@@ -14,9 +14,15 @@
  * derived `update-check.json` is freely rebuildable, so it skips the
  * tmp+fsync+rename ceremony `saveConfig` pays for a user-authored credential:
  * a torn cache is silently repaired by the next check.
+ *
+ * Delegating to `npm` buys a child process, and a child process has a working
+ * directory. Every spawn pins it (see {@link npmSpawnCwd}) because the notice
+ * path runs without the user asking: on Windows, inheriting the directory means
+ * a planted `npm.cmd` in wherever `palee` happened to be typed is what executes.
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import type { SpawnSyncOptions, SpawnSyncReturns } from 'child_process';
@@ -24,13 +30,13 @@ import { getConfigPath } from './config';
 import { programName } from './program-name';
 
 /** The published package the update surface talks about. */
-export const PACKAGE_NAME = '@kuldeep2822k/palee';
+const PACKAGE_NAME = '@kuldeep2822k/palee';
 
 /** How long a cached check stays usable before a new one is paid for. */
 export const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Budget for the automatic notice path: it must never dominate a normal run. */
-export const AUTO_CHECK_TIMEOUT_MS = 5000;
+const AUTO_CHECK_TIMEOUT_MS = 5000;
 
 /** Budget for `palee update`, where the user is waiting on the answer anyway. */
 export const EXPLICIT_CHECK_TIMEOUT_MS = 30000;
@@ -43,10 +49,34 @@ export interface NpmInvocation {
 }
 
 /**
+ * The directory every npm child runs in.
+ *
+ * @returns The user's home directory, pinned rather than inherited.
+ *
+ * @remarks
+ * On win32 npm is reached through `cmd.exe`, which searches the current
+ * directory before `PATH` for a `.cmd`. A `palee` run started inside a cloned
+ * or downloaded tree would therefore execute a planted `npm.cmd` as the user —
+ * verified on win32 with Node 24, where a fake `npm.cmd` in the working
+ * directory made `evaluateUpdate` accept the version that file printed while
+ * the real npm on `PATH` was never consulted. The same directory is where npm
+ * reads a project-level `.npmrc`, so one planted file could also redirect the
+ * registry that `install -g` then pulls from.
+ *
+ * Home is not a directory an attacker gets files into merely by persuading
+ * someone to `cd` there, and npm reads the user and global `.npmrc` regardless
+ * of the working directory, so the user's own registry, proxy and credentials
+ * are still honoured.
+ */
+function npmSpawnCwd(): string {
+  return os.homedir();
+}
+
+/**
  * Runs one npm invocation, keeping the spawning process's stderr quiet.
  *
  * @param invocation - The platform decision from {@link npmInvocationFor}
- * @param options - `spawnSync` options; `shell` is taken from the invocation
+ * @param options - `spawnSync` options; `shell` and `cwd` are set here, not by the caller
  * @returns The raw `spawnSync` result
  *
  * @remarks
@@ -59,10 +89,16 @@ export interface NpmInvocation {
  * `process.noDeprecation` is consulted at emit time, so it is set around the
  * spawn only — and it affects this process alone: npm's own output is not
  * silenced.
+ *
+ * `cwd` is pinned to {@link npmSpawnCwd} rather than inherited, and is excluded
+ * from the options type so no call site can pass one. The notice path reaches
+ * this code without any user request, on the first interactive command each
+ * day, so the working directory a caller happened to leave it in is not a
+ * decision anyone should be able to make by accident.
  */
 function spawnNpm(
   invocation: NpmInvocation,
-  options: Omit<SpawnSyncOptions, 'shell'>
+  options: Omit<SpawnSyncOptions, 'shell' | 'cwd'>
 ): SpawnSyncReturns<string | NonSharedBuffer> {
   const previous = process.noDeprecation;
   process.noDeprecation = true;
@@ -70,9 +106,11 @@ function spawnNpm(
     return spawnSync(invocation.command, invocation.args, {
       ...options,
       shell: invocation.shell,
+      cwd: npmSpawnCwd(),
     });
   } finally {
-    process.noDeprecation = previous;
+    if (previous === undefined) delete process.noDeprecation;
+    else process.noDeprecation = previous;
   }
 }
 
@@ -89,8 +127,10 @@ function spawnNpm(
  * throw `EINVAL` when a `.bat`/`.cmd` is spawned without a shell, and npm's
  * Windows launcher is `npm.cmd` — so win32 goes through `cmd.exe`. That is safe
  * precisely because every arg here is a compile-time constant with no spaces:
- * nothing user-controlled ever reaches the shell string. On POSIX `npm` is a
- * real executable and no shell is added.
+ * nothing user-controlled ever reaches the shell string. Going through a shell
+ * does make *which* `npm.cmd` runs depend on the working directory, so
+ * {@link spawnNpm} pins that — argv purity alone was not enough. On POSIX
+ * `npm` is a real executable and no shell is added.
  */
 export function npmInvocationFor(platform: NodeJS.Platform, args: string[]): NpmInvocation {
   if (platform === 'win32') {
@@ -154,15 +194,22 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   const pa = parseVersion(a);
   const pb = parseVersion(b);
   if (pa === null || pb === null) return 0;
-  for (let i = 0; i < 3; i++) {
-    if (pa.core[i] !== pb.core[i]) return pa.core[i] > pb.core[i] ? 1 : -1;
-  }
+  const [aMajor, aMinor, aPatch] = pa.core;
+  const [bMajor, bMinor, bPatch] = pb.core;
+  if (aMajor !== bMajor) return aMajor > bMajor ? 1 : -1;
+  if (aMinor !== bMinor) return aMinor > bMinor ? 1 : -1;
+  if (aPatch !== bPatch) return aPatch > bPatch ? 1 : -1;
   if (pa.pre === null && pb.pre === null) return 0;
   if (pa.pre === null) return 1;
   if (pb.pre === null) return -1;
   const shared = Math.min(pa.pre.length, pb.pre.length);
   for (let i = 0; i < shared; i++) {
-    const cmp = comparePrereleaseIdentifiers(pa.pre[i], pb.pre[i]);
+    const aPart = pa.pre[i];
+    const bPart = pb.pre[i];
+    // Unreachable while i < shared, but indexed access is `string | undefined`
+    // under noUncheckedIndexedAccess and the type has to stay honest.
+    if (aPart === undefined || bPart === undefined) break;
+    const cmp = comparePrereleaseIdentifiers(aPart, bPart);
     if (cmp !== 0) return cmp;
   }
   return pa.pre.length === pb.pre.length ? 0 : pa.pre.length > pb.pre.length ? 1 : -1;
@@ -233,7 +280,7 @@ export function readUpdateCheckRecord(): UpdateCheckRecord | null {
  * @param ttlMs - Freshness window
  * @returns `true` when fresh and written by this same version — a record from
  * a 1.0.0 install must never tell a 1.2.0 install it is stale, because
- * parallel or renamed installs share the machine-global config dir (#311)
+ * parallel or renamed installs share the per-user config dir (#311)
  */
 export function isCacheFresh(
   record: UpdateCheckRecord,
@@ -262,7 +309,7 @@ export function writeUpdateCheckRecord(record: UpdateCheckRecord): boolean {
 }
 
 /** Outcome of asking npm for the latest version. */
-export type VersionProbe =
+type VersionProbe =
   | { kind: 'ok'; version: string }
   | { kind: 'failed'; reason: string };
 
@@ -271,8 +318,12 @@ export type VersionProbe =
  *
  * @param timeoutMs - Hard budget for the child process
  * @returns The version, or a failure reason; never throws
+ *
+ * @remarks
+ * Module-private: the only caller is {@link evaluateUpdate}, and the cwd pin in
+ * {@link spawnNpm} is what keeps this safe to reach from an automated path.
  */
-export function probeLatestVersion(timeoutMs: number): VersionProbe {
+function probeLatestVersion(timeoutMs: number): VersionProbe {
   try {
     const result = spawnNpm(npmInvocationFor(process.platform, viewArgs()), {
       encoding: 'utf8',

@@ -5,7 +5,7 @@
  * notifier driven through a stubbed `spawnSync`, and the real CLI driven through
  * a PATH shim that stands in for npm. No test in this file — and none in the
  * rest of the suite, which pipes stdio and so trips the TTY gate — ever reaches
- * a registry. The boundary this file encodes is INV-29; ADR-0030 records why
+ * a registry. The boundary this file encodes is INV-29; ADR-0032 records why
  * the registry is asked through a child process rather than a socket.
  */
 
@@ -213,12 +213,20 @@ describe('update: notifier in process', () => {
   function withTempConfigDir<T>(fn: (dir: string) => T): T {
     const dir = mkTempDir('palee-update-notify-');
     const original = process.env.PALEE_CONFIG_DIR;
+    // The README tells users to export PALEE_NO_UPDATE_CHECK=1 to silence the
+    // notice. A contributor who has done that would otherwise see these two
+    // tests fail, because maybeNotifyUpdate reads process.env directly and
+    // returns before any spawn.
+    const originalOptOut = process.env.PALEE_NO_UPDATE_CHECK;
     process.env.PALEE_CONFIG_DIR = dir;
+    delete process.env.PALEE_NO_UPDATE_CHECK;
     try {
       return fn(dir);
     } finally {
       if (original === undefined) delete process.env.PALEE_CONFIG_DIR;
       else process.env.PALEE_CONFIG_DIR = original;
+      if (originalOptOut === undefined) delete process.env.PALEE_NO_UPDATE_CHECK;
+      else process.env.PALEE_NO_UPDATE_CHECK = originalOptOut;
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
@@ -234,7 +242,9 @@ describe('update: notifier in process', () => {
         withTtyStdout(true, () => {
           const lines = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
           assert.strictEqual(lines.length, 1, lines.join('\n'));
-          assert.match(lines[0], /^⚠ A new version of palee is available: 99\.0\.0 \(you have 1\.0\.0\)\. Run palee update$/);
+          const notice = lines[0];
+          assert.ok(notice !== undefined, 'the single notice line is present');
+          assert.match(notice, /^⚠ A new version of palee is available: 99\.0\.0 \(you have 1\.0\.0\)\. Run palee update$/);
         });
       });
       assert.strictEqual(calls, 1);
@@ -384,9 +394,11 @@ describe('update: the CLI through a PATH-shim npm', () => {
     version?: string;
     exitCode?: string;
     withShim: boolean;
+    /** Where `palee` itself is started from; defaults to the repository root. */
+    cwd?: string;
   }
 
-  function run({ args, configDir, version, exitCode, withShim }: RunOptions): {
+  function run({ args, configDir, version, exitCode, withShim, cwd }: RunOptions): {
     status: number | null;
     stdout: string;
     stderr: string;
@@ -400,7 +412,7 @@ describe('update: the CLI through a PATH-shim npm', () => {
     if (exitCode !== undefined) env.SHIM_EXIT = exitCode;
     if (withShim) env.SHIM_LOG = logPath;
     const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
-      cwd: REPO_ROOT,
+      cwd: cwd ?? REPO_ROOT,
       env,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -542,6 +554,39 @@ describe('update: the CLI through a PATH-shim npm', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('an npm planted in the working directory is never executed (ADR-0032)', () => {
+    // cmd.exe searches the current directory before PATH for a `.cmd`, so an
+    // inherited working directory turns `palee` in a cloned tree into execution
+    // of whatever `npm.cmd` that tree ships. The shim supplies the honest
+    // answer; the planted file must not run at all.
+    setup();
+    try {
+      const plantedDir = path.join(tempDir, 'clone');
+      fs.mkdirSync(plantedDir);
+      const marker = path.join(plantedDir, 'executed.marker');
+      fs.writeFileSync(
+        path.join(plantedDir, 'npm.cmd'),
+        `@echo off\r\necho ran-from-cwd> "${marker}"\r\necho 66.0.0\r\nexit /b 0\r\n`,
+        'utf8'
+      );
+
+      const r = run({
+        args: ['update', '--dry-run'],
+        configDir: freshConfigDir(),
+        version: '99.0.0',
+        withShim: true,
+        cwd: plantedDir,
+      });
+
+      assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+      assert.ok(!fs.existsSync(marker), 'the planted npm.cmd must not have run');
+      assert.match(r.stdout, /99\.0\.0/, 'the PATH shim answered instead of the planted file');
+      assert.doesNotMatch(r.stdout, /66\.0\.0/, 'the planted version never reaches the report');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('update: the network boundary is unchanged (INV-29)', () => {
@@ -560,5 +605,18 @@ describe('update: the network boundary is unchanged (INV-29)', () => {
     const allowed = /const ALLOWED = '([^']+)';/.exec(text);
     assert.ok(allowed, 'the ALLOWED constant moved shape; update this census');
     assert.strictEqual(allowed[1], 'src/ai/provider.ts');
+  });
+
+  test('every npm spawn pins its working directory rather than inheriting it', () => {
+    const seen: unknown[] = [];
+    withSpawnStub((...args: unknown[]) => {
+      seen.push(args[2]);
+      return stubOk('99.0.0\n')();
+    }, () => {
+      evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
+    });
+    assert.strictEqual(seen.length, 1, 'the forced probe spawns npm exactly once');
+    const options = seen[0] as { cwd?: string };
+    assert.strictEqual(options.cwd, os.homedir(), 'npm runs from home, never from the caller directory');
   });
 });
