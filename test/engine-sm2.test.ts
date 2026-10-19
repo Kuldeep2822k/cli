@@ -39,6 +39,117 @@ describe('SM-2 Algorithm', () => {
     );
   });
 
+  // The three tests above are the numeric half of the precondition block. The
+  // non-numeric half is what #342 found unpinned: a stored scalar that is not a
+  // number sails straight through a range comparison — `"soon" < 1`, `true < 1`,
+  // `NaN < 1` and `Infinity < 1.3` are all false — so the value reached the INV-17
+  // ladder and came back as a NaN interval written to the note. ADR-0021 refuses a
+  // corrupt stored value and names it rather than clamping it, and
+  // `src/cli/review.ts` matches the `Invalid <field>:` prefix to decide whether to
+  // print the `validate --fix` hint. Both halves of that message — the prefix and
+  // `got <value>` — are therefore asserted here, not just one of them.
+  //
+  // The `as unknown as number` casts are the shape the engine really receives:
+  // `src/application/record-review.ts` passes raw frontmatter through as
+  // `frontmatter.interval_days as number`, so a corrupt note arrives mistyped and
+  // type-corrected, never sanitized.
+
+  test('interval_days refuses a stored string, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 'soon' as unknown as number, repetition: 2 },
+        4
+      ),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got soon' }
+    );
+  });
+
+  test('interval_days refuses a stored boolean, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: true as unknown as number, repetition: 2 },
+        4
+      ),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got true' }
+    );
+  });
+
+  test('interval_days refuses NaN, which no range comparison can catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: NaN, repetition: 2 }, 4),
+      { message: 'Invalid interval_days: must be a finite number >= 1, got NaN' }
+    );
+  });
+
+  test('ease_factor refuses Infinity, which no range comparison can catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: Infinity, interval_days: 6, repetition: 3 }, 4),
+      { message: 'Invalid ease_factor: must be a finite number >= 1.3, got Infinity' }
+    );
+  });
+
+  test('repetition refuses a stored string, naming the field and the value', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
+        4
+      ),
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got x' }
+    );
+  });
+
+  test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 2.5' }
+    );
+  });
+
+  test('repetition refuses a count at the safe-integer ceiling, which cannot advance exactly', () => {
+    // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and one step later
+    // `(2 ** 53) + 1` stays `2 ** 53` — the increment would silently no-op.
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: Number.MAX_SAFE_INTEGER },
+        4
+      ),
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 9007199254740991' }
+    );
+  });
+
+  test('repetition accepts the highest count whose increment still advances', () => {
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: 6, repetition: Number.MAX_SAFE_INTEGER - 1 },
+      4
+    );
+    assert.deepStrictEqual(result, {
+      ease_factor: 2.5,
+      interval_days: 15,
+      repetition: Number.MAX_SAFE_INTEGER,
+      lapses: 0,
+      last_quality: 4,
+    });
+  });
+
+  test('interval_days refuses a computed interval that overflows to Infinity', () => {
+    // `1e308` is a finite integer that passes the input guard, but INV-17's
+    // multiply by the 2.5 ease factor exceeds `Number.MAX_VALUE`, and
+    // `Math.max(1, Infinity)` cannot pull the result back.
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 1e308, repetition: 3 }, 4),
+      { message: 'Invalid interval_days: computed non-finite value, got Infinity' }
+    );
+  });
+
+  test('ease_factor refuses a stored value whose rounding overflows to Infinity', () => {
+    // `1e305` passes the finiteness guard, but `roundHalfUp` scales by
+    // `10 ** 4` before dividing back — `1e305 * 10000` is `Infinity`.
+    assert.throws(
+      () => processReview({ ease_factor: 1e305, interval_days: 1, repetition: 2 }, 4),
+      { message: 'Invalid ease_factor: computed non-finite value, got Infinity' }
+    );
+  });
+
   test('quality < 3 resets repetition and interval to 1', () => {
     const result = processReview(
       { ease_factor: 2.5, interval_days: 10, repetition: 5 },

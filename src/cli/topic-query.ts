@@ -67,7 +67,10 @@ function resolveTopicQuery(
         );
 
   if (candidates.length > 1) return { kind: 'ambiguous', candidates };
-  if (candidates.length === 1) return { kind: 'single', topic: candidates[0] };
+  // `noUncheckedIndexedAccess` types `candidates[0]` as possibly-undefined; the
+  // length guard keeps this equivalent for every reachable state.
+  const single = candidates.length === 1 ? candidates[0] : undefined;
+  if (single !== undefined) return { kind: 'single', topic: single };
 
   // #313: `next`, `plan` and `adopt` print a topic's vault path, so the learner has
   // been handed an identifier the tool then refused. Only reached when no id or
@@ -82,7 +85,12 @@ function resolveTopicQuery(
   const byPath = loaded.filter((t) => normalizeTopicPath(t.path) === wanted);
   if (byPath.length === 0) return { kind: 'none' };
   if (byPath.length > 1) return { kind: 'ambiguous', candidates: byPath };
-  return { kind: 'single', topic: byPath[0] };
+  const found = byPath[0];
+  if (found === undefined) {
+    // Unreachable: the empty and multi-match cases return above.
+    return { kind: 'none' };
+  }
+  return { kind: 'single', topic: found };
 }
 
 export { resolveTopicQuery };

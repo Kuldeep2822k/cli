@@ -36,7 +36,9 @@ function readRecord(lockDir: string): { lock_id: string; pid: number } | null {
   if (!fs.existsSync(lockDir)) return null;
   const files = fs.readdirSync(lockDir).filter((f) => f.endsWith('.json'));
   if (files.length === 0) return null;
-  return JSON.parse(fs.readFileSync(path.join(lockDir, files[0]), 'utf8')) as {
+  const [recordFile] = files;
+  assert.ok(recordFile !== undefined);
+  return JSON.parse(fs.readFileSync(path.join(lockDir, recordFile), 'utf8')) as {
     lock_id: string;
     pid: number;
   };

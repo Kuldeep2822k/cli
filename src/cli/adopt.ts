@@ -202,7 +202,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const config = loadConfig();
     // Names the vault before the first note is touched: with PALEE_CONFIG_DIR
     // unset this run silently acts on the per-user default config's vault (#311).
-    const target = resolveVaultTarget(config);
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false });
     if (!target) return;
     const vaultPath = target.vaultPath;
 
@@ -1021,9 +1023,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // commit instead of being silently extended.
       for (const topic of existingTopics) {
         if (!plannedGraph.has(topic.id)) {
+          // `exactOptionalPropertyTypes` rejects explicit `undefined` for
+          // `depends_on`; the cycle detector reads a missing key the same as
+          // `undefined` (`?? []`), so only set it when present.
           plannedGraph.set(topic.id, {
             palee_id: topic.id,
-            depends_on: topic.depends_on,
+            ...(topic.depends_on !== undefined ? { depends_on: topic.depends_on } : {}),
             topic_mastery: 0,
           });
         }

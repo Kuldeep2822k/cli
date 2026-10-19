@@ -138,9 +138,11 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].severity, 'warning');
-    assert.strictEqual(issues[0].field, 'palee_schema');
-    assert.match(issues[0].message, /unsupported palee_schema/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.severity, 'warning');
+    assert.strictEqual(firstIssue.field, 'palee_schema');
+    assert.match(firstIssue.message, /unsupported palee_schema/);
   });
 
   test('missing or foreign memory_id reports a warning', () => {
@@ -151,8 +153,10 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'memory_id');
-    assert.strictEqual(issues[0].details?.expected, 'H-active');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'memory_id');
+    assert.strictEqual(firstIssue.details?.expected, 'H-active');
   });
 
   test('non-finite memory_id renders its spelling, not null (CodeRabbit)', () => {
@@ -166,9 +170,11 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'memory_id');
-    assert.match(issues[0].message, /got "NaN"/);
-    assert.strictEqual(issues[0].details?.actual, 'NaN');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'memory_id');
+    assert.match(firstIssue.message, /got "NaN"/);
+    assert.strictEqual(firstIssue.details?.actual, 'NaN');
   });
 
   test('unknown last_session reference reports a warning', () => {
@@ -179,8 +185,10 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'last_session');
-    assert.strictEqual(issues[0].details?.missingSession, 'S-gone');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'last_session');
+    assert.strictEqual(firstIssue.details?.missingSession, 'S-gone');
   });
 
   test('unknown active_topic reference reports a warning', () => {
@@ -191,8 +199,10 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'active_topic');
-    assert.strictEqual(issues[0].details?.missingTopic, 'T-ghost');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'active_topic');
+    assert.strictEqual(firstIssue.details?.missingTopic, 'T-ghost');
   });
 
   test('null last_session and active_topic are the legal idle state', () => {
@@ -211,9 +221,11 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'body');
-    assert.strictEqual(issues[0].details?.wordCount, 251);
-    assert.strictEqual(issues[0].details?.maxWords, 250);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'body');
+    assert.strictEqual(firstIssue.details?.wordCount, 251);
+    assert.strictEqual(firstIssue.details?.maxWords, 250);
   });
 
   test('body at exactly 250 words passes (the writer truncates to the cap)', () => {
@@ -286,7 +298,9 @@ describe('valid-hot-memory rule (#43)', () => {
     });
     const issues = validHotMemoryRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].field, 'last_session');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'last_session');
   });
 
   test('rule metadata: id, warning severity, safe fixability (rebuildable)', () => {
@@ -312,10 +326,12 @@ describe('safe-vault-paths rule (#45)', () => {
     });
     const issues = safeVaultPathsRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].ruleId, 'safe-vault-paths');
-    assert.strictEqual(issues[0].severity, 'error');
-    assert.strictEqual(issues[0].topicId, 'T-esc');
-    assert.strictEqual(issues[0].details?.path, '../outside.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.ruleId, 'safe-vault-paths');
+    assert.strictEqual(firstIssue.severity, 'error');
+    assert.strictEqual(firstIssue.topicId, 'T-esc');
+    assert.strictEqual(firstIssue.details?.path, '../outside.md');
   });
 
   test('absolute path outside the vault reports an error', () => {
@@ -324,7 +340,9 @@ describe('safe-vault-paths rule (#45)', () => {
     });
     const issues = safeVaultPathsRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.match(issues[0].message, /escapes the vault boundary/);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.match(firstIssue.message, /escapes the vault boundary/);
   });
 
   test('Windows backslash paths normalize before validation', () => {
@@ -334,7 +352,9 @@ describe('safe-vault-paths rule (#45)', () => {
     });
     const issues = safeVaultPathsRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].details?.path, '..\\outside.md');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.details?.path, '..\\outside.md');
   });
 
   test('backslash-escaped in-vault path passes after normalization', () => {
@@ -365,7 +385,9 @@ describe('safe-vault-paths rule (#45)', () => {
     });
     const issues = safeVaultPathsRule.run(context);
     assert.strictEqual(issues.length, 1);
-    assert.strictEqual(issues[0].sessionId, 'S-esc');
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.sessionId, 'S-esc');
   });
 
   test('findings sort by file path', () => {
@@ -425,9 +447,11 @@ describe('diagnostic-value helper (#166)', () => {
     // rendering, imported lazily to keep this suite focused.
     const { validAssessmentFieldsRule } = await import('../src/validation/rules/valid-assessment-fields');
     const issues = validAssessmentFieldsRule.run(context);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
     assert.ok(issues.length >= 1, 'NaN assessed_at must produce a finding');
-    assert.match(issues[0].message, /got "NaN"/);
-    assert.strictEqual(issues[0].details?.actual, 'NaN');
+    assert.match(firstIssue.message, /got "NaN"/);
+    assert.strictEqual(firstIssue.details?.actual, 'NaN');
   });
 
   test('score findings keep the non-finite distinction in details.actual (Greptile)', async () => {

@@ -89,7 +89,7 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
 
   function runFatal(
     args: string[],
-    opts: { repeat?: number; stage?: string; debug?: string } = {}
+    opts: { repeat?: number; stage?: string; debug?: string; paleeJson?: string } = {}
   ): Run {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -98,8 +98,10 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
       PALEE_FATAL_PROBE_REPEAT: String(opts.repeat ?? 0),
     };
     delete env.PALEE_DEBUG;
+    delete env.PALEE_JSON;
     if (opts.stage !== undefined) env.PALEE_FATAL_PROBE_STAGE = opts.stage;
     if (opts.debug !== undefined) env.PALEE_DEBUG = opts.debug;
+    if (opts.paleeJson !== undefined) env.PALEE_JSON = opts.paleeJson;
 
     const result = spawnSync(
       process.execPath,
@@ -213,5 +215,36 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
     assert.strictEqual(text.status, 5);
     assert.strictEqual(payloadLine(text.stdout), undefined);
     assert.match(text.stderr, new RegExp(MARKER, 'u'));
+  });
+
+  test('PALEE_JSON selects JSON on the fatal path without --json (#357)', () => {
+    // The command's parsed --json option is unset, so the old fatal handler
+    // (Boolean(parsedActionOptions.json)) answered plain text. Routing it
+    // through isJsonOutput means PALEE_JSON=1 selects the JSON payload on the
+    // escaped-exception path too, matching every command's success path.
+    const run = runFatal(['dashboard'], { paleeJson: '1', repeat: 32 });
+    assert.strictEqual(run.status, 5);
+    const line = payloadLine(run.stdout);
+    assert.ok(line, 'PALEE_JSON=1 must emit the JSON fatal payload on stdout');
+    assert.strictEqual((JSON.parse(line) as { code: number }).code, 5);
+
+    const off = runFatal(['dashboard'], { paleeJson: 'no', repeat: 32 });
+    assert.strictEqual(payloadLine(off.stdout), undefined, "PALEE_JSON='no' is not an opt-in");
+    assert.match(off.stderr, new RegExp(MARKER, 'u'));
+  });
+
+  test('PALEE_JSON leaves a command that declares no --json human on the fatal path too (#357)', () => {
+    // `review` never emits a document, so a JSON fatal payload under a global
+    // PALEE_JSON would be its only machine-readable line. The preAction hook
+    // records whether the command declares the option, and this path answers
+    // plain text for the commands that do not.
+    const run = runFatal(['review', 'T-json-only-topic', '4'], { paleeJson: '1', repeat: 32 });
+    assert.strictEqual(run.status, 5);
+    assert.strictEqual(
+      payloadLine(run.stdout),
+      undefined,
+      'a command with no JSON mode must not answer a JSON payload'
+    );
+    assert.match(run.stderr, new RegExp(MARKER, 'u'));
   });
 });

@@ -73,7 +73,7 @@ export interface DeclaredPrereqResolution<T> {
  * dependency list.
  */
 const PREREQ_HEADING =
-  /^\s{0,3}#{1,6}\s+(?:prior\s+)?(?:prerequisites?|requires?|required\s+knowledge|(?:depends?|dependen(?:t|cy))\s+on)s?\s*:?\s*$/i;
+  /^\s{0,3}#{1,6}\s+(?:prior\s+)?(?:prerequisites?|requirements?|requires?|required\s+knowledge|(?:depends?|dependen(?:t|cy))\s+on)s?\s*:?\s*$/i;
 
 /** Any ATX heading closes a prerequisites section. */
 const ANY_HEADING = /^\s{0,3}#{1,6}\s+\S/;
@@ -249,7 +249,11 @@ export function extractDeclaredPrerequisites(text: string): DeclaredPrereqRef[] 
     if (!inSection) continue;
     if (TASK_ITEM.test(line)) continue;
     const item = LIST_ITEM.exec(line);
-    const content = (item ? item[1] : line).trim();
+    // A match always fills the one capture group; the guard keeps the type
+    // honest rather than asserting it.
+    const captured = item?.[1];
+    if (captured === undefined && item !== null) continue;
+    const content = (captured ?? line).trim();
     if (content.length === 0) continue;
     if (declaredPrereqCue(content) !== null) continue;
     for (const link of extractWikilinks(content)) {
@@ -300,9 +304,13 @@ export function resolveDeclaredPrerequisites<T>(
       skipped.push({ name: ref.name, reason: 'ambiguous' });
       continue;
     }
-    if (taken.has(matches[0])) continue;
-    taken.add(matches[0]);
-    resolved.push({ name: ref.name, target: matches[0] });
+    // `matches.length === 1` was checked above, so the sole candidate exists; the
+    // guard keeps that invariant visible to the type checker instead of asserting it.
+    const sole = matches[0];
+    if (sole === undefined) continue;
+    if (taken.has(sole)) continue;
+    taken.add(sole);
+    resolved.push({ name: ref.name, target: sole });
   }
 
   return { resolved, skipped };

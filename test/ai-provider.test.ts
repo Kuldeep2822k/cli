@@ -252,6 +252,7 @@ describe('provider request shape (#24)', () => {
     await p.complete({ messages: [{ role: 'user', content: 'explain closures' }], temperature: 0.2 });
     assert.strictEqual(calls.length, 1);
     const [call] = calls;
+    assert.ok(call !== undefined);
     assert.strictEqual(call.headers.authorization, `Bearer ${KEY}`);
     assert.strictEqual(call.headers['content-type'], 'application/json');
     assert.strictEqual(call.body.model, DEFAULT_MODEL);
@@ -264,7 +265,9 @@ describe('provider request shape (#24)', () => {
   test('maxTokens, when the caller sets it, is sent as the max_tokens field', async () => {
     const { p, calls } = providerFor(() => completion('ok'));
     await p.complete({ messages: [{ role: 'user', content: 'brief' }], maxTokens: 16 });
-    assert.strictEqual(calls[0].body.max_tokens, 16, 'the caller cap must reach the wire verbatim');
+    const [maxTokensCall] = calls;
+    assert.ok(maxTokensCall !== undefined);
+    assert.strictEqual(maxTokensCall.body.max_tokens, 16, 'the caller cap must reach the wire verbatim');
   });
 
   test('no key means no authorization header at all', async () => {
@@ -274,7 +277,9 @@ describe('provider request shape (#24)', () => {
       { transport }
     );
     await p.complete({ messages: [{ role: 'user', content: 'ping' }] });
-    assert.ok(!('authorization' in calls[0].headers), 'a local server is not sent an empty bearer');
+    const [noAuthCall] = calls;
+    assert.ok(noAuthCall !== undefined);
+    assert.ok(!('authorization' in noAuthCall.headers), 'a local server is not sent an empty bearer');
   });
 
   test('a key carrying a control character is a config error, and nothing is sent', async () => {
@@ -300,8 +305,10 @@ describe('provider request shape (#24)', () => {
   test('INV-37: no tool or function surface is ever sent', async () => {
     const { p, calls } = providerFor(() => completion('{"a":1}'));
     await p.complete({ messages: [{ role: 'user', content: 'json please' }], expectJson: true });
+    const [inv37Call] = calls;
+    assert.ok(inv37Call !== undefined);
     for (const key of ['tools', 'tool_choice', 'functions', 'function_call']) {
-      assert.ok(!(key in calls[0].body), `${key} must never appear in a PALEE request`);
+      assert.ok(!(key in inv37Call.body), `${key} must never appear in a PALEE request`);
     }
   });
 
@@ -311,20 +318,28 @@ describe('provider request shape (#24)', () => {
     // every future prompt author to write it.
     const { p, calls } = providerFor(() => completion('{"ok":true}'));
     await p.complete({ messages: [{ role: 'user', content: 'grade this note' }], expectJson: true });
-    const sent = calls[0].body.messages as Array<{ role: string; content: string }>;
-    assert.strictEqual(sent[0].role, 'system');
+    const [jsonCall] = calls;
+    assert.ok(jsonCall !== undefined);
+    const sent = jsonCall.body.messages as Array<{ role: string; content: string }>;
+    const [sentFirst] = sent;
+    assert.ok(sentFirst !== undefined);
+    assert.strictEqual(sentFirst.role, 'system');
     assert.match(JSON.stringify(sent), /json/i);
 
     const said = providerFor(() => completion('{"ok":true}'));
     await said.p.complete({ messages: [{ role: 'user', content: 'Answer as JSON.' }], expectJson: true });
     assert.strictEqual(said.calls.length, 1);
-    assert.deepStrictEqual(said.calls[0].body.messages, [{ role: 'user', content: 'Answer as JSON.' }], 'no duplicate instruction');
+    const [saidCall] = said.calls;
+    assert.ok(saidCall !== undefined);
+    assert.deepStrictEqual(saidCall.body.messages, [{ role: 'user', content: 'Answer as JSON.' }], 'no duplicate instruction');
   });
 
   test('redirects are refused rather than followed with the credential attached', async () => {
     const { p, calls } = providerFor(() => completion('ok'));
     await p.complete({ messages: [{ role: 'user', content: 'x' }] });
-    assert.strictEqual(calls[0].init.redirect, 'error');
+    const [redirectCall] = calls;
+    assert.ok(redirectCall !== undefined);
+    assert.strictEqual(redirectCall.init.redirect, 'error');
   });
 
   test('a request that never answers is bounded by the timeout and reported as unreachable', async () => {

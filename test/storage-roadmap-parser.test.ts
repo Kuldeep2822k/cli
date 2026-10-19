@@ -19,11 +19,14 @@ topics:
 `;
     const result = parseRoadmapContent(rawYaml, 'roadmap.yaml');
     assert.strictEqual(result.format, 'yaml');
-    assert.ok(result.roadmap);
-    assert.strictEqual(result.roadmap.topics.length, 2);
-    assert.strictEqual(result.roadmap.topics[0].id, 'T-01');
-    assert.strictEqual(result.roadmap.topics[1].title, 'Docker Fundamentals');
-    assert.deepStrictEqual(result.roadmap.topics[1].depends_on, ['T-01']);
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic, secondRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined && secondRoadmapTopic !== undefined);
+    assert.strictEqual(roadmap.topics.length, 2);
+    assert.strictEqual(firstRoadmapTopic.id, 'T-01');
+    assert.strictEqual(secondRoadmapTopic.title, 'Docker Fundamentals');
+    assert.deepStrictEqual(secondRoadmapTopic.depends_on, ['T-01']);
   });
 
   test('normalizes dependency aliases at the parse boundary', () => {
@@ -38,10 +41,13 @@ topics:
     path: independent.md
 `, 'roadmap.yaml');
 
-    assert.ok(result.roadmap);
-    assert.deepStrictEqual(result.roadmap.topics[0].depends_on, ['T-a', 'T-b', 'T-c']);
-    assert.ok(!('dependencies' in result.roadmap.topics[0]));
-    assert.strictEqual(result.roadmap.topics[1].depends_on, undefined);
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic, secondRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined && secondRoadmapTopic !== undefined);
+    assert.deepStrictEqual(firstRoadmapTopic.depends_on, ['T-a', 'T-b', 'T-c']);
+    assert.ok(!('dependencies' in firstRoadmapTopic));
+    assert.strictEqual(secondRoadmapTopic.depends_on, undefined);
   });
 
   test('parses YAML frontmatter in Markdown files', () => {
@@ -66,10 +72,13 @@ This is an introduction to Kubernetes.
 `;
     const result = parseRoadmapContent(mdFrontmatter, 'guide.md');
     assert.strictEqual(result.format, 'frontmatter');
-    assert.ok(result.roadmap);
-    assert.strictEqual(result.roadmap.topics.length, 2);
-    assert.strictEqual(result.roadmap.topics[0].id, 'T-k8s-01');
-    assert.strictEqual(result.roadmap.topics[1].title, 'Deployments');
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic, secondRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined && secondRoadmapTopic !== undefined);
+    assert.strictEqual(roadmap.topics.length, 2);
+    assert.strictEqual(firstRoadmapTopic.id, 'T-k8s-01');
+    assert.strictEqual(secondRoadmapTopic.title, 'Deployments');
   });
 
   test('parses embedded YAML code block in Markdown files', () => {
@@ -96,10 +105,13 @@ Remember to practice each concept!
 `;
     const result = parseRoadmapContent(mdCodeBlock, 'rust-roadmap.md');
     assert.strictEqual(result.format, 'codeblock');
-    assert.ok(result.roadmap);
-    assert.strictEqual(result.roadmap.topics.length, 2);
-    assert.strictEqual(result.roadmap.topics[0].id, 'T-rust-01');
-    assert.strictEqual(result.roadmap.topics[1].title, 'Lifetimes');
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic, secondRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined && secondRoadmapTopic !== undefined);
+    assert.strictEqual(roadmap.topics.length, 2);
+    assert.strictEqual(firstRoadmapTopic.id, 'T-rust-01');
+    assert.strictEqual(secondRoadmapTopic.title, 'Lifetimes');
   });
 
   test('extracts the correct code block when multiple code fences are present', () => {
@@ -121,9 +133,12 @@ topics:
 `;
     const result = parseRoadmapContent(multiFence, 'python.md');
     assert.strictEqual(result.format, 'codeblock');
-    assert.ok(result.roadmap);
-    assert.strictEqual(result.roadmap.topics.length, 1);
-    assert.strictEqual(result.roadmap.topics[0].id, 'T-py-01');
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined);
+    assert.strictEqual(roadmap.topics.length, 1);
+    assert.strictEqual(firstRoadmapTopic.id, 'T-py-01');
   });
 
   test('returns clear error when no topics array is found in Markdown', () => {
@@ -150,9 +165,12 @@ topics:
 `;
     const result = parseRoadmapContent(mdWithExtra, 'info.md');
     assert.strictEqual(result.format, 'codeblock');
-    assert.ok(result.roadmap);
-    assert.strictEqual(result.roadmap.topics.length, 1);
-    assert.strictEqual(result.roadmap.topics[0].id, 'T-info-01');
+    const roadmap = result.roadmap;
+    assert.ok(roadmap);
+    const [firstRoadmapTopic] = roadmap.topics;
+    assert.ok(firstRoadmapTopic !== undefined);
+    assert.strictEqual(roadmap.topics.length, 1);
+    assert.strictEqual(firstRoadmapTopic.id, 'T-info-01');
   });
 
   test('returns clear error when frontmatter has invalid YAML syntax', () => {
@@ -235,14 +253,20 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     assert.strictEqual(result.roadmap, null);
     assert.ok(result.sections);
     assert.strictEqual(result.sections.length, 2);
-    assert.strictEqual(result.sections[0].track, 'Foundations Track');
+    const [foundationsSection, advancedSection] = result.sections;
+    assert.ok(foundationsSection !== undefined && advancedSection !== undefined);
+    assert.strictEqual(foundationsSection.track, 'Foundations Track');
     assert.deepStrictEqual(
-      result.sections[0].links.map((l) => l.target),
+      foundationsSection.links.map((l) => l.target),
       ['MODULES/01-foundations/01-systems', 'Beta']
     );
-    assert.strictEqual(result.sections[0].links[1].alias, 'Beta Alias');
+    const [, betaLink] = foundationsSection.links;
+    assert.ok(betaLink !== undefined);
+    assert.strictEqual(betaLink.alias, 'Beta Alias');
     // Anchors are stripped at parse time
-    assert.strictEqual(result.sections[1].links[0].target, 'gamma');
+    const [gammaLink] = advancedSection.links;
+    assert.ok(gammaLink !== undefined);
+    assert.strictEqual(gammaLink.target, 'gamma');
   });
 
   test('ignores wikilinks inside fenced code blocks', () => {
@@ -290,7 +314,9 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
   test('collects bullets before any heading and returns null without lists', () => {    const noHeading = parseRoadmapContent('---\npalee_roadmap: true\n---\n- [[solo]]\n- [[duo]]\n', 'roadmap.md');
     assert.strictEqual(noHeading.format, 'wikilink');
     assert.strictEqual(noHeading.sections?.length, 1);
-    assert.strictEqual(noHeading.sections?.[0].track, '');
+    const noHeadingSection = noHeading.sections?.[0];
+    assert.ok(noHeadingSection !== undefined);
+    assert.strictEqual(noHeadingSection.track, '');
 
     const noLists = parseRoadmapContent('# Just prose\n\nNothing to see here.\n', 'roadmap.md');
     assert.strictEqual(noLists.format, undefined);
@@ -344,7 +370,9 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     );
     assert.strictEqual(result.format, 'frontmatter');
     assert.strictEqual(result.roadmap?.topics.length, 1);
-    assert.strictEqual(result.roadmap?.topics[0].id, 'T-1');
+    const frontmatterTopic = result.roadmap?.topics[0];
+    assert.ok(frontmatterTopic !== undefined);
+    assert.strictEqual(frontmatterTopic.id, 'T-1');
   });
 
   // Regression (#73): only `##` delimits a track. Every extra section head the
@@ -358,9 +386,11 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     );
     assert.ok(sections);
     assert.strictEqual(sections.length, 1);
-    assert.strictEqual(sections[0].track, 'Junior Track');
+    const [juniorSection] = sections;
+    assert.ok(juniorSection !== undefined);
+    assert.strictEqual(juniorSection.track, 'Junior Track');
     assert.deepStrictEqual(
-      sections[0].links.map((l) => l.target),
+      juniorSection.links.map((l) => l.target),
       ['a', 'c', 'd']
     );
   });
@@ -375,8 +405,10 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
       withBullets?.map((s) => s.track),
       ['']
     );
+    const withBulletsSection = withBullets?.[0];
+    assert.ok(withBulletsSection !== undefined);
     assert.deepStrictEqual(
-      withBullets?.[0].links.map((l) => l.target),
+      withBulletsSection.links.map((l) => l.target),
       ['a']
     );
 
@@ -400,8 +432,10 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     );
     assert.ok(sections);
     assert.strictEqual(sections.length, 1);
+    const [taskSection] = sections;
+    assert.ok(taskSection !== undefined);
     assert.deepStrictEqual(
-      sections[0].links.map((l) => l.target),
+      taskSection.links.map((l) => l.target),
       ['real']
     );
   });
@@ -415,8 +449,10 @@ describe('Roadmap Wikilink Format (Issue #73, INV-48)', () => {
     );
     assert.ok(sections);
     assert.strictEqual(sections.length, 1);
+    const [orderedTaskSection] = sections;
+    assert.ok(orderedTaskSection !== undefined);
     assert.deepStrictEqual(
-      sections[0].links.map((l) => l.target),
+      orderedTaskSection.links.map((l) => l.target),
       ['real']
     );
   });

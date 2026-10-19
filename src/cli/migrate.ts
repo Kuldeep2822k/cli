@@ -323,7 +323,10 @@ function findStoredTies(topics: LoadedTopic[], includeUnlabeledTies: boolean): S
 export function predecessorIntact(vaultPath: string, tie: StoredTie): boolean {
   try {
     const reloaded = loadTopics(vaultPath, [tie.predecessorFilePath]);
-    return reloaded.length === 1 && reloaded[0].id === tie.predecessorId;
+    // `reloaded[0]` is `T | undefined` under `noUncheckedIndexedAccess`; the
+    // length check above does not narrow the index, so name the element.
+    const first = reloaded[0];
+    return reloaded.length === 1 && first !== undefined && first.id === tie.predecessorId;
   } catch {
     return false;
   }
@@ -550,7 +553,9 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     // A bare `migrate` only scans, so the echo is gated on the flags that actually
     // write: `--fix` always, `--relabel-ties` unless `--dry-run` (#311).
     const willWrite = options.fix === true || (options.relabelTies === true && options.dryRun !== true);
-    const target = resolveVaultTarget(config, { echo: willWrite });
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false, echo: willWrite });
     if (!target) return;
     const vaultPath = target.vaultPath;
     const loaded = loadTopics(vaultPath);

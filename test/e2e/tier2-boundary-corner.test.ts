@@ -133,7 +133,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
 
       const sessions = env.listSessions();
       assert.strictEqual(sessions.confirmed.length, 1);
-      const note = env.readTopic(path.join('.palee', 'sessions', sessions.confirmed[0]));
+      const [confirmedName] = sessions.confirmed;
+      assert.ok(confirmedName !== undefined);
+      const note = env.readTopic(path.join('.palee', 'sessions', confirmedName));
       assert.strictEqual(note.frontmatter?.status, 'completed');
       assert.ok(note.frontmatter?.started_at);
       assert.ok(note.frontmatter?.ended_at);
@@ -142,7 +144,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     test('B3.2: session draft then immediate end preserves draft timestamp', () => {
       env.createTopics(['T-quick']);
       env.run(['session', 'draft', '--topic', 'T-quick']);
-      const draftName = env.listSessions().drafts[0];
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
       const draftContent = env.readTopic(path.join('.palee', 'sessions', draftName));
       const draftStartedAt = draftContent.frontmatter?.started_at;
 
@@ -153,7 +156,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(sessions.drafts.length, 0, 'Draft should be cleaned up');
       assert.strictEqual(sessions.confirmed.length, 1);
       assert.ok(draftStartedAt);
-      const confirmedContent = env.readTopic(path.join('.palee', 'sessions', sessions.confirmed[0]));
+      const [confirmedName] = sessions.confirmed;
+      assert.ok(confirmedName !== undefined);
+      const confirmedContent = env.readTopic(path.join('.palee', 'sessions', confirmedName));
       assert.strictEqual(confirmedContent.frontmatter?.started_at, draftStartedAt);
     });
 
@@ -227,6 +232,30 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.ok(Array.isArray(parsed.drafts));
     });
 
+    test('B4.2b: session start --interactive --json keeps the menu on stderr and one document on stdout', () => {
+      env.createTopics(['T-json-interactive']);
+      env.run(['session', 'draft', '--topic', 'T-json-interactive']);
+      assert.strictEqual(env.listSessions().drafts.length, 1);
+
+      // 'i' (ignore) answers the recovery menu; the JSON arm used to return
+      // drafts_pending before --interactive was ever read, so this input had
+      // no menu to answer.
+      const res = env.run(['session', 'start', '--interactive', '--json'], { input: 'i\n' });
+      assert.strictEqual(res.status, 0, `${res.stdout}${res.stderr}`);
+
+      // The menu is conversation: it must not sit above the document.
+      assert.doesNotMatch(res.stdout, /\[R\]esume/);
+      assert.match(res.stderr, /\[R\]esume\s+\[S\]ave as session\s+\[D\]iscard\s+\[I\]gnore/);
+
+      const parsed = JSON.parse(res.stdout);
+      assert.strictEqual(parsed.status, 'started');
+
+      // 'i' leaves the checkpoint on disk, exactly as in the human path (B4.4).
+      const sessions = env.listSessions();
+      assert.strictEqual(sessions.drafts.length, 1);
+      assert.strictEqual(sessions.confirmed.length, 0);
+    });
+
     test('B4.3: session end without active topic and without --topic exits with code 2 and leaves no files', () => {
       const res = env.run(['session', 'end']);
       assert.strictEqual(res.status, 2);
@@ -270,7 +299,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       env.run(['session', 'draft', '--topic', 'T-resume-test']);
       const draftsBefore = env.listSessions().drafts;
       assert.strictEqual(draftsBefore.length, 1);
-      const draftSnapshot = env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).raw;
+      const [draftBeforeName] = draftsBefore;
+      assert.ok(draftBeforeName !== undefined);
+      const draftSnapshot = env.readTopic(path.join('.palee', 'sessions', draftBeforeName)).raw;
       assert.strictEqual(env.listSessions().confirmed.length, 0);
 
       // Invoke session start --interactive with 'r\n' to directly test the resume action
@@ -284,9 +315,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const sessions = env.listSessions();
       assert.deepStrictEqual(sessions.drafts, draftsBefore, 'Draft must survive a resume');
       assert.strictEqual(sessions.confirmed.length, 0, 'Resume must not create a session note');
-      assert.ok(fs.existsSync(path.join(env.vaultDir, '.palee', 'sessions', draftsBefore[0])));
+      assert.ok(fs.existsSync(path.join(env.vaultDir, '.palee', 'sessions', draftBeforeName)));
       assert.strictEqual(
-        env.readTopic(path.join('.palee', 'sessions', draftsBefore[0])).raw,
+        env.readTopic(path.join('.palee', 'sessions', draftBeforeName)).raw,
         draftSnapshot,
         'Resume must leave the draft file byte-identical'
       );
@@ -301,7 +332,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
     test('B4.6: draft recovery save via interactive menu converts draft to session inheriting started_at', () => {
       env.createTopics(['T-save-test']);
       env.run(['session', 'draft', '--topic', 'T-save-test']);
-      const draftName = env.listSessions().drafts[0];
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
       assert.strictEqual(env.listSessions().drafts.length, 1);
       const draftPath = path.join('.palee', 'sessions', draftName);
 
@@ -322,7 +354,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.deepStrictEqual(sessions.drafts, [], 'Save must unlink the source draft');
       assert.ok(!fs.existsSync(path.join(env.vaultDir, '.palee', 'sessions', draftName)));
 
-      const sessionName = sessions.confirmed[0];
+      const [sessionName] = sessions.confirmed;
+      assert.ok(sessionName !== undefined);
       const sessionId = sessionName.replace(/\.md$/, '');
       const saved = env.readTopic(path.join('.palee', 'sessions', sessionName));
       assert.strictEqual(saved.frontmatter?.session_id, sessionId);
@@ -385,6 +418,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(prompted.length, 2, 'Both drafts must be offered to the menu');
       assert.deepStrictEqual([...prompted].sort(), [...draftsBefore].sort());
       const [firstPrompted, secondPrompted] = prompted;
+      assert.ok(firstPrompted !== undefined && secondPrompted !== undefined);
       assert.notStrictEqual(firstPrompted, secondPrompted);
       // The banner is only reached once every draft has been answered, so it
       // proves the second input line landed on a live prompt in this single run.
@@ -401,7 +435,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
         'The resumed draft must be byte-for-byte untouched'
       );
 
-      const converted = env.readTopic(path.join('.palee', 'sessions', sessions.confirmed[0]));
+      const [convertedName] = sessions.confirmed;
+      assert.ok(convertedName !== undefined);
+      const converted = env.readTopic(path.join('.palee', 'sessions', convertedName));
       const firstTopicId = (snapshots.get(firstPrompted)!.match(/^topic_id: "?([Tt]-[a-z-]+)"?$/m) ?? [])[1];
       assert.ok(firstTopicId, 'First draft snapshot should carry its topic_id');
       assert.strictEqual(converted.frontmatter?.topic_id, firstTopicId);
@@ -459,6 +495,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(sessions.confirmed.length, 1, 'The answered draft must still be saved');
       assert.strictEqual(sessions.drafts.length, 1, 'The unanswered draft must stay pending');
       const [pending] = sessions.drafts;
+      assert.ok(pending !== undefined);
       const answered = draftsBefore.find((name) => name !== pending);
       assert.ok(answered, 'Both checkpoints must be known before the run');
       assert.strictEqual(

@@ -263,7 +263,9 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
     function assertHijackRouteIsLive(index: Map<string, string[]>): void {
       const hits = index.get('note') ?? [];
       assert.strictEqual(hits.length, 1, 'the colliding basename must be indexed once');
-      assert.ok(hits[0].endsWith('note.md'));
+      const [hit] = hits;
+      assert.ok(hit !== undefined);
+      assert.ok(hit.endsWith('note.md'));
     }
 
     it('fails closed on an escaping target that does not exist on disk', () => {
@@ -521,6 +523,7 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       assert.strictEqual(roadmap.topics.length, 3);
 
       const [first, second, third] = roadmap.topics;
+      assert.ok(first !== undefined && second !== undefined && third !== undefined);
       assert.strictEqual(first.path, 'MODULES/01-foundations/01-systems.md');
       assert.strictEqual(first.title, 'Systems Thinking');
       assert.deepStrictEqual(first.depends_on, []);
@@ -543,8 +546,10 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       const roadmap = resolveWikilinkRoadmap(vaultPath, [
         { track: '', links: [link('[[adopted]]')] },
       ]);
-      assert.strictEqual(roadmap.topics[0].id, 'T-existing-1');
-      assert.strictEqual(roadmap.topics[0].title, 'Adopted Note');
+      const [adoptedTopic] = roadmap.topics;
+      assert.ok(adoptedTopic !== undefined);
+      assert.strictEqual(adoptedTopic.id, 'T-existing-1');
+      assert.strictEqual(adoptedTopic.title, 'Adopted Note');
       fs.rmSync(adopted);
     });
 
@@ -562,8 +567,10 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
         const roadmap = resolveWikilinkRoadmap(vaultPath, [
           { track: '', links: [link('[[upper case]]')] },
         ]);
-        assert.strictEqual(roadmap.topics[0].id, 'T-upper-1', 'the note keeps the id it carries');
-        assert.strictEqual(roadmap.topics[0].path, 'Upper Case.MD');
+        const [upperTopic] = roadmap.topics;
+        assert.ok(upperTopic !== undefined);
+        assert.strictEqual(upperTopic.id, 'T-upper-1', 'the note keeps the id it carries');
+        assert.strictEqual(upperTopic.path, 'Upper Case.MD');
       } finally {
         fs.rmSync(upper, { force: true });
       }
@@ -688,12 +695,14 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
           const roadmap = resolveWikilinkRoadmap(vaultPath, [
             { track: '', links: [link('[[adopted mixed]]')] },
           ]);
+          const [mixedTopic] = roadmap.topics;
+          assert.ok(mixedTopic !== undefined);
           assert.strictEqual(
-            roadmap.topics[0].id,
+            mixedTopic.id,
             'T-mixed-1',
             'a differently-cased link must not re-mint an adopted note\'s id'
           );
-          assert.strictEqual(roadmap.topics[0].path, 'Adopted Mixed.md');
+          assert.strictEqual(mixedTopic.path, 'Adopted Mixed.md');
         } finally {
           fs.rmSync(adoptedMixed(), { force: true });
         }

@@ -97,7 +97,9 @@ describe('Mastery Engine & Threshold', () => {
 
     const readyTopics = getReadyTopics(topics);
     assert.strictEqual(readyTopics.length, 1);
-    assert.strictEqual(readyTopics[0].palee_id, 'T-child');
+    const [readyTopic] = readyTopics;
+    assert.ok(readyTopic !== undefined);
+    assert.strictEqual(readyTopic.palee_id, 'T-child');
   });
 
   // --- resolveTopicMastery tests ---

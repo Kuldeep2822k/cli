@@ -79,7 +79,7 @@ PALEE is a study-tracking CLI that helps users learn efficiently using spaced re
      - `palee config show` - Display vault path, provider endpoint, and model; never prints api_key
    - Works with zero AI, zero network, zero config
    - Non-AI commands must open no network sockets and perform no DNS lookups
-   - `--json` and non-TTY output must be machine-readable and must not contain spinners or ANSI control codes
+   - `--json` or `PALEE_JSON=1`/`true` output must be machine-readable and must not contain spinners or ANSI control codes; stdout being a non-TTY (a pipe or redirect) selects the human-readable report, not JSON
    - Exit codes: `0` success, `2` usage error, `3` validation error, `4` optimistic-concurrency conflict, `5` provider/network/model-format error
 
 5. **AI Module (Embedded, Optional)**
@@ -221,7 +221,7 @@ The proposal must include topic IDs, dependencies, difficulty, rationale, and as
 
 ## Platform Support
 
-PALEE targets Windows as a first-class platform. All file paths use Node's `path` module so separators are normalized. Atomic-write behavior, lock handling, and retry logic contain explicit Windows-specific handling documented in [storage_design.md](storage_design.md). Vault paths may be configured with either forward or backslashes; PALEE normalizes them internally. The npm distribution runs on Node 20+ LTS; no native modules are used in Phase 1 or Phase 2.
+PALEE targets Windows as a first-class platform. All file paths use Node's `path` module so separators are normalized. Atomic-write behavior, lock handling, and retry logic contain explicit Windows-specific handling documented in [storage_design.md](storage_design.md). Vault paths may be configured with either forward or backslashes; PALEE normalizes them internally. The npm distribution requires Node `>=22.12.0`; no native modules are used in Phase 1 or Phase 2.
 
 ## Technical Findings
 

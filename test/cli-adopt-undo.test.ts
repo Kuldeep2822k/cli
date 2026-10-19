@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { PALEE_ARGV } from './palee-cli';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { Lock } from '../src/storage';
 
 /**
@@ -48,6 +48,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
       env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   }
@@ -58,6 +59,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
     return name;
   }
 
+  /** Reads a note back out of this suite's vault by name. */
   function readNote(name: string): string {
     return fs.readFileSync(path.join(vaultDir, name), 'utf8');
   }
@@ -88,7 +90,9 @@ describe('palee adopt --undo reverses adoption without touching authored content
   function frontmatterKeys(content: string): string[] {
     const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
     if (!block) return [];
-    return block[1]
+    const body = block[1];
+    assert.ok(body !== undefined);
+    return body
       .split(/\r?\n/)
       .filter((line) => /^[A-Za-z_][\w-]*:/.test(line))
       .map((line) => line.slice(0, line.indexOf(':')));
@@ -630,6 +634,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
       env: { ...process.env, PALEE_CONFIG_DIR: orphanConfig },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     assert.strictEqual(result.status, 2, result.stdout + result.stderr);
     assert.match(result.stderr, /Vault path not configured/, result.stderr);

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — amended in part by [ADR-0032](./0032-direct-spawn-bounding.md), which corrects the scope of the "every spawn is bounded" claim below. Every other decision in this record stands.
 
 ## Context
 
@@ -42,9 +42,11 @@ Lowering a threshold, or accepting the drop as noise, would legalize losing cove
 
 `npm test`, `test:e2e` and the other non-coverage scripts still spawn `dist/bin/palee.js`. The build is guaranteed by the pretest hooks (`pretest`, `pretest:coverage`, `pretest:e2e`, `pretest:fast`, `pretest:fuzz`), so a normal run exercises the artifact that ships.
 
-### Every spawn is bounded, and a timeout names the command
+### Launches through the helpers are bounded, and a timeout names the command
 
 `runPalee` passes a `timeout` to `spawnSync` — 120 s by default, overridable per call. On expiry it throws an error naming the command, the budget, and the captured stdout/stderr, instead of leaving the worker to hang until the CI job's own cutoff. `runPaleeInteractive` accepts the same per-call `{ cwd, env, timeout }` options `runPalee` does (60 s default), with the same env layering: `process.env` → isolated `PALEE_CONFIG_DIR`/`NODE_ENV` → caller overrides. `test/e2e/timeout-bound.test.ts` pins both branches: a 1 ms budget turns a real invocation into the named timeout error, and the default budget leaves a fast invocation alone.
+
+**Scope.** This bounds launches *through the helpers*. Suites that build their own `spawnSync(process.execPath, [...PALEE_ARGV, …], opts)` calls honour the `PALEE_ARGV`/`PALEE_CMD` centralisation above but sit outside this paragraph: #456 gave the direct path no budget, and 24 of the 25 files containing a real direct call had no per-spawn timeout when this record was accepted. #496 migrated 3 of them to the same 120 s (`CLI_SPAWN_TIMEOUT_MS`) and added `test/cli-spawn-timeouts.test.ts`, which fails on any new unbounded direct spawn and holds the remaining 21 files in a shrinking `PARTIALLY_BOUNDED` allow-list. The heading this section originally carried — "Every spawn is bounded" — stated an aspiration as a shipped property; [ADR-0032](./0032-direct-spawn-bounding.md) records why it was wrong, what #460 said about it, and which check now pins it.
 
 ### `PALEE_CMD` pins `process.execPath`, quoted
 
@@ -62,7 +64,7 @@ The two `cli-*` doc comments that described `node dist/bin/palee.js` as uncondit
 
 ### Positive
 
-- A hung CLI child can no longer consume a test worker silently; its failure names the command and shows how far it got.
+- A hung CLI child launched through the helpers can no longer consume a test worker silently; its failure names the command and shows how far it got. Direct spawns were not covered when this was written — see the Scope note above and ADR-0032.
 - Shell and spawn launches agree on the runtime being tested.
 - The coverage run no longer instruments its own build, and its concurrency is a bounded, documented constant.
 - The dist-under-coverage question is settled with measurements, so it is not re-proposed as an obvious simplification.

@@ -195,7 +195,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
           : 'learning';
 
 
-      const byDifficulty: Record<string, ProgressTopic[]> = {
+      // Concrete object type (not `Record<string, …>`) so the difficulty keys
+      // used below are statically known to exist.
+      const byDifficulty: { beginner: ProgressTopic[]; intermediate: ProgressTopic[]; advanced: ProgressTopic[] } = {
         beginner: activeTopics.filter(t => t.difficulty === 'beginner'),
         intermediate: activeTopics.filter(t => t.difficulty === 'intermediate'),
         advanced: activeTopics.filter(t => t.difficulty === 'advanced'),
@@ -272,8 +274,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     return;
 
   } catch (e: unknown) {
-    // #325: `--json` / non-TTY gets the same `{ error }` stderr payload as the
-    // exit-2 vault path; the exit code is unchanged.
+    // #325: `--json` / PALEE_JSON gets the same `{ error }` stderr payload as
+    // the exit-2 vault path; the exit code is unchanged.
     emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;

@@ -1,6 +1,6 @@
 import readline from 'readline';
 import { loadConfig } from './config';
-import { isJsonOutput } from './onboarding';
+import { isJsonOutput, emitError } from './onboarding';
 import { resolveVaultTarget, vaultTargetFields } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 /**
@@ -224,6 +224,12 @@ function reportNoActiveSession(jsonMode: boolean): void {
  * @param options - Session command options (topic, interactive, json)
  * @returns Promise resolving when session action completes
  * @remarks Sets `process.exitCode = 2` on validation/argument error, `4` on OCC conflict, or `5` on runtime error.
+ * Under `--json` each action answers exactly one document on stdout — `started`,
+ * `drafts_pending`, `drafted`, `recorded`, `already_recorded`, or the `list` shape —
+ * and refusals carry `{error}` on stderr. Per-line notices (`✓ Consumed draft …`)
+ * travel inside the document instead of above it, so a caller never parses a stdout
+ * that starts with prose. With `--interactive` the recovery banner and menu are
+ * conversation, so they go to stderr and stdout still carries the one document.
  * @example
  * ```typescript
  * await sessionCommand('start', { topic: 'topic-1', interactive: false });
@@ -233,6 +239,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
   try {
     const config = loadConfig();
     const jsonMode = isJsonOutput(options);
+    // A heads-up is not a response. In human mode these still print on stderr
+    // exactly as before; in machine mode they travel inside the document, so a
+    // caller that merged the two streams still parses one JSON value.
+    const warnings: string[] = [];
+    const warn = (text: string): void => {
+      if (jsonMode) warnings.push(text);
+      else console.warn(text);
+    };
     // `list` only reads, so it gets no echo. A write names its vault: as a line in
     // human mode, as payload fields in JSON mode, where a bare line above the
     // object would break the callers that parse stdout (#311).
@@ -244,7 +258,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const drafts = getDrafts(vaultPath);
 
       if (drafts.length > 0) {
-        if (jsonMode) {
+        if (jsonMode && !options.interactive) {
           console.log(JSON.stringify({
             status: 'drafts_pending',
             draft_count: drafts.length,
@@ -256,9 +270,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           return;
         }
 
-        console.log(`Found ${drafts.length} unconfirmed draft session(s):`);
+        // The menu is a conversation, not a response: under --json it belongs on
+        // stderr so stdout still carries exactly one document when the run ends.
+        const note = jsonMode ? console.error : console.log;
+        note(`Found ${drafts.length} unconfirmed draft session(s):`);
         for (const draftPath of drafts) {
-          console.log(`  • ${path.basename(draftPath)}`);
+          note(`  • ${path.basename(draftPath)}`);
         }
 
         if (!options.interactive) {
@@ -270,7 +287,10 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
 
         
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: jsonMode ? process.stderr : process.stdout,
+        });
         // readline stops calling question callbacks once stdin closes, so a
         // prompt outstanding at that moment would never settle and the run
         // would end silently with exit code 0 and the drafts unresolved.
@@ -311,7 +331,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             unresolvedDrafts.push(draftName);
             continue;
           }
-          console.log(`\nDraft: ${draftName}`);
+          note(`\nDraft: ${draftName}`);
           let recoveryAction: DraftRecoveryAction | null = null;
           while (!recoveryAction) {
             const answer = await question('[R]esume  [S]ave as session  [D]iscard  [I]gnore: ');
@@ -334,12 +354,21 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           // An unanswered menu is the condition the non-interactive path above
           // already refuses with exit 2: the checkpoints are neither resolved
           // nor discarded, so no session may start on top of them.
-          console.error('Draft recovery was not completed (stdin closed).');
-          console.error('Unresolved draft checkpoint(s):');
-          for (const name of unresolvedDrafts) {
-            console.error(`  • ${name}`);
+          const why = 'Draft recovery was not completed (stdin closed).';
+          if (jsonMode) {
+            console.error(JSON.stringify({
+              error: why,
+              unresolved_drafts: unresolvedDrafts,
+              remedy: 'Run "palee session start --interactive" at a terminal to resolve them.',
+            }));
+          } else {
+            console.error(why);
+            console.error('Unresolved draft checkpoint(s):');
+            for (const name of unresolvedDrafts) {
+              console.error(`  • ${name}`);
+            }
+            console.error('Run "palee session start --interactive" at a terminal to resolve them.');
           }
-          console.error('Run "palee session start --interactive" at a terminal to resolve them.');
           process.exitCode = ExitCode.Usage;
           return;
         }
@@ -362,7 +391,9 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // Check / rebuild hot memory
       const hotPath = path.join(vaultPath, '.palee', 'hot.md');
       if (!fs.existsSync(hotPath)) {
-        console.log('Building working memory (hot.md)...');
+        // stdout carries exactly one JSON document in machine mode, so the notice
+        // that precedes it has no place there.
+        if (!jsonMode) console.log('Building working memory (hot.md)...');
         await rebuildHotAndIndex(vaultPath);
       }
 
@@ -370,7 +401,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       let { frontmatter, body } = hotRead;
 
       if (hotRead.state === 'corrupt' || hotRead.state === 'schema-invalid') {
-        console.warn('Corrupt hot memory detected. Rebuilding...');
+        warn('Corrupt hot memory detected. Rebuilding...');
         await resetHotMemory(vaultPath);
         await rebuildHotAndIndex(vaultPath);
         hotRead = readHotMemory(vaultPath);
@@ -408,7 +439,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         existingActive.length > 0 && existingActive.toLowerCase() !== '(none)' && existingStarted.length > 0
       ) {
         const sameTopic = resolvedTopic === null || resolvedTopic === existingActive;
-        console.warn(
+        warn(
           `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
             (sameTopic
               ? 'Starting again continues it.'
@@ -455,6 +486,22 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         body = refreshed.body;
       }
 
+      if (jsonMode) {
+        // The same facts the banner prints, as one document: a caller that asked
+        // for JSON gets the started state, not a paragraph.
+        console.log(JSON.stringify({
+          status: 'started',
+          active_topic: frontmatter?.active_topic ?? null,
+          last_session: frontmatter?.last_session ?? null,
+          updated_at: frontmatter?.updated_at ?? null,
+          ai_provider_configured: Boolean(config.aiProvider),
+          working_memory: body.trim(),
+          warnings,
+          ...vaultTargetFields(target),
+        }));
+        return;
+      }
+
       console.log('=== PALEE Session Started ===\n');
       if (!config.aiProvider) {
         console.log('No AI provider configured.\n');
@@ -481,7 +528,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       }
       const topicId = topicOutcome.kind === 'topic' ? topicOutcome.topicId : null;
       if (!topicId) {
-        console.error('Error: Topic required. Specify --topic <topic-id> or start a session on an active topic.');
+        emitError('Topic required. Specify --topic <topic-id> or start a session on an active topic.', options);
         process.exitCode = 2;
         return;
       }
@@ -518,8 +565,21 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         `Draft learning notes for ${topicId}.`
       );
 
+      const draftRelPath = path.relative(vaultPath, draftPath);
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          status: 'drafted',
+          draft_id: draftId,
+          topic_id: topicId,
+          started_at: draftStart,
+          draft_path: draftRelPath,
+          ...vaultTargetFields(target),
+        }));
+        return;
+      }
+
       console.log(`✓ Draft checkpoint created: ${draftId}`);
-      console.log(`  Path: ${path.relative(vaultPath, draftPath)}`);
+      console.log(`  Path: ${draftRelPath}`);
       return;
     }
 
@@ -594,7 +654,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         matchingDrafts.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
         // Stale draft tolerance: clamp to no earlier than 24h before now (matches draft-write path)
         const minStart = nowTime - 24 * 60 * 60 * 1000;
-        const draftStart = Math.max(new Date(matchingDrafts[0].started_at).getTime(), minStart);
+        const earliestDraft = matchingDrafts[0];
+        if (earliestDraft === undefined) {
+          // Unreachable: the `matchingDrafts.length > 0` check above
+          // guarantees an element.
+          throw new Error('Internal error: expected at least one matching draft.');
+        }
+        const draftStart = Math.max(new Date(earliestDraft.started_at).getTime(), minStart);
         startedAt = new Date(Math.min(draftStart, nowTime)).toISOString();
       }
 
@@ -667,13 +733,18 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
 
       // #442 (bug 3): deleting draft checkpoints silently looked like data loss. Report
-      // each consumed draft so the draft -> session transition is explicit.
-      for (const deletedPath of cleanupResult.deleted) {
-        console.log(`✓ Consumed draft ${path.basename(deletedPath)}`);
+      // each consumed draft so the draft -> session transition is explicit. In machine
+      // mode the list travels inside the session document instead — a line per draft
+      // above it would leave a caller parsing a truncated JSON body.
+      const consumedDraftNames = cleanupResult.deleted.map((p) => path.basename(p));
+      if (!jsonMode) {
+        for (const name of consumedDraftNames) {
+          console.log(`✓ Consumed draft ${name}`);
+        }
       }
 
       if (cleanupResult.errors.length > 0) {
-        console.warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
+        warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
         process.exitCode = 1;
       }
 
@@ -706,12 +777,29 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           vaultPath, sessionId, clearActive ? null : (postActive || null), postRebuild.body || '', preservedStart
         );
       } catch (e: unknown) {
-        console.warn(
+        warn(
           `Session ${sessionId} was recorded, but hot.md's active-session marker could not ` +
             `be cleared (${(e as Error).message}). Run palee session start to reset working memory.`
         );
         const code = exitCodeFor(e);
         process.exitCode = code === ExitCode.Conflict ? ExitCode.Conflict : ExitCode.PartialImport;
+      }
+
+      if (jsonMode) {
+        console.log(JSON.stringify({
+          status: 'recorded',
+          session_id: sessionId,
+          topic_id: topicId,
+          started_at: startedAt,
+          ended_at: endedAt,
+          duration_minutes: durationMinutes,
+          session_path: path.relative(vaultPath, sessionPath),
+          consumed_drafts: consumedDraftNames,
+          draft_cleanup_failures: cleanupResult.errors.length,
+          warnings,
+          ...vaultTargetFields(target),
+        }));
+        return;
       }
 
       console.log(`✓ Session recorded: ${sessionId}`);
@@ -769,14 +857,18 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       return;
     }
 
-    console.error(`Error: Unknown session action: '${action}'`);
-    console.error('Valid actions: start, end, draft, list');
+    const validActions = ['start', 'end', 'draft', 'list'];
+    if (jsonMode) {
+      console.error(JSON.stringify({ error: `Unknown session action: '${action}'`, valid_actions: validActions }));
+    } else {
+      console.error(`Error: Unknown session action: '${action}'`);
+      console.error(`Valid actions: ${validActions.join(', ')}`);
+    }
     process.exitCode = 2;
     return;
 
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`Error: ${err.message}`);
+    emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;
   }

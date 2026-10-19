@@ -152,7 +152,21 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       write(vault, 'notes.md');
       const enum_ = deriveTocEnumeration(vault);
       assert.deepStrictEqual(enum_.documentOrder, ['notes.md']);
-      assert.strictEqual(enum_.skipped[0].reason, 'escaped-vault');
+      const [escaped] = enum_.skipped;
+      assert.ok(escaped !== undefined);
+      assert.strictEqual(escaped.reason, 'escaped-vault');
+    });
+
+    it('chains a root folder link onto the vault README rather than skipping it as an escape', () => {
+      // `[Home](/)` names the vault root, so its target is the root README. The
+      // fold used to return an empty path for it and the enumeration logged the
+      // link under `escaped-vault` — a reason that accuses a well-behaved link
+      // of leaving the vault.
+      write(vault, 'README.md', '- [Home](/)\n- [setup](01-setup.md)');
+      write(vault, '01-setup.md');
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.skipped, []);
+      assert.deepStrictEqual(enum_.documentOrder, ['README.md', '01-setup.md']);
     });
 
     it('resolves .. hops that stay inside the vault relative to the TOC file', () => {
@@ -195,8 +209,10 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
         assert.deepStrictEqual(enum_.documentOrder, ['dup/README.md'],
           'the exact spelling is the file the author named');
         assert.strictEqual(enum_.skipped.length, 1, 'only the unspellable link is dropped');
-        assert.strictEqual(enum_.skipped[0].raw, 'dup/readme.MD');
-        assert.strictEqual(enum_.skipped[0].reason, 'ambiguous',
+        const [ambiguous] = enum_.skipped;
+        assert.ok(ambiguous !== undefined);
+        assert.strictEqual(ambiguous.raw, 'dup/readme.MD');
+        assert.strictEqual(ambiguous.reason, 'ambiguous',
           'a spelling that folds onto two real files decides nothing');
       }
     );
@@ -212,7 +228,9 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       write(vault, '01-a/02-b.md'); // a separator interpretation must not reach this either
       const enum_ = deriveTocEnumeration(vault);
       assert.deepStrictEqual(enum_.documentOrder, [], 'a literal backslash names no real note');
-      assert.strictEqual(enum_.skipped[0].reason, 'missing');
+      const [backslashSkipped] = enum_.skipped;
+      assert.ok(backslashSkipped !== undefined);
+      assert.strictEqual(backslashSkipped.reason, 'missing');
     });
 
     // Issue #262 — a destination whose name carries an encoded `#` and a real
@@ -326,7 +344,9 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       const enum_ = deriveTocEnumeration(vault);
       // Storage returns what exists; hygiene exclusion happens at composition.
       assert.deepStrictEqual(enum_.documentOrder, ['translations/guide.es.md', 'guide/intro.md']);
-      assert.strictEqual(enum_.skipped[0].reason, 'missing');
+      const [encodedSkipped] = enum_.skipped;
+      assert.ok(encodedSkipped !== undefined);
+      assert.strictEqual(encodedSkipped.reason, 'missing');
       const composed = composeTieredChain({
         tier: 'full',
         numbered: planAutoChainWithHygiene(enum_.documentOrder),
@@ -342,7 +362,9 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       write(vault, 'other/b.md');
       const enum_ = deriveTocEnumeration(vault, new Set(['sub/a.md']));
       assert.deepStrictEqual(enum_.documentOrder, ['sub/a.md']);
-      assert.strictEqual(enum_.skipped[0].reason, 'outside-scope');
+      const [scopedSkipped] = enum_.skipped;
+      assert.ok(scopedSkipped !== undefined);
+      assert.strictEqual(scopedSkipped.reason, 'outside-scope');
     });
 
     // Issue #263 asked for a size guard on a TOC *candidate*, reported with a
@@ -361,8 +383,10 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.deepStrictEqual(enum_.documentOrder, [], 'the document was never scanned');
       assert.deepStrictEqual(enum_.tocFiles, ['README.md'], 'it is still a discovered TOC document');
       assert.strictEqual(enum_.skipped.length, 1, 'the decline is counted, not silent');
-      assert.strictEqual(enum_.skipped[0].tocFile, 'README.md');
-      assert.strictEqual(enum_.skipped[0].reason, 'oversized');
+      const [oversized] = enum_.skipped;
+      assert.ok(oversized !== undefined);
+      assert.strictEqual(oversized.tocFile, 'README.md');
+      assert.strictEqual(oversized.reason, 'oversized');
       const composed = composeTieredChain({
         tier: 'full',
         numbered: planAutoChainWithHygiene(enum_.documentOrder),
