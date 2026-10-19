@@ -270,7 +270,7 @@ PALEE uses standard exit codes to facilitate scripting:
 
 ## Machine-Readable Output
 
-Commands emit human-readable terminal output by default (even when piped). Pass `--json` or set `PALEE_JSON=1` to emit structured JSON for scripts and automated workflows:
+Commands emit human-readable terminal output by default (even when piped). Pass `--json` or set `PALEE_JSON=1` to emit structured JSON for scripts and automated workflows (`--json` is declared on `config`, `next`, `plan`, `progress`, `validate`, `session` and `dashboard`; the remaining commands are human-only):
 
 ```bash
 palee plan --json | jq '.ready_to_learn[]'

@@ -9,12 +9,14 @@ import { progressCommand } from '../src/cli/progress';
 import { dashboardCommand } from '../src/cli/dashboard';
 import { validateCommand } from '../src/cli/validate';
 import { sessionCommand } from '../src/cli/session';
+import { reviewCommand } from '../src/cli/review';
 import configCommand, { saveConfig, loadConfig } from '../src/cli/config';
 
 describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
   let tmpDir: string;
   let tmpConfigDir: string;
   let prevConfigDir: string | undefined;
+  let prevPaleeJson: string | undefined;
   let loggedOutputs: string[] = [];
   let loggedErrors: string[] = [];
   const originalLog = console.log;
@@ -22,6 +24,10 @@ describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
+    // Human/plain-text expectations are part of the contract under test, so no
+    // ambient PALEE_JSON from the invoking shell may flip any test to JSON.
+    prevPaleeJson = process.env.PALEE_JSON;
+    delete process.env.PALEE_JSON;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-json-test-'));
     tmpConfigDir = path.join(tmpDir, '.config');
     fs.mkdirSync(tmpConfigDir, { recursive: true });
@@ -47,6 +53,11 @@ describe('CLI Machine-Readable --json Output (Invariant INV-30)', () => {
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (prevPaleeJson !== undefined) {
+      process.env.PALEE_JSON = prevPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -718,6 +729,22 @@ depends_on: []
       assertHumanReadable(allOutput());
     });
 
+    test('an explicitly non-TTY stdout no longer selects JSON by itself', async () => {
+      // The pre-#357 `isJsonOutput()` switched to JSON whenever
+      // `process.stdout.isTTY === false`. Under the test runner stdout is a
+      // pipe (isTTY undefined), so the sibling tests above would pass on the
+      // old implementation too; forcing the removed arm's exact value keeps
+      // the regression pinned.
+      const prevIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      try {
+        await planCommand({});
+      } finally {
+        Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+      }
+      assertHumanReadable(allOutput());
+    });
+
     test('progress on non-TTY without --json keeps the human-readable report', async () => {
       await progressCommand({});
       assertHumanReadable(allOutput());
@@ -801,6 +828,23 @@ depends_on: []
       process.env.PALEE_JSON = '0';
       await planCommand({});
       assertHumanReadable(allOutput());
+    });
+  });
+
+  describe('Commands that declare no --json stay human under PALEE_JSON (#357)', () => {
+    test('review keeps its vault refusal in plain text instead of splitting formats', async () => {
+      // Without the explicit `json: false` opt-out, `emitError` answers
+      // `{error}` on stderr under PALEE_JSON while every other review line
+      // stays prose — one command, two formats.
+      saveConfig({});
+      process.env.PALEE_JSON = '1';
+      await reviewCommand('T-any', '4', {});
+      assert.strictEqual(process.exitCode, 2);
+      assert.strictEqual(loggedOutputs.length, 0, 'no document rides on stdout');
+      const raw = loggedErrors[loggedErrors.length - 1];
+      assert.ok(raw, 'the refusal must be reported on stderr');
+      assert.match(raw, /^Error: Vault path not configured/);
+      assert.throws(() => JSON.parse(raw), 'a command with no JSON mode must not answer JSON');
     });
   });
 

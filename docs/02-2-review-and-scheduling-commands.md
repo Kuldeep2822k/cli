@@ -256,7 +256,7 @@ $ palee next --json | jq .
 }
 ```
 
-`status` is the gating state (`INV-30`): `ready` when `next` names a topic, `blocked` when every candidate is waiting on a prerequisite (`next: null`, `due_count: 0`), and `nothing_due` when nothing is scheduled at all. `due_count` counts only gated-in topics, and `blocked` lists what was withheld; both keys are additive and present in every branch, including `next --all --json` and the empty vault.
+`status` is the gating state (`INV-30`): `ready` when `next` names a topic, `blocked` when every candidate is waiting on a prerequisite (`next: null`, `due_count: 0`), and `nothing_due` when nothing is scheduled at all. `due_count` counts only gated-in topics, and `blocked` lists what was withheld; `status`, `blocked`, `total_topics` and `next` are present in every branch, including the empty vault, and `next --all --json` swaps `due_count` for the full `due_topics` list.
 
 ---
 

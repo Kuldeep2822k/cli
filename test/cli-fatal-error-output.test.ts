@@ -232,4 +232,19 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
     assert.strictEqual(payloadLine(off.stdout), undefined, "PALEE_JSON='no' is not an opt-in");
     assert.match(off.stderr, new RegExp(MARKER, 'u'));
   });
+
+  test('PALEE_JSON leaves a command that declares no --json human on the fatal path too (#357)', () => {
+    // `review` never emits a document, so a JSON fatal payload under a global
+    // PALEE_JSON would be its only machine-readable line. The preAction hook
+    // records whether the command declares the option, and this path answers
+    // plain text for the commands that do not.
+    const run = runFatal(['review', 'T-json-only-topic', '4'], { paleeJson: '1', repeat: 32 });
+    assert.strictEqual(run.status, 5);
+    assert.strictEqual(
+      payloadLine(run.stdout),
+      undefined,
+      'a command with no JSON mode must not answer a JSON payload'
+    );
+    assert.match(run.stderr, new RegExp(MARKER, 'u'));
+  });
 });

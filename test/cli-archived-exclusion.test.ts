@@ -20,11 +20,16 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
   let tmpDir: string;
   let tmpConfigDir: string;
   let prevConfigDir: string | undefined;
+  let prevPaleeJson: string | undefined;
   let loggedOutputs: string[] = [];
   const originalLog = console.log;
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
+    // Human-readable expectations below are the contract under test, so no
+    // ambient PALEE_JSON from the invoking shell may flip them to JSON.
+    prevPaleeJson = process.env.PALEE_JSON;
+    delete process.env.PALEE_JSON;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug002-'));
     tmpConfigDir = path.join(tmpDir, '.config');
     fs.mkdirSync(tmpConfigDir, { recursive: true });
@@ -45,6 +50,11 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
       process.env.PALEE_CONFIG_DIR = prevConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (prevPaleeJson !== undefined) {
+      process.env.PALEE_JSON = prevPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });

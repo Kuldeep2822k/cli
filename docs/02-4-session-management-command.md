@@ -52,6 +52,7 @@ When `palee session start` is executed:
   - `[S]ave`: Immediately finalizes and converts the draft into a confirmed session note (`S-*.md`), calculating true elapsed duration from its `started_at` timestamp, and unlinks the draft.
   - `[D]iscard`: Safely unlinks the orphaned draft checkpoint via `deleteSessionNote()`.
   - `[I]gnore`: Leaves the draft file untouched on disk.
+- **Interactive Recovery in JSON Mode**: with `--json` (or `PALEE_JSON=1`) the recovery banner and menu are written to `stderr`, so `stdout` still carries exactly one document. `drafts_pending` is only the non-interactive arm; an interactive run that resolves its drafts finishes with `started`.
 - **Interactive Mode at End of Input**: If stdin closes before every draft has been answered (a piped or scripted run, or `Ctrl+D` at the prompt), the menu ends instead of re-prompting a dead stream. Unanswered checkpoints stay on disk byte-identical, no session starts, and the run exits with code `2` naming them — the same refusal the non-interactive mode already applies.
 
 ```mermaid

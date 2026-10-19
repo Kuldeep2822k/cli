@@ -228,7 +228,8 @@ function reportNoActiveSession(jsonMode: boolean): void {
  * `drafts_pending`, `drafted`, `recorded`, `already_recorded`, or the `list` shape —
  * and refusals carry `{error}` on stderr. Per-line notices (`✓ Consumed draft …`)
  * travel inside the document instead of above it, so a caller never parses a stdout
- * that starts with prose.
+ * that starts with prose. With `--interactive` the recovery banner and menu are
+ * conversation, so they go to stderr and stdout still carries the one document.
  * @example
  * ```typescript
  * await sessionCommand('start', { topic: 'topic-1', interactive: false });
@@ -257,7 +258,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const drafts = getDrafts(vaultPath);
 
       if (drafts.length > 0) {
-        if (jsonMode) {
+        if (jsonMode && !options.interactive) {
           console.log(JSON.stringify({
             status: 'drafts_pending',
             draft_count: drafts.length,
@@ -269,9 +270,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           return;
         }
 
-        console.log(`Found ${drafts.length} unconfirmed draft session(s):`);
+        // The menu is a conversation, not a response: under --json it belongs on
+        // stderr so stdout still carries exactly one document when the run ends.
+        const note = jsonMode ? console.error : console.log;
+        note(`Found ${drafts.length} unconfirmed draft session(s):`);
         for (const draftPath of drafts) {
-          console.log(`  • ${path.basename(draftPath)}`);
+          note(`  • ${path.basename(draftPath)}`);
         }
 
         if (!options.interactive) {
@@ -283,7 +287,10 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
 
         
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: jsonMode ? process.stderr : process.stdout,
+        });
         // readline stops calling question callbacks once stdin closes, so a
         // prompt outstanding at that moment would never settle and the run
         // would end silently with exit code 0 and the drafts unresolved.
@@ -324,7 +331,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             unresolvedDrafts.push(draftName);
             continue;
           }
-          console.log(`\nDraft: ${draftName}`);
+          note(`\nDraft: ${draftName}`);
           let recoveryAction: DraftRecoveryAction | null = null;
           while (!recoveryAction) {
             const answer = await question('[R]esume  [S]ave as session  [D]iscard  [I]gnore: ');
@@ -355,7 +362,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
               remedy: 'Run "palee session start --interactive" at a terminal to resolve them.',
             }));
           } else {
-            console.error(`Error: ${why}`);
+            console.error(why);
             console.error('Unresolved draft checkpoint(s):');
             for (const name of unresolvedDrafts) {
               console.error(`  • ${name}`);

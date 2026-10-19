@@ -427,6 +427,18 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       );
     });
 
+    it('blanks each closed comment in a run and leaves a trailing unclosed one followed', () => {
+      // The blanking scan resumes past each match instead of restarting at the
+      // next opener — the property that keeps it linear — and an unterminated
+      // opener still blanks nothing, so the links after it stay followed.
+      assert.deepStrictEqual(
+        extractTocLinks(
+          '<!-- [a](a.md) -->\n<!-- [b](b.md) -->\n<!-- [c](c.md)\n- [live](live.md)'
+        ).map((l) => l.destination),
+        ['c.md', 'live.md']
+      );
+    });
+
     // CommonMark allows balanced parentheses in a bare destination, and study
     // vaults really do have files like `intro(v2).md`. The first `)` ended the
     // destination, so the link resolved as missing (or onto the truncated

@@ -25,13 +25,20 @@ export interface VaultValidationOptions {
  * `palee dashboard | less`) stays human-readable. Set `PALEE_JSON=1`
  * (or `true`) for machine-readable output without the flag (#357).
  *
+ * An explicit `json: false` forces human output even under `PALEE_JSON`: the
+ * commands that declare no `--json` flag (`review`, `adopt`, `assess`,
+ * `roadmap`, `migrate`) pass it when they validate the vault, so a global env
+ * setting cannot split their output into machine-readable errors above prose
+ * results.
+ *
  * @example
  * ```typescript
  * const jsonMode = isJsonOutput({ json: true });
  * ```
  */
 export function isJsonOutput(options?: { json?: boolean }): boolean {
-  if (options?.json) return true;
+  if (options?.json === false) return false;
+  if (options?.json === true) return true;
   const env = process.env.PALEE_JSON;
   return env === '1' || env?.toLowerCase() === 'true';
 }

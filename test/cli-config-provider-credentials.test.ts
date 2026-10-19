@@ -8,6 +8,17 @@ import { PALEE_CMD } from './palee-cli';
 import { loadConfig, isConfigDirStorableForKey } from '../src/cli/config';
 
 /**
+ * The invoking shell's environment minus `PALEE_JSON`: an exported env var must
+ * not flip these human-output assertions to JSON, while each call can still set
+ * it explicitly through `extra`.
+ */
+function paleeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.PALEE_JSON;
+  return { ...env, ...extra };
+}
+
+/**
  * `palee config set-provider` could store a provider name and nothing else, so the
  * Phase-2 AI layer had nowhere to put the endpoint and credential its own design
  * document names (#82). These run the real CLI: the interesting properties are what
@@ -61,7 +72,7 @@ describe('CLI config provider credentials (#82)', () => {
         // Windows CI runner lives outside the user profile (and is reached via an
         // 8.3 short name). That is exactly what the #316 guard refuses, so opt out
         // of it here; the guard's own refusal is covered by `config dir guard (#316)`.
-        env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env },
+        env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env }),
         encoding: 'utf8',
         stdio: 'pipe',
         // Always a pipe, never a terminal: the interactive branch is the one a test
@@ -300,7 +311,7 @@ describe('config file mode (#82)', () => {
   function runConfig(args: string[], configDir: string): void {
     execSync(`${PALEE_CMD} config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' },
+      env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' }),
       encoding: 'utf8',
       stdio: 'pipe',
       input: '',
@@ -376,7 +387,7 @@ describe('config dir guard (#316)', () => {
     try {
       execSync(`${PALEE_CMD} config set-api-key --from-env PALEE_TEST_KEY`, {
         cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
+        env: paleeEnv({ PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' }),
         encoding: 'utf8',
         stdio: 'pipe',
         input: '',
