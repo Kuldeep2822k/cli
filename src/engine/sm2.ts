@@ -219,7 +219,9 @@ function formatLocalDateOnly(date: Date): string {
 function computeDueDate(fromDate: Date | string, days: number): Date {
   let due: Date;
   if (typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate.trim())) {
-    const [year, month, day] = fromDate.trim().split('-').map(Number);
+    // The regex above guarantees exactly three numeric parts; the defaults
+    // keep the type honest rather than asserting.
+    const [year = 0, month = 1, day = 1] = fromDate.trim().split('-').map(Number);
     due = new Date(year, month - 1, day);
     if (year >= 0 && year < 100) {
       due.setFullYear(year);

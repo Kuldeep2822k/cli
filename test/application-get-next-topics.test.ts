@@ -45,7 +45,9 @@ describe('getNextTopics', () => {
       now,
     );
     assert.deepStrictEqual(result.dueTopics.map((t) => t.id), ['new', 'dated']);
-    assert.strictEqual(result.dueTopics[0].dueAt, null);
+    const [firstDue] = result.dueTopics;
+    assert.ok(firstDue);
+    assert.strictEqual(firstDue.dueAt, null);
   });
 
   test('dated due topics are ordered oldest-first', () => {
@@ -63,7 +65,9 @@ describe('getNextTopics', () => {
   test('invalid due_at is treated as never-reviewed (due now)', () => {
     const result = getNextTopics([topic({ palee_id: 'bad', due_at: 'not-a-date' })], now);
     assert.deepStrictEqual(result.dueTopics.map((t) => t.id), ['bad']);
-    assert.strictEqual(result.dueTopics[0].dueAt, null);
+    const [onlyDue] = result.dueTopics;
+    assert.ok(onlyDue);
+    assert.strictEqual(onlyDue.dueAt, null);
   });
 
   test('future-due topics are excluded from the due list', () => {

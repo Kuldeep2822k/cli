@@ -265,7 +265,9 @@ describe('Session CLI In-Process Coverage', () => {
     const draftFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('DRAFT-S-'));
     assert.strictEqual(draftFiles.length, 1);
 
-    const draftContent = fs.readFileSync(path.join(draftsDir, draftFiles[0]), 'utf8');
+    const [draftFile] = draftFiles;
+    assert.ok(draftFile !== undefined);
+    const draftContent = fs.readFileSync(path.join(draftsDir, draftFile), 'utf8');
     const { frontmatter } = parseFrontmatter(draftContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-inherited-topic');
     assert.strictEqual(frontmatter?.started_at, pastTimestamp, 'Draft should inherit started_at from hot.md');
@@ -303,7 +305,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-multi-draft');
     assert.strictEqual(frontmatter?.started_at, t0, 'Must recover earliest started_at');
@@ -316,7 +320,7 @@ describe('Session CLI In-Process Coverage', () => {
     assert.ok(endMs - startMs >= 600000);
 
     // Cleanup session file
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+    fs.unlinkSync(path.join(draftsDir, confirmedFile));
   });
 
   test('session end clamps Tier-1 draft started_at older than 24h (BUG-004)', async () => {
@@ -335,7 +339,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-stale-tier1');
     assert.ok(
@@ -348,7 +354,7 @@ describe('Session CLI In-Process Coverage', () => {
     const minAllowed = Date.now() - 24 * 60 * 60 * 1000 - 60000;
     assert.ok(startMs >= minAllowed, 'started_at must not be earlier than 24h before now');
 
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+    fs.unlinkSync(path.join(draftsDir, confirmedFile));
   });
 
   test('session end clamps Tier-2 hot.md started_at older than 24h (BUG-008)', async () => {
@@ -367,7 +373,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-stale-hot');
     assert.ok(
@@ -380,7 +388,7 @@ describe('Session CLI In-Process Coverage', () => {
     const minAllowed = nowMs - 24 * 60 * 60 * 1000 - 60000;
     assert.ok(startMs >= minAllowed, 'started_at must not be earlier than 24h before now');
 
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+    fs.unlinkSync(path.join(draftsDir, confirmedFile));
   });
 
   test('session end recovers started_at from hot.md when no drafts exist (Tier 2)', async () => {
@@ -398,7 +406,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-hot-recover');
     assert.strictEqual(frontmatter?.started_at, pastTime);
@@ -415,7 +425,7 @@ describe('Session CLI In-Process Coverage', () => {
      assert.strictEqual(parsedHot.frontmatter?.started_at, null);
 
     // Cleanup session file
-    fs.unlinkSync(path.join(draftsDir, confirmedFiles[0]));
+    fs.unlinkSync(path.join(draftsDir, confirmedFile));
   });
 
   test('session end with no active session refuses at exit 2 and mints no phantom session (#442)', async () => {
@@ -476,7 +486,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.topic_id, 'T-corrupt-draft');
     assert.strictEqual(frontmatter?.duration_minutes, 0);
@@ -504,7 +516,9 @@ describe('Session CLI In-Process Coverage', () => {
     const confirmedFiles = fs.readdirSync(draftsDir).filter(f => f.startsWith('S-') && f.endsWith('.md'));
     assert.strictEqual(confirmedFiles.length, 1);
 
-    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFiles[0]), 'utf8');
+    const [confirmedFile] = confirmedFiles;
+    assert.ok(confirmedFile !== undefined);
+    const sessionContent = fs.readFileSync(path.join(draftsDir, confirmedFile), 'utf8');
     const { frontmatter } = parseFrontmatter(sessionContent);
     assert.strictEqual(frontmatter?.duration_minutes, 0, 'Duration must be clamped to >= 0');
 

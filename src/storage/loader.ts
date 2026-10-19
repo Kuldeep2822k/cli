@@ -372,7 +372,11 @@ export function loadTopics(
       frontmatter,
       difficulty,
       depends_on: dependsOn,
-      depends_on_source: dependsOnSource,
+      // `TopicNode.depends_on_source` does not admit an explicit `undefined`
+      // under `exactOptionalPropertyTypes`, so the key is omitted (not
+      // undefined-valued) when the note declares no source. No consumer
+      // distinguishes an absent key from an undefined one.
+      ...(dependsOnSource === undefined ? {} : { depends_on_source: dependsOnSource }),
       topic_mastery: topicMastery,
       status: typeof frontmatter.status === 'string' ? frontmatter.status.trim().toLowerCase() : 'not_started',
       conceptual: parseScore(frontmatter.conceptual, 0.0),

@@ -110,7 +110,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const learningPct = total > 0 ? (learning / total * 100).toFixed(1) : '0.0';
     const newPct = total > 0 ? (newTopics / total * 100).toFixed(1) : '0.0';
 
-    const byDiff: Record<string, DashboardTopic[]> = {
+    // Concrete object type (not `Record<string, …>`) so the difficulty keys
+    // used below are statically known to exist.
+    const byDiff: { beginner: DashboardTopic[]; intermediate: DashboardTopic[]; advanced: DashboardTopic[] } = {
       beginner: activeTopics.filter(t => t.difficulty === 'beginner'),
       intermediate: activeTopics.filter(t => t.difficulty === 'intermediate'),
       advanced: activeTopics.filter(t => t.difficulty === 'advanced'),
@@ -203,8 +205,8 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     return;
 
   } catch (e: unknown) {
-    // #325: `--json` / non-TTY gets the same `{ error }` stderr payload as the
-    // exit-2 vault path; the exit code is unchanged.
+    // #325: `--json` / PALEE_JSON gets the same `{ error }` stderr payload as
+    // the exit-2 vault path; the exit code is unchanged.
     emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;

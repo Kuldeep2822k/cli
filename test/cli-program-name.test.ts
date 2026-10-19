@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { PALEE_ARGV } from './palee-cli';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { deriveProgramName, programName } from '../src/cli/program-name';
 
 /**
@@ -46,7 +46,9 @@ describe('program name follows the invoked bin (#314)', () => {
    * its dependencies relative to its own directory.
    */
   function runAs(invokedName: string, args: string[], env?: Record<string, string>): Run {
-    const realEntry = path.resolve(ROOT, PALEE_ARGV[PALEE_ARGV.length - 1]);
+    const lastArg = PALEE_ARGV[PALEE_ARGV.length - 1];
+    assert.ok(lastArg !== undefined);
+    const realEntry = path.resolve(ROOT, lastArg);
     // Everything after the entry must be loaded the same way the real entry is.
     // Under coverage (`npm run test:coverage`, which is what CI's test matrix
     // runs) PALEE_ARGV points at the TypeScript source behind `--import tsx`;
@@ -66,6 +68,7 @@ describe('program name follows the invoked bin (#314)', () => {
         env: { ...process.env, PALEE_CONFIG_DIR: configDir, ...(env || {}) },
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
       });
       return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
     } finally {
@@ -73,12 +76,19 @@ describe('program name follows the invoked bin (#314)', () => {
     }
   }
 
+  /**
+   * Runs the real CLI as a child process against this suite's isolated config dir.
+   *
+   * @param args - Arguments following the program name, passed through untouched.
+   * @returns The exit status and whatever the child wrote to stdout and stderr.
+   */
   function runPalee(args: string[]): Run {
     const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: ROOT,
       env: { ...process.env, PALEE_CONFIG_DIR: configDir },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
     });
     return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
   }

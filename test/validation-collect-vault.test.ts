@@ -42,7 +42,9 @@ describe('Validation vault collection', () => {
     assert.strictEqual(context.vaultPath, tmpVault);
     assert.strictEqual(context.files.length, 2);
     assert.strictEqual(context.topics.length, 1);
-    assert.strictEqual(context.topics[0].palee_id, 'T-a');
+    const [firstTopic] = context.topics;
+    assert.ok(firstTopic !== undefined);
+    assert.strictEqual(firstTopic.palee_id, 'T-a');
     assert.strictEqual(context.notes.length, 2);
   });
 
@@ -67,7 +69,9 @@ describe('Validation vault collection', () => {
 
     // The valid topic next to it is still fully collected.
     assert.strictEqual(context.topics.length, 1);
-    assert.strictEqual(context.topics[0].palee_id, 'T-good');
+    const [goodTopic] = context.topics;
+    assert.ok(goodTopic !== undefined);
+    assert.strictEqual(goodTopic.palee_id, 'T-good');
   });
 
   test('malformed non-PALEE note is retained in notes but yields no topic', () => {
@@ -80,7 +84,9 @@ describe('Validation vault collection', () => {
     const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
 
     assert.strictEqual(context.notes.length, 1);
-    assert.ok(context.notes[0].parseError);
+    const [userNote] = context.notes;
+    assert.ok(userNote !== undefined);
+    assert.ok(userNote.parseError);
     assert.strictEqual(context.topics.length, 0);
   });
 
@@ -158,7 +164,9 @@ describe('Validation vault collection', () => {
     // The read-failure signal propagates and topics exclude the unreadable file
     assert.strictEqual(context.readIncomplete, true);
     assert.strictEqual(context.topics.length, 1);
-    assert.strictEqual(context.topics[0].palee_id, 'T-good');
+    const [goodTopic] = context.topics;
+    assert.ok(goodTopic !== undefined);
+    assert.strictEqual(goodTopic.palee_id, 'T-good');
   });
 
   test('a previously cached topic for a now-unreadable file never resurfaces', () => {
@@ -187,7 +195,9 @@ describe('Validation vault collection', () => {
 
     assert.strictEqual(second.readIncomplete, true);
     assert.strictEqual(second.topics.length, 0);
-    assert.ok(second.notes[0].readError);
+    const [secondNote] = second.notes;
+    assert.ok(secondNote !== undefined);
+    assert.ok(secondNote.readError);
   });
 
   test('a cache that WOULD return the topic never gets asked for read-failure paths', () => {
@@ -222,7 +232,9 @@ describe('Validation vault collection', () => {
     });
 
     assert.strictEqual(context.readIncomplete, true);
-    assert.ok(context.notes[0].readError);
+    const [unreadableNote] = context.notes;
+    assert.ok(unreadableNote !== undefined);
+    assert.ok(unreadableNote.readError);
     // The seeded cache would have returned T-stale had the loader been
     // given the path — exclusion happens in the collector, not the cache.
     assert.strictEqual(context.topics.length, 0);
@@ -269,10 +281,12 @@ describe('Validation vault collection', () => {
       context.sessions.map((s) => s.sessionId),
       ['DRAFT-S-1a2b3c4d', 'S-20260912T100000-abcd', 'S-bad']
     );
-    const draft = context.sessions[0];
+    const [draft] = context.sessions;
+    assert.ok(draft !== undefined);
     assert.strictEqual(draft.isDraft, true);
     assert.strictEqual(draft.frontmatter?.status, 'draft');
     const bad = context.sessions[2];
+    assert.ok(bad !== undefined);
     assert.strictEqual(bad.frontmatter, null);
     assert.ok(bad.parseError !== undefined);
 
@@ -352,8 +366,10 @@ describe('Validation vault collection', () => {
     assert.deepStrictEqual(context.sessions, []);
     assert.strictEqual(context.readIncomplete, true);
     assert.strictEqual(context.memoryReadErrors.length, 1);
-    assert.strictEqual(context.memoryReadErrors[0].path, '.palee/sessions/');
-    assert.match(context.memoryReadErrors[0].readError, /ENOTDIR/);
+    const [memoryReadError] = context.memoryReadErrors;
+    assert.ok(memoryReadError !== undefined);
+    assert.strictEqual(memoryReadError.path, '.palee/sessions/');
+    assert.match(memoryReadError.readError, /ENOTDIR/);
   });
 
   test('index.md unreadable (EISDIR) is reported as a component read error', () => {
@@ -409,7 +425,9 @@ describe('Validation vault collection', () => {
 
     const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
     assert.strictEqual(context.sessions.length, 1);
-    assert.strictEqual(context.sessions[0].sessionId, 'S-20260912T100000-abcd');
+    const [onlySession] = context.sessions;
+    assert.ok(onlySession !== undefined);
+    assert.strictEqual(onlySession.sessionId, 'S-20260912T100000-abcd');
   });
 
   test('index is read before the sessions dir (no unknown-session false positive under concurrent session end)', () => {

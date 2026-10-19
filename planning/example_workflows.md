@@ -24,7 +24,9 @@ palee config set-vault ~/Documents/Obsidian/Learning
 # Adopt an existing Obsidian note into PALEE
 palee adopt "Docker Fundamentals.md"
 
-# PALEE adds frontmatter to the note:
+# PALEE adds frontmatter to the note. Note the ID: `adopt` mints a timestamp ID
+# (T-YYYYMMDD-HHMMSS-<hex>); slug IDs such as the one shown here stay valid on a
+# note that already declares one, but they are not what `adopt` generates.
 # ---
 # palee_schema: 1
 # palee_id: T-docker-fundamentals
@@ -56,6 +58,7 @@ palee adopt "Docker Fundamentals.md"
 palee roadmap --from kubernetes-roadmap.md
 
 # If no roadmap is available, start a guided interview
+# Phase 2 — not implemented: a bare `palee roadmap` exits 2 today.
 palee roadmap
 ```
 
@@ -159,6 +162,8 @@ PALEE drafts a summary containing what was covered, what the learner demonstrate
 ### Conduct a Feynman Test
 ```bash
 # Test your understanding with AI
+# Phase 2 — not implemented: `palee test` is not a registered command (its
+# four-pillar scores are written by `palee assess` today).
 palee test T-pod-lifecycle-k8s
 
 # AI Tutor: "Explain the Kubernetes Pod lifecycle from creation to termination.
@@ -181,6 +186,7 @@ palee test T-pod-lifecycle-k8s
 ### Interactive Tutoring Session
 ```bash
 # Engage in a guided learning session
+# Phase 2 — not implemented: `palee tutor` is not a registered command.
 palee tutor T-service-discovery-k8s
 
 # AI Tutor: "Let's explore Kubernetes service discovery. 
@@ -224,7 +230,7 @@ palee dashboard
 ### Record a Review Session
 ```bash
 # Manually record a review after offline study
-palee review T-docker-volumes --quality 4
+palee review T-docker-volumes 4
 
 # Output:
 # Review recorded: Docker Volumes (T-docker-volumes) | interval=6 repetition=1

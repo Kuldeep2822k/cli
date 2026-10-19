@@ -169,8 +169,8 @@ export function getNextTopics(topics: LoadedTopic[], now: Date): NextTopicsResul
     dueAt: normalizeDueDate(t.due_at),
     mastery: t.topic_mastery,
     repetition: t.repetition ?? 0,
-    difficulty: t.difficulty,
-    status: typeof t.status === 'string' ? t.status : undefined,
+    ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
+    ...(typeof t.status === 'string' ? { status: t.status } : {}),
   }));
 
   // `next`/`plan` treat `neverReviewed ∪ dueReviews` as actionable (see

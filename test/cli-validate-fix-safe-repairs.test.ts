@@ -33,12 +33,11 @@ const PILLAR_EXPECTED = 0.82;
 
 /**
  * Isolated temp vault + PALEE config (mirrors cli-validate-fix-sm2.test.ts).
- * `isTTY` forces the human/JSON output mode deterministically, because
- * `isJsonOutput()` also auto-switches on a non-TTY stdout.
+ * Human-readable output is the default regardless of TTY state: isJsonOutput()
+ * only switches to JSON on the explicit --json flag or PALEE_JSON (#357).
  */
 async function runInTempVault(
-  fn: (vaultPath: string) => Promise<void>,
-  options: { isTTY?: boolean } = {}
+  fn: (vaultPath: string) => Promise<void>
 ): Promise<void> {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-fix323-'));
   const vaultPath = path.join(tempDir, 'vault');
@@ -46,20 +45,26 @@ async function runInTempVault(
   fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify({ vaultPath }, null, 2));
 
   const origConfigDir = process.env.PALEE_CONFIG_DIR;
-  const origIsTTY = process.stdout.isTTY;
+  const origPaleeJson = process.env.PALEE_JSON;
   const origExitCode = process.exitCode;
   process.env.PALEE_CONFIG_DIR = tempDir;
-  process.stdout.isTTY = options.isTTY ?? true;
+  // Human-output assertions must not depend on the ambient environment:
+  // clear PALEE_JSON for the test body, then restore it.
+  delete process.env.PALEE_JSON;
   process.exitCode = 0;
   try {
     await fn(vaultPath);
   } finally {
-    process.stdout.isTTY = origIsTTY;
     process.exitCode = origExitCode;
     if (origConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = origConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (origPaleeJson !== undefined) {
+      process.env.PALEE_JSON = origPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -293,7 +298,9 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
         const report = parseReport(fixed.out);
         assert.deepStrictEqual(repairsOf(report), [], 'a refused rebuild repairs nothing');
         assert.strictEqual(conflictsOf(report).length, 1, `expected one conflict: ${fixed.out}`);
-        assert.match(conflictsOf(report)[0], /\.palee\/hot\.md/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /\.palee\/hot\.md/, conflict);
 
         assert.strictEqual(readIfPresent(vaultPath, '.palee/index.md'), staleIndex);
 
@@ -319,7 +326,9 @@ describe('#323 validate --fix: derived views (valid-session-index / valid-hot-me
       const report = parseReport(fixed.out);
       assert.deepStrictEqual(repairsOf(report), [], 'no rebuild may run on a provisional snapshot');
       assert.strictEqual(conflictsOf(report).length, 1, `expected a refusal: ${fixed.out}`);
-      assert.match(conflictsOf(report)[0], /snapshot is incomplete/, conflictsOf(report)[0]);
+      const [conflict] = conflictsOf(report);
+      assert.ok(conflict !== undefined);
+      assert.match(conflict, /snapshot is incomplete/, conflict);
       assert.strictEqual(readIfPresent(vaultPath, '.palee/index.md'), staleIndex);
     });
   });
@@ -426,7 +435,9 @@ describe('#323 validate --fix: topic mastery is recomputed through the engine', 
         );
         assert.deepStrictEqual(repairsOf(report), [], 'a conflicting note must not be reported as repaired');
         assert.strictEqual(conflictsOf(report).length, 1, JSON.stringify(report.repair_conflicts));
-        assert.match(conflictsOf(report)[0], /alpha\.md/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /alpha\.md/, conflict);
         assert.strictEqual(fs.readFileSync(filePath, 'utf8'), before, 'conflicted note must stay byte-identical');
 
         const after = parseReport((await captureOutput(() => validateCommand({ json: true }))).out);
@@ -481,8 +492,10 @@ describe('#323 validate --fix: dispatch is authorized by rule metadata', () => {
         );
         assert.deepStrictEqual(repairsOf(report), []);
         assert.strictEqual(conflictsOf(report).length, 1, JSON.stringify(report.repair_conflicts));
-        assert.match(conflictsOf(report)[0], /phantom-safe-rule/, conflictsOf(report)[0]);
-        assert.match(conflictsOf(report)[0], /no repair is implemented/, conflictsOf(report)[0]);
+        const [conflict] = conflictsOf(report);
+        assert.ok(conflict !== undefined);
+        assert.match(conflict, /phantom-safe-rule/, conflict);
+        assert.match(conflict, /no repair is implemented/, conflict);
         assert.strictEqual(report.valid, true, 'a reported refusal never becomes an error');
         assert.strictEqual(process.exitCode, 0);
 

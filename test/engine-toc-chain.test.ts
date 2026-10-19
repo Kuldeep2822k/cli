@@ -10,10 +10,72 @@ import {
   isInNumberedTree,
   composeTieredChain,
   parseAutoChainTier,
+  type TocLink,
+  type TocScanStats,
 } from '../src/engine/toc-chain';
 
 describe('TOC tier engine (PAL-205-C3)', () => {
   describe('extractTocLinks', () => {
+    /**
+     * Runs the scanner with operation counting: links plus the number of
+     * characters the scanner's walks examined (see TocScanStats).
+     */
+    function scanCounted(text: string): { links: TocLink[]; steps: number } {
+      const stats: TocScanStats = { steps: 0 };
+      const links = extractTocLinks(text, stats);
+      return { links, steps: stats.steps };
+    }
+
+    /**
+     * Complexity guard, judged in operations rather than wall-clock time so it
+     * is deterministic on any host. `large` is 4x `small`: a linear scan costs
+     * ~4x the operations, while a regressed walk re-scans the remainder per
+     * candidate and costs ~16x — red under the 6x bound, green with headroom.
+     * The absolute bound pins the constant factor too.
+     */
+    function assertLinearGrowth(label: string, smallSteps: number, largeSteps: number, largeLength: number): void {
+      assert.ok(
+        largeSteps < 6 * smallSteps,
+        `${label}: 4x input cost ${largeSteps} vs ${smallSteps} ops — a walk is being repeated`
+      );
+      assert.ok(
+        largeSteps < 20 * largeLength,
+        `${label}: ${largeSteps} ops for ${largeLength} chars is not a linear scan`
+      );
+    }
+
+    it('accumulates steps into a pre-populated TocScanStats across calls', () => {
+      // The docstring promises the scan "adds to any steps already recorded":
+      // two scans sharing one stats object must total both scans' work, and a
+      // scan with no stats argument must not disturb anyone else's object.
+      const shared: TocScanStats = { steps: 0 };
+      extractTocLinks('[a](a.md)', shared);
+      const afterFirst = shared.steps;
+      assert.ok(afterFirst > 0, 'a scan must record steps');
+      extractTocLinks('[b](b.md)', shared);
+      assert.ok(shared.steps > afterFirst, 'the second scan must add to the recorded steps');
+
+      const soloA: TocScanStats = { steps: 0 };
+      extractTocLinks('[a](a.md)', soloA);
+      const soloB: TocScanStats = { steps: 0 };
+      extractTocLinks('[b](b.md)', soloB);
+      assert.strictEqual(
+        shared.steps,
+        soloA.steps + soloB.steps,
+        'shared stats must equal the sum of two independent scans'
+      );
+
+      const withStats: TocScanStats = { steps: 0 };
+      const expected = extractTocLinks('[a](a.md)', withStats).map((l) => l.destination);
+      const omitted = extractTocLinks('[a](a.md)').map((l) => l.destination);
+      assert.deepStrictEqual(
+        omitted,
+        expected,
+        'omitting the stats argument must not change the extracted links'
+      );
+      assert.ok(withStats.steps > 0, 'the stats variant still records its steps');
+    });
+
     it('keeps document order across a typical module README', () => {
       const md = [
         '# Module 01',
@@ -29,32 +91,44 @@ describe('TOC tier engine (PAL-205-C3)', () => {
 
     it('parses <angle bracket paths> — the prototype gap this tier must close', () => {
       const links = extractTocLinks('[start](<01-getting started/setup.md>)');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
       assert.strictEqual(links.length, 1);
-      assert.strictEqual(links[0].destination, '01-getting started/setup.md');
+      assert.strictEqual(firstTocLink.destination, '01-getting started/setup.md');
     });
 
     it('strips #anchors and tolerates titles', () => {
+      const [tocLink0] = extractTocLinks('[a](path.md#section "The Title")');
+      assert.ok(tocLink0 !== undefined);
       assert.strictEqual(
-        extractTocLinks('[a](path.md#section "The Title")')[0].destination,
+        tocLink0.destination,
         'path.md'
       );
-      assert.strictEqual(extractTocLinks('[a](<with space.md#h1>)')[0].destination, 'with space.md');
+      const [tocLink1] = extractTocLinks('[a](<with space.md#h1>)');
+      assert.ok(tocLink1 !== undefined);
+      assert.strictEqual(tocLink1.destination, 'with space.md');
     });
 
     it('decodes %20 but never falls back to the raw form', () => {
-      assert.strictEqual(extractTocLinks('[a](01%20Get%20Started.md)')[0].destination, '01 Get Started.md');
+      const [tocLink2] = extractTocLinks('[a](01%20Get%20Started.md)');
+      assert.ok(tocLink2 !== undefined);
+      assert.strictEqual(tocLink2.destination, '01 Get Started.md');
     });
 
     it('skips malformed percent escapes fail-closed', () => {
       const links = extractTocLinks('[a](bad%zzname.md)');
-      assert.strictEqual(links[0].destination, null);
-      assert.strictEqual(links[0].skip, 'malformed');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, null);
+      assert.strictEqual(firstTocLink.skip, 'malformed');
     });
 
     it('skips images, self-anchors and external schemes', () => {
       const links = extractTocLinks(
         '![diagram](assets/d.png) [go](#top) [site](https://example.com/x.md) [mail](mailto:a@b.c) [ref][1]'
       );
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
       // Images and reference-style tails never parse as links at all; the
       // three real inline links parse but carry skip reasons.
       assert.strictEqual(links.length, 3);
@@ -68,6 +142,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
 
     it('ignores a stray unterminated bracket without aborting later links', () => {
       const links = extractTocLinks('[oops [nested](a.md)\n[ok](b.md)');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
       const targets = links.map((l) => l.destination).filter(Boolean);
       assert.ok(targets.includes('a.md'));
       assert.ok(targets.includes('b.md'));
@@ -77,20 +153,20 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // so a README full of stray brackets used to re-scan the whole remainder for
     // every candidate: 200 KB of `[` stalled `adopt --auto-chain` for close to
     // two minutes at 100 % CPU. `deriveTocEnumeration` reads every README in the
-    // vault unattended, so one pathological file was enough. The bound is loose
-    // on purpose — the defect it detects costs seconds, not milliseconds.
+    // vault unattended, so one pathological file was enough. Judged in operations
+    // (see TocScanStats), not milliseconds: a wall-clock bound is red on a loaded
+    // host and green on a fast one for the same code.
     it('stays linear on a pathological run of stray brackets', () => {
-      for (const [label, junk] of [
-        ['unopened labels', '['.repeat(100000)],
-        ['unclosed destinations', '[x]('.repeat(50000)],
+      for (const [label, build] of [
+        ['unopened labels', (n: number) => `[L](d/l.md)\n${'['.repeat(n)}`],
+        ['unclosed destinations', (n: number) => `[L](d/l.md)\n${'[x]('.repeat(n)}`],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(`[L](d/l.md)\n${junk}`)
-          .map((l) => l.destination)
-          .filter(Boolean);
-        const elapsed = performance.now() - started;
+        const smallSteps = scanCounted(build(25000)).steps;
+        const largeText = build(100000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter(Boolean);
         assert.ok(targets.includes('d/l.md'), `${label}: the real link must still be found`);
-        assert.ok(elapsed < 2000, `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -99,28 +175,23 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // diff — defeated it and put every `[` back on the quadratic path, each
     // paying a full `findLabelEnd` walk to end-of-text. Measured on the unfixed
     // scanner with `'['.repeat(N) + ']'`: 20 000 brackets 0.6 s, 40 000 2.8 s,
-    // 80 000 20 s, 160 000 82 s. This 100 000-bracket case took 17.8 s there and
-    // ~2 ms linearised, so the bound below is ~9x under the defect and ~1000x
-    // over the fix: red on any return of the rescan, green on a loaded host.
+    // 80 000 20 s, 160 000 82 s. Judged in operations now: the regressed walk
+    // costs ~16x for 4x input, the linearised scan ~4x.
     it('does not rescan every label when one stray ] defeats the no-closer bail', () => {
-      for (const [label, junk] of [
-        ['run of opens closed once', `${'['.repeat(100000)}]`],
-        ['real links on both sides of the junk', `[L](d/l.md)\n${'['.repeat(100000)}]\n[ok](b.md)`],
+      for (const [label, build, expected] of [
+        ['run of opens closed once', (n: number) => `${'['.repeat(n)}]`, []],
+        [
+          'real links on both sides of the junk',
+          (n: number) => `[L](d/l.md)\n${'['.repeat(n)}]\n[ok](b.md)`,
+          ['d/l.md', 'b.md'],
+        ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(junk)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a label scan is being repeated`
-        );
-        if (label === 'run of opens closed once') {
-          assert.deepStrictEqual(targets, [], 'a run of stray brackets enumerates nothing');
-        } else {
-          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
-        }
+        const smallSteps = scanCounted(build(25000)).steps;
+        const largeText = build(100000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -133,28 +204,22 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // 180 KB 5.8 s, 360 KB 20 s, 720 KB 79 s. `TOC_MAX_SOURCE_BYTES` caps a
     // document at 512 KiB, which still leaves ~40 s for one pathological README and
     // an unbounded aggregate over a vault, because `deriveTocEnumeration` reads
-    // every one of them. Bound chosen the same way as the label case above: ~10x
-    // under the defect at this size, far over the linearised scan.
+    // every one of them. Judged in operations now: ~16x for 4x input when regressed.
     it('does not rescan every destination when none of them balances', () => {
-      const junk = '[a](b(c) '.repeat(40000);
-      for (const [label, text] of [
-        ['run of unbalanced destinations', junk],
-        ['real links on both sides of the junk', `[L](d/l.md)\n${junk}\n[ok](b.md)`],
+      for (const [label, build, expected] of [
+        ['run of unbalanced destinations', (reps: number) => '[a](b(c) '.repeat(reps), []],
+        [
+          'real links on both sides of the junk',
+          (reps: number) => `[L](d/l.md)\n${'[a](b(c) '.repeat(reps)}\n[ok](b.md)`,
+          ['d/l.md', 'b.md'],
+        ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(text)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — a destination scan is being repeated`
-        );
-        if (label === 'run of unbalanced destinations') {
-          assert.deepStrictEqual(targets, [], 'a run of unbalanced destinations enumerates nothing');
-        } else {
-          assert.deepStrictEqual(targets, ['d/l.md', 'b.md'], `${label}: the real links survive the junk`);
-        }
+        const smallSteps = scanCounted(build(10000)).steps;
+        const largeText = build(40000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -164,32 +229,25 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     // README of stray angle brackets therefore restarts a scan of the rest of the file
     // for every preceding `[`. Measured on the unfixed scanner, over
     // `'[a](<b'.repeat(N) + ')'`: 2 500 → 119 ms, 5 000 → 444 ms, 10 000 → 4 746 ms,
-    // ~quadratic in N, so 20 000 → ~19 s. 10 000 cleared the defect by only ~2.4x of
-    // the 2000 ms bound — too thin a margin against a fast runner that could race a
-    // regressed walk under the clock — so this uses 20 000 to match the ~9x headroom the
-    // two guards above keep. Note the second case holds both delimiters — the walk is
-    // unbounded when a `>` exists but no `)` follows it, which no single-character
-    // bail can see.
+    // ~quadratic in N. Judged in operations now: ~16x for 4x input when regressed.
+    // Note the second case holds both delimiters — the walk is unbounded when a `>`
+    // exists but no `)` follows it, which no single-character bail can see.
     it('does not rescan every angle destination when none of them closes', () => {
-      for (const [label, text, expected] of [
-        ['no unescaped > at all', `${'[a](<b'.repeat(20000)})`, []],
-        ['a > with no ) after it', `${'[a](<b'.repeat(20000)})>`, []],
+      for (const [label, build, expected] of [
+        ['no unescaped > at all', (n: number) => `${'[a](<b'.repeat(n)})`, []],
+        ['a > with no ) after it', (n: number) => `${'[a](<b'.repeat(n)})>`, []],
         [
           'real links on both sides of the junk',
-          `[L](d/l.md)\n${'[a](<b'.repeat(20000)}\n[ok](b.md)`,
+          (n: number) => `[L](d/l.md)\n${'[a](<b'.repeat(n)}\n[ok](b.md)`,
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
-        const started = performance.now();
-        const targets = extractTocLinks(text)
-          .map((l) => l.destination)
-          .filter((d): d is string => d !== null);
-        const elapsed = performance.now() - started;
-        assert.ok(
-          elapsed < 2000,
-          `${label}: took ${Math.round(elapsed)}ms, expected under 2000ms — an angle destination scan is being repeated`
-        );
-        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the bound`);
+        const smallSteps = scanCounted(build(5000)).steps;
+        const largeText = build(20000);
+        const { links, steps: largeSteps } = scanCounted(largeText);
+        const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
+        assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
+        assertLinearGrowth(label, smallSteps, largeSteps, largeText.length);
       }
     });
 
@@ -311,6 +369,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
 
     it('ignores links inside an unclosed fence to the end of the file', () => {
       const links = extractTocLinks('- [Real](a.md)\n```md\n- [Ghost](b.md)\n');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
       assert.deepStrictEqual(
         links.map((l) => l.destination),
         ['a.md']
@@ -367,22 +427,40 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       );
     });
 
+    it('blanks each closed comment in a run and leaves a trailing unclosed one followed', () => {
+      // The blanking scan resumes past each match instead of restarting at the
+      // next opener — the property that keeps it linear — and an unterminated
+      // opener still blanks nothing, so the links after it stay followed.
+      assert.deepStrictEqual(
+        extractTocLinks(
+          '<!-- [a](a.md) -->\n<!-- [b](b.md) -->\n<!-- [c](c.md)\n- [live](live.md)'
+        ).map((l) => l.destination),
+        ['c.md', 'live.md']
+      );
+    });
+
     // CommonMark allows balanced parentheses in a bare destination, and study
     // vaults really do have files like `intro(v2).md`. The first `)` ended the
     // destination, so the link resolved as missing (or onto the truncated
     // namesake) and the author's ordering edge was silently never written.
     it('keeps balanced parentheses inside a bare destination', () => {
       const links = extractTocLinks('- [Lesson](notes/intro(v2).md)');
-      assert.strictEqual(links[0].destination, 'notes/intro(v2).md');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, 'notes/intro(v2).md');
     });
 
     it('keeps balanced parentheses in a destination carrying a title', () => {
       const links = extractTocLinks('- [Lesson](notes/intro(v2).md "The (best) intro")');
-      assert.strictEqual(links[0].destination, 'notes/intro(v2).md');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, 'notes/intro(v2).md');
     });
 
     it('still ends a bare destination at the unbalanced close paren', () => {
       const links = extractTocLinks('- [a](x.md) then [b](y.md)');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
       assert.deepStrictEqual(
         links.map((l) => l.destination),
         ['x.md', 'y.md']
@@ -396,10 +474,16 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // The fragment separator is a LITERAL `#` in the destination; `%23` is an
       // encoded `#` inside the path. Decoding first turned `notes/c%23.md` into
       // `notes/c#.md`, then split it at `#` -> `notes/c` -> a different note.
-      assert.strictEqual(extractTocLinks('[sharp](notes/c%23.md)')[0].destination, 'notes/c#.md');
-      assert.strictEqual(extractTocLinks('[both](notes/c%23.md#section)')[0].destination, 'notes/c#.md');
+      const [tocLink3] = extractTocLinks('[sharp](notes/c%23.md)');
+      assert.ok(tocLink3 !== undefined);
+      assert.strictEqual(tocLink3.destination, 'notes/c#.md');
+      const [tocLink4] = extractTocLinks('[both](notes/c%23.md#section)');
+      assert.ok(tocLink4 !== undefined);
+      assert.strictEqual(tocLink4.destination, 'notes/c#.md');
       // One decode pass only: `%2523` is a literal `%23` in the filename, not a `#`.
-      assert.strictEqual(extractTocLinks('[dbl](x%2523.md)')[0].destination, 'x%23.md');
+      const [tocLink5] = extractTocLinks('[dbl](x%2523.md)');
+      assert.ok(tocLink5 !== undefined);
+      assert.strictEqual(tocLink5.destination, 'x%23.md');
     });
 
     it('records a bare destination with an unescaped space as unparseable, never truncated', () => {
@@ -407,13 +491,21 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // `notes/my.md`. CommonMark requires <angle brackets> or a %XX/backslash
       // escape for a space in a bare destination; failing to parse it is a skip.
       const links = extractTocLinks('[my](notes/my note.md)');
-      assert.strictEqual(links[0].destination, null);
-      assert.strictEqual(links[0].skip, 'unescaped-space');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, null);
+      assert.strictEqual(firstTocLink.skip, 'unescaped-space');
       // The documented supported forms must keep resolving onto the spaced note:
-      assert.strictEqual(extractTocLinks('[a](<notes/my note.md>)')[0].destination, 'notes/my note.md');
-      assert.strictEqual(extractTocLinks('[a](notes/my%20note.md)')[0].destination, 'notes/my note.md');
+      const [tocLink6] = extractTocLinks('[a](<notes/my note.md>)');
+      assert.ok(tocLink6 !== undefined);
+      assert.strictEqual(tocLink6.destination, 'notes/my note.md');
+      const [tocLink7] = extractTocLinks('[a](notes/my%20note.md)');
+      assert.ok(tocLink7 !== undefined);
+      assert.strictEqual(tocLink7.destination, 'notes/my note.md');
       // A real `path + "title"` is still a title, not an unescaped space.
-      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
+      const [tocLink8] = extractTocLinks('[a](path.md "A Title")');
+      assert.ok(tocLink8 !== undefined);
+      assert.strictEqual(tocLink8.destination, 'path.md');
     });
 
     it('keeps a backslash literal unless it escapes a destination character, so it cannot collapse onto a sibling', () => {
@@ -421,11 +513,19 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // sibling note. Digits and letters are not ASCII punctuation, so their
       // backslash survives; every escapable character is unpinned by the sweep
       // below.
-      assert.strictEqual(extractTocLinks('[x](01-a\\02-b.md)')[0].destination, '01-a\\02-b.md');
-      assert.strictEqual(extractTocLinks('[x](notes/v1\\b2.md)')[0].destination, 'notes/v1\\b2.md');
+      const [tocLink9] = extractTocLinks('[x](01-a\\02-b.md)');
+      assert.ok(tocLink9 !== undefined);
+      assert.strictEqual(tocLink9.destination, '01-a\\02-b.md');
+      const [tocLink10] = extractTocLinks('[x](notes/v1\\b2.md)');
+      assert.ok(tocLink10 !== undefined);
+      assert.strictEqual(tocLink10.destination, 'notes/v1\\b2.md');
       // Genuine destination escapes still work (unchanged behaviour):
-      assert.strictEqual(extractTocLinks('[a](intro\\(v2\\).md)')[0].destination, 'intro(v2).md');
-      assert.strictEqual(extractTocLinks('[a](a\\\\b.md)')[0].destination, 'a\\b.md');
+      const [tocLink11] = extractTocLinks('[a](intro\\(v2\\).md)');
+      assert.ok(tocLink11 !== undefined);
+      assert.strictEqual(tocLink11.destination, 'intro(v2).md');
+      const [tocLink12] = extractTocLinks('[a](a\\\\b.md)');
+      assert.ok(tocLink12 !== undefined);
+      assert.strictEqual(tocLink12.destination, 'a\\b.md');
     });
 
     // CommonMark 2.4: "Any ASCII punctuation character may be backslash-escaped",
@@ -443,15 +543,23 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(SWEEPABLE.length, 30);
       for (const p of SWEEPABLE) {
         const links = extractTocLinks('[a](notes/v1\\' + p + '2.md)');
-        assert.strictEqual(links[0].destination, 'notes/v1' + p + '2.md', `\\${p} must lose its backslash`);
+        const [firstTocLink] = links;
+        assert.ok(firstTocLink !== undefined);
+        assert.strictEqual(firstTocLink.destination, 'notes/v1' + p + '2.md', `\\${p} must lose its backslash`);
       }
       // The headline form: an escaped dot is the note `v1.2.md`, not `v1\.2.md`.
-      assert.strictEqual(extractTocLinks('[a](notes/v1\\.2.md)')[0].destination, 'notes/v1.2.md');
+      const [tocLink13] = extractTocLinks('[a](notes/v1\\.2.md)');
+      assert.ok(tocLink13 !== undefined);
+      assert.strictEqual(tocLink13.destination, 'notes/v1.2.md');
       // `#` and `%` are no longer blind spots: their escape survives long enough
       // for `normalizeTocLink` to split the fragment and decode the percents, so
       // `destination` shows the unescaping the same way it does for the rest.
-      assert.strictEqual(extractTocLinks('[a](notes/v1\\#2.md)')[0].destination, 'notes/v1#2.md');
-      assert.strictEqual(extractTocLinks('[a](notes/v1\\%2.md)')[0].destination, 'notes/v1%2.md');
+      const [tocLink14] = extractTocLinks('[a](notes/v1\\#2.md)');
+      assert.ok(tocLink14 !== undefined);
+      assert.strictEqual(tocLink14.destination, 'notes/v1#2.md');
+      const [tocLink15] = extractTocLinks('[a](notes/v1\\%2.md)');
+      assert.ok(tocLink15 !== undefined);
+      assert.strictEqual(tocLink15.destination, 'notes/v1%2.md');
     });
 
     // Review follow-ups on the same three forms. Each one is the PR's own defect
@@ -460,36 +568,60 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     it('keeps an escaped # out of the anchor split, in either destination form', () => {
       // `\#` is a literal hash in the filename. Cutting at it sent the lookup to
       // `notes/c`, and a note by that name is a real, unrelated file.
-      assert.strictEqual(extractTocLinks('[a](notes/c\\#2.md#section)')[0].destination, 'notes/c#2.md');
-      assert.strictEqual(extractTocLinks('[a](<notes/c\\#2.md>)')[0].destination, 'notes/c#2.md');
+      const [tocLink16] = extractTocLinks('[a](notes/c\\#2.md#section)');
+      assert.ok(tocLink16 !== undefined);
+      assert.strictEqual(tocLink16.destination, 'notes/c#2.md');
+      const [tocLink17] = extractTocLinks('[a](<notes/c\\#2.md>)');
+      assert.ok(tocLink17 !== undefined);
+      assert.strictEqual(tocLink17.destination, 'notes/c#2.md');
       // A literal hash still begins a fragment when nothing escaped it.
-      assert.strictEqual(extractTocLinks('[a](notes/c#2.md)')[0].destination, 'notes/c');
+      const [tocLink18] = extractTocLinks('[a](notes/c#2.md)');
+      assert.ok(tocLink18 !== undefined);
+      assert.strictEqual(tocLink18.destination, 'notes/c');
       // …and a doubled backslash before one is a literal backslash *and* a real
       // fragment: `\\` resolves to data first, so the `#` that follows is syntax.
       // Without the marks surviving the scan these two spellings are identical.
-      assert.strictEqual(extractTocLinks('[a](x\\\\#y.md)')[0].destination, 'x\\');
-      assert.strictEqual(extractTocLinks('[a](x\\\\\\#y.md)')[0].destination, 'x\\#y.md');
+      const [tocLink19] = extractTocLinks('[a](x\\\\#y.md)');
+      assert.ok(tocLink19 !== undefined);
+      assert.strictEqual(tocLink19.destination, 'x\\');
+      const [tocLink20] = extractTocLinks('[a](x\\\\\\#y.md)');
+      assert.ok(tocLink20 !== undefined);
+      assert.strictEqual(tocLink20.destination, 'x\\#y.md');
     });
 
     it('keeps an escaped % out of the percent decode', () => {
       // `\%20` is a literal percent, not an encoded space: decoding it looked up
       // `notes/a b.md` while the author named `notes/a%20b.md`.
-      assert.strictEqual(extractTocLinks('[a](notes/a\\%20b.md)')[0].destination, 'notes/a%20b.md');
-      assert.strictEqual(extractTocLinks('[a](<notes/a\\%20b.md>)')[0].destination, 'notes/a%20b.md');
+      const [tocLink21] = extractTocLinks('[a](notes/a\\%20b.md)');
+      assert.ok(tocLink21 !== undefined);
+      assert.strictEqual(tocLink21.destination, 'notes/a%20b.md');
+      const [tocLink22] = extractTocLinks('[a](<notes/a\\%20b.md>)');
+      assert.ok(tocLink22 !== undefined);
+      assert.strictEqual(tocLink22.destination, 'notes/a%20b.md');
       // An unescaped percent still decodes, and a malformed one is still refused.
-      assert.strictEqual(extractTocLinks('[a](notes/a%20b.md)')[0].destination, 'notes/a b.md');
-      assert.strictEqual(extractTocLinks('[a](notes/a%zz.md)')[0].skip, 'malformed');
+      const [tocLink23] = extractTocLinks('[a](notes/a%20b.md)');
+      assert.ok(tocLink23 !== undefined);
+      assert.strictEqual(tocLink23.destination, 'notes/a b.md');
+      const [tocLink24] = extractTocLinks('[a](notes/a%zz.md)');
+      assert.ok(tocLink24 !== undefined);
+      assert.strictEqual(tocLink24.skip, 'malformed');
     });
 
     it('does not trim a space the destination itself encoded', () => {
       // `%20` decodes to a space, and `decoded.trim()` then removed it, turning a
       // lookup for `notes/file.md ` into one for `notes/file.md` — the truncation
       // `unescaped-space` refuses in the raw form, re-added in the decoded one.
-      assert.strictEqual(extractTocLinks('[a](notes/file.md%20)')[0].destination, 'notes/file.md ');
-      assert.strictEqual(extractTocLinks('[a](%20notes/file.md)')[0].destination, ' notes/file.md');
+      const [tocLink25] = extractTocLinks('[a](notes/file.md%20)');
+      assert.ok(tocLink25 !== undefined);
+      assert.strictEqual(tocLink25.destination, 'notes/file.md ');
+      const [tocLink26] = extractTocLinks('[a](%20notes/file.md)');
+      assert.ok(tocLink26 !== undefined);
+      assert.strictEqual(tocLink26.destination, ' notes/file.md');
       // Whitespace the author typed around the destination is still not data, and
       // a destination that is only whitespace is still `empty`.
-      assert.strictEqual(extractTocLinks('[a](%20%20)')[0].skip, 'empty');
+      const [tocLink27] = extractTocLinks('[a](%20%20)');
+      assert.ok(tocLink27 !== undefined);
+      assert.strictEqual(tocLink27.skip, 'empty');
     });
 
     it('refuses trailing text after a title instead of reading it as one title', () => {
@@ -497,13 +629,23 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // checked. CommonMark allows exactly one delimited title, so this is not a
       // link at all — and accepting the prefix authored an edge onto `notes/my`.
       const links = extractTocLinks('[a](notes/my "one" "two")');
-      assert.strictEqual(links[0].destination, null);
-      assert.strictEqual(links[0].skip, 'unescaped-space');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, null);
+      assert.strictEqual(firstTocLink.skip, 'unescaped-space');
       // One title, with or without inner spaces, stays a title.
-      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].destination, 'path.md');
-      assert.strictEqual(extractTocLinks('[a](path.md "it (works)")')[0].destination, 'path.md');
-      assert.strictEqual(extractTocLinks('[a](path.md (parens))')[0].destination, 'path.md');
-      assert.strictEqual(extractTocLinks('[a](path.md \'single\')')[0].destination, 'path.md');
+      const [tocLink28] = extractTocLinks('[a](path.md "A Title")');
+      assert.ok(tocLink28 !== undefined);
+      assert.strictEqual(tocLink28.destination, 'path.md');
+      const [tocLink29] = extractTocLinks('[a](path.md "it (works)")');
+      assert.ok(tocLink29 !== undefined);
+      assert.strictEqual(tocLink29.destination, 'path.md');
+      const [tocLink30] = extractTocLinks('[a](path.md (parens))');
+      assert.ok(tocLink30 !== undefined);
+      assert.strictEqual(tocLink30.destination, 'path.md');
+      const [tocLink31] = extractTocLinks('[a](path.md \'single\')');
+      assert.ok(tocLink31 !== undefined);
+      assert.strictEqual(tocLink31.destination, 'path.md');
     });
 
     // The angle-bracket form shares the bare form's escape grammar; only its
@@ -515,15 +657,21 @@ describe('TOC tier engine (PAL-205-C3)', () => {
     it('unescapes every ASCII punctuation character in an angle-bracket destination', () => {
       for (const p of SWEEPABLE) {
         const links = extractTocLinks('[a](<notes/v1\\' + p + '2.md>)');
+        const [firstTocLink] = links;
+        assert.ok(firstTocLink !== undefined);
         assert.strictEqual(
-          links[0].destination,
+          firstTocLink.destination,
           'notes/v1' + p + '2.md',
           `\\${p} must lose its backslash inside <…>`
         );
       }
-      assert.strictEqual(extractTocLinks('[a](<01-a\\02-b.md>)')[0].destination, '01-a\\02-b.md');
+      const [tocLink32] = extractTocLinks('[a](<01-a\\02-b.md>)');
+      assert.ok(tocLink32 !== undefined);
+      assert.strictEqual(tocLink32.destination, '01-a\\02-b.md');
       // An escaped `>` stays data — it must not close the destination.
-      assert.strictEqual(extractTocLinks('[a](<notes/a\\>b.md>)')[0].destination, 'notes/a>b.md');
+      const [tocLink33] = extractTocLinks('[a](<notes/a\\>b.md>)');
+      assert.ok(tocLink33 !== undefined);
+      assert.strictEqual(tocLink33.destination, 'notes/a>b.md');
     });
 
     it('reports the whole destination as written when a bare one is refused for a space', () => {
@@ -531,16 +679,24 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       // is what a skip report line is built from. Handing back the truncated
       // prefix showed the author a path they never typed.
       const links = extractTocLinks('[my](notes/my note.md)');
-      assert.strictEqual(links[0].destination, null);
-      assert.strictEqual(links[0].skip, 'unescaped-space');
-      assert.strictEqual(links[0].raw, 'notes/my note.md');
+      const [firstTocLink] = links;
+      assert.ok(firstTocLink !== undefined);
+      assert.strictEqual(firstTocLink.destination, null);
+      assert.strictEqual(firstTocLink.skip, 'unescaped-space');
+      assert.strictEqual(firstTocLink.raw, 'notes/my note.md');
+      const [severalWordsLink] = extractTocLinks('[my](notes/my note with several words.md)');
+      assert.ok(severalWordsLink !== undefined);
       assert.strictEqual(
-        extractTocLinks('[my](notes/my note with several words.md)')[0].raw,
+        severalWordsLink.raw,
         'notes/my note with several words.md'
       );
-      assert.strictEqual(extractTocLinks('[a](x\\ y.md)')[0].raw, 'x\\ y.md');
+      const [tocLink34] = extractTocLinks('[a](x\\ y.md)');
+      assert.ok(tocLink34 !== undefined);
+      assert.strictEqual(tocLink34.raw, 'x\\ y.md');
       // A real title is not a refusal: `raw` stays the destination, not the slice.
-      assert.strictEqual(extractTocLinks('[a](path.md "A Title")')[0].raw, 'path.md');
+      const [tocLink35] = extractTocLinks('[a](path.md "A Title")');
+      assert.ok(tocLink35 !== undefined);
+      assert.strictEqual(tocLink35.raw, 'path.md');
     });
   });
 
@@ -571,6 +727,30 @@ describe('TOC tier engine (PAL-205-C3)', () => {
 
     it('treats a leading slash as vault-root relative', () => {
       assert.strictEqual(foldTocDestination('/01-x/intro.md', '09-y').relativePath, '01-x/intro.md');
+    });
+
+    it('folds the vault root itself onto its README instead of naming nothing', () => {
+      // A destination that folds to zero segments used to assign
+      // `segments[segments.length - 1]` at index -1 — a non-array property that
+      // `join('/')` drops — so the fold returned `''` with `escapedRoot: false`,
+      // and `src/storage/toc.ts` reported the link as `escaped-vault`.
+      assert.deepStrictEqual(foldTocDestination('/', ''), { relativePath: 'README.md', escapedRoot: false });
+      assert.deepStrictEqual(foldTocDestination('./', ''), { relativePath: 'README.md', escapedRoot: false });
+      // The absolute arm anchors at the vault root whichever directory the TOC
+      // file sits in, so `/` is the root README from `m/` too.
+      assert.deepStrictEqual(foldTocDestination('/', 'm'), { relativePath: 'README.md', escapedRoot: false });
+      // A relative `./` keeps its own directory, and only gains the README.
+      assert.deepStrictEqual(foldTocDestination('./', 'm/01-x'), {
+        relativePath: 'm/01-x/README.md',
+        escapedRoot: false,
+      });
+    });
+
+    it('names no path for a destination that folds away without asking for a folder', () => {
+      // `.` never requested a folder, so there is no README to synthesize: `''`
+      // here means "names nothing", and it is distinct from an escape only
+      // because `escapedRoot` stays false.
+      assert.deepStrictEqual(foldTocDestination('.', ''), { relativePath: '', escapedRoot: false });
     });
 
     it('keeps backslashes literal (never a separator)', () => {

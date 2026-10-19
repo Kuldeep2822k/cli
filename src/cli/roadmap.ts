@@ -164,7 +164,13 @@ function applyRoadmapAutoChain(topics: RoadmapTopic[]): RoadmapChainResult {
       // them. Same rule as the cycle-skip branch below.
       return;
     }
-    const predecessorId = indexed[rank - 1].topic.id;
+    const predecessorEntry = indexed[rank - 1];
+    if (predecessorEntry === undefined) {
+      // Unreachable: `rank === 0` returned above and `rank < indexed.length`,
+      // so `rank - 1` is a valid index.
+      return;
+    }
+    const predecessorId = predecessorEntry.topic.id;
     if (reaches(predecessorId, topic.id)) {
       // Left unassigned rather than set to `[]`: skipping an edge must not
       // also erase dependencies the note already had on disk, which an
@@ -358,7 +364,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const config = loadConfig();
     // The roadmap's own source file is printed later; this names the vault those
     // notes are written into, which is the fact a mis-scoped run never reported (#311).
-    const target = resolveVaultTarget(config);
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false });
     if (!target) return;
     const vaultPath = target.vaultPath;
     const roadmapPath = path.resolve(options.from);
@@ -581,7 +589,14 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     for (const t of existingTopics) {
       if (!topicsMap.has(t.id)) {
-        topicsMap.set(t.id, { palee_id: t.id, depends_on: t.depends_on, topic_mastery: 0 });
+        // `exactOptionalPropertyTypes` rejects explicit `undefined`, so the
+        // key is only set when the note actually carries dependencies; the
+        // cycle pass treats a missing `depends_on` the same as `undefined`.
+        topicsMap.set(t.id, {
+          palee_id: t.id,
+          ...(t.depends_on !== undefined ? { depends_on: t.depends_on } : {}),
+          topic_mastery: 0,
+        });
       }
     }
 
@@ -796,7 +811,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const stored = existingTopicsById.get(id);
         effectiveIfSkipped.set(id, {
           palee_id: id,
-          depends_on: stored ? stored.depends_on : [],
+          depends_on: stored?.depends_on ?? [],
           topic_mastery: 0,
         });
       }

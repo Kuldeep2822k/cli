@@ -9,13 +9,12 @@ import { parseFrontmatter } from '../src/storage';
 
 /**
  * Isolated temp vault + PALEE config (mirrors the pattern in
- * cli-mastery-fallback.test.ts). `isTTY` forces the human/JSON output mode
- * deterministically, because `isJsonOutput()` also auto-switches on a
- * non-TTY stdout.
+ * cli-mastery-fallback.test.ts). Human-readable output is the default
+ * regardless of TTY state: isJsonOutput() only switches to JSON on the
+ * explicit --json flag or PALEE_JSON (#357).
  */
 async function runInTempVault(
-  fn: (vaultPath: string) => Promise<void>,
-  options: { isTTY?: boolean } = {}
+  fn: (vaultPath: string) => Promise<void>
 ): Promise<void> {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug003-'));
   const vaultPath = path.join(tempDir, 'vault');
@@ -23,20 +22,26 @@ async function runInTempVault(
   fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify({ vaultPath }, null, 2));
 
   const origConfigDir = process.env.PALEE_CONFIG_DIR;
-  const origIsTTY = process.stdout.isTTY;
+  const origPaleeJson = process.env.PALEE_JSON;
   const origExitCode = process.exitCode;
   process.env.PALEE_CONFIG_DIR = tempDir;
-  process.stdout.isTTY = options.isTTY ?? true;
+  // Human-output assertions must not depend on the ambient environment:
+  // clear PALEE_JSON for the test body, then restore it.
+  delete process.env.PALEE_JSON;
   process.exitCode = 0;
   try {
     await fn(vaultPath);
   } finally {
-    process.stdout.isTTY = origIsTTY;
     process.exitCode = origExitCode;
     if (origConfigDir !== undefined) {
       process.env.PALEE_CONFIG_DIR = origConfigDir;
     } else {
       delete process.env.PALEE_CONFIG_DIR;
+    }
+    if (origPaleeJson !== undefined) {
+      process.env.PALEE_JSON = origPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

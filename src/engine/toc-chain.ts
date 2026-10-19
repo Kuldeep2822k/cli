@@ -68,6 +68,31 @@ export interface TocLink {
 const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /**
+ * Operation counts for one {@link extractTocLinks} scan.
+ *
+ * @remarks A single number on purpose: the complexity guards assert it stays
+ * linear in the input length. It counts every character the scanner's own loop
+ * and walks examine — `indexOf` probes, `findLabelEnd` / `readDestination`
+ * walks, balance/closer table builds — plus one input length for the up-front
+ * markup-blanking pass. Per-link `normalizeTocLink` decoding is linear in the
+ * link text and is deliberately not counted.
+ */
+export interface TocScanStats {
+  steps: number;
+}
+
+/**
+ * Characters examined by a forward `indexOf` probe from `from`.
+ *
+ * @remarks `indexOf` looks at each position from `from` up to and including the
+ * match, or to end-of-text when there is none — so the probe cost is exact
+ * without replacing the native call.
+ */
+function probeSteps(text: string, found: number, from: number): number {
+  return (found < 0 ? text.length : found + 1) - from;
+}
+
+/**
  * Extracts inline markdown link destinations from a document, in order.
  *
  * @param text - Raw markdown of one TOC file
@@ -89,9 +114,15 @@ const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * note that really exists, so a destination that only appears inside one of those
  * regions would still enter the chain and collect a persisted prerequisite from
  * documentation. Same rule, one implementation: {@link stripUnfollowableMarkup}.
+ *
+ * @param text - Raw markdown of one TOC file
+ * @param stats - Optional accumulator receiving the scan's operation count
+ * (see {@link TocScanStats}); the scan adds to any steps already recorded
  */
-export function extractTocLinks(text: string): TocLink[] {
+export function extractTocLinks(text: string, stats?: TocScanStats): TocLink[] {
+  const counter: TocScanStats = stats ?? { steps: 0 };
   const scanned = stripUnfollowableMarkup(text);
+  counter.steps += text.length; // the blanking pass above: one linear read
   const links: TocLink[] = [];
   let i = 0;
   /** Built the first time a label fails to close; see {@link BracketBalance}. */
@@ -105,6 +136,7 @@ export function extractTocLinks(text: string): TocLink[] {
   let angleClosers: AngleClosers | null = null;
   while (i < scanned.length) {
     const open = scanned.indexOf('[', i);
+    counter.steps += probeSteps(scanned, open, i);
     if (open < 0) break;
     // An image's label is not a link.
     if (open > 0 && scanned[open - 1] === '!') {
@@ -124,9 +156,11 @@ export function extractTocLinks(text: string): TocLink[] {
       // loop re-entered it for every remaining `[` — quadratic on a README of
       // stray brackets. If no `]` exists at or after `open`, none exists for any
       // later `[` either, so nothing past here can form a label.
-      if (scanned.indexOf(']', open) < 0) break;
+      const closerProbe = scanned.indexOf(']', open);
+      counter.steps += probeSteps(scanned, closerProbe, open);
+      if (closerProbe < 0) break;
     }
-    const close = findLabelEnd(scanned, open);
+    const close = findLabelEnd(scanned, open, counter);
     if (close < 0) {
       // The walk that just failed is the last full one this scan pays for: from
       // here every open `[` is answered from the balance table instead. Without
@@ -135,7 +169,7 @@ export function extractTocLinks(text: string): TocLink[] {
       // `[` back on the full-walk path. Issue #263 measured that at 64 s for
       // 160 KB of brackets, through the real `deriveTocEnumeration` API, where
       // one such file stalls `adopt --auto-chain` for the whole vault.
-      balance ??= buildBracketBalance(scanned, '[', ']');
+      balance ??= buildBracketBalance(scanned, '[', ']', counter);
       i = open + 1;
       continue;
     }
@@ -144,16 +178,15 @@ export function extractTocLinks(text: string): TocLink[] {
       i = close + 1;
       continue;
     }
-    // Destination bails, the counterparts of the label pair above. The break
-    // handles the document that holds no `)` at all from here on; the table handles
-    // the one that holds plenty of them but never one at the depth this link's own
-    // `(` left behind.
+    // Destination bails, the counterparts of the label pair above.
+    //
+    // When the table for this form already exists and says the destination
+    // cannot close, answer from it in O(1) — the `)` probe below scans to a
+    // possibly distant `)`, so running it first would put every link back on a
+    // full scan of the remainder (quadratic on stray-angle documents, where the
+    // native probe is merely fast enough to hide under a clock bound).
     const destStart = close + 2;
-    if (scanned.indexOf(')', destStart) < 0) break;
     if (scanned[destStart] === '<') {
-      // The angle form's own bound: paren depth answers nothing about a destination
-      // that closes on `>` plus a plain `)`, so the table above deliberately declines
-      // it (issue #287).
       if (angleClosers !== null && angleCannotClose(angleClosers, destStart)) {
         i = destStart;
         continue;
@@ -164,7 +197,16 @@ export function extractTocLinks(text: string): TocLink[] {
       i = destStart;
       continue;
     }
-    const dest = readDestination(scanned, destStart);
+    // The break handles the document that holds no `)` at all from here on; the
+    // table handles the one that holds plenty of them but never one at the depth
+    // this link's own `(` left behind. The probe still runs once per link, but a
+    // successful link advances past the closer it just found, so the scans never
+    // overlap and the total work stays linear instead of re-walking to a distant
+    // paren for every link.
+    const parenProbe = scanned.indexOf(')', destStart);
+    counter.steps += probeSteps(scanned, parenProbe, destStart);
+    if (parenProbe < 0) break;
+    const dest = readDestination(scanned, destStart, counter);
     if (!dest) {
       // The destination counterpart of the label defect: a document whose
       // destinations never balance — `[a](b(c) ` repeated, where every `)` is
@@ -178,8 +220,8 @@ export function extractTocLinks(text: string): TocLink[] {
       // construction, and left the angle walk as unbounded as it had been —
       // `'[a](<b'.repeat(10 000) + ')'` still cost 1.7 s until the closer table
       // existed.
-      if (scanned[destStart] === '<') angleClosers ??= buildAngleClosers(scanned);
-      else destBalance ??= buildBracketBalance(scanned, '(', ')');
+      if (scanned[destStart] === '<') angleClosers ??= buildAngleClosers(scanned, counter);
+      else destBalance ??= buildBracketBalance(scanned, '(', ')', counter);
       i = destStart;
       continue;
     }
@@ -196,9 +238,10 @@ export function extractTocLinks(text: string): TocLink[] {
  * Returns `-1` only after walking the rest of the text, which is the cost
  * {@link buildBracketBalance} exists to make unnecessary the second time.
  */
-function findLabelEnd(text: string, open: number): number {
+function findLabelEnd(text: string, open: number, counter: TocScanStats): number {
   let depth = 0;
   for (let i = open; i < text.length; i++) {
+    counter.steps++;
     if (text[i] === '\\') {
       i++;
       continue;
@@ -245,12 +288,13 @@ interface BracketBalance {
  * @param openCh - The delimiter that raises the depth
  * @param closeCh - The delimiter that lowers it, and that a failing scan is looking for
  */
-function buildBracketBalance(text: string, openCh: string, closeCh: string): BracketBalance {
+function buildBracketBalance(text: string, openCh: string, closeCh: string, counter: TocScanStats): BracketBalance {
   const length = text.length;
   const after = new Int32Array(length);
   const minFrom = new Int32Array(length + 1);
   let bal = 0;
   let i = 0;
+  counter.steps += length; // forward pass: every character examined once
   while (i < length) {
     const ch = text[i];
     if (ch === '\\') {
@@ -274,8 +318,12 @@ function buildBracketBalance(text: string, openCh: string, closeCh: string): Bra
   const noCloser = 0x7fffffff;
   minFrom[length] = noCloser;
   let lowest = noCloser;
+  counter.steps += length; // backward pass: every character examined once
   for (let j = length - 1; j >= 0; j--) {
-    if (after[j] < lowest) lowest = after[j];
+    // Every index below `length` was filled by the forward scan; the guard
+    // keeps the type honest rather than asserting it.
+    const bal = after[j];
+    if (bal !== undefined && bal < lowest) lowest = bal;
     minFrom[j] = lowest;
   }
   return { after, minFrom };
@@ -283,7 +331,13 @@ function buildBracketBalance(text: string, openCh: string, closeCh: string): Bra
 
 /** True when {@link findLabelEnd} would walk this label to end-of-text and return `-1`. */
 function labelCannotClose(balance: BracketBalance, open: number): boolean {
-  return balance.minFrom[open + 1] >= balance.after[open];
+  // `open` is an index into the same text the table was built from, so both
+  // reads are in bounds; when the table cannot answer, decline the bail and
+  // let the real walk decide rather than asserting.
+  const min = balance.minFrom[open + 1];
+  const bal = balance.after[open];
+  if (min === undefined || bal === undefined) return false;
+  return min >= bal;
 }
 
 /**
@@ -307,7 +361,13 @@ function labelCannotClose(balance: BracketBalance, open: number): boolean {
  */
 function destinationCannotClose(balance: BracketBalance, text: string, start: number): boolean {
   if (text[start] === '<') return false;
-  return balance.minFrom[start] >= balance.after[start - 1];
+  // `start` points at or after a real `)` in the same text the table was built
+  // from, so both reads are in bounds; when the table cannot answer, decline
+  // the bail and let the real walk decide rather than asserting.
+  const min = balance.minFrom[start];
+  const bal = balance.after[start - 1];
+  if (min === undefined || bal === undefined) return false;
+  return min >= bal;
 }
 
 /**
@@ -334,7 +394,7 @@ interface AngleClosers {
  * Paid for at most once per scan, and only after an angle destination has already
  * failed to close.
  */
-function buildAngleClosers(text: string): AngleClosers {
+function buildAngleClosers(text: string, counter: TocScanStats): AngleClosers {
   const length = text.length;
   const gt = new Int32Array(length + 1).fill(-1);
   const rp = new Int32Array(length + 1).fill(-1);
@@ -345,8 +405,12 @@ function buildAngleClosers(text: string): AngleClosers {
   // promote a `>` the walk would have taken for data, nor hide one it would have
   // honoured. `\d` is two literal characters and stops nowhere near a delimiter.
   let i = 0;
+  counter.steps += length; // forward pass: every character examined once
   while (i < length) {
-    if (text[i] === '\\' && i + 1 < length && isAsciiPunctuation(text[i + 1])) {
+    // `i + 1 < length` is implied by the read succeeding: past-the-end reads
+    // yield `undefined` and never satisfy the punctuation check.
+    const next = text[i + 1];
+    if (text[i] === '\\' && next !== undefined && isAsciiPunctuation(next)) {
       i += 2;
       continue;
     }
@@ -359,6 +423,7 @@ function buildAngleClosers(text: string): AngleClosers {
   // a tidier rule here would refuse to walk documents the walk closes successfully.
   let nextGt = -1;
   let nextRp = -1;
+  counter.steps += length; // backward pass: every character examined once
   for (let j = length - 1; j >= 0; j--) {
     if (candidate[j] === 1) nextGt = j;
     if (text[j] === ')') nextRp = j;
@@ -370,9 +435,15 @@ function buildAngleClosers(text: string): AngleClosers {
 
 /** True when the angle branch would walk this destination to end-of-text. */
 function angleCannotClose(closers: AngleClosers, start: number): boolean {
+  // `start` indexes the same text the tables were built from, so the reads are
+  // in bounds; when a table cannot answer, decline the bail and let the real
+  // walk decide rather than asserting.
   const gt = closers.gt[start];
+  if (gt === undefined) return false;
   if (gt < 0) return true;
-  return closers.rp[gt + 1] < 0;
+  const rp = closers.rp[gt + 1];
+  if (rp === undefined) return false;
+  return rp < 0;
 }
 
 interface RawDestination {
@@ -485,13 +556,17 @@ function looksLikeTitle(rest: string): boolean {
  * missing note (or, worse, onto an unrelated note with the truncated name) and
  * silently lost the author's ordering edge.
  */
-function readDestination(text: string, start: number): RawDestination | null {
+function readDestination(text: string, start: number, counter: TocScanStats): RawDestination | null {
   if (start >= text.length) return null;
   if (text[start] === '<') {
     let out = '';
     for (let i = start + 1; i < text.length; i++) {
+      counter.steps++;
       const ch = text[i];
-      if (ch === '\\' && i + 1 < text.length && isAsciiPunctuation(text[i + 1])) {
+      // `i + 1 < text.length` is implied by the read succeeding: past-the-end
+      // reads yield `undefined` and never satisfy the punctuation check.
+      const nextCh = text[i + 1];
+      if (ch === '\\' && nextCh !== undefined && isAsciiPunctuation(nextCh)) {
         // The escape grammar here is the *same* {@link isAsciiPunctuation} rule
         // the bare branch below uses — CommonMark resolves `\` + punctuation in
         // both forms (§2.4; verified against commonmark.js and markdown-it:
@@ -503,12 +578,13 @@ function readDestination(text: string, start: number): RawDestination | null {
         // So `\>` below is data and deliberately does not close the destination.
         // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
         // {@link keepsEscapeMark}.
-        out += keepsEscapeMark(text[i + 1]) ? ch + text[i + 1] : text[i + 1];
+        out += keepsEscapeMark(nextCh) ? ch + nextCh : nextCh;
         i++;
         continue;
       }
       if (ch === '>') {
         const close = text.indexOf(')', i + 1);
+        counter.steps += probeSteps(text, close, i + 1);
         if (close < 0) return null;
         return { raw: out, next: close + 1 };
       }
@@ -526,10 +602,18 @@ function readDestination(text: string, start: number): RawDestination | null {
     else out += ch;
   };
   for (let i = start; i < text.length; i++) {
+    counter.steps++;
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
     const ch = text[i];
+    if (ch === undefined) {
+      continue;
+    }
     if (ch === '\\' && i + 1 < text.length) {
+      // The `i + 1 < text.length` guard above means this exists; the check
+      // keeps the type honest rather than asserting it.
       const next = text[i + 1];
-      if (isAsciiPunctuation(next)) {
+      if (next !== undefined && isAsciiPunctuation(next)) {
         // An escape sequence: the backslash is syntax, the character is data.
         // Same class as the angle-bracket branch — see {@link isAsciiPunctuation}.
         // `#`, `%` and `\` keep their marks for `normalizeTocLink` — see
@@ -648,7 +732,10 @@ function decodePercents(text: string): string {
 function applyEscapeMarks(text: string): string {
   let out = '';
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\\' && i + 1 < text.length && keepsEscapeMark(text[i + 1])) {
+    // `i + 1 < text.length` is implied by the read succeeding: past-the-end
+    // reads yield `undefined` and never satisfy the mark check.
+    const next = text[i + 1];
+    if (text[i] === '\\' && next !== undefined && keepsEscapeMark(next)) {
       out += text[++i];
       continue;
     }
@@ -701,7 +788,8 @@ function normalizeTocLink(raw: string): TocLink {
 
 /** Result of folding one destination against the TOC file's directory. */
 export interface TocTargetCandidate {
-  /** Vault-relative POSIX path (`01-x/README.md`); `''` when the link escaped the root */
+  /** Vault-relative POSIX path (`01-x/README.md`); `''` when the fold names no
+   * path at all — an escape, or a destination that folds away entirely */
   relativePath: string;
   /** True when the fold walked above the vault root — storage must reject it */
   escapedRoot: boolean;
@@ -740,8 +828,13 @@ export function foldTocDestination(destination: string, tocDir: string): TocTarg
   let last = segments[segments.length - 1] ?? '';
   if (destination.endsWith('/')) {
     // Folder link → its README. Trailing slash dedupes with an explicit
-    // README.md link naturally via first-appearance dedup downstream.
-    segments[segments.length - 1] = `${last}/README.md`;
+    // README.md link naturally via first-appearance dedup downstream. A
+    // destination that folds to no segment at all is the vault root, and
+    // `segments[-1]` there is a non-index property `join('/')` silently drops —
+    // so `[Home](/)` came back `''` and the caller reported it as
+    // `escaped-vault` instead of chaining on the root `README.md`.
+    if (segments.length === 0) segments.push('README.md');
+    else segments[segments.length - 1] = `${last}/README.md`;
   } else if (last.length > 0 && !last.toLowerCase().endsWith('.md')) {
     // No extension at all → a note path (Obsidian/GitHub both allow it).
     // An extension that merely isn't `.md` (`.pdf`, `.png`) is left alone so
@@ -775,12 +868,16 @@ export function assertBackwardEdges(orderedPaths: string[], predecessorOf: Map<s
   const index = new Map<string, number>();
   orderedPaths.forEach((p, i) => index.set(p, i));
   for (let i = 0; i < orderedPaths.length; i++) {
-    const pred = predecessorOf.get(orderedPaths[i]) ?? null;
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
+    const path = orderedPaths[i];
+    if (path === undefined) continue;
+    const pred = predecessorOf.get(path) ?? null;
     if (pred === null) continue;
     const predIndex = index.get(pred);
     if (predIndex === undefined || predIndex >= i) {
       throw new Error(
-        `toc-chain invariant violated: ${orderedPaths[i]} gates on ${pred} which is not strictly earlier in the chain`
+        `toc-chain invariant violated: ${path} gates on ${pred} which is not strictly earlier in the chain`
       );
     }
   }
@@ -852,7 +949,11 @@ function tocLessonRank(basename: string): TocLessonRank {
   const prefix = parseNumericPrefix(basename);
   if (prefix !== null) return { rank: 1, n: prefix.n, phase: -1 };
   for (let i = 0; i < TOC_PHASE_PREFIXES.length; i++) {
-    if (hasKeywordPrefix(stem, TOC_PHASE_PREFIXES[i])) return { rank: 2, n: -1, phase: i };
+    // `i` is in bounds, so this exists; the guard keeps the type honest
+    // rather than asserting it.
+    const keyword = TOC_PHASE_PREFIXES[i];
+    if (keyword === undefined) continue;
+    if (hasKeywordPrefix(stem, keyword)) return { rank: 2, n: -1, phase: i };
   }
   if (TOC_ASSIGNMENT_PREFIXES.some((kw) => hasKeywordPrefix(stem, kw))) {
     return { rank: 4, n: -1, phase: -1 };
@@ -1015,9 +1116,17 @@ export function isInNumberedTree(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, '/');
   const segments = normalized.split('/');
   for (let i = 0; i < segments.length - 1; i++) {
-    if (parseNumericPrefix(segments[i]) !== null) return true;
+    // `i` is below `segments.length - 1`, so this exists; the guard keeps the
+    // type honest rather than asserting it.
+    const segment = segments[i];
+    if (segment === undefined) continue;
+    if (parseNumericPrefix(segment) !== null) return true;
   }
-  return parseNumericPrefix(segments[segments.length - 1]) !== null;
+  // `split` never yields an empty array, so the last segment exists; the guard
+  // keeps the type honest rather than asserting it.
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  return parseNumericPrefix(last) !== null;
 }
 
 /**

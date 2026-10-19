@@ -29,13 +29,14 @@ export type ProviderErrorKind = 'config' | 'network' | 'provider' | 'schema';
  */
 export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
+  /** Absent when there was no HTTP status (config, network, or schema failure). */
   readonly status?: number;
 
   constructor(kind: ProviderErrorKind, message: string, status?: number) {
     super(message);
     this.name = 'ProviderError';
     this.kind = kind;
-    this.status = status;
+    if (status !== undefined) this.status = status;
   }
 }
 
@@ -101,8 +102,10 @@ export type KeySource = 'env' | 'config' | 'none';
 export interface ProviderSettings {
   baseUrl: string;
   model: string;
+  /** Absent when no credential is configured (a loopback server may need none). */
   apiKey?: string;
   keySource: KeySource;
+  /** Absent when no provider name was configured. */
   providerName?: string;
 }
 
@@ -223,8 +226,13 @@ function isReservedIPv4(host: string): boolean {
 function embeddedIPv4(bare: string): string | undefined {
   const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
   if (!mapped) return undefined;
-  const hi = Number.parseInt(mapped[1], 16);
-  const lo = Number.parseInt(mapped[2], 16);
+  // A match fills both capture groups, but the type system cannot know that; fail
+  // explicitly rather than parsing an undefined value.
+  const hiText = mapped[1];
+  const loText = mapped[2];
+  if (hiText === undefined || loText === undefined) return undefined;
+  const hi = Number.parseInt(hiText, 16);
+  const lo = Number.parseInt(loText, 16);
   return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
 }
 
@@ -374,9 +382,9 @@ export function resolveProviderSettings(
   return {
     baseUrl: endpoint.origin + endpoint.pathname.replace(/\/+$/, ''),
     model: config.model?.trim() || DEFAULT_MODEL,
-    apiKey,
     keySource: fromEnv ? 'env' : config.apiKey ? 'config' : 'none',
-    providerName,
+    ...(apiKey !== undefined ? { apiKey } : {}),
+    ...(providerName !== undefined ? { providerName } : {}),
   };
 }
 
@@ -407,6 +415,7 @@ function messagesFor(request: ChatRequest): ChatTurn[] {
 export class OpenAICompatibleProvider {
   private readonly transport: Transport;
   private readonly timeoutMs: number;
+  /** Absent when the caller supplied no abort signal. */
   private readonly callerSignal?: AbortSignal;
   private readonly requestUrl: string;
   private readonly host: string;
@@ -422,7 +431,7 @@ export class OpenAICompatibleProvider {
     this.host = describeForeignText(settings.apiKey, endpoint.host);
     this.transport = options.transport ?? ((url, init) => fetch(url, init));
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.callerSignal = options.signal;
+    if (options.signal !== undefined) this.callerSignal = options.signal;
   }
 
   /** Resolves settings from a config object and builds the provider for them. */
