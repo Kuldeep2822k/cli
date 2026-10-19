@@ -8,6 +8,17 @@ import { PALEE_CMD, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { loadConfig, isConfigDirStorableForKey } from '../src/cli/config';
 
 /**
+ * The invoking shell's environment minus `PALEE_JSON`: an exported env var must
+ * not flip these human-output assertions to JSON, while each call can still set
+ * it explicitly through `extra`.
+ */
+function paleeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.PALEE_JSON;
+  return { ...env, ...extra };
+}
+
+/**
  * `palee config set-provider` could store a provider name and nothing else, so the
  * Phase-2 AI layer had nowhere to put the endpoint and credential its own design
  * document names (#82). These run the real CLI: the interesting properties are what
@@ -61,7 +72,7 @@ describe('CLI config provider credentials (#82)', () => {
         // Windows CI runner lives outside the user profile (and is reached via an
         // 8.3 short name). That is exactly what the #316 guard refuses, so opt out
         // of it here; the guard's own refusal is covered by `config dir guard (#316)`.
-        env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env },
+        env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env }),
         encoding: 'utf8',
         stdio: 'pipe',
         timeout: CLI_SPAWN_TIMEOUT_MS,
@@ -227,6 +238,24 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(JSON.parse(runConfig(['show', '--json'], unset).stdout).api_key_set, false);
   });
 
+  test('config show honors PALEE_JSON without the --json flag (#357)', () => {
+    // `config show` was the one reading command still testing the raw `--json`
+    // option instead of isJsonOutput, so a piped/cron caller with PALEE_JSON=1
+    // got the human report. Pin that env selection now reaches the success path.
+    const configDir = freshConfigDir();
+    runConfig(['set-base-url', 'https://opencode.ai/zen/v1'], configDir);
+    const shown = runConfig(['show'], configDir, { env: { PALEE_JSON: '1' } });
+    assert.strictEqual(shown.status, 0, shown.stderr);
+    const parsed = JSON.parse(shown.stdout);
+    assert.strictEqual(parsed.base_url, 'https://opencode.ai/zen/v1');
+    assert.strictEqual(typeof parsed.api_key_set, 'boolean');
+
+    // And it stays human when PALEE_JSON is not a truthy opt-in value.
+    const human = runConfig(['show'], configDir, { env: { PALEE_JSON: 'no' } });
+    assert.match(human.stdout, /Base URL|API Key/i);
+    assert.throws(() => JSON.parse(human.stdout), "PALEE_JSON='no' must not switch config show to JSON");
+  });
+
   test('unset-api-key removes the secret from disk', () => {
     const configDir = freshConfigDir();
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
@@ -283,7 +312,7 @@ describe('config file mode (#82)', () => {
   function runConfig(args: string[], configDir: string): void {
     execSync(`${PALEE_CMD} config ${args.join(' ')}`, {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' },
+      env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' }),
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: CLI_SPAWN_TIMEOUT_MS,
@@ -360,7 +389,7 @@ describe('config dir guard (#316)', () => {
     try {
       execSync(`${PALEE_CMD} config set-api-key --from-env PALEE_TEST_KEY`, {
         cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' },
+        env: paleeEnv({ PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' }),
         encoding: 'utf8',
         stdio: 'pipe',
         timeout: CLI_SPAWN_TIMEOUT_MS,

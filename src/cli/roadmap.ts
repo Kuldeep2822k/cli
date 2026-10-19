@@ -364,7 +364,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     const config = loadConfig();
     // The roadmap's own source file is printed later; this names the vault those
     // notes are written into, which is the fact a mis-scoped run never reported (#311).
-    const target = resolveVaultTarget(config);
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false });
     if (!target) return;
     const vaultPath = target.vaultPath;
     const roadmapPath = path.resolve(options.from);

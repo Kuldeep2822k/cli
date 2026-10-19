@@ -180,7 +180,7 @@ sequenceDiagram
     Storage->>Vault: Write temp -> fsync -> rename
     Vault-->>Storage: Write confirmed
     Storage-->>CLI: Success
-    CLI-->>User: Visual CLI output / non-TTY JSON
+    CLI-->>User: Visual CLI output / explicit --json or PALEE_JSON
 ```
 
 Sources: [bin/palee.ts#69-75](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts#L69-L75)[planning/palee_cli_spec.md#50-57](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L50-L57)[README.md#190-197](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L190-L197)

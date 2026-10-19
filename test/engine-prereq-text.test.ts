@@ -58,6 +58,54 @@ describe('declared-prerequisite extraction (PAL-205 WS6)', () => {
     assert.deepStrictEqual(refs.map((r) => r.name), ['01-foundations', '02-intro']);
   });
 
+  test('reads a wikilink out of a ## Requirements heading', () => {
+    // #340, ADR-0012: a note titling its list `## Requirements` declared nothing.
+    // The alternation held the verb `requires?` and no plural noun, so the
+    // commonest heading a curriculum actually writes produced no gating edge at
+    // all — silently, because an empty list is also what an undeclared note
+    // looks like.
+    const refs = extractDeclaredPrerequisites([
+      '# K-Means clustering',
+      '',
+      '## Requirements',
+      '',
+      '- [[m/01-setup]]',
+      '',
+      '## License',
+      '',
+      'MIT',
+    ].join('\n'));
+    assert.deepStrictEqual(refs.map((r) => r.name), ['m/01-setup']);
+  });
+
+  test('reads ## Requirement and ## Prior Requirements as the same trigger', () => {
+    // Both inflections the `prerequisites?` arm already allowed have to hold for
+    // `requirements` too, or the fix only covers the one spelling the reporter
+    // happened to use. `prior` is the prefix arm, unchanged by #340.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites(['## Requirement', '- [[01-foundations]]'].join('\n')).map((r) => r.name),
+      ['01-foundations']
+    );
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites(['## Prior Requirements', '- [[02-intro]]'].join('\n')).map((r) => r.name),
+      ['02-intro']
+    );
+  });
+
+  test('a ## Requirements heading that says more than the trigger is not a heading', () => {
+    // The narrowing rule that keeps `## Prerequisites for the lab` out — #340 must
+    // not break it: the new arm is one more alternative inside the anchored group,
+    // not a looser match. Widen it, though — `require.*` in place of
+    // `requirements?` — and an arbitrary section becomes a dependency list. No
+    // other file under test/ writes a `Require*` heading, so this assertion is the
+    // only one that sees the new arm over-match; the `Prerequisites for the lab`
+    // guard below stays green under that mutant, which is why both are needed.
+    assert.deepStrictEqual(
+      extractDeclaredPrerequisites(['## Requirements for the lab', '- [[lab-hardware]]'].join('\n')),
+      []
+    );
+  });
+
   test('a Prerequisites block inside a fenced example declares nothing', () => {
     // This is how a course teaches its own template. Reading it would hand the
     // example's fictional prerequisite a real, gating edge.

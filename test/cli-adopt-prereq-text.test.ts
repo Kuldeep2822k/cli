@@ -130,6 +130,24 @@ describe('CLI Adopt declared-prerequisite edges (PAL-205 WS6)', () => {
     assert.ok(!ready.includes(idOf(vaultDir, 'm/02-behind.md')), 'a declared prerequisite must gate');
   });
 
+  test('a Requirements heading gates the way a Prerequisites heading gates', () => {
+    // #340, ADR-0012: the note titles its list `## Requirements` and links its
+    // gate. It sits in a different module from that gate, so no numbered edge would
+    // have chained them either — with the arm missing the note gets no edge at all,
+    // and each of the three assertions below fails on its own: the edge, its
+    // `declared` label, and the plan that must keep the note off the ready list.
+    const { vaultDir, configDir } = freshVault({
+      'm/01-gate.md': '# Gate\n\n',
+      'x/02-behind.md': ['# Behind', '', '## Requirements', '', '- [[m/01-gate]]'].join('\n'),
+    });
+    const result = adopt(vaultDir, configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+
+    assert.deepStrictEqual(dependsOn(vaultDir, 'x/02-behind.md'), [idOf(vaultDir, 'm/01-gate.md')]);
+    assert.strictEqual(frontmatterOf(vaultDir, 'x/02-behind.md')?.depends_on_source, 'declared');
+    assert.deepStrictEqual(readyIds(configDir), [idOf(vaultDir, 'm/01-gate.md')]);
+  });
+
   test('a prerequisite the note disclaims does not hold it off the ready list', () => {
     // #261 measured this end to end: a note whose `## Prerequisites` section
     // said `does not require [[m/01-setup]]` and `no longer requires

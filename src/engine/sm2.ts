@@ -99,15 +99,20 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
     repetition = 0,
   } = current;
 
-  // Validate current state
-  if (ease_factor < 1.3) {
-    throw new Error(`Invalid ease_factor: must be >= 1.3, got ${ease_factor}`);
+  // Validate current state. The range tests alone do not refuse a stored scalar
+  // that is not a number: `"soon" < 1` and `true < 1` are both false, so the
+  // value would reach the schedule and store a NaN interval (INV-17).
+  if (!Number.isFinite(ease_factor) || ease_factor < 1.3) {
+    throw new Error(`Invalid ease_factor: must be a finite number >= 1.3, got ${ease_factor}`);
   }
-  if (interval_days < 1) {
-    throw new Error(`Invalid interval_days: must be >= 1, got ${interval_days}`);
+  if (!Number.isFinite(interval_days) || interval_days < 1) {
+    throw new Error(`Invalid interval_days: must be a finite number >= 1, got ${interval_days}`);
   }
-  if (repetition < 0) {
-    throw new Error(`Invalid repetition: must be >= 0, got ${repetition}`);
+  // A count at or above `Number.MAX_SAFE_INTEGER` cannot be advanced safely:
+  // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and `(2 ** 53) + 1`
+  // stays `2 ** 53`, so the success branch would return the count unchanged.
+  if (!Number.isInteger(repetition) || repetition < 0 || repetition > Number.MAX_SAFE_INTEGER - 1) {
+    throw new Error(`Invalid repetition: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${repetition}`);
   }
 
   let newRepetition: number;
@@ -144,6 +149,19 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
   newEaseFactor = ease_factor + delta;
   newEaseFactor = Math.max(1.3, newEaseFactor);
   newEaseFactor = roundHalfUp(newEaseFactor, 4);
+
+  // The inputs are finite, but the arithmetic is not unconditionally finite: a
+  // stored interval near `Number.MAX_VALUE` multiplied by an ease factor >= 1.3
+  // overflows INV-17's multiply, and `roundHalfUp` overflows scaling an ease
+  // factor above ~1.8e304 by `10 ** 4` (INV-15). Refuse a non-finite result the
+  // same way as a non-finite input — ADR-0021 names the field rather than
+  // clamping, and the value must never reach the note as `Infinity`.
+  if (!Number.isFinite(newInterval)) {
+    throw new Error(`Invalid interval_days: computed non-finite value, got ${newInterval}`);
+  }
+  if (!Number.isFinite(newEaseFactor)) {
+    throw new Error(`Invalid ease_factor: computed non-finite value, got ${newEaseFactor}`);
+  }
 
   return {
     ease_factor: newEaseFactor,

@@ -1026,12 +1026,6 @@ export function stripFencedCodeBlocks(text: string): string {
 }
 
 /**
- * An HTML comment. Blanked whole, across lines, like a fenced block: nothing
- * between `<!--` and `-->` is a statement the reader is meant to act on.
- */
-const HTML_COMMENT = /<!--[\s\S]*?-->/g;
-
-/**
  * A single-line inline code span, run of one or two backticks on each side.
  *
  * @remarks
@@ -1046,6 +1040,32 @@ const INLINE_CODE = /``[^`\n]*``|`[^`\n]*`/g;
 /** Blank a span, keeping the newlines it held so line scans stay aligned. */
 function blankKeepingLines(span: string): string {
   return span.replace(/[^\n]/g, ' ');
+}
+
+/**
+ * Blanks HTML comments the way the previous `/<!--[\s\S]*?-->/g` did, without
+ * the lazy rescan: on a document full of unterminated `<!--` openers the regex
+ * retries to end-of-text for every one of them (O(n²)), which is exactly the
+ * adversarial shape the `extractTocLinks` complexity guards feed in. Each
+ * `indexOf` resumes where the previous match ended, and the first opener with
+ * no closer proves every later opener has none either.
+ *
+ * An HTML comment is blanked whole, across lines, like a fenced block: nothing
+ * between `<!--` and `-->` is a statement the reader is meant to act on.
+ */
+function blankHtmlComments(text: string): string {
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf('<!--', from);
+    if (open === -1) break;
+    const close = text.indexOf('-->', open + 4);
+    // Unterminated: blank nothing, like the regex this replaced.
+    if (close === -1) break;
+    out += text.slice(from, open) + blankKeepingLines(text.slice(open, close + 3));
+    from = close + 3;
+  }
+  return out + text.slice(from);
 }
 
 /**
@@ -1071,7 +1091,5 @@ function blankKeepingLines(span: string): string {
  * would withdraw links the author did mean.
  */
 export function stripUnfollowableMarkup(text: string): string {
-  return stripFencedCodeBlocks(text)
-    .replace(HTML_COMMENT, blankKeepingLines)
-    .replace(INLINE_CODE, blankKeepingLines);
+  return blankHtmlComments(stripFencedCodeBlocks(text)).replace(INLINE_CODE, blankKeepingLines);
 }

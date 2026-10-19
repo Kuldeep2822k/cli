@@ -553,7 +553,9 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
     // A bare `migrate` only scans, so the echo is gated on the flags that actually
     // write: `--fix` always, `--relabel-ties` unless `--dry-run` (#311).
     const willWrite = options.fix === true || (options.relabelTies === true && options.dryRun !== true);
-    const target = resolveVaultTarget(config, { echo: willWrite });
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false, echo: willWrite });
     if (!target) return;
     const vaultPath = target.vaultPath;
     const loaded = loadTopics(vaultPath);

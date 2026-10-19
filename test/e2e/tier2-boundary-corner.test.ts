@@ -232,6 +232,30 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.ok(Array.isArray(parsed.drafts));
     });
 
+    test('B4.2b: session start --interactive --json keeps the menu on stderr and one document on stdout', () => {
+      env.createTopics(['T-json-interactive']);
+      env.run(['session', 'draft', '--topic', 'T-json-interactive']);
+      assert.strictEqual(env.listSessions().drafts.length, 1);
+
+      // 'i' (ignore) answers the recovery menu; the JSON arm used to return
+      // drafts_pending before --interactive was ever read, so this input had
+      // no menu to answer.
+      const res = env.run(['session', 'start', '--interactive', '--json'], { input: 'i\n' });
+      assert.strictEqual(res.status, 0, `${res.stdout}${res.stderr}`);
+
+      // The menu is conversation: it must not sit above the document.
+      assert.doesNotMatch(res.stdout, /\[R\]esume/);
+      assert.match(res.stderr, /\[R\]esume\s+\[S\]ave as session\s+\[D\]iscard\s+\[I\]gnore/);
+
+      const parsed = JSON.parse(res.stdout);
+      assert.strictEqual(parsed.status, 'started');
+
+      // 'i' leaves the checkpoint on disk, exactly as in the human path (B4.4).
+      const sessions = env.listSessions();
+      assert.strictEqual(sessions.drafts.length, 1);
+      assert.strictEqual(sessions.confirmed.length, 0);
+    });
+
     test('B4.3: session end without active topic and without --topic exits with code 2 and leaves no files', () => {
       const res = env.run(['session', 'end']);
       assert.strictEqual(res.status, 2);

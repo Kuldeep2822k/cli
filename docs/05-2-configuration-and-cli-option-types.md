@@ -43,6 +43,8 @@ The `loadConfig` function reads the JSON file and returns a `PaleeConfig` object
 
 `palee config show --json` emits the configuration as a single JSON object with `vault_path`, `ai_provider`, `base_url`, `model`, and a boolean `api_key_set`. The credential itself has no field in that output: the boolean reports only whether a key is stored, so redirecting `config show` into a tool can never leak the key.
 
+`--json` is not confined to `show` — every action in the command answers machine-readable output, because a script that opted into JSON must never have to parse a sentence to learn whether its write landed. A successful `set-vault`, `set-provider`, `set-base-url`, `set-model` or `set-api-key` prints `{status: "set", <the field it wrote>}` on stdout at exit `0`, and `unset-api-key` prints `{status: "unset"}` or `{status: "absent"}` with `api_key_set: false`. `test-connection` answers one object carrying `reachable`, `endpoint`, `model`, `key_source`, `reply`, `latency_ms` and `tokens`. Every refusal puts `{error}` on `stderr` at exit `2`; where the human form printed a second guidance line the object carries it as `remedy`, and an unknown action lists `valid_actions`. `key_source` names which source won (`env` / `config` / `none`) rather than any part of the value.
+
 Sources:
 
 - [src/types.ts#368-382](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L368-L382)

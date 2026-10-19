@@ -274,8 +274,8 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     return;
 
   } catch (e: unknown) {
-    // #325: `--json` / non-TTY gets the same `{ error }` stderr payload as the
-    // exit-2 vault path; the exit code is unchanged.
+    // #325: `--json` / PALEE_JSON gets the same `{ error }` stderr payload as
+    // the exit-2 vault path; the exit code is unchanged.
     emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;

@@ -8,6 +8,7 @@
 import { program } from 'commander';
 import packageJson from '../package.json';
 import { ExitCode } from '../src/cli/exit-codes';
+import { isJsonOutput } from '../src/cli/onboarding';
 import { deriveProgramName } from '../src/cli/program-name';
 
 // Command handlers
@@ -70,7 +71,7 @@ program
   .argument('[action]', 'Action: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model')
   .argument('[value]', 'Value for set-* actions (never the API key)')
   .option('--from-env <var>', 'environment variable to read the API key from (set-api-key)')
-  .option('--json', 'Output in JSON format (config show)')
+  .option('--json', 'Output in JSON format (every config action, not only show)')
   .action(configCommand);
 
 // palee adopt
@@ -252,9 +253,17 @@ program
  * over at the moment it dispatches (#338).
  */
 let parsedActionOptions: { json?: boolean } | undefined;
+/**
+ * Whether the command that is about to run declares a `--json` option at all.
+ * The commands that do not (`review`, `adopt`, `assess`, `roadmap`, `migrate`)
+ * are human end to end, so `PALEE_JSON` must not turn their fatal errors into
+ * JSON either.
+ */
+let actionDeclaresJson = false;
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
   parsedActionOptions = actionCommand.opts() as { json?: boolean };
+  actionDeclaresJson = actionCommand.options.some((option) => option.long === '--json');
 });
 
 // The new-version notice fires only after a command actually ran — never for
@@ -298,12 +307,15 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   }
 
   // JSON mode comes from the option commander parsed for the command that ran
-  // (#338) — a positional `process.argv.includes('--json')` also fires when
-  // `--json` is merely a *value* (`palee config -- --json`). Fall back to that
-  // sniff only when no action ran, so there is nothing parsed to consult.
+  // (#338), routed through `isJsonOutput` so `PALEE_JSON` is honored on the
+  // fatal path exactly as it is on every command's success path — except on a
+  // command that declares no `--json` flag, which stays human end to end. A
+  // positional `process.argv.includes('--json')` also fires when `--json` is
+  // merely a *value* (`palee config -- --json`), so that sniff is kept only as
+  // the pre-action fallback when no action ran and there is nothing parsed.
   const isJson = parsedActionOptions
-    ? Boolean(parsedActionOptions.json)
-    : process.argv.includes('--json');
+    ? actionDeclaresJson && isJsonOutput(parsedActionOptions.json === true ? { json: true } : {})
+    : isJsonOutput() || process.argv.includes('--json');
   const message = err instanceof Error ? err.message : String(err);
   if (isJson) {
     console.log(JSON.stringify({
