@@ -14,7 +14,7 @@ An author who writes `## Prerequisites` and links `[[m/01-setup]]` is making a s
 
 ### What counts as a declaration
 
-A section whose heading is the trigger phrase and nothing else — `## Prerequisites`, `## Requires`, `## Required knowledge`, `## Depends on` (and the singular/prior variants) — collects links from its list items until the next heading of any level. The heading match is deliberately narrow: `## Prerequisites for the lab` does not turn an arbitrary section into a dependency list.
+A section whose heading is the trigger phrase and nothing else — `## Prerequisites`, `## Requirements`, `## Requires`, `## Required knowledge`, `## Depends on` (and the singular/prior variants) — collects links from its list items until the next heading of any level. The heading match is deliberately narrow: `## Prerequisites for the lab` does not turn an arbitrary section into a dependency list.
 
 Only links count. `- Setup` is read for its `[[Setup]]` or its `(setup.md)`; a bare word is not a reference the engine can resolve without guessing. Fenced code, HTML comments and inline code spans are blanked first — a `## Prerequisites` block inside a documentation example, a commented-out entry, or a backticked one are written to be read, not followed — through the same `stripUnfollowableMarkup` the TOC scanner calls (ADR-0011), so the two scanners cannot drift on what a fence is. Task-list items (`- [ ]`) are dropped whole: an unchecked box is an intention, and importing one hands a gating edge to a note the author had not actually written.
 
