@@ -259,7 +259,7 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 // --help, --version, or a usage error, all of which throw before any action —
 // and it reads the same parsed `--json` the preAction hook captured rather than
 // re-sniffing argv (#338). `maybeNotifyUpdate` totals every failure path, so a
-// notice can never fail a command that already succeeded (ADR-0032, issue #253).
+// notice can never fail a command that already succeeded (ADR-0033, issue #253).
 program.hook('postAction', (_thisCommand, actionCommand) => {
   maybeNotifyUpdate(packageJson.version, actionCommand.name(), Boolean(parsedActionOptions?.json));
 });

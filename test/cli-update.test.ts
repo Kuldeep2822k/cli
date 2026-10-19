@@ -5,7 +5,7 @@
  * notifier driven through a stubbed `spawnSync`, and the real CLI driven through
  * a PATH shim that stands in for npm. No test in this file — and none in the
  * rest of the suite, which pipes stdio and so trips the TTY gate — ever reaches
- * a registry. The boundary this file encodes is INV-29; ADR-0032 records why
+ * a registry. The boundary this file encodes is INV-29; ADR-0033 records why
  * the registry is asked through a child process rather than a socket.
  */
 
@@ -555,7 +555,7 @@ describe('update: the CLI through a PATH-shim npm', () => {
     }
   });
 
-  test('an npm planted in the working directory is never executed (ADR-0032)', () => {
+  test('an npm planted in the working directory is never executed (ADR-0033)', () => {
     // cmd.exe searches the current directory before PATH for a `.cmd`, so an
     // inherited working directory turns `palee` in a cloned tree into execution
     // of whatever `npm.cmd` that tree ships. The shim supplies the honest

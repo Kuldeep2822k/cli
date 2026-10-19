@@ -738,7 +738,8 @@ function normalizeTocLink(raw: string): TocLink {
 
 /** Result of folding one destination against the TOC file's directory. */
 export interface TocTargetCandidate {
-  /** Vault-relative POSIX path (`01-x/README.md`); `''` when the link escaped the root */
+  /** Vault-relative POSIX path (`01-x/README.md`); `''` when the fold names no
+   * path at all — an escape, or a destination that folds away entirely */
   relativePath: string;
   /** True when the fold walked above the vault root — storage must reject it */
   escapedRoot: boolean;
@@ -777,8 +778,13 @@ export function foldTocDestination(destination: string, tocDir: string): TocTarg
   let last = segments[segments.length - 1] ?? '';
   if (destination.endsWith('/')) {
     // Folder link → its README. Trailing slash dedupes with an explicit
-    // README.md link naturally via first-appearance dedup downstream.
-    segments[segments.length - 1] = `${last}/README.md`;
+    // README.md link naturally via first-appearance dedup downstream. A
+    // destination that folds to no segment at all is the vault root, and
+    // `segments[-1]` there is a non-index property `join('/')` silently drops —
+    // so `[Home](/)` came back `''` and the caller reported it as
+    // `escaped-vault` instead of chaining on the root `README.md`.
+    if (segments.length === 0) segments.push('README.md');
+    else segments[segments.length - 1] = `${last}/README.md`;
   } else if (last.length > 0 && !last.toLowerCase().endsWith('.md')) {
     // No extension at all → a note path (Obsidian/GitHub both allow it).
     // An extension that merely isn't `.md` (`.pdf`, `.png`) is left alone so

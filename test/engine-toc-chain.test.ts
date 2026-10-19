@@ -673,6 +673,30 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.strictEqual(foldTocDestination('/01-x/intro.md', '09-y').relativePath, '01-x/intro.md');
     });
 
+    it('folds the vault root itself onto its README instead of naming nothing', () => {
+      // A destination that folds to zero segments used to assign
+      // `segments[segments.length - 1]` at index -1 — a non-array property that
+      // `join('/')` drops — so the fold returned `''` with `escapedRoot: false`,
+      // and `src/storage/toc.ts` reported the link as `escaped-vault`.
+      assert.deepStrictEqual(foldTocDestination('/', ''), { relativePath: 'README.md', escapedRoot: false });
+      assert.deepStrictEqual(foldTocDestination('./', ''), { relativePath: 'README.md', escapedRoot: false });
+      // The absolute arm anchors at the vault root whichever directory the TOC
+      // file sits in, so `/` is the root README from `m/` too.
+      assert.deepStrictEqual(foldTocDestination('/', 'm'), { relativePath: 'README.md', escapedRoot: false });
+      // A relative `./` keeps its own directory, and only gains the README.
+      assert.deepStrictEqual(foldTocDestination('./', 'm/01-x'), {
+        relativePath: 'm/01-x/README.md',
+        escapedRoot: false,
+      });
+    });
+
+    it('names no path for a destination that folds away without asking for a folder', () => {
+      // `.` never requested a folder, so there is no README to synthesize: `''`
+      // here means "names nothing", and it is distinct from an escape only
+      // because `escapedRoot` stays false.
+      assert.deepStrictEqual(foldTocDestination('.', ''), { relativePath: '', escapedRoot: false });
+    });
+
     it('keeps backslashes literal (never a separator)', () => {
       assert.strictEqual(foldTocDestination('weird\\name.md', '.').relativePath, 'weird\\name.md');
     });
