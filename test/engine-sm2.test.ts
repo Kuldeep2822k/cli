@@ -94,14 +94,59 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
         4
       ),
-      { message: 'Invalid repetition: must be an integer >= 0, got x' }
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got x' }
     );
   });
 
   test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),
-      { message: 'Invalid repetition: must be an integer >= 0, got 2.5' }
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 2.5' }
+    );
+  });
+
+  test('repetition refuses a count at the safe-integer ceiling, which cannot advance exactly', () => {
+    // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and one step later
+    // `(2 ** 53) + 1` stays `2 ** 53` — the increment would silently no-op.
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: Number.MAX_SAFE_INTEGER },
+        4
+      ),
+      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 9007199254740991' }
+    );
+  });
+
+  test('repetition accepts the highest count whose increment still advances', () => {
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: 6, repetition: Number.MAX_SAFE_INTEGER - 1 },
+      4
+    );
+    assert.deepStrictEqual(result, {
+      ease_factor: 2.5,
+      interval_days: 15,
+      repetition: Number.MAX_SAFE_INTEGER,
+      lapses: 0,
+      last_quality: 4,
+    });
+  });
+
+  test('interval_days refuses a computed interval that overflows to Infinity', () => {
+    // `1e308` is a finite integer that passes the input guard, but INV-17's
+    // multiply by the 2.5 ease factor exceeds `Number.MAX_VALUE`, and
+    // `Math.max(1, Infinity)` cannot pull the result back.
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 1e308, repetition: 3 }, 4),
+      { message: 'Invalid interval_days: computed non-finite value, got Infinity' }
+    );
+  });
+
+  test('ease_factor refuses a stored value whose rounding overflows to Infinity', () => {
+    // `1e305` passes the finiteness guard, but `roundHalfUp` scales by
+    // `10 ** 4` before dividing back — `1e305 * 10000` is `Infinity`.
+    assert.throws(
+      () => processReview({ ease_factor: 1e305, interval_days: 1, repetition: 2 }, 4),
+      { message: 'Invalid ease_factor: computed non-finite value, got Infinity' }
     );
   });
 
