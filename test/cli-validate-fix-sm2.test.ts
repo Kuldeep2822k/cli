@@ -229,4 +229,40 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not write the corrupted note');
     });
   });
+
+  test('regression pin (#342): a non-numeric stored interval_days exits 5, prints the repair hint, and leaves the note byte-identical', async () => {
+    await runInTempVault(async (vaultPath) => {
+      // `repetition: 2` is what makes this the #342 shape rather than a first
+      // review: the ladder would multiply `"soon" * 2.5`, get NaN, and write that
+      // interval back into the note. A range comparison cannot see the value —
+      // `"soon" < 1` is false — which is why the guard is a finiteness check.
+      const filePath = createTopicNote(vaultPath, 'soon.md', {
+        palee_id: 'T-soon',
+        ease_factor: 2.5,
+        interval_days: 'soon',
+        repetition: 2,
+        lapses: 1,
+        due_at: '2026-09-25',
+      });
+      const before = fs.readFileSync(filePath);
+
+      const { out, err } = await captureOutput(() => reviewCommand('T-soon', '4'));
+      assert.strictEqual(
+        process.exitCode,
+        5,
+        `expected exit 5, got ${process.exitCode}: ${out}${err}`
+      );
+      // ADR-0021: the refusal names the field *and* the value it refused, so the
+      // learner can find the line to fix.
+      assert.match(err, /Invalid interval_days: must be a finite number >= 1, got soon/);
+      // Exit 5 on its own is a dead end; `src/cli/review.ts` prints this line only
+      // when the message carries the `Invalid <field>:` prefix, so a refusal that
+      // lost the prefix would leave the learner with no repair path.
+      assert.match(
+        err,
+        /Hint: this note's SM-2 review state is invalid\. Run "palee validate --fix" to repair it\./
+      );
+      assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not write a scheduled NaN into the note');
+    });
+  });
 });
