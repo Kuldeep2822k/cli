@@ -202,7 +202,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const config = loadConfig();
     // Names the vault before the first note is touched: with PALEE_CONFIG_DIR
     // unset this run silently acts on the machine-global config's vault (#311).
-    const target = resolveVaultTarget(config);
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false });
     if (!target) return;
     const vaultPath = target.vaultPath;
 

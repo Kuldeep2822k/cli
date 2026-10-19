@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { exitCodeFor } from './exit-codes';
+import { isJsonOutput, emitError } from './onboarding';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
@@ -237,6 +238,8 @@ function saveConfig(config: PaleeConfig): void {
  * Reads the API key a `set-api-key` should store.
  *
  * @param fromEnv - Optional environment variable name to read it from.
+ * @param options - Output-format options, so a refusal under `--json` is a JSON object
+ * and the hidden prompt stays off stdout.
  * @returns The trimmed key, or `null` when nothing usable was obtained.
  *
  * @remarks
@@ -244,13 +247,17 @@ function saveConfig(config: PaleeConfig): void {
  * process on the machine (`ps`, `/proc/<pid>/cmdline`) and lands in shell history.
  * Precedence is `--from-env`, then a piped stdin, then an interactive prompt that
  * does not echo the key and keeps it out of line history. Each failure says why on
- * `stderr`.
+ * `stderr`. In JSON mode the prompt is written to `stderr` too, so stdout carries
+ * only the emitted document.
  */
-async function readApiKey(fromEnv?: string): Promise<string | null> {
+async function readApiKey(
+  fromEnv?: string,
+  options?: { json?: boolean }
+): Promise<string | null> {
   if (fromEnv) {
     const stored = process.env[fromEnv];
     if (!stored || !stored.trim()) {
-      console.error(`Error: environment variable ${fromEnv} is not set`);
+      emitError(`environment variable ${fromEnv} is not set`, options);
       return null;
     }
     return stored.trim();
@@ -262,15 +269,15 @@ async function readApiKey(fromEnv?: string): Promise<string | null> {
     for await (const chunk of process.stdin) piped += chunk;
     piped = piped.trim();
     if (!piped) {
-      console.error('Error: no API key read from stdin');
+      emitError('no API key read from stdin', options);
       return null;
     }
     return piped;
   }
 
-  const typed = await promptHidden('API key: ');
+  const typed = await promptHidden('API key: ', isJsonOutput(options) ? process.stderr : process.stdout);
   if (!typed.trim()) {
-    console.error('Error: no API key entered');
+    emitError('no API key entered', options);
     return null;
   }
   return typed.trim();
@@ -280,26 +287,50 @@ async function readApiKey(fromEnv?: string): Promise<string | null> {
  * Prompts on a TTY for a secret without echoing it. The prompt text is written,
  * then every keystroke is swallowed, so the key never reaches terminal scrollback
  * or a session recording; `historySize: 0` keeps it out of line-editing history.
+ *
+ * @param query - Prompt text to show before the hidden input.
+ * @param output - Stream receiving the prompt and its trailing newline. JSON mode
+ * passes `stderr`, keeping stdout free for the emitted document.
+ * @returns The text the user typed.
  */
-function promptHidden(query: string): Promise<string> {
+function promptHidden(query: string, output: NodeJS.WritableStream = process.stdout): Promise<string> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout,
+      output,
       terminal: true,
       historySize: 0,
     });
     let muted = false;
     (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => {
-      if (!muted) process.stdout.write(s);
+      if (!muted) output.write(s);
     };
     rl.question(query, (answer) => {
-      process.stdout.write('\n');
+      output.write('\n');
       rl.close();
       resolve(answer);
     });
     muted = true;
   });
+}
+
+/**
+ * Reports the outcome of a config write in the format the caller asked for.
+ *
+ * @param json - Whether JSON output is selected for this run
+ * @param human - The exact human-readable line the command has always printed
+ * @param payload - The machine-readable equivalent of the same fact
+ * @returns void
+ *
+ * @remarks
+ * `config show` already had a JSON shape; the mutating actions did not, so under
+ * `--json` they returned prose on a zero exit and a automation had to scrape a
+ * sentence to learn whether the write happened (`#45`). Both arms say the same
+ * thing — the text arm is unchanged, so no existing output moves.
+ */
+function emitStatus(json: boolean, human: string, payload: Record<string, unknown>): void {
+  if (json) console.log(JSON.stringify(payload));
+  else console.log(human);
 }
 
 /**
@@ -309,11 +340,14 @@ function promptHidden(query: string): Promise<string> {
  * unset-api-key, test-connection, set-model.
  * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
  * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
- * `json` makes `show` emit machine-readable output.
+ * `json` selects machine-readable output for every action, not just `show`.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
- * and process.exitCode = 5 on unexpected exceptions. `show --json` reports whether a key
- * is stored (`api_key_set`) and never the key itself.
+ * and process.exitCode = 5 on unexpected exceptions. Under `--json` both arms are JSON:
+ * a write answers `{status, <field>}` and a refusal answers `{error}` (plus `remedy`
+ * where the text form printed a second guidance line). `show` reports whether a key is
+ * stored (`api_key_set`) and never the key itself — no arm echoes a credential, and
+ * `set-api-key`'s hidden prompt moves to `stderr` so stdout stays a single document.
  *
  * @example
  * ```typescript
@@ -325,10 +359,13 @@ async function configCommand(
   value?: string,
   options?: { fromEnv?: string; json?: boolean }
 ): Promise<void> {
+  // Resolved once and used by every arm below, so no path can answer a run that
+  // asked for JSON with a sentence.
+  const json = isJsonOutput(options);
   try {
     if (!action || action === 'show') {
       const config = loadConfig();
-      if (options?.json) {
+      if (json) {
         console.log(JSON.stringify({
           vault_path: config.vaultPath ?? null,
           ai_provider: config.aiProvider ?? null,
@@ -349,19 +386,19 @@ async function configCommand(
 
     if (action === 'set-vault') {
       if (!value) {
-        console.error('Error: vault path required');
+        emitError('vault path required', options);
         process.exitCode = 2;
         return;
       }
 
       const absolutePath = path.resolve(value);
       if (!fs.existsSync(absolutePath)) {
-        console.error(`Error: vault path does not exist: ${absolutePath}`);
+        emitError(`vault path does not exist: ${absolutePath}`, options);
         process.exitCode = 2;
         return;
       }
       if (!fs.statSync(absolutePath).isDirectory()) {
-        console.error(`Error: vault path is not a directory: ${absolutePath}`);
+        emitError(`vault path is not a directory: ${absolutePath}`, options);
         process.exitCode = 2;
         return;
       }
@@ -369,13 +406,13 @@ async function configCommand(
       const config = loadConfig();
       config.vaultPath = absolutePath;
       saveConfig(config);
-      console.log(`Vault path set to: ${absolutePath}`);
+      emitStatus(json, `Vault path set to: ${absolutePath}`, { status: 'set', vault_path: absolutePath });
       return;
     }
 
     if (action === 'set-provider') {
       if (!value) {
-        console.error('Error: provider name required');
+        emitError('provider name required', options);
         process.exitCode = 2;
         return;
       }
@@ -383,13 +420,13 @@ async function configCommand(
       const config = loadConfig();
       config.aiProvider = value;
       saveConfig(config);
-      console.log(`AI provider set to: ${value}`);
+      emitStatus(json, `AI provider set to: ${value}`, { status: 'set', ai_provider: value });
       return;
     }
 
     if (action === 'set-base-url') {
       if (!value) {
-        console.error('Error: base URL required');
+        emitError('base URL required', options);
         process.exitCode = 2;
         return;
       }
@@ -402,7 +439,7 @@ async function configCommand(
       try {
         endpoint = normalizeProviderEndpoint(value);
       } catch (err: unknown) {
-        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        emitError(err, options);
         process.exitCode = exitCodeFor(err);
         return;
       }
@@ -410,7 +447,7 @@ async function configCommand(
       // stored and printed by `config show` just the same, so refuse it too — and
       // without echoing the value. A provider endpoint has no use for either.
       if (endpoint.search || endpoint.hash) {
-        console.error('Error: base URL must not carry a query or fragment; set the credential with set-api-key');
+        emitError('base URL must not carry a query or fragment; set the credential with set-api-key', options);
         process.exitCode = 2;
         return;
       }
@@ -418,19 +455,21 @@ async function configCommand(
       const config = loadConfig();
       config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
       saveConfig(config);
-      console.log(`AI base URL set to: ${config.baseUrl}`);
+      emitStatus(json, `AI base URL set to: ${config.baseUrl}`, { status: 'set', base_url: config.baseUrl });
       return;
     }
 
     if (action === 'set-api-key') {
       if (value) {
-        console.error('Error: the API key cannot be an argument — argv is readable by other processes and lands in shell history');
-        console.error('Run with --from-env VAR, pipe the key on stdin, or run with no input to be prompted');
+        const why = 'the API key cannot be an argument — argv is readable by other processes and lands in shell history';
+        const how = 'Run with --from-env VAR, pipe the key on stdin, or run with no input to be prompted';
+        if (json) console.error(JSON.stringify({ error: why, remedy: how }));
+        else { console.error(`Error: ${why}`); console.error(how); }
         process.exitCode = 2;
         return;
       }
 
-      const key = await readApiKey(options?.fromEnv);
+      const key = await readApiKey(options?.fromEnv, options);
       if (key === null) {
         process.exitCode = 2;
         return;
@@ -441,7 +480,7 @@ async function configCommand(
       // never work is rejected on the way in rather than stored and failing on first use.
       // The key is never echoed, so the message names the fault, not the value.
       if (!isSendable(key)) {
-        console.error('Error: the API key contains a non-printable character and cannot be sent in an HTTP header; check for a stray control character or newline');
+        emitError('the API key contains a non-printable character and cannot be sent in an HTTP header; check for a stray control character or newline', options);
         process.exitCode = 2;
         return;
       }
@@ -455,8 +494,10 @@ async function configCommand(
         const dir = path.dirname(getConfigPath());
         const roots = profileRoots();
         if (!isConfigDirStorableForKey(dir, roots)) {
-          console.error(`Error: refusing to store the API key in ${dir}: it is outside your user profile (${roots.join(', ')}), where its file permissions cannot be guaranteed on Windows.`);
-          console.error('Use PALEE_API_KEY at runtime instead, point PALEE_CONFIG_DIR under %LOCALAPPDATA% or %USERPROFILE%, or set PALEE_ALLOW_INSECURE_CONFIG_DIR=1 to override.');
+          const why = `refusing to store the API key in ${dir}: it is outside your user profile (${roots.join(', ')}), where its file permissions cannot be guaranteed on Windows.`;
+          const how = 'Use PALEE_API_KEY at runtime instead, point PALEE_CONFIG_DIR under %LOCALAPPDATA% or %USERPROFILE%, or set PALEE_ALLOW_INSECURE_CONFIG_DIR=1 to override.';
+          if (json) console.error(JSON.stringify({ error: why, remedy: how }));
+          else { console.error(`Error: ${why}`); console.error(how); }
           process.exitCode = 2;
           return;
         }
@@ -465,26 +506,26 @@ async function configCommand(
       const config = loadConfig();
       config.apiKey = key;
       saveConfig(config);
-      console.log('API key stored. `palee config show` does not print it.');
+      emitStatus(json, 'API key stored. `palee config show` does not print it.', { status: 'set', api_key_set: true });
       return;
     }
 
     if (action === 'unset-api-key') {
       const config = loadConfig();
       if (config.apiKey === undefined) {
-        console.log('No API key is stored.');
+        emitStatus(json, 'No API key is stored.', { status: 'absent', api_key_set: false });
         return;
       }
 
       delete config.apiKey;
       saveConfig(config);
-      console.log('API key removed.');
+      emitStatus(json, 'API key removed.', { status: 'unset', api_key_set: false });
       return;
     }
 
     if (action === 'test-connection') {
       if (value) {
-        console.error('Error: test-connection takes no argument');
+        emitError('test-connection takes no argument', options);
         process.exitCode = 2;
         return;
       }
@@ -509,18 +550,33 @@ async function configCommand(
           settings.keySource === 'env' ? `from $${API_KEY_ENV}`
             : settings.keySource === 'config' ? 'from the config file'
               : 'none configured';
+        const replyText = describeForeignText(settings.apiKey, reply.text);
+        if (json) {
+          console.log(JSON.stringify({
+            status: 'ok',
+            reachable: true,
+            endpoint: provider.url,
+            model: provider.model,
+            key_source: settings.keySource,
+            reply: replyText,
+            latency_ms: Math.round(elapsed),
+            tokens: reply.usage
+              ? { prompt: reply.usage.promptTokens, completion: reply.usage.completionTokens }
+              : null,
+          }));
+          return;
+        }
         console.log('✓ Provider reachable');
         console.log(`  Endpoint: ${provider.url}`);
         console.log(`  Model:    ${provider.model}`);
         console.log(`  Key:      ${keyLabel}`);
-        console.log(`  Reply:    ${describeForeignText(settings.apiKey, reply.text)} (${elapsed.toFixed(0)} ms)`);
+        console.log(`  Reply:    ${replyText} (${elapsed.toFixed(0)} ms)`);
         if (reply.usage) {
           console.log(`  Tokens:   ${reply.usage.promptTokens} in / ${reply.usage.completionTokens} out`);
         }
         return;
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`Error: ${message}`);
+        emitError(err, options);
         process.exitCode = exitCodeFor(err);
         return;
       }
@@ -528,7 +584,7 @@ async function configCommand(
 
     if (action === 'set-model') {
       if (!value) {
-        console.error('Error: model name required');
+        emitError('model name required', options);
         process.exitCode = 2;
         return;
       }
@@ -536,18 +592,22 @@ async function configCommand(
       const config = loadConfig();
       config.model = value;
       saveConfig(config);
-      console.log(`Model set to: ${value}`);
+      emitStatus(json, `Model set to: ${value}`, { status: 'set', model: value });
       return;
     }
 
-    console.error(`Error: unknown action '${action}'`);
-    console.error('Valid actions: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model');
+    const validActions = ['show', 'set-vault', 'set-provider', 'set-base-url', 'set-api-key', 'unset-api-key', 'test-connection', 'set-model'];
+    if (json) {
+      console.error(JSON.stringify({ error: `unknown action '${action}'`, valid_actions: validActions }));
+    } else {
+      console.error(`Error: unknown action '${action}'`);
+      console.error(`Valid actions: ${validActions.join(', ')}`);
+    }
     process.exitCode = 2;
     return;
 
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`Error: ${err.message}`);
+    emitError(e, options);
     process.exitCode = exitCodeFor(e);
     return;
   }

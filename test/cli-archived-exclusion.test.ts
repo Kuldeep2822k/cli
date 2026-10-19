@@ -20,11 +20,16 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
   let tmpDir: string;
   let tmpConfigDir: string;
   let prevConfigDir: string | undefined;
+  let prevPaleeJson: string | undefined;
   let loggedOutputs: string[] = [];
   const originalLog = console.log;
 
   beforeEach(() => {
     prevConfigDir = process.env.PALEE_CONFIG_DIR;
+    // Human-readable expectations below are the contract under test, so no
+    // ambient PALEE_JSON from the invoking shell may flip them to JSON.
+    prevPaleeJson = process.env.PALEE_JSON;
+    delete process.env.PALEE_JSON;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-bug002-'));
     tmpConfigDir = path.join(tmpDir, '.config');
     fs.mkdirSync(tmpConfigDir, { recursive: true });
@@ -46,6 +51,11 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
     } else {
       delete process.env.PALEE_CONFIG_DIR;
     }
+    if (prevPaleeJson !== undefined) {
+      process.env.PALEE_JSON = prevPaleeJson;
+    } else {
+      delete process.env.PALEE_JSON;
+    }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* ignore */ }
@@ -57,17 +67,8 @@ describe('BUG-002 archived topics excluded from plan/dashboard', () => {
     return JSON.parse(raw);
   }
 
-  // Text (human) output requires a TTY: under `node --test` stdout is piped, so
-  // isJsonOutput() would auto-switch to JSON (src/cli/onboarding.ts:28).
-  const originalIsTTY = process.stdout.isTTY;
-
-  function asTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-  }
-
-  function restoreTTY() {
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
-  }
+  // Human-readable output is the default regardless of TTY state: isJsonOutput()
+  // only switches to JSON on the explicit --json flag or PALEE_JSON (#357).
 
   function seedVault() {
     fs.writeFileSync(
@@ -225,18 +226,13 @@ depends_on:
     });
 
     test('text output omits archived topics from lists and totals', async () => {
-      asTTY();
-      try {
-        await planCommand({});
-        const text = loggedOutputs.join('\n');
-        assert.match(text, /Ready to Learn: 1/);
-        assert.match(text, /Reviews Due: 1/);
-        assert.doesNotMatch(text, /Archived Topic/, 'archived topic must not be listed in the plan');
-        assert.match(text, /Total Topics: 2 \(1 archived\)/);
-        assert.match(text, /New: 0/);
-      } finally {
-        restoreTTY();
-      }
+      await planCommand({});
+      const text = loggedOutputs.join('\n');
+      assert.match(text, /Ready to Learn: 1/);
+      assert.match(text, /Reviews Due: 1/);
+      assert.doesNotMatch(text, /Archived Topic/, 'archived topic must not be listed in the plan');
+      assert.match(text, /Total Topics: 2 \(1 archived\)/);
+      assert.match(text, /New: 0/);
     });
   });
 
@@ -267,16 +263,11 @@ depends_on:
     });
 
     test('text output does not count archived in New line', async () => {
-      asTTY();
-      try {
-        await dashboardCommand({});
-        const text = loggedOutputs.join('\n');
-        assert.match(text, /^New:\s+0\s/m);
-        assert.doesNotMatch(text, /Archived Topic/);
-        assert.match(text, /Total Topics:\s+2 \(1 archived\)/);
-      } finally {
-        restoreTTY();
-      }
+      await dashboardCommand({});
+      const text = loggedOutputs.join('\n');
+      assert.match(text, /^New:\s+0\s/m);
+      assert.doesNotMatch(text, /Archived Topic/);
+      assert.match(text, /Total Topics:\s+2 \(1 archived\)/);
     });
 
     test('archived-only vault still reports zeroed active stats', async () => {
