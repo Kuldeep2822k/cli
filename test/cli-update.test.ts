@@ -18,7 +18,7 @@ import path from 'node:path';
 import childProcess from 'child_process';
 import { spawnSync } from 'child_process';
 import packageJson from '../package.json';
-import { PALEE_ARGV } from './palee-cli';
+import { PALEE_ARGV, underCoverage } from './palee-cli';
 import {
   compareVersions,
   evaluateUpdate,
@@ -469,9 +469,11 @@ describe('update: the CLI through a PATH-shim npm', () => {
     withShim: boolean;
     /** Where `palee` itself is started from; defaults to the repository root. */
     cwd?: string;
+    /** Extra environment for the child, merged over the inherited one. */
+    env?: NodeJS.ProcessEnv;
   }
 
-  function run({ args, configDir, version, exitCode, viewExitCode, withShim, cwd }: RunOptions): {
+  function run({ args, configDir, version, exitCode, viewExitCode, withShim, cwd, env: envExtras }: RunOptions): {
     status: number | null;
     stdout: string;
     stderr: string;
@@ -480,6 +482,7 @@ describe('update: the CLI through a PATH-shim npm', () => {
       ...process.env,
       PALEE_CONFIG_DIR: configDir,
       PATH: withShim ? shimDir + path.delimiter + (process.env.PATH ?? '') : emptyBinDir,
+      ...envExtras,
     };
     // A contributor who exported the opt-out would otherwise turn every
     // notice assertion green for the wrong reason.
@@ -632,6 +635,20 @@ describe('update: the CLI through a PATH-shim npm', () => {
     // answer; the planted file must not run at all.
     const plantedDir = path.join(tempDir, 'clone');
     fs.mkdirSync(plantedDir);
+    // A coverage run launches the child as `node --import tsx bin/palee.ts`.
+    // Node resolves a bare `--import` specifier from the child's cwd; without
+    // this link the loader fails before the planted file is ever considered.
+    // tsx also resolves its tsconfig from that cwd, so the spawn below pins
+    // TSX_TSCONFIG_PATH to the repository config: a child compiled against
+    // different options is a second transform lineage and poisons the whole
+    // run's coverage merge (the failure test/palee-cli.ts documents for dist
+    // children). A real clone ships node_modules, and npm's cwd is pinned
+    // elsewhere, so neither shim weakens what this test proves.
+    fs.symlinkSync(
+      path.join(REPO_ROOT, 'node_modules'),
+      path.join(plantedDir, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
     const marker = path.join(plantedDir, 'executed.marker');
     fs.writeFileSync(
       path.join(plantedDir, 'npm.cmd'),
@@ -645,6 +662,9 @@ describe('update: the CLI through a PATH-shim npm', () => {
       version: '99.0.0',
       withShim: true,
       cwd: plantedDir,
+      // Piggybacks on the node_modules link above, and is inert for the dist
+      // child that the non-coverage launch path spawns.
+      ...(underCoverage ? { env: { TSX_TSCONFIG_PATH: path.join(REPO_ROOT, 'tsconfig.json') } } : {}),
     });
 
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);

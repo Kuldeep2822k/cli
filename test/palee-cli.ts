@@ -12,12 +12,14 @@ import path from 'path';
  *   per-spawn tsx/esbuild cold start.
  * - Coverage runs launch the TypeScript sources behind `--import tsx`, so
  *   every process in the report compiles with the same transform as the
- *   parent and the coverage maps merge cleanly. A `dist` child compiles with
- *   tsc instead, and the two lineages do not merge: on the #451 attempt
- *   (2026-10-16) each side's function map replaced the other's and function
- *   coverage fell from 94.35% to 87.07%, below the 93% floor. The price of
- *   this path is the per-spawn cold start, which `test:coverage` bounds with
- *   `--test-concurrency=4`.
+ *   parent and the coverage maps merge cleanly. tsx resolves its tsconfig
+ *   from the process cwd, so a child started from another working directory
+ *   must point `TSX_TSCONFIG_PATH` at the repository config or it compiles a
+ *   second lineage. A `dist` child compiles with tsc instead, and the two
+ *   lineages do not merge: on the #451 attempt (2026-10-16) each side's
+ *   function map replaced the other's and function coverage fell from 94.35%
+ *   to 87.07%, below the 93% floor. The price of this path is the per-spawn
+ *   cold start, which `test:coverage` bounds with `--test-concurrency=4`.
  *
  * The build must have run first for the dist path; `pretest`,
  * `pretest:coverage` and the other pretest hooks all do that. A direct
@@ -26,7 +28,16 @@ import path from 'path';
  * an unrelated-looking child ENOENT.
  */
 const ROOT = path.resolve(__dirname, '..');
-const underCoverage = Boolean(process.env.NODE_V8_COVERAGE);
+
+/**
+ * Whether the suite is running under c8 coverage (`test:coverage`).
+ *
+ * @remarks
+ * `PALEE_ARGV` selects the launch path from this flag; suites that spawn from
+ * a foreign working directory also read it to decide whether the child needs
+ * the `TSX_TSCONFIG_PATH` pin described above.
+ */
+export const underCoverage = Boolean(process.env.NODE_V8_COVERAGE);
 
 /** The built CLI entry point the non-coverage launch path spawns. */
 export const PALEE_DIST_ENTRY: string = path.join(ROOT, 'dist', 'bin', 'palee.js');
