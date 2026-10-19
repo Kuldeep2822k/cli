@@ -4,7 +4,7 @@
  *
  * @remarks
  * `PALEE_CONFIG_DIR` is the only per-run config override, and when it is unset
- * every command silently falls back to the machine-global config — so a scripted
+ * every command silently falls back to the per-user default config — so a scripted
  * run that forgets the export reads and writes whatever vault that file happens
  * to point at (#311). Mutating commands used to finish at exit 0 without ever
  * printing the vault they touched. This module resolves the vault once, at the

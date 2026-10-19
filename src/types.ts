@@ -372,7 +372,12 @@ export interface MigrateOptions {
 }
 
 /**
- * Global configuration stored in `~/.palee/config.json`.
+ * Per-user configuration, read from `$PALEE_CONFIG_DIR/config.json` when that
+ * override is set and otherwise from the platform default —
+ * `%LOCALAPPDATA%\palee\config.json` on Windows, `~/.config/palee/config.json`
+ * elsewhere. Neither default is machine-wide: both sit under the current user's
+ * profile, so two accounts on one machine keep separate vaults and credentials.
+ * Resolution lives in `getConfigPath()`.
  */
 export interface PaleeConfig {
   /** Absolute path to the active Obsidian vault */
