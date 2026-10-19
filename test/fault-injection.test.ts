@@ -54,15 +54,65 @@ describe('Storage & Memory Fault Injection Test Suite', () => {
       assert.strictEqual(result.body, '# Body');
     });
 
-    test('updateFrontmatter throws clean error on unparseable corrupted frontmatter', () => {
-      const corrupted = '---\n: invalid yaml syntax [[]\n---\n# Body';
-      // If parsing fails with syntax error, updateFrontmatter should report clean error
-      try {
-        const res = updateFrontmatter(corrupted, { title: 'Updated' });
-        assert.ok(res);
-      } catch (err: unknown) {
-        assert.ok((err as Error).message.includes('Malformed frontmatter'));
-      }
+    test('updateFrontmatter refuses a frontmatter sequence and names the parse cause', () => {
+      // A `- a` / `- b` block is valid YAML, but it is a sequence rather than a
+      // mapping: parseFrontmatter keeps the raw block and flags it so
+      // updateFrontmatter rejects the note instead of duplicating it. The input
+      // this test used to carry (`: invalid yaml syntax [[]`) parses as a mapping
+      // with an empty key and never reached the throw branch, and the old
+      // try/catch passed whether the call threw or returned — so it could not
+      // fail. The fixture below does reach it, and the assertion names the cause
+      // the caller has to report.
+      // Uncited by design: no INV-nn covers "reject a non-mapping block" —
+      // INV-02 is the preservation clause pinned by the merge test below, and it
+      // asserts the opposite of a refusal.
+      const corrupted = '---\n- a\n- b\n---\n# Body';
+
+      assert.throws(
+        () => updateFrontmatter(corrupted, { title: 'Updated' }),
+        (err: unknown) => {
+          const message = (err as Error).message;
+          assert.ok(
+            message.startsWith('Malformed frontmatter: '),
+            `rejection must be prefixed for callers, got: ${message}`
+          );
+          assert.strictEqual(
+            message.slice('Malformed frontmatter: '.length),
+            'Frontmatter must be a YAML mapping, not a sequence',
+            `rejection must carry the parse cause, got: ${message}`
+          );
+          return true;
+        },
+        'a sequence between the fences must be rejected, not rewritten'
+      );
+      // The throw is also the "never half-written" half: a rejected block yields no
+      // returned text at all, and `assert.throws` fails if the call returns either
+      // the original or a rewritten one. That the surviving note keeps its own
+      // bytes on disk is pinned by the spawn-level pin in
+      // test/cli-adopt-preservation.test.ts ("one unreadable note is skipped by
+      // name instead of ending the batch"), so it is not repeated here.
+    });
+
+    test('updateFrontmatter merges into an empty-key block that yaml accepts (INV-02)', () => {
+      // The true contract for the input the test above replaced: `: value` is a
+      // mapping with an empty key, so YAML parses it, there is no error to throw
+      // on, and the update has to merge into the block it found. The expected text
+      // is derived by hand — the original raw line kept verbatim, `title: Updated`
+      // appended after it, `---` fences and the body reproduced from the note.
+      const original = '---\n: invalid yaml syntax [[]\n---\n# Body';
+
+      const parsed = parseFrontmatter(original);
+      assert.strictEqual(parsed.error, undefined, 'an empty-key mapping is not malformed frontmatter');
+      assert.deepStrictEqual(
+        parsed.frontmatter,
+        { '': 'invalid yaml syntax [[]' },
+        'the empty key is data the note owns, not corruption'
+      );
+
+      assert.strictEqual(
+        updateFrontmatter(original, { title: 'Updated' }),
+        '---\n: invalid yaml syntax [[]\ntitle: Updated\n---\n# Body'
+      );
     });
   });
 

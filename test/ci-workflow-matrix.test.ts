@@ -168,4 +168,20 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       'coverage must measure the same glob plain npm test measures'
     );
   });
+
+  test('plain npm test bounds worker fan-out with the same cap as coverage', () => {
+    const pkgPath = path.resolve(__dirname, '../package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const testScript: string = pkg.scripts?.test ?? '';
+    assert.ok(
+      testScript.includes('--test-concurrency=4'),
+      'an uncapped pool spawns one tsx worker per core and fails to commit memory on a 16-core dev box'
+    );
+    const bound = (script: string): string | undefined => script.match(/--test-concurrency=(\d+)/)?.[1];
+    assert.strictEqual(
+      bound(testScript),
+      bound(pkg.scripts?.['test:coverage'] ?? ''),
+      'both launch paths must carry the same bound, or the unbounded one becomes the default people hit'
+    );
+  });
 });

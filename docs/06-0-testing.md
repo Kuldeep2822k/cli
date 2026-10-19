@@ -79,7 +79,7 @@ The testing environment is built on high-performance native tooling:
 
 - **Test Runner**: Node.js native `node:test` module, providing a fast, built-in execution environment without the runtime overhead or configuration weight of Jest, Mocha, or Vitest.
 - **Assertion Library**: Node.js native `node:assert/strict` and `node:assert` (`assert.strictEqual`, `assert.deepStrictEqual`, `assert.throws`, `assert.rejects`, `assert.match`).
-- **Execution Engine**: `tsx` (`node --import tsx --test "test/**/*.test.ts"`), executing TypeScript tests directly from source without intermediate compilation steps.
+- **Execution Engine**: `tsx` (`node --import tsx --test --test-concurrency=4 "test/**/*.test.ts"`), executing TypeScript tests directly from source without intermediate compilation steps. The worker pool is capped at 4 on both launch paths: uncapped, `node:test` spawns one `tsx` worker per core, which fails to commit memory on a 16-core dev box (ADR-0029 bounds the coverage path for the same reason).
 - **Coverage Tooling**: `c8` (`npm run test:coverage`), generating detailed text and `lcov` coverage reports mapped back to original TypeScript source lines.
 - **Hermetic Test Isolation**: All filesystem-touching tests redirect state by setting `process.env.PALEE_CONFIG_DIR` to a temporary directory created with `fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-'))`.
 
