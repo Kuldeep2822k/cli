@@ -13,13 +13,23 @@ export interface VaultValidationOptions {
 
 /**
  * Determines whether machine-readable JSON output should be used:
- * either when explicitly requested via --json or when output is non-TTY (piped/redirected).
+ * only when explicitly requested via `--json` or the `PALEE_JSON`
+ * environment variable.
  *
  * @param options - Optional command options containing boolean `json` flag
  * @returns `true` if JSON output mode should be activated, otherwise `false`
  *
  * @remarks
- * Evaluates both the explicit `--json` flag and standard output TTY stream state.
+ * Piping or redirecting stdout deliberately does NOT switch to JSON: a
+ * redirected human-readable report (`palee plan > out.txt`,
+ * `palee dashboard | less`) stays human-readable. Set `PALEE_JSON=1`
+ * (or `true`) for machine-readable output without the flag (#357).
+ *
+ * An explicit `json: false` forces human output even under `PALEE_JSON`: the
+ * commands that declare no `--json` flag (`review`, `adopt`, `assess`,
+ * `roadmap`, `migrate`) pass it when they validate the vault, so a global env
+ * setting cannot split their output into machine-readable errors above prose
+ * results.
  *
  * @example
  * ```typescript
@@ -27,7 +37,10 @@ export interface VaultValidationOptions {
  * ```
  */
 export function isJsonOutput(options?: { json?: boolean }): boolean {
-  return Boolean(options?.json || (process.stdout && process.stdout.isTTY === false));
+  if (options?.json === false) return false;
+  if (options?.json === true) return true;
+  const env = process.env.PALEE_JSON;
+  return env === '1' || env?.toLowerCase() === 'true';
 }
 
 /**

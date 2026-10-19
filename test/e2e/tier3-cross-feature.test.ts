@@ -279,7 +279,9 @@ topics:
     assert.strictEqual(sessions.drafts.length, 1);
 
     // 4. Verify remaining draft belongs to T-multi-2
-    const remainingDraft = env.readTopic(path.join('.palee', 'sessions', sessions.drafts[0]));
+    const [remainingDraftName] = sessions.drafts;
+    assert.ok(remainingDraftName !== undefined);
+    const remainingDraft = env.readTopic(path.join('.palee', 'sessions', remainingDraftName));
     assert.strictEqual(remainingDraft.frontmatter?.topic_id, 'T-multi-2');
   });
 
@@ -307,7 +309,8 @@ topics:
     env.run(['session', 'draft', '--topic', adoptedId]);
 
     // 3. Corrupt the draft file
-    const draftName = env.listSessions().drafts[0];
+    const [draftName] = env.listSessions().drafts;
+    assert.ok(draftName !== undefined);
     const draftPath = path.join(env.vaultDir, '.palee', 'sessions', draftName);
     fs.writeFileSync(draftPath, '---\ninvalid: [ YAML error\n---\n# Corrupt draft\n', 'utf8');
 

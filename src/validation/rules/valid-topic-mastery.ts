@@ -90,12 +90,15 @@ export const validTopicMasteryRule: ValidationRule = {
       // A present-but-malformed value is `undefined` after the guard and
       // must skip this rule; an absent pillar normalizes to 0 below.
       if (
-        scores.some(
-          (value, i) =>
-            value === undefined &&
-            topic.frontmatter[SCORE_FIELDS[i]] !== undefined &&
-            topic.frontmatter[SCORE_FIELDS[i]] !== null
-        )
+        scores.some((value, i) => {
+          // `SCORE_FIELDS` is a fixed 4-tuple and `scores` was mapped from it,
+          // so the index is always in bounds; the guard keeps the type honest
+          // rather than asserting it.
+          const field = SCORE_FIELDS[i];
+          if (field === undefined) return false;
+          const raw = topic.frontmatter[field];
+          return value === undefined && raw !== undefined && raw !== null;
+        })
       ) {
         continue;
       }

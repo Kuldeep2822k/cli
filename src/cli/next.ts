@@ -155,6 +155,11 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       }
     } else {
       const next = dueTopics[0];
+      if (next === undefined) {
+        // Unreachable: the `dueTopics.length === 0` branch returns above, so
+        // the array is non-empty here.
+        throw new Error('Internal error: expected at least one due topic.');
+      }
       const dueStr = next.dueAt
         ? next.dueAt.toISOString().split('T')[0]
         : 'Never reviewed';
@@ -180,7 +185,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
 
   } catch (e: unknown) {
     // #325: the documented machine-readable contract covers runtime errors too.
-    // `--json` (or a piped stdout) gets the same `{ error }` payload the exit-2
+    // `--json` (or PALEE_JSON) gets the same `{ error }` payload the exit-2
     // vault path emits, on stderr; the exit code is unchanged. `options` is
     // passed rather than the in-try `jsonMode`, which does not exist when the
     // throw happens before it is assigned.

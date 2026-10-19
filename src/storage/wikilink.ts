@@ -169,7 +169,28 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
   }
   const folded = foldNoteKey(canonical);
   const matches = listed.filter((p) => foldNoteKey(p) === folded);
-  return matches.length === 1 ? matches[0] : canonical;
+  // `length === 1` was checked, so a match exists; the fallback keeps the type
+  // honest rather than asserting it, and `canonical` is this function's own
+  // "no better casing" answer.
+  return matches.length === 1 ? (matches[0] ?? canonical) : canonical;
+}
+
+declare const CanonicalVaultRootBrand: unique symbol;
+
+/**
+ * A branded string representing a canonical vault root path verified by
+ * `fs.realpathSync`. Using this type ensures callers cannot pass unvalidated
+ * paths into resolution containment checks.
+ */
+export type CanonicalVaultRoot = string & { readonly [CanonicalVaultRootBrand]: typeof CanonicalVaultRootBrand };
+
+/**
+ * Produces a {@link CanonicalVaultRoot} token by canonicalizing the vault path
+ * via `fs.realpathSync`. Passing this pre-computed root to {@link resolveWikilinkTarget}
+ * avoids repeated `realpathSync` syscalls when resolving many links.
+ */
+export function canonicalizeVaultRoot(vaultPath: string): CanonicalVaultRoot {
+  return fs.realpathSync(vaultPath) as CanonicalVaultRoot;
 }
 
 /**
@@ -178,6 +199,13 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
  * @param vaultPath - Absolute path to the vault root
  * @param link - Parsed wikilink (anchor/`.md` already stripped)
  * @param index - Note index from {@link buildVaultNoteIndex}
+ * @param resolvedVaultPath - Canonical vault root (`fs.realpathSync`ed). When
+ * omitted, the vault root is canonicalized here; callers resolving many links
+ * ({@link resolveWikilinkRoadmap}) pass it pre-computed so the canonicalization
+ * happens once per roadmap. When present it MUST be a {@link CanonicalVaultRoot}
+ * produced by {@link canonicalizeVaultRoot} — never `fs.realpathSync.native` and
+ * never `path.resolve` — because the containment checks key on that canonical
+ * form; a mismatched value would silently widen or narrow the vault boundary.
  * @returns Canonical absolute path and vault-relative POSIX path
  * @throws {@link AmbiguousWikilinkError} when several notes match
  * @throws {@link UnresolvedWikilinkError} when no note matches
@@ -202,9 +230,13 @@ function withWalkedCasing(canonical: string, index: Map<string, string[]>): stri
 export function resolveWikilinkTarget(
   vaultPath: string,
   link: ParsedWikilink,
-  index: Map<string, string[]>
+  index: Map<string, string[]>,
+  resolvedVaultPath?: CanonicalVaultRoot
 ): ResolvedWikilink {
-  const resolvedVault = fs.realpathSync(vaultPath);
+  // Hoisted by resolveWikilinkRoadmap for bulk resolution; direct callers get
+  // the same value computed here. realpathSync is deterministic per input, so
+  // hoisting changes no behaviour.
+  const resolvedVault = resolvedVaultPath ?? canonicalizeVaultRoot(vaultPath);
   const target = link.target;
 
   // Wikilink targets are `/`-separated only (see {@link targetBaseName}). An
@@ -316,7 +348,10 @@ export function resolveWikilinkTarget(
     }
     break;
   }
-  if (!isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
+  // The found ancestor is already the canonical vault root when the walk
+  // reached it: realpathSync would be the identity there, so skip the syscall
+  // (#373 — this runs once per link on basename-only targets).
+  if (ancestor !== resolvedVault && !isWithinVault(resolvedVault, fs.realpathSync(ancestor))) {
     throw new UnresolvedWikilinkError(target);
   }
 
@@ -324,15 +359,23 @@ export function resolveWikilinkTarget(
   const key = foldNoteKey(targetBaseName(target));
   const hits = index.get(key) ?? [];
   if (hits.length === 1) {
-    return { absolutePath: hits[0], relativePath: relativeVaultPath(vaultPath, hits[0]) };
+    // `length === 1` was checked, so a hit exists; the guard keeps the type
+    // honest rather than asserting it, and an absent hit is unresolvable.
+    const hit = hits[0];
+    if (hit === undefined) throw new UnresolvedWikilinkError(target);
+    return { absolutePath: hit, relativePath: relativeVaultPath(vaultPath, hit) };
   }
   if (hits.length > 1) {
     const wanted = stemOfNote(targetBaseName(target)).normalize('NFC');
     const exactCase = hits.filter((h) => stemOfNote(path.basename(h)).normalize('NFC') === wanted);
     if (exactCase.length === 1) {
+      // `length === 1` was checked, so a hit exists; the guard keeps the type
+      // honest rather than asserting it, and an absent hit is unresolvable.
+      const winner = exactCase[0];
+      if (winner === undefined) throw new UnresolvedWikilinkError(target);
       return {
-        absolutePath: exactCase[0],
-        relativePath: relativeVaultPath(vaultPath, exactCase[0]),
+        absolutePath: winner,
+        relativePath: relativeVaultPath(vaultPath, winner),
       };
     }
     const candidates = hits.map((h) => relativeVaultPath(vaultPath, h)).sort();
@@ -367,6 +410,9 @@ export function resolveWikilinkRoadmap(
   sections: WikilinkRoadmapSection[]
 ): RoadmapFile {
   const index = buildVaultNoteIndex(vaultPath);
+  // Canonicalize once: resolveWikilinkTarget would otherwise realpathSync the
+  // vault root for every link in every section (#373).
+  const resolvedVault = canonicalizeVaultRoot(vaultPath);
   const existingByPath = new Map<string, { id: string; title: string }>();
   for (const topic of loadTopics(vaultPath)) {
     existingByPath.set(topic.filePath, { id: topic.id, title: topic.title });
@@ -379,7 +425,7 @@ export function resolveWikilinkRoadmap(
   for (const section of sections) {
     let previousId: string | null = null;
     for (const link of section.links) {
-      const resolved = resolveWikilinkTarget(vaultPath, link, index);
+      const resolved = resolveWikilinkTarget(vaultPath, link, index, resolvedVault);
       if (seenPaths.has(resolved.absolutePath)) {
         throw new Error(
           `Duplicate wikilink target in roadmap: [[${link.target}]] resolves to ${resolved.relativePath} more than once`

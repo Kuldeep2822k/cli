@@ -46,7 +46,9 @@ export const noMissingDependencyRule: ValidationRule = {
       if (!topics.has(topic.palee_id)) {
         topics.set(topic.palee_id, {
           palee_id: topic.palee_id,
-          depends_on: topic.depends_on,
+          // The engine reads a missing `depends_on` as "no prerequisites"
+          // (`getTopicDependencies` falls back to `[]`), so normalize here.
+          depends_on: topic.depends_on ?? [],
           topic_mastery: topic.topic_mastery,
         });
       }

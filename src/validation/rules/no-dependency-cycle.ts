@@ -33,27 +33,38 @@ export const noDependencyCycleRule: ValidationRule = {
       if (!topics.has(topic.palee_id)) {
         topics.set(topic.palee_id, {
           palee_id: topic.palee_id,
-          depends_on: topic.depends_on,
+          // The engine reads a missing `depends_on` as "no prerequisites"
+          // (`getTopicDependencies` falls back to `[]`), so normalize here.
+          depends_on: topic.depends_on ?? [],
           topic_mastery: topic.topic_mastery,
         });
       }
     }
 
     const { cycles, truncated } = detectCyclesBounded(topics);
-    const findings: ValidationIssue[] = cycles.map((cycle) => ({
-      ruleId: 'no-dependency-cycle',
-      severity: 'error' as const,
-      message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
-      topicId: cycle[0],
-      details: { path: cycle },
-    }));
+    const findings: ValidationIssue[] = cycles.map((cycle) => {
+      // A reported cycle always leads with a node ID; the spread keeps the
+      // type honest rather than asserting it, and an absent ID simply omits
+      // the field (`ValidationIssue.topicId` is optional).
+      const lead = cycle[0];
+      return {
+        ruleId: 'no-dependency-cycle',
+        severity: 'error' as const,
+        message: `Dependency cycle detected: ${cycle.join(' -> ')}`,
+        ...(lead === undefined ? {} : { topicId: lead }),
+        details: { path: cycle },
+      };
+    });
 
     if (truncated) {
+      // A reported cycle always leads with a node ID; the fallback chain
+      // keeps the type honest rather than asserting it.
+      const leadTopic = cycles[0]?.[0] ?? context.topics[0]?.palee_id ?? '';
       findings.push({
         ruleId: 'no-dependency-cycle',
         severity: 'error' as const,
         message: 'Dependency cycle enumeration truncated at 1000 cycles — additional cycles may exist',
-        topicId: cycles.length > 0 ? cycles[0][0] : context.topics[0]?.palee_id || '',
+        topicId: leadTopic,
         details: { truncated: true },
       });
     }

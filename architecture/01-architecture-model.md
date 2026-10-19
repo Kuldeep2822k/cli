@@ -47,7 +47,7 @@ One container, two filesystem stores. This is the level where the docs overreach
 
 ### L3 — components, measured not asserted
 
-Counts are from `node scripts/arch-import-graph.cjs` (60 modules, 216 internal import edges, 33 of them `import type`).
+Counts are from a historical import-graph snapshot dated 2026-09-22 (60 modules, 216 internal import edges, 33 of them `import type`); the generator script is not in this repository.
 
 | Layer | Modules | Lines | Intra-layer edges | Cross-layer out-edges |
 | --- | --- | --- | --- | --- |
@@ -69,7 +69,7 @@ Two things fall out of this table that no prose doc states:
 
 ## Edges that do **not** exist (the property that makes this codebase safe to change)
 
-Verified against the import graph; re-check any time with `node scripts/arch-import-graph.cjs`.
+Verified against the historical import graph (60 modules, 216 edges, snapshot dated 2026-09-22); the generator is not in this repository, so treat this as a recorded result.
 
 | Absent edge | Why it matters |
 | --- | --- |
@@ -102,7 +102,7 @@ These are stated here once, neutrally; the fix list and severity are in `03-docs
 
 | If you change… | Also update… |
 | --- | --- |
-| a module's imports | re-run `node scripts/arch-import-graph.cjs` then `node scripts/arch-render-dot.cjs`; the DOT views regenerate themselves |
+| a module's imports | nothing in this directory — the import graph and DOT views are a dated snapshot (60/216, 2026-09-22) and the generator scripts are not in this repository, so the counts stay as recorded. Add a new dated snapshot only when the graph and its dependent artifacts can be re-derived together (ADR-0031) |
 | the layer set or its rules | `agent.md:9-16`, `architecture/palee-architecture.dsl` element list, and this page's L3 table |
 | a facade's exports | `src/<layer>/index.ts` doc comment, and the `FacadeBypass` view if the CLI starts or stops using it |
 | the 19-rule catalog | `src/cli/validate.ts` registry **and** `src/validation/index.ts` (registration order is mirrored in both today) |

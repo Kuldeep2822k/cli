@@ -93,8 +93,8 @@ workspace "PALEE CLI" "Evidence-backed current-state model for @kuldeep2822k/pal
         // ===================== asserted absences (not edges) ==================
         // An absent relationship is deliberately not modelled as an edge, because
         // a rendered edge would imply it exists. Verified 2026-09-22 against the
-        // 216-edge static import graph in _evidence/import-graph.json; re-check:
-        //   node scripts/arch-import-graph.cjs
+        // 216-edge static import graph in _evidence/import-graph.json; the generator
+        // script is not in this repository.
         //
         //   src/engine     -> src/storage     : 0 edges  (engine stays fs-free)
         //   src/engine     -> src/validation  : 0 edges

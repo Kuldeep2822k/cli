@@ -81,7 +81,10 @@ describe('Draft recovery transaction ordering (#328)', () => {
 
       const hotRaw = fs.readFileSync(hotPath, 'utf8');
       const hot = parseFrontmatter(hotRaw).frontmatter;
-      assert.strictEqual(hot!.last_session, sessions[0].replace(/\.md$/, ''), 'hot memory must name the recovered session');
+      assert.ok(hot);
+      const [recoveredSession] = sessions;
+      assert.ok(recoveredSession !== undefined);
+      assert.strictEqual(hot.last_session, recoveredSession.replace(/\.md$/, ''), 'hot memory must name the recovered session');
     } finally {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }

@@ -477,7 +477,10 @@ describe('Tier-0 hygiene predicates (PAL-205-B, INV-46)', () => {
         assert.strictEqual(mixed.predecessorOf.get('src/algorithms/caesar/README.md'), null);
         assert.strictEqual(mixed.predecessorOf.get('src/algorithms/hill/README.md'), null);
         const dirOf = (p: string): string => p.slice(0, p.lastIndexOf('/'));
-        const numberedDir = (d: string): boolean => /^\d{1,3}(?:[-_.\s]|$)/.test(d.split('/')[0]);
+        const numberedDir = (d: string): boolean => {
+          const head = d.split('/')[0];
+          return head !== undefined && /^\d{1,3}(?:[-_.\s]|$)/.test(head);
+        };
         const crossDirSiblingGates = [...mixed.predecessorOf].filter(
           ([child, parent]) =>
             parent !== null &&

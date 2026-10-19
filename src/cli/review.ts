@@ -43,7 +43,9 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
 
     const config = loadConfig();
     // A review rewrites the note it rates, so it names the vault it wrote into (#311).
-    const target = resolveVaultTarget(config);
+    // `json: false` keeps PALEE_JSON from switching this human-only command's
+    // vault refusal to JSON above prose results.
+    const target = resolveVaultTarget(config, { json: false });
     if (!target) return;
     const vaultPath = target.vaultPath;
     const loaded = loadTopics(vaultPath);

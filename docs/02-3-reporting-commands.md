@@ -30,7 +30,7 @@ palee dashboard [flags]
 
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `--json` | `boolean` | `false` | Output dashboard metrics as structured JSON (auto-activated in non-TTY environments). | `palee dashboard --json` |
+| `--json` | `boolean` | `false` | Output dashboard metrics as structured JSON (`PALEE_JSON=1` also works). | `palee dashboard --json` |
 
 ---
 
@@ -57,8 +57,8 @@ flowchart TD
     MetricCalc --> DiffBreak["Difficulty Breakdown:<br/>Beginner / Inter / Adv"]
     
     Mastered & Learning & New & Due & DiffBreak --> FormatCheck{"isJsonOutput() ?"}
-    FormatCheck -->|"TTY (Console)"| RenderTable["Render Styled ASCII Boxed Dashboard"]
-    FormatCheck -->|"Non-TTY / --json"| RenderJSON["Emit Structured JSON to stdout"]
+    FormatCheck -->|"default"| RenderTable["Render Styled ASCII Boxed Dashboard"]
+    FormatCheck -->|"--json / PALEE_JSON=1"| RenderJSON["Emit Structured JSON to stdout"]
 ```
 
 ### Example Human-Readable Output
@@ -104,7 +104,7 @@ palee progress [flags]
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | `--topic <query>` | `string` | `undefined` | Inspect a specific topic by ID (e.g. `T-20260814T120000-abcd`), a unique title substring, or the exact vault path shown by `next`/`plan`. | `palee progress --topic "Recursion"` |
-| `--json` | `boolean` | `false` | Output progress metrics as structured JSON (auto-activated in non-TTY environments). | `palee progress --json` |
+| `--json` | `boolean` | `false` | Output progress metrics as structured JSON (`PALEE_JSON=1` also works). | `palee progress --json` |
 
 ---
 
@@ -181,7 +181,7 @@ palee validate [flags]
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | `--fix` | `boolean` | `false` | Repair corrupted SM-2 review fields (`valid-review-fields` findings) by resetting each invalid field to its adopt default: `ease_factor` 2.5, `interval_days` 1, `repetition` 0, `lapses` 0, `last_quality` null. Other findings remain diagnostic only (general fix engine deferred per ADR-0008). Reports repaired fields (additive `repairs`/`repair_conflicts` keys in `--json`) and re-validates before choosing the exit code. | `palee validate --fix` |
-| `--json` | `boolean` | `false` | Output validation diagnostics as structured JSON (auto-activated in non-TTY environments). | `palee validate --json` |
+| `--json` | `boolean` | `false` | Output validation diagnostics as structured JSON (`PALEE_JSON=1` also works). | `palee validate --json` |
 | `--strict` | `boolean` | `false` | Escalate warnings to a non-zero exit code: a warnings-only vault exits `3` like an errors vault (default: warnings never gate the exit code). | `palee validate --strict` |
 
 ---
@@ -379,17 +379,19 @@ Assessment fields (`conceptual`, `practical`, `debug`, `feynman`, `assessed_at`,
 
 ---
 
-## 4. Machine-Readable Output & Non-TTY Detection
+## 4. Machine-Readable Output
 
-All reporting commands support the PALEE automated JSON streaming contract (`isJsonOutput()`):
+All reporting commands support explicit JSON selection (`isJsonOutput()`): pass `--json`
+or set `PALEE_JSON=1`. Piping alone does not switch formats — a redirected report
+stays human-readable (#357).
 
 ```bash
-# Direct JSON piping to jq for CI/CD checks
-$ palee validate | jq .valid
+# JSON output for CI/CD checks: opt in explicitly, then pipe to jq
+$ palee validate --json | jq .valid
 true
 
 # Extract total reviews due from dashboard
-$ palee dashboard | jq .reviews_due
+$ PALEE_JSON=1 palee dashboard | jq .reviews_due
 3
 ```
 
