@@ -40,8 +40,9 @@ npm install -g @kuldeep2822k/palee
 Requires Node `>=22.12.0` (the package's `engines` floor).
 
 Upgrade later with `palee update` (`--dry-run` reports current and latest without installing).
-PALEE itself opens no network connection — it delegates to your own `npm`, your `.npmrc` included.
-On an interactive terminal a newer release is also announced once per 24 hours with a single `⚠`
+`palee update` opens no network connection itself — it delegates to your own `npm`, with the user
+and global `.npmrc` you already have.
+On an interactive terminal a newer release is also announced at most once per 24 hours with a single `⚠`
 line on stderr; set `PALEE_NO_UPDATE_CHECK=1` to silence it.
 
 ### Connect to Your Obsidian Vault

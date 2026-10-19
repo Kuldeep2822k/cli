@@ -50,7 +50,7 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     );
   });
 
-  test('every command count stated in the testing guide matches the dispatcher', () => {
+  test('the testing guide counts and names exactly the commands the dispatcher registers', () => {
     // #458 corrected these sentences to the then-true 12, and adding `update` made
     // them wrong again with nothing failing — because the guard above reads only
     // `docs/02-0`. A number stated in a second file is the same kind of fact and
@@ -85,6 +85,24 @@ describe('Exit-code contract covers every registered command (#268)', () => {
       Number(outside[1]),
       named.length,
       `the guide says ${outside[1]} commands are outside the matrix but names ${named.length}`
+    );
+    assert.strictEqual(new Set(named).size, named.length, 'the parenthetical list names no command twice');
+
+    // The prose's remaining claim — that the eight commands the suite imports
+    // are the other half of the partition — is checked against the imports
+    // themselves, not against the sentence that asserts it. A name swapped in
+    // either place fails here.
+    const exitCodes = fs.readFileSync(path.join(root, 'test/cli-exit-codes.test.ts'), 'utf8');
+    const imported = new Set(
+      [...exitCodes.matchAll(/^import .*?\b([a-z][A-Za-z]*)Command\b/gmu)].map((match) =>
+        (match[1] ?? '').replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+      )
+    );
+    assert.strictEqual(imported.size, 8, 'the exit-code suite imports eight command handlers');
+    assert.deepStrictEqual(
+      [...named].sort(),
+      registered.filter((command): command is string => command !== undefined && !imported.has(command)).sort(),
+      'the named list must be exactly the registered commands the exit-code suite does not import'
     );
   });
 

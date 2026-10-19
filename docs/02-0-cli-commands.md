@@ -26,7 +26,7 @@
 
 The `palee` CLI is the primary developer interface for interacting with the PALEE learning engine. It provides a comprehensive suite of terminal commands for managing learning topics, scheduling spaced repetition reviews via SuperMemo SM-2, tracking mastery and difficulty analytics, ingesting curriculum roadmaps, and executing focused study sessions with working memory synchronization.
 
-All commands are registered and dispatched through the central CLI entry point at [bin/palee.ts#1-134](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts#L1-L134).
+All commands are registered and dispatched through the central CLI entry point at [bin/palee.ts](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts).
 
 ---
 
@@ -93,7 +93,7 @@ The following matrix documents the exact behavior of every command under each ex
 | `palee migrate` | All notes verified to be on current schema (`palee_schema: 1`). | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | OCC mid-air collision or active file lock hit while writing a note during `migrate --fix`; remaining notes are still processed. | Unexpected runtime exception or YAML parse failure. |
 | `palee session` | Session lifecycle action (`start`, `draft`, `end`, `list`) completed successfully. | N/A | Unconfigured vault, a `draft`/`end` with no `--topic` and no active topic, `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or storage directory error. |
 | `palee dashboard` | Successfully rendered high-level dashboard metrics or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or calculation failure. |
-| `palee update` | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. | N/A | Commander's own usage path: an unknown option or an unexpected positional argument. | N/A | N/A | npm could not be resolved (`ENOENT`), the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
+| `palee update` | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. | N/A | Commander's own usage path: an unknown option or an unexpected positional argument. | N/A | N/A | npm could not be found on PATH or run, the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
 
 ---
 

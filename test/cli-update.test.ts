@@ -1,15 +1,16 @@
 /**
  * `palee update` and the new-version notice (issue #253)
  *
- * Three groups, all fully offline: pure helpers unit-tested in process, the
- * notifier driven through a stubbed `spawnSync`, and the real CLI driven through
- * a PATH shim that stands in for npm. No test in this file — and none in the
- * rest of the suite, which pipes stdio and so trips the TTY gate — ever reaches
- * a registry. The boundary this file encodes is INV-29; ADR-0033 records why
- * the registry is asked through a child process rather than a socket.
+ * Four groups, all fully offline: pure helpers unit-tested in process, the
+ * cache and notifier driven through a stubbed `spawnSync`, the real CLI driven
+ * through a PATH shim that stands in for npm, and two source-shape guards. No
+ * test in this file — and none in the rest of the suite, which pipes stdio and
+ * so trips the TTY gate — ever reaches a registry. The boundary this file
+ * encodes is INV-29; ADR-0033 records why the registry is asked through a
+ * child process rather than a socket.
  */
 
-import { test, describe } from 'node:test';
+import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,7 +22,6 @@ import { PALEE_ARGV } from './palee-cli';
 import {
   compareVersions,
   evaluateUpdate,
-  formatNotice,
   installArgs,
   isCacheFresh,
   maybeNotifyUpdate,
@@ -33,10 +33,11 @@ import {
   viewArgs,
   writeUpdateCheckRecord,
   UPDATE_CHECK_TTL_MS,
-  type UpdateCheckRecord,
+  type UpdateCheckEntry,
 } from '../src/cli/update-check';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+const TTL_24H = 24 * 60 * 60 * 1000;
 
 function mkTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -66,28 +67,30 @@ function withSpawnStub<T>(stub: (...args: unknown[]) => unknown, fn: () => T): T
   }
 }
 
-function stubOk(stdout: string): (...args: unknown[]) => unknown {
-  return () => ({ status: 0, signal: null, output: [], pid: 0, stdout, stderr: '' });
+/** The `SpawnSyncReturns` shape the stubs answer with. */
+function spawnResult(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null, ...overrides };
 }
 
-function stubEnoent(): (...args: unknown[]) => unknown {
-  const error = new Error('spawnSync npm ENOENT') as NodeJS.ErrnoException;
-  error.code = 'ENOENT';
-  return () => ({ status: null, signal: null, output: [], pid: 0, stdout: '', stderr: '', error });
-}
-
-function captureConsoleError(fn: () => void): string[] {
-  const lines: string[] = [];
-  const original = console.error;
+/** Captures both console streams so "stderr-only" and "stdout stays clean" are assertable. */
+function captureOutput(fn: () => void): { stdout: string[]; stderr: string[] } {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]): void => {
+    stdout.push(args.map((a) => String(a)).join(' '));
+  };
   console.error = (...args: unknown[]): void => {
-    lines.push(args.map((a) => String(a)).join(' '));
+    stderr.push(args.map((a) => String(a)).join(' '));
   };
   try {
     fn();
   } finally {
-    console.error = original;
+    console.log = originalLog;
+    console.error = originalError;
   }
-  return lines;
+  return { stdout, stderr };
 }
 
 function withTtyStdout<T>(isTTY: boolean, fn: () => T): T {
@@ -104,17 +107,43 @@ function withTtyStdout<T>(isTTY: boolean, fn: () => T): T {
   }
 }
 
+/**
+ * Runs a function with an isolated config directory and without the notice
+ * opt-out, either of which a contributor's environment could otherwise set.
+ */
+function withTempConfigDir<T>(fn: (dir: string) => T): T {
+  const dir = mkTempDir('palee-update-');
+  const originalDir = process.env.PALEE_CONFIG_DIR;
+  const originalOptOut = process.env.PALEE_NO_UPDATE_CHECK;
+  process.env.PALEE_CONFIG_DIR = dir;
+  delete process.env.PALEE_NO_UPDATE_CHECK;
+  try {
+    return fn(dir);
+  } finally {
+    if (originalDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+    else process.env.PALEE_CONFIG_DIR = originalDir;
+    if (originalOptOut === undefined) delete process.env.PALEE_NO_UPDATE_CHECK;
+    else process.env.PALEE_NO_UPDATE_CHECK = originalOptOut;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe('update: pure helpers', () => {
   test('npm on win32 is npm.cmd through a shell; on POSIX it is npm directly', () => {
     // The CVE-2024-27980 rule: a .cmd cannot be spawned without a shell on modern Node.
-    const win = npmInvocationFor('win32', viewArgs());
-    assert.strictEqual(win.command, 'npm.cmd');
-    assert.strictEqual(win.shell, true);
-    assert.deepStrictEqual(win.args, ['view', '@kuldeep2822k/palee', 'version']);
-    const posix = npmInvocationFor('linux', installArgs());
-    assert.strictEqual(posix.command, 'npm');
-    assert.strictEqual(posix.shell, false);
-    assert.deepStrictEqual(posix.args, ['install', '-g', '@kuldeep2822k/palee@latest']);
+    assert.deepStrictEqual(npmInvocationFor('win32', ['view', '@kuldeep2822k/palee', 'version']), {
+      command: 'npm.cmd',
+      args: ['view', '@kuldeep2822k/palee', 'version'],
+      shell: true,
+    });
+    assert.deepStrictEqual(npmInvocationFor('linux', ['install', '-g', '@kuldeep2822k/palee@latest']), {
+      command: 'npm',
+      args: ['install', '-g', '@kuldeep2822k/palee@latest'],
+      shell: false,
+    });
+    // The two shipped argv shapes, pinned as literals rather than fed back in.
+    assert.deepStrictEqual(viewArgs(), ['view', '@kuldeep2822k/palee', 'version']);
+    assert.deepStrictEqual(installArgs(), ['install', '-g', '@kuldeep2822k/palee@latest']);
   });
 
   test('compareVersions compares numerically, not lexically', () => {
@@ -129,6 +158,10 @@ describe('update: pure helpers', () => {
       ['1.0.0-alpha.2', '1.0.0-alpha.10', -1],
       ['1.0.0-alpha', '1.0.0-alpha.1', -1],
       ['1.0.0-1', '1.0.0-alpha', -1],
+      // Numeric prerelease identifiers stay strings: 2^53-scale identifiers
+      // must still order by value instead of comparing equal through Number().
+      ['1.0.0-9007199254740993', '1.0.0-9007199254740992', 1],
+      ['1.0.0-010', '1.0.0-10', 0],
       ['1.0.0+build.5', '1.0.0', 0],
       ['1.0', '1.0.0', 0],
       ['garbage', '1.0.0', 0],
@@ -142,211 +175,240 @@ describe('update: pure helpers', () => {
     assert.strictEqual(parseVersionLine('1.2.3\n'), '1.2.3');
     assert.strictEqual(parseVersionLine('\r\n9.9.9\r\n'), '9.9.9');
     assert.strictEqual(parseVersionLine('1.2.3-rc.1'), '1.2.3-rc.1');
+    assert.strictEqual(parseVersionLine(' 1.2.3 '), '1.2.3');
     // npm's own upgrade notices must not be read as the package version.
     assert.strictEqual(parseVersionLine('npm notice 10.8.2 -> 10.9.0\n1.2.3'), '1.2.3');
+    assert.strictEqual(parseVersionLine('1.2'), null);
+    assert.strictEqual(parseVersionLine('1.2.3.4'), null);
     assert.strictEqual(parseVersionLine('hello world'), null);
     assert.strictEqual(parseVersionLine(''), null);
   });
 
-  test('a cache record is trusted only fresh and written by this same version', () => {
-    const record: UpdateCheckRecord = { checkedAt: 1000, currentVersion: '1.0.0', latestVersion: '1.1.0' };
-    assert.strictEqual(isCacheFresh(record, 1000 + UPDATE_CHECK_TTL_MS - 1, '1.0.0', UPDATE_CHECK_TTL_MS), true);
-    assert.strictEqual(isCacheFresh(record, 1000 + UPDATE_CHECK_TTL_MS, '1.0.0', UPDATE_CHECK_TTL_MS), false);
-    assert.strictEqual(isCacheFresh(record, 1001, '1.2.0', UPDATE_CHECK_TTL_MS), false);
+  test('the TTL is literally 24 hours and freshness ends at the boundary', () => {
+    assert.strictEqual(UPDATE_CHECK_TTL_MS, TTL_24H);
+    const entry: UpdateCheckEntry = { checkedAt: 1_000, latestVersion: '1.1.0', notifiedVersion: null };
+    assert.strictEqual(isCacheFresh(entry, 1_000 + TTL_24H - 1, TTL_24H), true);
+    assert.strictEqual(isCacheFresh(entry, 1_000 + TTL_24H, TTL_24H), false);
   });
 
-  test('every notice gate holds the line, and only the human case lets it through', () => {
-    assert.strictEqual(notificationSuppressed({}, true, 'next', false), false);
-    assert.strictEqual(notificationSuppressed({}, false, 'next', false), true);
-    assert.strictEqual(notificationSuppressed({}, undefined, 'next', false), true);
-    assert.strictEqual(notificationSuppressed({}, true, 'next', true), true);
-    assert.strictEqual(notificationSuppressed({}, true, 'update', false), true);
-    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '1' }, true, 'next', false), true);
+  test('every notice gate holds the line, and only a successful human run lets it through', () => {
+    assert.strictEqual(notificationSuppressed({}, true, 'next', false, 0), false);
+    assert.strictEqual(notificationSuppressed({}, true, 'next', false, undefined), false);
+    assert.strictEqual(notificationSuppressed({}, true, 'next', false, 2), true);
+    assert.strictEqual(notificationSuppressed({}, true, 'next', false, '4'), true);
+    assert.strictEqual(notificationSuppressed({}, false, 'next', false, 0), true);
+    assert.strictEqual(notificationSuppressed({}, undefined, 'next', false, 0), true);
+    assert.strictEqual(notificationSuppressed({}, true, 'next', true, 0), true);
+    assert.strictEqual(notificationSuppressed({}, true, 'update', false, 0), true);
+    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '1' }, true, 'next', false, 0), true);
     // Read the opt-out the way PALEE_DEBUG reads its opt-in: 0 and empty are not "set".
-    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '0' }, true, 'next', false), false);
-    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '' }, true, 'next', false), false);
+    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '0' }, true, 'next', false, 0), false);
+    assert.strictEqual(notificationSuppressed({ PALEE_NO_UPDATE_CHECK: '' }, true, 'next', false, 0), false);
   });
 
-  test('the notice names the invoked bin, not the published one', () => {
-    assert.strictEqual(
-      formatNotice('1.0.0', '1.1.0', 'palee-test'),
-      '⚠ A new version of palee is available: 1.1.0 (you have 1.0.0). Run palee-test update'
-    );
-  });
-
-  test('the cache file lives in the config dir PALEE_CONFIG_DIR isolates', () => {
-    const dir = mkTempDir('palee-update-path-');
-    const original = process.env.PALEE_CONFIG_DIR;
-    process.env.PALEE_CONFIG_DIR = dir;
-    try {
-      assert.strictEqual(updateCheckPath(), path.join(dir, 'update-check.json'));
-    } finally {
-      if (original === undefined) delete process.env.PALEE_CONFIG_DIR;
-      else process.env.PALEE_CONFIG_DIR = original;
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test('a corrupt or foreign-shaped cache reads as absent, never throws', () => {
-    const dir = mkTempDir('palee-update-corrupt-');
-    const original = process.env.PALEE_CONFIG_DIR;
-    process.env.PALEE_CONFIG_DIR = dir;
-    try {
+  test('a careless or poisoned cache entry reads as absent, never throws', () => {
+    withTempConfigDir((dir) => {
       const file = updateCheckPath();
-      fs.writeFileSync(file, 'not json at all', 'utf8');
-      assert.strictEqual(readUpdateCheckRecord(), null);
-      fs.writeFileSync(file, '[1, 2]', 'utf8');
-      assert.strictEqual(readUpdateCheckRecord(), null);
-      fs.writeFileSync(file, '{"checkedAt": "soon", "currentVersion": "1", "latestVersion": null}', 'utf8');
-      assert.strictEqual(readUpdateCheckRecord(), null);
-      fs.writeFileSync(file, '{"checkedAt": 5, "currentVersion": "1.0.0", "latestVersion": "1.1.0"}', 'utf8');
-      assert.deepStrictEqual(readUpdateCheckRecord(), { checkedAt: 5, currentVersion: '1.0.0', latestVersion: '1.1.0' });
-    } finally {
-      if (original === undefined) delete process.env.PALEE_CONFIG_DIR;
-      else process.env.PALEE_CONFIG_DIR = original;
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+      assert.strictEqual(file, path.join(dir, 'update-check.json'));
+      const write = (raw: string): void => fs.writeFileSync(file, raw, 'utf8');
+
+      write('not json at all');
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      write('[1, 2]');
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      write(JSON.stringify({ '1.0.0': { checkedAt: 'soon', latestVersion: '1.1.0', notifiedVersion: null } }));
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      // JSON.parse('1e999') is Infinity, which would freeze the cache forever.
+      write('{"1.0.0":{"checkedAt":1e999,"latestVersion":"1.1.0","notifiedVersion":null}}');
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      // A future timestamp is a clock correction, not a fresh check.
+      write(JSON.stringify({ '1.0.0': { checkedAt: Date.now() + 60_000, latestVersion: '1.1.0', notifiedVersion: null } }));
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      write(JSON.stringify({ '1.0.0': { checkedAt: 5, latestVersion: 'garbage', notifiedVersion: null } }));
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      write(JSON.stringify({ '1.0.0': { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: 'garbage' } }));
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      // Another install's entry never answers for this version (#311).
+      write(JSON.stringify({ '0.9.0': { checkedAt: 5, latestVersion: null, notifiedVersion: null } }));
+      assert.strictEqual(readUpdateCheckRecord('1.0.0'), null);
+      write(JSON.stringify({ '1.0.0': { checkedAt: 5, latestVersion: null, notifiedVersion: null } }));
+      assert.deepStrictEqual(readUpdateCheckRecord('1.0.0'), { checkedAt: 5, latestVersion: null, notifiedVersion: null });
+    });
+  });
+
+  test('writing one version keeps the other installs entries', () => {
+    withTempConfigDir(() => {
+      writeUpdateCheckRecord('1.0.0', { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: '1.0.0' });
+      writeUpdateCheckRecord('2.0.0', { checkedAt: 6, latestVersion: '2.1.0', notifiedVersion: null });
+      assert.deepStrictEqual(readUpdateCheckRecord('1.0.0'), { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: '1.0.0' });
+      assert.deepStrictEqual(readUpdateCheckRecord('2.0.0'), { checkedAt: 6, latestVersion: '2.1.0', notifiedVersion: null });
+      writeUpdateCheckRecord('1.0.0', { checkedAt: 7, latestVersion: null, notifiedVersion: null });
+      assert.deepStrictEqual(readUpdateCheckRecord('2.0.0'), { checkedAt: 6, latestVersion: '2.1.0', notifiedVersion: null });
+    });
   });
 });
 
-describe('update: notifier in process', () => {
-  function withTempConfigDir<T>(fn: (dir: string) => T): T {
-    const dir = mkTempDir('palee-update-notify-');
-    const original = process.env.PALEE_CONFIG_DIR;
-    // The README tells users to export PALEE_NO_UPDATE_CHECK=1 to silence the
-    // notice. A contributor who has done that would otherwise see these two
-    // tests fail, because maybeNotifyUpdate reads process.env directly and
-    // returns before any spawn.
-    const originalOptOut = process.env.PALEE_NO_UPDATE_CHECK;
-    process.env.PALEE_CONFIG_DIR = dir;
-    delete process.env.PALEE_NO_UPDATE_CHECK;
-    try {
-      return fn(dir);
-    } finally {
-      if (original === undefined) delete process.env.PALEE_CONFIG_DIR;
-      else process.env.PALEE_CONFIG_DIR = original;
-      if (originalOptOut === undefined) delete process.env.PALEE_NO_UPDATE_CHECK;
-      else process.env.PALEE_NO_UPDATE_CHECK = originalOptOut;
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
-  test('a newer cached version prints exactly one stderr line and never touches exitCode', () => {
+describe('update: cache and notifier in process', () => {
+  test('a newer version prints one stderr line, is marked delivered, and never repeats inside the TTL', () => {
     withTempConfigDir(() => {
-      const before = process.exitCode;
+      const beforeExitCode = process.exitCode;
       let calls = 0;
-      withSpawnStub(() => {
+      const stub = (): Record<string, unknown> => {
         calls++;
-        return stubOk('99.0.0\n')();
-      }, () => {
-        withTtyStdout(true, () => {
-          const lines = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          assert.strictEqual(lines.length, 1, lines.join('\n'));
-          const notice = lines[0];
-          assert.ok(notice !== undefined, 'the single notice line is present');
-          assert.match(notice, /^⚠ A new version of palee is available: 99\.0\.0 \(you have 1\.0\.0\)\. Run palee update$/);
-        });
-      });
-      assert.strictEqual(calls, 1);
-      assert.strictEqual(process.exitCode, before, 'a notice never sets an exit code');
-      const record = readUpdateCheckRecord();
-      assert.ok(record !== null && record.latestVersion === '99.0.0');
-
-      // The load-bearing TTL assertion: the second run inside 24 hours must
-      // not re-spawn npm — it reads the cache the first run wrote.
-      withSpawnStub(() => {
-        calls++;
-        return stubOk('99.0.0\n')();
-      }, () => {
-        withTtyStdout(true, () => {
-          const lines = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          assert.strictEqual(lines.length, 1);
-        });
-      });
-      assert.strictEqual(calls, 1, 'a fresh cache must not cost a second npm spawn');
-    });
-  });
-
-  test('equal or older cached versions print nothing', () => {
-    withTempConfigDir(() => {
-      writeUpdateCheckRecord({ checkedAt: Date.now(), currentVersion: '1.0.0', latestVersion: '1.0.0' });
-      withSpawnStub(() => assert.fail('a fresh cache must not spawn npm'), () => {
-        withTtyStdout(true, () => {
-          const lines = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          assert.strictEqual(lines.length, 0);
-        });
-      });
-    });
-  });
-
-  test('an unresolvable npm is silent, and the failure is cached so it is not re-paid', () => {
-    withTempConfigDir(() => {
-      let calls = 0;
-      const counting = (): unknown => {
-        calls++;
-        return stubEnoent()();
+        return spawnResult({ stdout: '99.0.0\n' });
       };
-      withSpawnStub(counting, () => {
+      withSpawnStub(stub, () => {
         withTtyStdout(true, () => {
-          const first = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          const second = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          assert.strictEqual(first.length, 0);
-          assert.strictEqual(second.length, 0);
+          const first = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+          assert.deepStrictEqual(first.stdout, [], 'the notice is stderr-only');
+          assert.strictEqual(first.stderr.length, 1, first.stderr.join('\n'));
+          assert.match(
+            first.stderr[0] ?? '',
+            /^⚠ A new version of palee is available: 99\.0\.0 \(you have 1\.0\.0\)\. Run palee update$/
+          );
+
+          const second = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+          assert.deepStrictEqual(second, { stdout: [], stderr: [] }, 'the notice is delivered once per published version');
         });
       });
+      assert.strictEqual(calls, 1, 'the second run inside the TTL is cache-only');
+      assert.strictEqual(process.exitCode, beforeExitCode, 'a notice never sets an exit code');
+      const entry = readUpdateCheckRecord('1.0.0');
+      assert.ok(entry !== null, 'the check is cached');
+      assert.strictEqual(entry.latestVersion, '99.0.0');
+      assert.strictEqual(entry.notifiedVersion, '99.0.0');
+    });
+  });
+
+  test('equal, older, and already-notified entries never spawn npm or print', () => {
+    withTempConfigDir(() => {
+      let calls = 0;
+      withSpawnStub(
+        () => {
+          calls++;
+          return spawnResult({ stdout: '9.9.9\n' });
+        },
+        () => {
+          withTtyStdout(true, () => {
+            for (const latest of ['1.0.0', '0.9.0']) {
+              writeUpdateCheckRecord('1.0.0', { checkedAt: Date.now(), latestVersion: latest, notifiedVersion: null });
+              const lines = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+              assert.deepStrictEqual(lines, { stdout: [], stderr: [] }, `latest ${latest} must stay silent`);
+            }
+            writeUpdateCheckRecord('1.0.0', { checkedAt: Date.now(), latestVersion: '9.9.9', notifiedVersion: '9.9.9' });
+            const delivered = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+            assert.deepStrictEqual(delivered, { stdout: [], stderr: [] }, 'a delivered notice is not repeated');
+          });
+        }
+      );
+      assert.strictEqual(calls, 0, 'no cached state may cost an npm spawn');
+    });
+  });
+
+  test('a failed probe is silent, cached as a failure, and not re-paid', () => {
+    withTempConfigDir(() => {
+      let calls = 0;
+      withSpawnStub(
+        () => {
+          calls++;
+          const error = new Error('spawnSync npm ENOENT') as NodeJS.ErrnoException;
+          error.code = 'ENOENT';
+          return spawnResult({ status: null, error });
+        },
+        () => {
+          withTtyStdout(true, () => {
+            captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+            captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+          });
+        }
+      );
       assert.strictEqual(calls, 1, 'the cached failure is fresh; no second probe');
-      const record = readUpdateCheckRecord();
-      assert.ok(record !== null && record.latestVersion === null);
+      const entry = readUpdateCheckRecord('1.0.0');
+      assert.ok(entry !== null && entry.latestVersion === null);
+      const report = evaluateUpdate('1.0.0', { force: false, timeoutMs: 5000 });
+      assert.deepStrictEqual(report, { state: 'unknown', reason: 'a previous update check failed' });
     });
   });
 
-  test('a throwing spawnSync cannot throw out of the notice or fail the command', () => {
+  test('a throwing spawnSync cannot escape the notice and is cached as a failure', () => {
     withTempConfigDir(() => {
-      const before = process.exitCode;
-      withSpawnStub(() => {
-        throw new Error('simulated spawnSync explosion');
-      }, () => {
-        withTtyStdout(true, () => {
-          const lines = captureConsoleError(() => maybeNotifyUpdate('1.0.0', 'next', false));
-          assert.strictEqual(lines.length, 0);
-        });
-      });
-      assert.strictEqual(process.exitCode, before);
+      const beforeExitCode = process.exitCode;
+      let calls = 0;
+      withSpawnStub(
+        () => {
+          calls++;
+          throw new Error('simulated spawnSync explosion');
+        },
+        () => {
+          withTtyStdout(true, () => {
+            const lines = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+            assert.deepStrictEqual(lines, { stdout: [], stderr: [] });
+          });
+        }
+      );
+      assert.strictEqual(calls, 1);
+      assert.strictEqual(process.exitCode, beforeExitCode);
+      const entry = readUpdateCheckRecord('1.0.0');
+      assert.ok(entry !== null && entry.latestVersion === null, 'the swallowed explosion is cached as a failed check');
     });
   });
 
-  test('non-TTY stdout and PALEE_NO_UPDATE_CHECK never reach npm', () => {
+  test('non-TTY, --json, update itself, failed commands, and the opt-out never reach npm', () => {
     withTempConfigDir(() => {
-      const original = process.env.PALEE_NO_UPDATE_CHECK;
+      const beforeExitCode = process.exitCode;
+      let calls = 0;
+      const stub = (): Record<string, unknown> => {
+        calls++;
+        return spawnResult({ stdout: '99.0.0\n' });
+      };
       try {
-        withSpawnStub(() => assert.fail('the gate must close before any spawn'), () => {
+        withSpawnStub(stub, () => {
           withTtyStdout(false, () => maybeNotifyUpdate('1.0.0', 'next', false));
+          withTtyStdout(true, () => maybeNotifyUpdate('1.0.0', 'next', true));
+          withTtyStdout(true, () => maybeNotifyUpdate('1.0.0', 'update', false));
+          process.exitCode = 2;
+          withTtyStdout(true, () => maybeNotifyUpdate('1.0.0', 'next', false));
+          process.exitCode = beforeExitCode;
           process.env.PALEE_NO_UPDATE_CHECK = '1';
           withTtyStdout(true, () => maybeNotifyUpdate('1.0.0', 'next', false));
+          delete process.env.PALEE_NO_UPDATE_CHECK;
         });
       } finally {
-        if (original === undefined) delete process.env.PALEE_NO_UPDATE_CHECK;
-        else process.env.PALEE_NO_UPDATE_CHECK = original;
+        process.exitCode = beforeExitCode;
       }
+      assert.strictEqual(calls, 0, 'every gate closes before PATH is consulted');
     });
   });
 
-  test('evaluateUpdate reports the cache and probe paths without printing anything', () => {
+  test('evaluateUpdate answers from a fresh entry and rewrites only when it probes', () => {
     withTempConfigDir(() => {
-      writeUpdateCheckRecord({ checkedAt: Date.now(), currentVersion: '9.9.9', latestVersion: '1.0.0' });
-      // The foreign record must be disbelieved without being printed for: the
-      // report answers from a fresh probe, not from the cache.
-      withSpawnStub(stubOk('2.0.0'), () => {
-        const report = evaluateUpdate('1.0.0', { force: false, timeoutMs: 5000 });
-        assert.strictEqual(report.state, 'update-available');
-        assert.ok(report.state === 'update-available' && report.source === 'npm', 'the foreign-version record was believed');
-      });
-      const fromCache = evaluateUpdate('1.0.0', { force: false, timeoutMs: 5000 });
-      assert.ok(fromCache.state === 'update-available' && fromCache.source === 'cache', 'the fresh own-version record is now used');
-      withSpawnStub(stubEnoent(), () => {
-        const report = evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
-        assert.strictEqual(report.state, 'unknown');
-      });
+      writeUpdateCheckRecord('1.0.0', { checkedAt: Date.now(), latestVersion: '1.0.0', notifiedVersion: null });
+      let calls = 0;
+      withSpawnStub(
+        () => {
+          calls++;
+          return spawnResult({ stdout: '2.0.0\n' });
+        },
+        () => {
+          assert.deepStrictEqual(evaluateUpdate('1.0.0', { force: false, timeoutMs: 5000 }), {
+            state: 'up-to-date',
+            latestVersion: '1.0.0',
+          });
+          assert.strictEqual(calls, 0, 'a fresh entry answers without a probe');
+
+          assert.deepStrictEqual(evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 }), {
+            state: 'update-available',
+            latestVersion: '2.0.0',
+          });
+          assert.strictEqual(calls, 1);
+
+          assert.deepStrictEqual(evaluateUpdate('1.0.0', { force: false, timeoutMs: 5000 }), {
+            state: 'update-available',
+            latestVersion: '2.0.0',
+          });
+          assert.strictEqual(calls, 1, 'the probe result is what the cache now answers');
+        }
+      );
     });
   });
 });
@@ -357,7 +419,7 @@ describe('update: the CLI through a PATH-shim npm', () => {
   let emptyBinDir: string;
   let logPath: string;
 
-  function setup(): string {
+  before(() => {
     tempDir = mkTempDir('palee-update-cli-');
     shimDir = path.join(tempDir, 'shim');
     fs.mkdirSync(shimDir);
@@ -367,11 +429,12 @@ describe('update: the CLI through a PATH-shim npm', () => {
         '#!/bin/sh',
         'if [ "$1" = "view" ]; then',
         '  echo "$SHIM_VERSION"',
-        '  exit 0',
+        '  exit "${SHIM_VIEW_EXIT:-0}"',
         'fi',
         'if [ -n "$SHIM_LOG" ]; then',
         '  echo "$*" >> "$SHIM_LOG"',
         'fi',
+        'echo "npm-install-noise" >&2',
         'exit "${SHIM_EXIT:-0}"',
         '',
       ].join('\n'),
@@ -379,26 +442,36 @@ describe('update: the CLI through a PATH-shim npm', () => {
     );
     fs.writeFileSync(
       path.join(shimDir, 'npm.cmd'),
-      '@echo off\r\nif "%1"=="view" (\r\n  echo %SHIM_VERSION%\r\n  exit /b 0\r\n)\r\necho %* >> "%SHIM_LOG%"\r\nexit /b %SHIM_EXIT%\r\n',
+      '@echo off\r\nif "%1"=="view" (\r\n  echo %SHIM_VERSION%\r\n  exit /b %SHIM_VIEW_EXIT%\r\n)\r\necho %* >> "%SHIM_LOG%"\r\necho npm-install-noise 1>&2\r\nexit /b %SHIM_EXIT%\r\n',
       'utf8'
     );
     emptyBinDir = path.join(tempDir, 'empty-bin');
     fs.mkdirSync(emptyBinDir);
     logPath = path.join(tempDir, 'npm-install.log');
-    return tempDir;
-  }
+  });
+
+  after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  // The install log is the shim's side effect, and every "never reached
+  // install" assertion is only meaningful against a clean slate.
+  beforeEach(() => {
+    fs.rmSync(logPath, { force: true });
+  });
 
   interface RunOptions {
     args: string[];
     configDir: string;
     version?: string;
     exitCode?: string;
+    viewExitCode?: string;
     withShim: boolean;
     /** Where `palee` itself is started from; defaults to the repository root. */
     cwd?: string;
   }
 
-  function run({ args, configDir, version, exitCode, withShim, cwd }: RunOptions): {
+  function run({ args, configDir, version, exitCode, viewExitCode, withShim, cwd }: RunOptions): {
     status: number | null;
     stdout: string;
     stderr: string;
@@ -408,8 +481,12 @@ describe('update: the CLI through a PATH-shim npm', () => {
       PALEE_CONFIG_DIR: configDir,
       PATH: withShim ? shimDir + path.delimiter + (process.env.PATH ?? '') : emptyBinDir,
     };
+    // A contributor who exported the opt-out would otherwise turn every
+    // notice assertion green for the wrong reason.
+    delete env.PALEE_NO_UPDATE_CHECK;
     if (version !== undefined) env.SHIM_VERSION = version;
     if (exitCode !== undefined) env.SHIM_EXIT = exitCode;
+    if (viewExitCode !== undefined) env.SHIM_VIEW_EXIT = viewExitCode;
     if (withShim) env.SHIM_LOG = logPath;
     const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: cwd ?? REPO_ROOT,
@@ -425,198 +502,183 @@ describe('update: the CLI through a PATH-shim npm', () => {
     return fs.mkdtempSync(path.join(tempDir, 'cfg-'));
   }
 
-  test('update --dry-run reports the pair and installs nothing', () => {
-    setup();
-    try {
-      const configDir = freshConfigDir();
-      const r = run({ args: ['update', '--dry-run'], configDir, version: '99.0.0', withShim: true });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.match(r.stdout, /⚠ palee 99\.0\.0 is available \(you have /);
-      assert.match(r.stdout, /• Would run: npm install -g @kuldeep2822k\/palee@latest/);
-      assert.ok(!fs.existsSync(logPath), 'a dry run must never reach npm install');
-      const record = JSON.parse(fs.readFileSync(path.join(configDir, 'update-check.json'), 'utf8')) as UpdateCheckRecord;
-      assert.strictEqual(record.latestVersion, '99.0.0');
-      assert.strictEqual(record.currentVersion, packageJson.version);
-      assert.ok(typeof record.checkedAt === 'number');
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  function entryFor(configDir: string, version: string): UpdateCheckEntry {
+    const store = JSON.parse(fs.readFileSync(path.join(configDir, 'update-check.json'), 'utf8')) as Record<string, unknown>;
+    const entry = store[version];
+    assert.ok(entry !== null && entry !== undefined && typeof entry === 'object', `no cache entry for ${version}`);
+    return entry as UpdateCheckEntry;
+  }
+
+  test('update --dry-run reports the pair, installs nothing, and records the check', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update', '--dry-run'], configDir, version: '99.0.0', withShim: true });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /• Checking the latest published version…/);
+    assert.match(r.stdout, /⚠ palee 99\.0\.0 is available/);
+    assert.ok(r.stdout.includes(`(you have ${packageJson.version}).`), r.stdout);
+    assert.match(r.stdout, /• Would run: npm install -g @kuldeep2822k\/palee@latest/);
+    assert.ok(!fs.existsSync(logPath), 'a dry run must never reach npm install');
+
+    const entry = entryFor(configDir, packageJson.version);
+    assert.strictEqual(entry.latestVersion, '99.0.0');
+    assert.strictEqual(entry.notifiedVersion, null, 'the update command never notifies itself');
+    assert.ok(Number.isFinite(entry.checkedAt));
   });
 
-  test('update --dry-run says up to date when the registry agrees', () => {
-    setup();
-    try {
-      const r = run({
-        args: ['update', '--dry-run'],
-        configDir: freshConfigDir(),
-        version: packageJson.version,
-        withShim: true,
-      });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.match(r.stdout, /✓ palee is up to date/);
-      assert.ok(!fs.existsSync(logPath));
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('update on the latest version exits 0 and installs nothing', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, version: packageJson.version, withShim: true });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.ok(r.stdout.includes(`✓ palee is up to date (${packageJson.version})`), r.stdout);
+    assert.ok(!fs.existsSync(logPath), 'an up-to-date run must not shell out to install');
   });
 
-  test('update on the current version succeeds without installing', () => {
-    setup();
-    try {
-      const r = run({ args: ['update'], configDir: freshConfigDir(), version: packageJson.version, exitCode: '0', withShim: true });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.match(r.stdout, /✓ palee is up to date/);
-      assert.ok(!fs.existsSync(logPath), 'an up-to-date run must not shell out to install');
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('update runs the real install with the exact argv, once, then marks the cache up to date', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, version: '99.0.0', exitCode: '0', withShim: true });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /• Running: npm install -g @kuldeep2822k\/palee@latest/);
+    assert.ok(r.stdout.includes('✓ Updated palee to 99.0.0.'), r.stdout);
+    assert.ok(r.stdout.includes('• Verify: palee --version'), r.stdout);
+
+    const log = fs.readFileSync(logPath, 'utf8').trim();
+    assert.deepStrictEqual(log.split(/\s+/), ['install', '-g', '@kuldeep2822k/palee@latest'], 'argv survives shell resolution exactly once');
+
+    const entry = entryFor(configDir, packageJson.version);
+    assert.strictEqual(entry.latestVersion, packageJson.version, 'the outgoing build cannot emit a stale notice');
+    assert.strictEqual(entry.notifiedVersion, packageJson.version);
   });
 
-  test('update runs the real install with the exact argv through the shell path', () => {
-    setup();
-    try {
-      const r = run({ args: ['update'], configDir: freshConfigDir(), version: '99.0.0', exitCode: '0', withShim: true });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.match(r.stdout, /✓ Updated palee to 99\.0\.0/);
-      const log = fs.readFileSync(logPath, 'utf8');
-      // The single highest-value integration assertion: the argv shape survives
-      // cmd.exe/shell resolution on Windows and direct spawn on POSIX alike.
-      assert.match(log, /install -g @kuldeep2822k\/palee@latest/);
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('a failing npm install exits 5, shows npm output, and leaves the check unrewritten', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, version: '99.0.0', exitCode: '1', withShim: true });
+    assert.strictEqual(r.status, 5);
+    assert.match(r.stderr, /npm-install-noise/, 'npm keeps the terminal (stdio inherit)');
+    assert.match(r.stderr, /npm install -g exited with code 1/);
+    assert.doesNotMatch(r.stdout, /Updated palee/);
+    const entry = entryFor(configDir, packageJson.version);
+    assert.strictEqual(entry.latestVersion, '99.0.0');
+    assert.strictEqual(entry.notifiedVersion, null);
   });
 
-  test('a failing npm install exits 5 naming npm code', () => {
-    setup();
-    try {
-      const r = run({ args: ['update'], configDir: freshConfigDir(), version: '99.0.0', exitCode: '1', withShim: true });
-      assert.strictEqual(r.status, 5);
-      assert.match(r.stderr, /npm install -g exited with code 1/);
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('an unparseable registry answer exits 5 and caches the failed check', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, version: 'not-a-version', withShim: true });
+    assert.strictEqual(r.status, 5);
+    assert.match(r.stderr, /npm view did not print a version/);
+    assert.strictEqual(entryFor(configDir, packageJson.version).latestVersion, null);
   });
 
-  test('an unparseable registry answer and an unfindable npm both exit 5, silently-degraded', () => {
-    setup();
-    try {
-      const junk = run({ args: ['update'], configDir: freshConfigDir(), version: 'not-a-version', withShim: true });
-      assert.strictEqual(junk.status, 5);
-      assert.match(junk.stderr, /could not determine the latest published version/);
-
-      const noNpm = run({ args: ['update'], configDir: freshConfigDir(), withShim: false });
-      assert.strictEqual(noNpm.status, 5);
-      assert.match(noNpm.stderr, /could not determine the latest published version/);
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('a missing npm exits 5 with a PATH-or-ENOENT reason and caches the failure', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, withShim: false });
+    assert.strictEqual(r.status, 5);
+    assert.match(
+      r.stderr,
+      /could not determine the latest published version \((?:npm could not be found on PATH|npm could not be run \(ENOENT\))\)/
+    );
+    assert.strictEqual(entryFor(configDir, packageJson.version).latestVersion, null);
   });
 
-  test('a usage error exits 2 through the Commander path', () => {
-    setup();
-    try {
-      const r = run({ args: ['update', '--bogus-flag'], configDir: freshConfigDir(), withShim: true });
-      assert.strictEqual(r.status, 2);
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('a registry query that exits non-zero exits 5 naming the code', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update'], configDir, version: '99.0.0', viewExitCode: '1', withShim: true });
+    assert.strictEqual(r.status, 5);
+    assert.match(r.stderr, /npm view exited with code 1/);
+    assert.ok(!fs.existsSync(logPath), 'a failed query never reaches install');
   });
 
-  test('a piped reading command spawns no npm and writes no cache (suite-wide guard)', () => {
-    // This is the assertion that keeps the other 100+ spawn tests honest: the
-    // TTY gate closes the notice path before anything reaches PATH, so the
+  test("a usage error exits 2 with Commander's message and writes no cache", () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update', '--bogus-flag'], configDir, withShim: true });
+    assert.strictEqual(r.status, 2);
+    assert.match(r.stderr, /unknown option '--bogus-flag'/);
+    assert.ok(!fs.existsSync(path.join(configDir, 'update-check.json')));
+  });
+
+  test('update has no --json surface', () => {
+    const configDir = freshConfigDir();
+    const r = run({ args: ['update', '--json'], configDir, withShim: true });
+    assert.strictEqual(r.status, 2);
+    assert.ok(!r.stdout.includes('{'), r.stdout);
+  });
+
+  test('a piped reading command spawns no npm and writes no cache', () => {
+    // The TTY gate closes the notice path before anything reaches PATH, so the
     // suite cannot touch a registry even with an npm-shaped shim waiting.
-    setup();
-    try {
-      const configDir = freshConfigDir();
-      const vaultDir = path.join(tempDir, 'vault');
-      fs.mkdirSync(vaultDir);
-      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ vaultPath: vaultDir }), 'utf8');
-      const r = run({ args: ['next'], configDir, version: '99.0.0', withShim: true });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.ok(!fs.existsSync(path.join(configDir, 'update-check.json')));
-      assert.ok(!fs.existsSync(logPath));
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    const configDir = freshConfigDir();
+    const vaultDir = path.join(tempDir, 'vault');
+    fs.mkdirSync(vaultDir);
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ vaultPath: vaultDir }), 'utf8');
+    const r = run({ args: ['next'], configDir, version: '99.0.0', withShim: true });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.ok(!fs.existsSync(path.join(configDir, 'update-check.json')));
+    assert.ok(!fs.existsSync(logPath));
+    assert.doesNotMatch(r.stderr, /⚠/);
   });
 
-  test('update --help states the npm delegation and the notice opt-out', () => {
-    setup();
-    try {
-      const r = run({ args: ['update', '--help'], configDir: freshConfigDir(), withShim: true });
-      assert.strictEqual(r.status, 0, r.stderr);
-      assert.match(r.stdout, /npm install -g @kuldeep2822k\/palee@latest/);
-      assert.match(r.stdout, /PALEE_NO_UPDATE_CHECK/);
-      assert.match(r.stdout, /PALEE_CONFIG_DIR/);
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('update --help names the npm delegation, --dry-run, and the opt-out', () => {
+    const r = run({ args: ['update', '--help'], configDir: freshConfigDir(), withShim: true });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /--dry-run/);
+    assert.match(r.stdout, /npm install -g @kuldeep2822k\/palee@latest/);
+    assert.match(r.stdout, /PALEE_NO_UPDATE_CHECK/);
   });
 
-  test('an npm planted in the working directory is never executed (ADR-0033)', () => {
+  test('an npm planted in the working directory is never executed (ADR-0033)', { skip: process.platform !== 'win32' }, () => {
     // cmd.exe searches the current directory before PATH for a `.cmd`, so an
     // inherited working directory turns `palee` in a cloned tree into execution
     // of whatever `npm.cmd` that tree ships. The shim supplies the honest
     // answer; the planted file must not run at all.
-    setup();
-    try {
-      const plantedDir = path.join(tempDir, 'clone');
-      fs.mkdirSync(plantedDir);
-      const marker = path.join(plantedDir, 'executed.marker');
-      fs.writeFileSync(
-        path.join(plantedDir, 'npm.cmd'),
-        `@echo off\r\necho ran-from-cwd> "${marker}"\r\necho 66.0.0\r\nexit /b 0\r\n`,
-        'utf8'
-      );
+    const plantedDir = path.join(tempDir, 'clone');
+    fs.mkdirSync(plantedDir);
+    const marker = path.join(plantedDir, 'executed.marker');
+    fs.writeFileSync(
+      path.join(plantedDir, 'npm.cmd'),
+      `@echo off\r\necho ran-from-cwd> "${marker}"\r\necho 66.0.0\r\nexit /b 0\r\n`,
+      'utf8'
+    );
 
-      const r = run({
-        args: ['update', '--dry-run'],
-        configDir: freshConfigDir(),
-        version: '99.0.0',
-        withShim: true,
-        cwd: plantedDir,
-      });
+    const r = run({
+      args: ['update', '--dry-run'],
+      configDir: freshConfigDir(),
+      version: '99.0.0',
+      withShim: true,
+      cwd: plantedDir,
+    });
 
-      assert.strictEqual(r.status, 0, r.stdout + r.stderr);
-      assert.ok(!fs.existsSync(marker), 'the planted npm.cmd must not have run');
-      assert.match(r.stdout, /99\.0\.0/, 'the PATH shim answered instead of the planted file');
-      assert.doesNotMatch(r.stdout, /66\.0\.0/, 'the planted version never reaches the report');
-    } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.ok(!fs.existsSync(marker), 'the planted npm.cmd must not have run');
+    assert.match(r.stdout, /99\.0\.0/, 'the PATH shim answered instead of the planted file');
+    assert.doesNotMatch(r.stdout, /66\.0\.0/, 'the planted version never reaches the report');
   });
 });
 
 describe('update: the network boundary is unchanged (INV-29)', () => {
-  test('update-check reaches npm only through child_process, never a socket primitive', () => {
+  test('update-check reaches npm through child_process and no socket primitive', () => {
+    // The suite-wide version of this check is `ai-network-boundary.test.ts`;
+    // this one pins the update surface's own import shape.
     const text = fs.readFileSync(path.join(REPO_ROOT, 'src', 'cli', 'update-check.ts'), 'utf8');
     assert.ok(/from 'child_process'/.test(text));
     assert.ok(!/(^|[^.\w])fetch\s*\(/.test(text), 'no fetch in the update surface');
     assert.ok(!/from ['"](?:node:)?(?:net|tls|dns|http|https)['"]/.test(text), 'no socket-module import');
-    assert.ok(!/\bhttps?\s*\.\s*(?:request|get)\s*\(/.test(text));
-    assert.ok(!/\b(?:net|tls)\s*\.\s*connect\s*\(/.test(text));
-    assert.ok(!/\bdns\s*\.\s*(?:lookup|resolve)/.test(text));
-  });
-
-  test('the boundary test still allows exactly one network file', () => {
-    const text = fs.readFileSync(path.join(REPO_ROOT, 'test', 'ai-network-boundary.test.ts'), 'utf8');
-    const allowed = /const ALLOWED = '([^']+)';/.exec(text);
-    assert.ok(allowed, 'the ALLOWED constant moved shape; update this census');
-    assert.strictEqual(allowed[1], 'src/ai/provider.ts');
   });
 
   test('every npm spawn pins its working directory rather than inheriting it', () => {
-    const seen: unknown[] = [];
-    withSpawnStub((...args: unknown[]) => {
-      seen.push(args[2]);
-      return stubOk('99.0.0\n')();
-    }, () => {
-      evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
+    withTempConfigDir(() => {
+      const seen: unknown[] = [];
+      withSpawnStub(
+        (...args: unknown[]) => {
+          seen.push(args[2]);
+          return spawnResult({ stdout: '99.0.0\n' });
+        },
+        () => {
+          evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
+        }
+      );
+      assert.strictEqual(seen.length, 1, 'the forced probe spawns npm exactly once');
+      const options = seen[0] as { cwd?: string };
+      assert.strictEqual(options.cwd, os.homedir(), 'npm runs from home, never from the caller directory');
     });
-    assert.strictEqual(seen.length, 1, 'the forced probe spawns npm exactly once');
-    const options = seen[0] as { cwd?: string };
-    assert.strictEqual(options.cwd, os.homedir(), 'npm runs from home, never from the caller directory');
   });
 });

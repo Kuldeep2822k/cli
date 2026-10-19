@@ -56,9 +56,11 @@ Environment:
                     (adopt, roadmap, review, assess, session, migrate) print the
                     resolved vault and config path; set PALEE_CONFIG_DIR per run to
                     isolate them.
-  PALEE_NO_UPDATE_CHECK  Set (to anything but "0") to silence the once-per-24-hours
-                    new-version notice that an interactive run may print on stderr.
-                    Never printed for piped stdout or --json. See: palee update.
+  PALEE_NO_UPDATE_CHECK  Set to any non-empty value other than "0" to silence the
+                    new-version notice that an interactive run may print on stderr
+                    (at most once per published version every 24 hours). Never
+                    printed after a failed command, for piped stdout or --json.
+                    See: palee update.
 `);
 
 // palee config
@@ -236,8 +238,8 @@ program
   .addHelpText(
     'after',
     `
-• palee update asks your own npm for the latest published version and runs: npm install -g @kuldeep2822k/palee@latest. The registry, proxy, and authentication in your .npmrc are used as configured; PALEE never reads them and opens no network connection itself.
-• On an interactive terminal, other commands check at most once per 24 hours and print a single ⚠ line on stderr when a newer version is published. Nothing is printed when stdout is piped, when --json is requested, when the check fails for any reason, or when PALEE_NO_UPDATE_CHECK is set.
+• palee update asks your own npm for the latest published version and runs: npm install -g @kuldeep2822k/palee@latest. The registry, proxy, and authentication in your user and global .npmrc are used as configured; PALEE never reads them and opens no network connection itself.
+• On an interactive terminal, other commands check at most once per 24 hours and announce a newer release at most once per published version on stderr. Nothing is printed after a failed command, when stdout is piped, when --json is requested, when the check fails for any reason, or when PALEE_NO_UPDATE_CHECK is set.
 `
   )
   .action(updateCommand);
@@ -256,10 +258,12 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 });
 
 // The new-version notice fires only after a command actually ran — never for
-// --help, --version, or a usage error, all of which throw before any action —
-// and it reads the same parsed `--json` the preAction hook captured rather than
-// re-sniffing argv (#338). `maybeNotifyUpdate` totals every failure path, so a
-// notice can never fail a command that already succeeded (ADR-0033, issue #253).
+// --help, --version, or a usage error that throws before any action — and never
+// after a command that failed, because `maybeNotifyUpdate` refuses a non-zero
+// `process.exitCode` before any probe. It reads the same parsed `--json` the
+// preAction hook captured rather than re-sniffing argv (#338). Every failure
+// inside it is swallowed, so a notice can never change a command's outcome
+// (ADR-0033, issue #253).
 program.hook('postAction', (_thisCommand, actionCommand) => {
   maybeNotifyUpdate(packageJson.version, actionCommand.name(), Boolean(parsedActionOptions?.json));
 });

@@ -165,6 +165,7 @@ export default withMermaid(
             { text: 'ADR-0029: Test-Time CLI Launch Policy', link: '/adr/0029-test-cli-launch-policy' },
             { text: 'ADR-0030: Installed-Artifact CI Evidence', link: '/adr/0030-installed-artifact-ci-evidence' },
             { text: 'ADR-0031: Documentation Truth', link: '/adr/0031-documentation-truth' },
+            { text: 'ADR-0032: Direct Spawn Bounding', link: '/adr/0032-direct-spawn-bounding' },
             { text: 'ADR-0033: Update Command & npm Child Process', link: '/adr/0033-update-command-and-npm-child-process-boundary' }
           ]
         },

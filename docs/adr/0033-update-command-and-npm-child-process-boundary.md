@@ -32,8 +32,8 @@ Every element is a compile-time constant; nothing user-controlled reaches an arg
 PALEE opens no socket and performs no name resolution, so the boundary test keeps
 `src/ai/provider.ts` as its sole allowed network site, unchanged, and the user's `.npmrc` —
 registry mirror, proxy, auth token — is honoured by npm itself, never read by PALEE. A source-shape
-guard in `test/cli-update.test.ts` pins both halves: the update module never gains a socket
-primitive, and the boundary test's allow-list never gains a second file.
+guard in `test/cli-update.test.ts` pins the update module's half: `child_process` and no socket
+primitive; the allow-list's half is owned by `test/ai-network-boundary.test.ts`.
 
 ### Platform resolution is a pure function
 
@@ -41,8 +41,7 @@ On win32 npm's launcher is `npm.cmd`, and Node's April 2024 security releases (C
 make spawning a `.cmd` without a shell throw `EINVAL` — so win32 spawns `npm.cmd` with `shell: true`
 (accepted because the args are fixed constants), while POSIX spawns `npm` with `shell: false`. The
 decision lives in `npmInvocationFor(platform, args)` rather than an inline ternary so the win32 arm
-is unit-tested on every CI leg; the CI coverage floors (96/96/93/88) leave no room for a
-permanently-uncovered platform branch.
+is unit-tested on every CI leg, rather than left to a real Windows run.
 
 ### The child's working directory is pinned, not inherited
 
@@ -61,17 +60,23 @@ Verified on win32 with Node 24: with a fake `npm.cmd` in the working directory t
 returned the version that file printed, bypassing the real npm on `PATH`; the regression test
 asserts the planted file never executes and the shim answers instead.
 
-### The notice is cached, stderr-only, and human-gated
+### The notice is cached per version, stderr-only, and human-gated
 
-`<configDir>/update-check.json` records `{ checkedAt, currentVersion, latestVersion }`; a record is
-trusted for 24 h and only when written by the same version — config-dir state is machine-global,
-and a parallel or renamed install shares it (#311). A failed check is cached as `latestVersion:
-null` so an offline user does not re-pay the spawn and its timeout on every run. The bin's
-`postAction` hook prints at most one `⚠` line, on **stderr**, and only when stdout is a TTY, no
-`--json` was requested, the command is not `update` itself, and `PALEE_NO_UPDATE_CHECK` is unset.
-Every one of those gates is visible in the pure `notificationSuppressed`; the whole notice path is
-swallow-all — a version notice can never fail a command that already succeeded, never touches
-`process.exitCode`, and cannot delay piped or scripted callers, which never reach it at all. The
+`<configDir>/update-check.json` maps each running version to its own entry,
+`{ checkedAt, latestVersion, notifiedVersion }`; an entry is trusted for 24 h. Keying by version is
+what keeps two installs sharing the machine-global config dir (#311) from invalidating each other
+and re-probing npm on every command. A failed check is cached as `latestVersion: null` so an offline
+user does not re-pay the spawn and its timeout on every run. `notifiedVersion` records the release a
+notice was already printed for, so the reminder is delivered once per published version rather than
+once per command. An entry is refused when `checkedAt` is not a finite timestamp no later than now
+(a poisoned `1e999` must not freeze the cache) or when a version field is neither version-shaped nor
+null.
+
+The bin's `postAction` hook prints at most one `⚠` line, on **stderr**, and only when the command
+succeeded, stdout is a TTY, no `--json` was requested, the command is not `update` itself, and
+`PALEE_NO_UPDATE_CHECK` is unset. Every one of those gates is visible in the pure
+`notificationSuppressed`; the whole notice path is swallow-all — a version notice can never fail a
+command, change its exit code, or delay piped or scripted callers, which never reach it at all. The
 gates double as the suite's isolation: every spawn-based test pipes stdio, so the 100+ existing CLI
 tests cannot trigger a network probe, and the `next`-creates-no-cache-file assertion pins it.
 
@@ -84,8 +89,8 @@ including the cause of an EACCES from an unwritable global prefix. Exit codes st
 closed set: 0 on up-to-date, dry-run, or successful install; 2 only via Commander's usage path; 5
 when npm could not be run, the query failed or timed out, or the install exited non-zero. There is
 no `--json`: during an install npm owns stdout, and the closest sibling — `config test-connection`,
-the only provider-reaching command — deliberately has no machine surface either (ADR-0027). A
-script that wants the data can read `update-check.json`.
+the only provider-reaching command — deliberately has no machine surface either (ADR-0027).
+`update-check.json` is an internal cache, not a documented file format.
 
 ## Consequences
 
@@ -118,8 +123,8 @@ script that wants the data can read `update-check.json`.
      bypassed, so a mirrored or corporate setup gets a wrong or failing answer, and INV-29's text
      would need re-wording to keep the prose and the check agreeing.
 2. **Print the notice on stdout after the command's payload.**
-   - *Why Rejected*: breaks the one-document-per-command machine contract (INV-30's non-TTY purity
-     and the piped-caller rule); stderr keeps it human-visible and scripted-invisible.
+   - *Why Rejected*: breaks the machine-output contract (piped callers and `--json` must see one
+     document and nothing else); stderr keeps it human-visible and scripted-invisible.
 3. **Check the registry on every run (short or no TTL), or run the check unconditionally for piped
    callers.**
    - *Why Rejected*: adds npm-spawn latency and registry traffic to every invocation, including

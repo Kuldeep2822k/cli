@@ -1,24 +1,20 @@
 /**
  * Update Check and the npm Child-Process Boundary
  *
- * The entire network-facing surface of `palee update` and the new-version notice
- * lives here, and it opens no socket. Every registry question is asked of the
- * user's own `npm` through a child process, so PALEE stays offline by
- * construction (INV-29): `test/ai-network-boundary.test.ts` deliberately keeps
- * `src/ai/provider.ts` as its only allowed network site, and the registry,
- * proxy, and credentials in the user's `.npmrc` are honoured without PALEE
- * ever reading them.
+ * The entire registry-facing surface of `palee update` and the new-version
+ * notice. Every question is asked of the user's own `npm` through one
+ * `spawnSync` child, so PALEE opens no socket (INV-29) and the registry, proxy
+ * and credentials in the user's `.npmrc` are honoured without PALEE reading
+ * them.
  *
- * Raw `fs` use here is confined to the config directory — machine-level state
- * of the same class as `config.json` (see `config.ts`), never vault files. The
- * derived `update-check.json` is freely rebuildable, so it skips the
- * tmp+fsync+rename ceremony `saveConfig` pays for a user-authored credential:
- * a torn cache is silently repaired by the next check.
+ * Raw `fs` here is confined to the config directory — machine-level state of
+ * the same class as `config.json` (see `config.ts`), never vault files. The
+ * derived `update-check.json` is freely rebuildable: a torn cache is silently
+ * repaired by the next check, so it skips the tmp+fsync+rename ceremony
+ * `saveConfig` pays for a user-authored credential.
  *
- * Delegating to `npm` buys a child process, and a child process has a working
- * directory. Every spawn pins it (see {@link npmSpawnCwd}) because the notice
- * path runs without the user asking: on Windows, inheriting the directory means
- * a planted `npm.cmd` in wherever `palee` happened to be typed is what executes.
+ * ADR-0033 owns the spawn-bounding and cache decisions; this file keeps the
+ * short version of each next to the code that enforces it.
  */
 
 import fs from 'fs';
@@ -41,6 +37,9 @@ const AUTO_CHECK_TIMEOUT_MS = 5000;
 /** Budget for `palee update`, where the user is waiting on the answer anyway. */
 export const EXPLICIT_CHECK_TIMEOUT_MS = 30000;
 
+/** Longest npm stderr detail carried into a failure reason. */
+const MAX_REASON_DETAIL = 200;
+
 /** A resolved `spawnSync` call shape, platform decision separated from execution. */
 export interface NpmInvocation {
   command: string;
@@ -49,52 +48,25 @@ export interface NpmInvocation {
 }
 
 /**
- * The directory every npm child runs in.
- *
- * @returns The user's home directory, pinned rather than inherited.
- *
- * @remarks
- * On win32 npm is reached through `cmd.exe`, which searches the current
- * directory before `PATH` for a `.cmd`. A `palee` run started inside a cloned
- * or downloaded tree would therefore execute a planted `npm.cmd` as the user —
- * verified on win32 with Node 24, where a fake `npm.cmd` in the working
- * directory made `evaluateUpdate` accept the version that file printed while
- * the real npm on `PATH` was never consulted. The same directory is where npm
- * reads a project-level `.npmrc`, so one planted file could also redirect the
- * registry that `install -g` then pulls from.
- *
- * Home is not a directory an attacker gets files into merely by persuading
- * someone to `cd` there, and npm reads the user and global `.npmrc` regardless
- * of the working directory, so the user's own registry, proxy and credentials
- * are still honoured.
- */
-function npmSpawnCwd(): string {
-  return os.homedir();
-}
-
-/**
- * Runs one npm invocation, keeping the spawning process's stderr quiet.
+ * Runs one npm invocation.
  *
  * @param invocation - The platform decision from {@link npmInvocationFor}
  * @param options - `spawnSync` options; `shell` and `cwd` are set here, not by the caller
  * @returns The raw `spawnSync` result
  *
  * @remarks
- * npm's Windows launcher is a `.cmd`, which Node (post CVE-2024-27980) only
- * allows through a shell — and `shell: true` with an args array prints
- * Node's DEP0190 on stderr, the stream the notice contract keeps quiet. The
- * warning tells developers to join argv strings themselves instead of trusting
- * Node's concatenation; here every arg is a compile-time constant in a fixed
- * order, so the concatenation it warns about is exactly the intended shape.
- * `process.noDeprecation` is consulted at emit time, so it is set around the
- * spawn only — and it affects this process alone: npm's own output is not
- * silenced.
+ * `cwd` is pinned to the home directory rather than inherited: on win32 npm is
+ * reached through `cmd.exe`, which searches the current directory before
+ * `PATH`, so an inherited directory would let a planted `npm.cmd` run as the
+ * user (ADR-0033). Excluding `cwd` from the options type makes the pin
+ * structural instead of a convention.
  *
- * `cwd` is pinned to {@link npmSpawnCwd} rather than inherited, and is excluded
- * from the options type so no call site can pass one. The notice path reaches
- * this code without any user request, on the first interactive command each
- * day, so the working directory a caller happened to leave it in is not a
- * decision anyone should be able to make by accident.
+ * On win32 npm's launcher is a `.cmd`, which Node (post CVE-2024-27980) only
+ * allows through a shell; npm's argv is compile-time constants, so the shell
+ * string has nothing user-controlled in it. `shell: true` with an args array
+ * would print Node's DEP0190, and `process.noDeprecation` is consulted when
+ * that warning is emitted, so it is set around the spawn only — npm's own
+ * output is never silenced by it.
  */
 function spawnNpm(
   invocation: NpmInvocation,
@@ -106,7 +78,7 @@ function spawnNpm(
     return spawnSync(invocation.command, invocation.args, {
       ...options,
       shell: invocation.shell,
-      cwd: npmSpawnCwd(),
+      cwd: os.homedir(),
     });
   } finally {
     if (previous === undefined) delete process.noDeprecation;
@@ -121,16 +93,6 @@ function spawnNpm(
  *   is unit-testable on every CI leg)
  * @param args - npm argv; every shipped caller passes compile-time constants
  * @returns The command, args, and shell flag to spawn with
- *
- * @remarks
- * Node's April 2024 security releases (CVE-2024-27980, in every CI leg: 22/24/26)
- * throw `EINVAL` when a `.bat`/`.cmd` is spawned without a shell, and npm's
- * Windows launcher is `npm.cmd` — so win32 goes through `cmd.exe`. That is safe
- * precisely because every arg here is a compile-time constant with no spaces:
- * nothing user-controlled ever reaches the shell string. Going through a shell
- * does make *which* `npm.cmd` runs depend on the working directory, so
- * {@link spawnNpm} pins that — argv purity alone was not enough. On POSIX
- * `npm` is a real executable and no shell is added.
  */
 export function npmInvocationFor(platform: NodeJS.Platform, args: string[]): NpmInvocation {
   if (platform === 'win32') {
@@ -166,13 +128,18 @@ function parseVersion(version: string): ParsedVersion | null {
   };
 }
 
+/** Numeric prerelease identifiers, compared without leaving the string domain. */
+function compareNumericIdentifiers(a: string, b: string): -1 | 0 | 1 {
+  const aDigits = a.replace(/^0+/, '') || '0';
+  const bDigits = b.replace(/^0+/, '') || '0';
+  if (aDigits.length !== bDigits.length) return aDigits.length > bDigits.length ? 1 : -1;
+  return aDigits < bDigits ? -1 : aDigits > bDigits ? 1 : 0;
+}
+
 function comparePrereleaseIdentifiers(a: string, b: string): -1 | 0 | 1 {
   const aNumeric = /^\d+$/.test(a);
   const bNumeric = /^\d+$/.test(b);
-  if (aNumeric && bNumeric) {
-    const diff = Number(a) - Number(b);
-    return diff > 0 ? 1 : diff < 0 ? -1 : 0;
-  }
+  if (aNumeric && bNumeric) return compareNumericIdentifiers(a, b);
   if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -183,12 +150,13 @@ function comparePrereleaseIdentifiers(a: string, b: string): -1 | 0 | 1 {
  * @param a - Left version string
  * @param b - Right version string
  * @returns `-1`, `0`, or `1`; `0` when either side does not parse, so a bad
- * string can never invent an "update available" or a false "up to date" panic
+ * string can never invent an update
  *
  * @remarks
  * The numeric core compare is what `1.10.0 > 1.9.0` needs and a lexical
  * compare gets wrong; prerelease ordering follows semver (a prerelease sorts
- * below its release, identifiers compare numeric-then-alphanumeric).
+ * below its release, numeric identifiers compare by value without crossing
+ * through `Number`, alphanumeric identifiers lexically).
  */
 export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   const pa = parseVersion(a);
@@ -215,8 +183,6 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   return pa.pre.length === pb.pre.length ? 0 : pa.pre.length > pb.pre.length ? 1 : -1;
 }
 
-const VERSION_LINE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-
 /**
  * Extracts the printed version from `npm view <pkg> version` stdout.
  *
@@ -230,81 +196,114 @@ const VERSION_LINE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 export function parseVersionLine(raw: string): string | null {
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
-    if (VERSION_LINE.test(trimmed)) return trimmed;
+    if (trimmed !== '' && parseVersion(trimmed) !== null) return trimmed;
   }
   return null;
 }
 
-/** The cached check written beside `config.json`. */
-export interface UpdateCheckRecord {
+/**
+ * One install's cached answer, keyed in the store by the version that asked.
+ *
+ * @remarks
+ * Keying by version is what keeps parallel or renamed installs sharing one
+ * config dir (#311) from invalidating each other's cache and re-probing npm on
+ * every command: each install trusts only its own entry.
+ */
+export interface UpdateCheckEntry {
   checkedAt: number;
-  currentVersion: string;
   latestVersion: string | null;
+  /** The `latestVersion` a notice was already printed for, or `null`. */
+  notifiedVersion: string | null;
 }
 
-/** Path of the cache file, inside the (isolated) config directory. */
+/** Path of the cache file, beside the (config-dir) `config.json`. */
 export function updateCheckPath(): string {
   return path.join(path.dirname(getConfigPath()), 'update-check.json');
 }
 
 /**
- * Reads the cache record.
- *
- * @returns The record, or `null` for missing, unparseable, or wrongly-shaped —
- * silently: a corrupt cache is derived state, not worth a line of noise
+ * Reads the raw store, or `{}` for missing, unparseable, or wrongly-shaped
+ * content — silently: a corrupt cache is derived state, not worth a line of noise.
  */
-export function readUpdateCheckRecord(): UpdateCheckRecord | null {
+function readUpdateCheckStore(): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(updateCheckPath(), 'utf8'));
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-    const record = parsed as Partial<UpdateCheckRecord>;
-    if (typeof record.checkedAt !== 'number') return null;
-    if (typeof record.currentVersion !== 'string') return null;
-    if (typeof record.latestVersion !== 'string' && record.latestVersion !== null) return null;
-    return {
-      checkedAt: record.checkedAt,
-      currentVersion: record.currentVersion,
-      latestVersion: record.latestVersion,
-    };
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    return parsed as Record<string, unknown>;
   } catch {
-    return null;
+    return {};
   }
 }
 
 /**
- * Whether a cached record may be trusted.
+ * Reads the entry written by `currentVersion`.
  *
- * @param record - The cached record
- * @param now - Current epoch ms
- * @param runningVersion - The version of the running build
- * @param ttlMs - Freshness window
- * @returns `true` when fresh and written by this same version — a record from
- * a 1.0.0 install must never tell a 1.2.0 install it is stale, because
- * parallel or renamed installs share the per-user config dir (#311)
+ * @param currentVersion - The version of the running build
+ * @param now - Current epoch ms; entries from the future are refused
+ * @returns The entry, or `null` when absent or not well-formed
+ *
+ * @remarks
+ * `checkedAt` must be a finite number no later than `now` (a clock correction
+ * or a poisoned `1e999` must not freeze the cache), and both version fields
+ * must be version-shaped or null, so a foreign string can neither read as
+ * "up to date" nor reach the notice printer.
  */
-export function isCacheFresh(
-  record: UpdateCheckRecord,
-  now: number,
-  runningVersion: string,
-  ttlMs: number
-): boolean {
-  return record.currentVersion === runningVersion && now - record.checkedAt < ttlMs;
+export function readUpdateCheckRecord(
+  currentVersion: string,
+  now: number = Date.now()
+): UpdateCheckEntry | null {
+  const entry = readUpdateCheckStore()[currentVersion];
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return null;
+  const record = entry as Record<string, unknown>;
+
+  const checkedAt = record.checkedAt;
+  if (typeof checkedAt !== 'number' || !Number.isFinite(checkedAt) || checkedAt > now) return null;
+
+  const latestVersion = record.latestVersion;
+  if (latestVersion !== null) {
+    if (typeof latestVersion !== 'string' || parseVersion(latestVersion) === null) return null;
+  }
+
+  const notifiedVersion = record.notifiedVersion ?? null;
+  if (notifiedVersion !== null) {
+    if (typeof notifiedVersion !== 'string' || parseVersion(notifiedVersion) === null) return null;
+  }
+
+  return { checkedAt, latestVersion, notifiedVersion };
 }
 
 /**
- * Writes the cache record, best-effort.
+ * Whether a cached entry may be trusted.
  *
- * @param record - The record to persist
- * @returns Whether the write landed
+ * @param record - The cached entry
+ * @param now - Current epoch ms
+ * @param ttlMs - Freshness window
+ * @returns `true` when within the window
  */
-export function writeUpdateCheckRecord(record: UpdateCheckRecord): boolean {
+export function isCacheFresh(record: UpdateCheckEntry, now: number, ttlMs: number): boolean {
+  return now - record.checkedAt < ttlMs;
+}
+
+/**
+ * Writes `currentVersion`'s entry, preserving the other installs', best-effort.
+ *
+ * @param currentVersion - The version of the running build
+ * @param record - The entry to persist
+ *
+ * @remarks
+ * A write that cannot land costs one extra probe on the next run, never a
+ * command: an unwritable config dir is not worth an error on a background
+ * notice path.
+ */
+export function writeUpdateCheckRecord(currentVersion: string, record: UpdateCheckEntry): void {
   try {
+    const store = readUpdateCheckStore();
+    store[currentVersion] = record;
     const file = updateCheckPath();
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify(record, null, 2), 'utf8');
-    return true;
+    fs.writeFileSync(file, JSON.stringify(store, null, 2), 'utf8');
   } catch {
-    return false;
+    // Best effort by contract; see the docstring.
   }
 }
 
@@ -312,6 +311,18 @@ export function writeUpdateCheckRecord(record: UpdateCheckRecord): boolean {
 type VersionProbe =
   | { kind: 'ok'; version: string }
   | { kind: 'failed'; reason: string };
+
+/** The first non-empty stderr line, length-capped for a one-line reason. */
+function firstStderrLine(raw: string): string | null {
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    return trimmed.length > MAX_REASON_DETAIL ? `${trimmed.slice(0, MAX_REASON_DETAIL)}…` : trimmed;
+  }
+  return null;
+}
+
+const NPM_NOT_FOUND = /not recognized|not found|command not found/i;
 
 /**
  * Asks the user's npm for the latest published version.
@@ -338,6 +349,15 @@ function probeLatestVersion(timeoutMs: number): VersionProbe {
       return { kind: 'failed', reason: `npm could not be run (${code})` };
     }
     if (result.status !== 0) {
+      const detail = firstStderrLine(typeof result.stderr === 'string' ? result.stderr : '');
+      // On win32 a missing npm exits 1 through cmd.exe with "not recognized"
+      // on stderr, while POSIX gets ENOENT; both are "npm is not usable here".
+      if (detail !== null && NPM_NOT_FOUND.test(detail)) {
+        return { kind: 'failed', reason: 'npm could not be found on PATH' };
+      }
+      if (detail !== null) {
+        return { kind: 'failed', reason: `npm view exited with code ${result.status}: ${detail}` };
+      }
       return { kind: 'failed', reason: `npm view exited with code ${result.status}` };
     }
     const version = parseVersionLine(typeof result.stdout === 'string' ? result.stdout : '');
@@ -352,13 +372,13 @@ function probeLatestVersion(timeoutMs: number): VersionProbe {
 
 /** The whole answer to "is there a newer palee?". */
 export type UpdateReport =
-  | { currentVersion: string; state: 'unknown'; source: 'none' | 'cache'; reason: string }
-  | { currentVersion: string; state: 'up-to-date' | 'update-available'; latestVersion: string; source: 'cache' | 'npm' };
+  | { state: 'unknown'; reason: string }
+  | { state: 'up-to-date' | 'update-available'; latestVersion: string };
 
 /**
  * Decides the update state, consulting the cache first unless forced.
  *
- * @param currentVersion - The running build's version
+ * @param currentVersion - The running build's version, and the cache key
  * @param options - `force` re-probes even when the cache is fresh; `timeoutMs`
  *   budgets the probe
  * @returns The report; a failed probe is cached as `latestVersion: null` so an
@@ -370,31 +390,28 @@ export function evaluateUpdate(
 ): UpdateReport {
   const now = Date.now();
   if (!options.force) {
-    const record = readUpdateCheckRecord();
-    if (record !== null && isCacheFresh(record, now, currentVersion, UPDATE_CHECK_TTL_MS)) {
+    const record = readUpdateCheckRecord(currentVersion, now);
+    if (record !== null && isCacheFresh(record, now, UPDATE_CHECK_TTL_MS)) {
       if (record.latestVersion === null) {
-        return { currentVersion, state: 'unknown', source: 'cache', reason: 'a previous update check failed' };
+        return { state: 'unknown', reason: 'a previous update check failed' };
       }
       return {
-        currentVersion,
         state: compareVersions(record.latestVersion, currentVersion) === 1 ? 'update-available' : 'up-to-date',
         latestVersion: record.latestVersion,
-        source: 'cache',
       };
     }
   }
 
   const probe = probeLatestVersion(options.timeoutMs);
+  const checkedAt = Date.now();
   if (probe.kind === 'failed') {
-    writeUpdateCheckRecord({ checkedAt: now, currentVersion, latestVersion: null });
-    return { currentVersion, state: 'unknown', source: 'none', reason: probe.reason };
+    writeUpdateCheckRecord(currentVersion, { checkedAt, latestVersion: null, notifiedVersion: null });
+    return { state: 'unknown', reason: probe.reason };
   }
-  writeUpdateCheckRecord({ checkedAt: now, currentVersion, latestVersion: probe.version });
+  writeUpdateCheckRecord(currentVersion, { checkedAt, latestVersion: probe.version, notifiedVersion: null });
   return {
-    currentVersion,
     state: compareVersions(probe.version, currentVersion) === 1 ? 'update-available' : 'up-to-date',
     latestVersion: probe.version,
-    source: 'npm',
   };
 }
 
@@ -405,20 +422,24 @@ export function evaluateUpdate(
  * @param stdoutIsTTY - Whether stdout is a terminal
  * @param actionName - The command that just ran
  * @param jsonRequested - Whether the command asked for machine output
+ * @param exitCode - The command's exit code, when it set one
  * @returns `true` when no notice may be printed
  *
  * @remarks
- * One pure predicate holds every gate: only human terminals get a notice (the
- * machine-output contract — piped and `--json` callers see nothing extra),
- * `PALEE_NO_UPDATE_CHECK` opts out the way `PALEE_DEBUG` opts in, and `update`
- * itself never gets the notice it just answered.
+ * One pure predicate holds every gate: only human terminals and successful
+ * commands get a notice (a failed run already has its own error to report, and
+ * the machine-output contract — piped and `--json` callers — sees nothing
+ * extra), `PALEE_NO_UPDATE_CHECK` opts out the way `PALEE_DEBUG` opts in, and
+ * `update` itself never gets the notice it just answered.
  */
 export function notificationSuppressed(
   env: NodeJS.ProcessEnv,
   stdoutIsTTY: boolean | undefined,
   actionName: string,
-  jsonRequested: boolean
+  jsonRequested: boolean,
+  exitCode: number | string | null | undefined
 ): boolean {
+  if (exitCode !== undefined && exitCode !== 0) return true;
   if (stdoutIsTTY !== true) return true;
   if (jsonRequested) return true;
   if (actionName === 'update') return true;
@@ -435,14 +456,15 @@ export function notificationSuppressed(
  * @param binName - The invoked bin name, so a renamed install is told to run its own command (#314)
  * @returns The notice line
  */
-export function formatNotice(currentVersion: string, latestVersion: string, binName: string): string {
+function formatNotice(currentVersion: string, latestVersion: string, binName: string): string {
   return `⚠ A new version of palee is available: ${latestVersion} (you have ${currentVersion}). Run ${binName} update`;
 }
 
 /**
- * Prints the notice if — and only if — one is owed. Totals every failure path:
- * a version notice can never fail a command that already succeeded, and it
- * never touches `process.exitCode`.
+ * Prints the notice when {@link notificationSuppressed} allows it, at most once
+ * per published version within the TTL. Swallows every failure: a version
+ * notice can never fail a command that already succeeded, and it never touches
+ * `process.exitCode`.
  *
  * @param currentVersion - The running build's version
  * @param actionName - The command that just ran
@@ -450,10 +472,34 @@ export function formatNotice(currentVersion: string, latestVersion: string, binN
  */
 export function maybeNotifyUpdate(currentVersion: string, actionName: string, jsonRequested: boolean): void {
   try {
-    if (notificationSuppressed(process.env, process.stdout.isTTY, actionName, jsonRequested)) return;
+    if (notificationSuppressed(process.env, process.stdout.isTTY, actionName, jsonRequested, process.exitCode)) return;
+
+    // Fast path: a fresh entry whose notice was already delivered needs no
+    // probe and no print.
+    const now = Date.now();
+    const cached = readUpdateCheckRecord(currentVersion, now);
+    if (
+      cached !== null &&
+      isCacheFresh(cached, now, UPDATE_CHECK_TTL_MS) &&
+      cached.latestVersion !== null &&
+      cached.latestVersion === cached.notifiedVersion
+    ) {
+      return;
+    }
+
     const report = evaluateUpdate(currentVersion, { force: false, timeoutMs: AUTO_CHECK_TIMEOUT_MS });
-    if (report.state === 'update-available') {
-      console.error(formatNotice(currentVersion, report.latestVersion, programName()));
+    if (report.state !== 'update-available') return;
+    console.error(formatNotice(currentVersion, report.latestVersion, programName()));
+
+    // Mark the notice delivered so runs inside the TTL stay quiet. If the
+    // write cannot land, the worst case is a repeated notice, never a failure.
+    const after = readUpdateCheckRecord(currentVersion, Date.now());
+    if (after !== null && after.latestVersion === report.latestVersion) {
+      writeUpdateCheckRecord(currentVersion, {
+        checkedAt: after.checkedAt,
+        latestVersion: after.latestVersion,
+        notifiedVersion: report.latestVersion,
+      });
     }
   } catch {
     // Deliberately empty: nothing a learner did wrong can be caused by the notice.
@@ -461,11 +507,7 @@ export function maybeNotifyUpdate(currentVersion: string, actionName: string, js
 }
 
 /** Outcome of running the global install. */
-export interface InstallOutcome {
-  ok: boolean;
-  exitCode: number | null;
-  reason: string | null;
-}
+export type InstallOutcome = { ok: true } | { ok: false; reason: string };
 
 /**
  * Runs `npm install -g @kuldeep2822k/palee@latest` with npm owning the
@@ -473,7 +515,7 @@ export interface InstallOutcome {
  * what the user needs to see, including the cause of an EACCES from an
  * unwritable global prefix.
  *
- * @returns Whether npm exited zero, with its code and a reason on failure
+ * @returns Whether npm exited zero, with a reason on failure; never throws
  */
 export function runGlobalInstall(): InstallOutcome {
   const result = spawnNpm(npmInvocationFor(process.platform, installArgs()), {
@@ -482,10 +524,10 @@ export function runGlobalInstall(): InstallOutcome {
   });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code ?? 'unknown error';
-    return { ok: false, exitCode: null, reason: `npm could not be run (${code})` };
+    return { ok: false, reason: `npm could not be run (${code})` };
   }
   if (result.status !== 0) {
-    return { ok: false, exitCode: result.status, reason: `npm install -g exited with code ${result.status}` };
+    return { ok: false, reason: `npm install -g exited with code ${result.status}` };
   }
-  return { ok: true, exitCode: 0, reason: null };
+  return { ok: true };
 }
