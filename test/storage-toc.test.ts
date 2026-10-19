@@ -157,6 +157,18 @@ describe('TOC discovery (PAL-205-C3, storage half)', () => {
       assert.strictEqual(escaped.reason, 'escaped-vault');
     });
 
+    it('chains a root folder link onto the vault README rather than skipping it as an escape', () => {
+      // `[Home](/)` names the vault root, so its target is the root README. The
+      // fold used to return an empty path for it and the enumeration logged the
+      // link under `escaped-vault` — a reason that accuses a well-behaved link
+      // of leaving the vault.
+      write(vault, 'README.md', '- [Home](/)\n- [setup](01-setup.md)');
+      write(vault, '01-setup.md');
+      const enum_ = deriveTocEnumeration(vault);
+      assert.deepStrictEqual(enum_.skipped, []);
+      assert.deepStrictEqual(enum_.documentOrder, ['README.md', '01-setup.md']);
+    });
+
     it('resolves .. hops that stay inside the vault relative to the TOC file', () => {
       write(vault, '01-a/README.md', '- [back](../02-b/topic.md)');
       write(vault, '02-b/topic.md');

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { PALEE_CMD, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { loadConfig, isConfigDirStorableForKey } from '../src/cli/config';
 
 /**
@@ -75,6 +75,7 @@ describe('CLI config provider credentials (#82)', () => {
         env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, ...opts.env }),
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
         // Always a pipe, never a terminal: the interactive branch is the one a test
         // cannot drive, and this keeps `set-api-key` off the prompt path.
         input: opts.input ?? '',
@@ -314,6 +315,7 @@ describe('config file mode (#82)', () => {
       env: paleeEnv({ PALEE_ALLOW_INSECURE_CONFIG_DIR: '1', PALEE_CONFIG_DIR: configDir, PALEE_TEST_KEY: 'testkey-mode-check' }),
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
       input: '',
     });
   }
@@ -390,6 +392,7 @@ describe('config dir guard (#316)', () => {
         env: paleeEnv({ PALEE_CONFIG_DIR: outside, PALEE_TEST_KEY: 'testkey-win-acl-check', PALEE_ALLOW_INSECURE_CONFIG_DIR: '' }),
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
         input: '',
       });
     } catch (e: unknown) {
@@ -418,6 +421,7 @@ describe('config dir guard (#316)', () => {
       const short = execSync(`for %I in ("${real}") do @echo %~sI`, {
         shell: 'cmd.exe',
         encoding: 'utf8',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
       }).trim();
       if (!short || short.toLowerCase() === real.toLowerCase()) return; // 8.3 generation disabled on this volume
       assert.notStrictEqual(short, real, 'the probe must have produced a distinct short name');

@@ -60,7 +60,7 @@ Storage (`src/storage/`):
 
 1. `npm run typecheck` (strict `tsc --noEmit` — this is the real quality gate). `tsconfig.json` enables `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` (#381): guard an indexed read before using it (narrowing misses on provably non-empty sequences fail loud via Error/throw rather than silent skip), and when a value is absent omit the key (conditional spread) rather than widening an optional property to `?: T | undefined`.
 2. `npm run lint` (flat ESLint, mostly hygiene; the one armed gate is `@typescript-eslint/no-explicit-any` on `src/**`, which enforces the zero-`any`-in-`src/` PR rule; `test/**` keeps it off)
-3. `npm test` (node:test via `node --import tsx --test "test/**/*.test.ts"`); use `npm run test:coverage` (c8 thresholds: lines/statements ≥96%, functions ≥93%, branches ≥88%; CI also enforces changed-code ≥50% via diff-cover)
+3. `npm test` (node:test via `node --import tsx --test --test-concurrency=4 "test/**/*.test.ts"` — the pool is capped at 4 on both launch paths, matching `test:coverage`, because an uncapped pool spawns one tsx worker per core and fails to commit memory on a 16-core dev box); use `npm run test:coverage` (c8 thresholds: lines/statements ≥96%, functions ≥93%, branches ≥88%; CI also enforces changed-code ≥50% via diff-cover)
 4. `npm run build` (tsc + copies package.json to dist)
 5. `npm pack && node scripts/verify-tarball.js` — tarball must contain `dist/src/index.js`, `dist/src/index.d.ts`, `dist/bin/palee.js`, `package.json`, `dist/package.json`, `README.md`, `LICENSE`; must NOT contain `src/`, `test/`, `.github/`, `planning/`, `coverage/`.
 
