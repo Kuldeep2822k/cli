@@ -238,7 +238,8 @@ function saveConfig(config: PaleeConfig): void {
  * Reads the API key a `set-api-key` should store.
  *
  * @param fromEnv - Optional environment variable name to read it from.
- * @param options - Output-format options, so a refusal under `--json` is a JSON object.
+ * @param options - Output-format options, so a refusal under `--json` is a JSON object
+ * and the hidden prompt stays off stdout.
  * @returns The trimmed key, or `null` when nothing usable was obtained.
  *
  * @remarks
@@ -246,7 +247,8 @@ function saveConfig(config: PaleeConfig): void {
  * process on the machine (`ps`, `/proc/<pid>/cmdline`) and lands in shell history.
  * Precedence is `--from-env`, then a piped stdin, then an interactive prompt that
  * does not echo the key and keeps it out of line history. Each failure says why on
- * `stderr`.
+ * `stderr`. In JSON mode the prompt is written to `stderr` too, so stdout carries
+ * only the emitted document.
  */
 async function readApiKey(
   fromEnv?: string,
@@ -273,7 +275,7 @@ async function readApiKey(
     return piped;
   }
 
-  const typed = await promptHidden('API key: ');
+  const typed = await promptHidden('API key: ', isJsonOutput(options) ? process.stderr : process.stdout);
   if (!typed.trim()) {
     emitError('no API key entered', options);
     return null;
@@ -285,21 +287,26 @@ async function readApiKey(
  * Prompts on a TTY for a secret without echoing it. The prompt text is written,
  * then every keystroke is swallowed, so the key never reaches terminal scrollback
  * or a session recording; `historySize: 0` keeps it out of line-editing history.
+ *
+ * @param query - Prompt text to show before the hidden input.
+ * @param output - Stream receiving the prompt and its trailing newline. JSON mode
+ * passes `stderr`, keeping stdout free for the emitted document.
+ * @returns The text the user typed.
  */
-function promptHidden(query: string): Promise<string> {
+function promptHidden(query: string, output: NodeJS.WritableStream = process.stdout): Promise<string> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout,
+      output,
       terminal: true,
       historySize: 0,
     });
     let muted = false;
     (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => {
-      if (!muted) process.stdout.write(s);
+      if (!muted) output.write(s);
     };
     rl.question(query, (answer) => {
-      process.stdout.write('\n');
+      output.write('\n');
       rl.close();
       resolve(answer);
     });
@@ -339,7 +346,8 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
  * and process.exitCode = 5 on unexpected exceptions. Under `--json` both arms are JSON:
  * a write answers `{status, <field>}` and a refusal answers `{error}` (plus `remedy`
  * where the text form printed a second guidance line). `show` reports whether a key is
- * stored (`api_key_set`) and never the key itself — no arm echoes a credential.
+ * stored (`api_key_set`) and never the key itself — no arm echoes a credential, and
+ * `set-api-key`'s hidden prompt moves to `stderr` so stdout stays a single document.
  *
  * @example
  * ```typescript

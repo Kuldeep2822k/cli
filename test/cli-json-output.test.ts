@@ -894,6 +894,57 @@ depends_on: []
       assert.strictEqual(loadConfig().apiKey, undefined, 'and nothing was stored');
     });
 
+    test('the hidden API-key prompt leaves stdout to the document under --json (#454)', async () => {
+      // `set-api-key` with no --from-env and no piped input is the one config arm
+      // that asks on the terminal. Readline writes that question straight to a
+      // stream rather than through console.log, so under --json it prepended
+      // "API key: " to the document. The console stub above cannot see a stream
+      // write, and only a TTY reaches the prompt, so capture the raw stream and
+      // answer a fake stdin.
+      const { Readable } = await import('node:stream');
+      const realStdin = process.stdin;
+      const realStdoutWrite = process.stdout.write;
+      const realStderrWrite = process.stderr.write;
+      let stdout = '';
+      let stderr = '';
+      const capture = (sink: (text: string) => void) =>
+        ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+          void rest;
+          sink(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+          return true;
+        }) as typeof process.stdout.write;
+      const answer = (): void => {
+        Object.defineProperty(process, 'stdin', {
+          value: Object.assign(Readable.from(['testkey-prompt-4f4e\n']), { isTTY: true }),
+          configurable: true,
+          writable: true,
+        });
+      };
+
+      process.stdout.write = capture((text) => { stdout += text; });
+      process.stderr.write = capture((text) => { stderr += text; });
+      try {
+        answer();
+        await configCommand('set-api-key', undefined, { json: true });
+        assert.strictEqual(stdout, '', `the prompt reached stdout under --json: ${JSON.stringify(stdout)}`);
+        assert.match(stderr, /API key: /, 'the prompt belongs on stderr under --json');
+        assertStdoutIsDocumentsOnly();
+        assert.strictEqual(loadConfig().apiKey, 'testkey-prompt-4f4e', 'the typed key is what reached disk');
+
+        stdout = '';
+        stderr = '';
+        loggedOutputs = [];
+        answer();
+        await configCommand('set-api-key', undefined, { json: false });
+        assert.match(stdout, /API key: /, 'human mode keeps the prompt on stdout');
+        assert.ok(!stderr.includes('API key: '), `human mode must not move the prompt to stderr: ${JSON.stringify(stderr)}`);
+      } finally {
+        process.stdout.write = realStdoutWrite;
+        process.stderr.write = realStderrWrite;
+        Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      }
+    });
+
     test('session start answers one document and suppresses the rebuild notice', async () => {
       await sessionCommand('start', { topic: 'T-topic-json', json: true });
       assert.strictEqual(process.exitCode, 0);
