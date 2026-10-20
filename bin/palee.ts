@@ -24,6 +24,8 @@ import roadmapCommand from '../src/cli/roadmap';
 import migrateCommand from '../src/cli/migrate';
 import sessionCommand from '../src/cli/session';
 import dashboardCommand from '../src/cli/dashboard';
+import updateCommand from '../src/cli/update';
+import { maybeNotifyUpdate } from '../src/cli/update-check';
 
 program
   // The name the process was invoked as, not the published bin: a parallel or
@@ -55,6 +57,11 @@ Environment:
                     (adopt, roadmap, review, assess, session, migrate) print the
                     resolved vault and config path; set PALEE_CONFIG_DIR per run to
                     isolate them.
+  PALEE_NO_UPDATE_CHECK  Set to any non-empty value other than "0" to silence the
+                    new-version notice that an interactive run may print on stderr
+                    (at most once per published version every 24 hours). Never
+                    printed after a failed command, for piped stdout or --json.
+                    See: palee update.
 `);
 
 // palee config
@@ -224,6 +231,20 @@ program
   .option('--json', 'Output in JSON format')
   .action(dashboardCommand);
 
+// palee update
+program
+  .command('update')
+  .description('Update the global palee install to the latest published version (delegates to npm; --dry-run reports only)')
+  .option('--dry-run', 'Report the current and latest versions and the exact npm command; install nothing')
+  .addHelpText(
+    'after',
+    `
+• palee update asks your own npm for the latest published version and runs: npm install -g @kuldeep2822k/palee@latest. The registry, proxy, and authentication in your user and global .npmrc are used as configured; PALEE never reads them and opens no network connection itself.
+• On an interactive terminal, other commands check at most once per 24 hours and announce a newer release at most once per published version on stderr. Nothing is printed after a failed command, when stdout is piped, when --json is requested, when the check fails for any reason, or when PALEE_NO_UPDATE_CHECK is set.
+`
+  )
+  .action(updateCommand);
+
 /**
  * The raw options commander parsed for the command that is about to run, or
  * `undefined` when no action ran. The catch below needs to know whether the
@@ -243,6 +264,17 @@ let actionDeclaresJson = false;
 program.hook('preAction', (_thisCommand, actionCommand) => {
   parsedActionOptions = actionCommand.opts() as { json?: boolean };
   actionDeclaresJson = actionCommand.options.some((option) => option.long === '--json');
+});
+
+// The new-version notice fires only after a command actually ran — never for
+// --help, --version, or a usage error that throws before any action — and never
+// after a command that failed, because `maybeNotifyUpdate` refuses a non-zero
+// `process.exitCode` before any probe. It reads the same parsed `--json` the
+// preAction hook captured rather than re-sniffing argv (#338). Every failure
+// inside it is swallowed, so a notice can never change a command's outcome
+// (ADR-0033, issue #253).
+program.hook('postAction', (_thisCommand, actionCommand) => {
+  maybeNotifyUpdate(packageJson.version, actionCommand.name(), Boolean(parsedActionOptions?.json));
 });
 
 /**

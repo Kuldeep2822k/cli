@@ -39,6 +39,12 @@ npm install -g @kuldeep2822k/palee
 
 Requires Node `>=22.12.0` (the package's `engines` floor).
 
+Upgrade later with `palee update` (`--dry-run` reports current and latest without installing).
+`palee update` opens no network connection itself — it delegates to your own `npm`, with the user
+and global `.npmrc` you already have.
+On an interactive terminal a newer release is also announced at most once per 24 hours with a single `⚠`
+line on stderr; set `PALEE_NO_UPDATE_CHECK=1` to silence it.
+
 ### Connect to Your Obsidian Vault
 ```bash
 palee config set-vault ~/Documents/Obsidian/Learning
@@ -155,8 +161,9 @@ palee progress
 | `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
 | `palee config unset-api-key` | Remove the stored key |
 | `palee config set-model <model>` | Set the model identifier |
-| `palee config test-connection` | Send one short prompt to verify the provider (the only command that reaches the network) |
+| `palee config test-connection` | Send one short prompt to verify the provider (the only command that talks to a network endpoint directly; `palee update` delegates to npm) |
 | `palee config show` | Display current config — vault path, provider, endpoint, model; the key prints as `••••••••` |
+| `palee update [--dry-run]` | Update the global install through npm, or report what would change |
 
 *Phase 2 will add `palee test` and `palee tutor`, and a `palee roadmap` interview mode.
 None of the three is implemented: `palee test` and `palee tutor` are not registered commands,

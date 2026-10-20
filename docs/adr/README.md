@@ -36,4 +36,5 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0030: Installed-Artifact CI Evidence](./0030-installed-artifact-ci-evidence.md)
 - [ADR-0031: Documentation Truth - Current-State Docs, Labeled History](./0031-documentation-truth.md)
 - [ADR-0032: Direct Spawn Bounding — What ADR-0029 Claimed, and the Check That Pins It](./0032-direct-spawn-bounding.md)
+- [ADR-0033: The Update Command and Its npm Child Process](./0033-update-command-and-npm-child-process-boundary.md)
 

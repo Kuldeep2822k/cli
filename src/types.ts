@@ -877,6 +877,14 @@ export interface AssessOptions {
   feynman?: string;
 }
 
+/**
+ * Command-line options for `palee update`.
+ */
+export interface UpdateOptions {
+  /** Report the current and latest published versions and the exact npm command; install nothing */
+  dryRun?: boolean;
+}
+
 // ─── Roadmap YAML ───────────────────────────────────────────────────
 
 /**
