@@ -180,7 +180,7 @@ Flags that change what a command does, rather than which rows it prints:
 |--------|-------------|
 | `palee adopt <path> --undo` | Reverse an adoption: strip only the PALEE-owned frontmatter keys, preserving every other key, comment and body byte |
 | `palee adopt <path> --undo --drop-title` | With `--undo`: also remove the `title` key |
-| `palee adopt <path> --auto-chain` | Wire `depends_on` from a note's own prerequisites, else the numbered tree (batch mode) |
+| `palee adopt <path> --auto-chain` | Wire `depends_on` from a note's own prerequisites, else the numbered tree (batch mode; Tier-0 hygiene is on for every batch, so this flag wires rather than filters — except that a chained scan keeps README/SUMMARY as chain backbone, which a plain scan skips) |
 | `palee adopt <path> --auto-chain --chain-tier <tier>` | `strict` (default) consumes numbers only; `full` adds listing order, which never gates |
 | `palee adopt <path> --dry-run` | Preview an adoption without writing — likewise `palee roadmap` and `palee migrate` |
 | `palee validate --fix` | Repair corrupted SM-2 review fields to adopt defaults |

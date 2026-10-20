@@ -3,18 +3,21 @@
  *
  * @remarks
  * Pure, fs-free classification of vault-relative note paths into the three
- * roles a note may play in an auto-chain plan:
+ * roles a note may play in batch adoption and an auto-chain plan:
  *
- * - `backbone` — joins the chained spine and may gate (be a `depends_on` of)
+ * - `backbone` - joins the chained spine and may gate (be a `depends_on` of)
  *   other notes;
- * - `leaf` — part of the adoption scope but never gates the chain: it may keep
+ * - `leaf` - part of the adoption scope but never gates the chain: it may keep
  *   a predecessor, nothing chains after it;
- * - `excluded` — never chained and never adopted by an `--auto-chain` batch;
- *   reported under a counted skip reason.
+ * - `excluded` - never chained and never adopted by any batch; reported under
+ *   a counted skip reason.
  *
- * Everything here takes `/`-separated path strings and plain data: the engine
- * layer stays fs-free (`agent.md`), and these predicates are the contract Work
- * Order C (TOC tier) consumes after rebase — do not fork these rules.
+ * Every batch adoption runs this pass, not only `--auto-chain` (#298): the
+ * `excluded` verdict is a scope decision, while `backbone`/`leaf` only matter
+ * to planning. Everything here takes `/`-separated path strings and plain
+ * data: the engine layer stays fs-free (`agent.md`), and these predicates are
+ * the contract Work Order C (TOC tier) consumes after rebase - do not fork
+ * these rules.
  *
  * Blocklists here are *data, not law*: the content audit itself hit a
  * hand-copied locale list that silently missed ja/pt/it, so every name-based
@@ -23,7 +26,7 @@
  * "chain as a lesson".
  */
 
-/** Role a note may play in an auto-chain plan after Tier-0 hygiene. */
+/** Role a note may play in batch adoption or an auto-chain plan after Tier-0 hygiene. */
 export type Tier0Class = 'backbone' | 'leaf' | 'excluded';
 
 /** Counted skip reasons for notes hygiene removes from or demotes out of the chain. */
@@ -34,13 +37,17 @@ export type Tier0SkipReason =
   | 'phase-subtree'
   | 'invalid-palee-id';
 
-/** Decision returned by {@link classifyNoteForChain}. */
-export interface Tier0Decision {
-  /** Role the note plays in the plan */
-  cls: Tier0Class;
-  /** Skip/demotion cause, only set when `cls` is not `'backbone'` */
-  reason?: Tier0SkipReason;
-}
+/**
+ * Decision returned by {@link classifyNoteForChain}.
+ *
+ * An `excluded` verdict always names its counted reason, so a caller that has
+ * narrowed on `cls` reports the real cause instead of guessing a fallback for a
+ * reason that cannot be absent.
+ */
+export type Tier0Decision =
+  | { cls: 'backbone'; reason?: undefined }
+  | { cls: 'leaf'; reason?: Tier0SkipReason }
+  | { cls: 'excluded'; reason: Tier0SkipReason };
 
 /**
  * B1 — repo-meta basenames excluded from chaining and batch adoption

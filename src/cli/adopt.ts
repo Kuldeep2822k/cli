@@ -30,7 +30,6 @@ import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import {
   classifyNoteForChain,
   isValidPaleeId,
-  REPO_META_STEMS,
   README_CLASS_STEMS,
   stemOf,
   type Tier0SkipReason,
@@ -531,8 +530,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const plannableAdopted: string[] = [];
     const skippedByPattern: string[] = [];
     const skippedByTag: string[] = [];
-    /** #442 (UX): repo-meta docs (README/SUMMARY/LICENSE/…) skipped by a blanket batch scan */
-    const skippedRepoMeta: string[] = [];
     /**
      * #312 — every vault-relative path the scan looked at, which is the scope a
      * supplied `--include`/`--exclude` pattern is measured against. The aggregate
@@ -541,7 +538,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      * tallies below are computed over this list.
      */
     const scannedPaths: string[] = [];
-    /** B6 — notes Tier-0 hygiene kept out of an --auto-chain batch, by reason */
+    /** B6 - notes Tier-0 hygiene kept out of a batch adoption, by reason */
     const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
     /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
     const skippedInvalidId: string[] = [];
@@ -646,34 +643,33 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         continue;
       }
 
-      // #442 (UX): `palee adopt --all` (without `--auto-chain`) swept repo-meta docs —
-      // README.md, SUMMARY.md, LICENSE, etc. — into the vault as learning topics. The
-      // blanket batch scan now skips anything named in REPO_META_STEMS plus the
-      // README-class stems. This is scoped to a scan the learner did not otherwise
-      // select: an explicit `--include` (a deliberate path pick), single-file adoption
-      // of the path, or `--auto-chain` — where README/SUMMARY are intentionally kept as
-      // curriculum backbone content docs — all still reach those notes. Under
-      // `--auto-chain` the classifier below owns repo-meta exclusion.
+      // B1-B4 - repo meta, translation copies and templates are out of every
+      // batch adoption, not just an --auto-chain batch (#298): they must not
+      // become topics, and under a chain they must not be able to gate a real
+      // lesson. These filters are always on for a scan, so an explicit
+      // `--include` narrows the candidate set but does not re-admit a note
+      // hygiene excludes; a learner who really wants one of those adopts it
+      // directly in single-file mode, which has no batch hygiene pass.
+      const decision = classifyNoteForChain(relPath);
+      if (decision.cls === 'excluded') {
+        recordHygieneSkip(decision.reason, relPath);
+        continue;
+      }
+
+      // #442 (UX): a plain batch scan also skips README/SUMMARY - navigation
+      // docs, not lessons. This is deliberately narrower than the classifier:
+      // under --auto-chain a README/SUMMARY is curriculum backbone and is
+      // adopted, and an explicit --include is a deliberate path pick. Repo-meta
+      // names are already excluded by the classifier above.
       if (!options.autoChain && !options.include) {
         const stem = stemOf(relPath.slice(relPath.lastIndexOf('/') + 1));
-        if (stem.length > 0 && (REPO_META_STEMS.includes(stem) || README_CLASS_STEMS.includes(stem))) {
-          skippedRepoMeta.push(relPath);
+        if (stem.length > 0 && README_CLASS_STEMS.includes(stem)) {
+          recordHygieneSkip('repo-meta', relPath);
           continue;
         }
       }
 
-      // B1-B4 — repo meta, translation copies and templates are out of an
-      // auto-chain batch entirely: they must not become topics, and they must
-      // not be able to gate a real lesson. These filters are always on, so an
-      // explicit `--include` narrows the candidate set but does not re-admit a
-      // note hygiene excludes; a learner who really wants one of those adopts
-      // it directly in single-file mode, which has no batch hygiene pass.
       if (options.autoChain) {
-        const decision = classifyNoteForChain(relPath);
-        if (decision.cls === 'excluded') {
-          recordHygieneSkip(decision.reason ?? 'repo-meta', relPath);
-          continue;
-        }
         // Read where the frontmatter is already parsed, and only after every
         // filter above has been applied: a note this batch will not write must
         // not contribute an edge to the report either, so the list of surviving
@@ -1107,9 +1103,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     console.log(`Total Scanned:    ${allFiles.length} files`);
     console.log(`Ready to Adopt:   ${toAdopt.length} notes`);
     console.log(`Already Adopted:  ${alreadyAdopted.length} notes`);
-    if (skippedRepoMeta.length > 0) {
-      console.log(`Skipped (Repo-meta): ${skippedRepoMeta.length} notes (README/SUMMARY/LICENSE etc. are not learning topics; adopt one directly to override)`);
-    }
     if (options.include || options.exclude) {
       console.log(`Excluded (Pattern): ${skippedByPattern.length} notes`);
     }
@@ -1204,15 +1197,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           );
         }
       }
-      // B6 — per-tier hygiene report, printed identically on the dry-run and
-      // the confirmation screen so what is reviewed is what is written. It is
-      // printed even when nothing survived filtering: silently discarding the
-      // learner's notes is the failure mode this whole work order exists to
-      // remove, so an empty plan must still account for every skipped file.
-      if (
-        chainPlan ||
+    }
+
+    // B6 - per-rule hygiene report for every batch adoption, printed on the
+    // dry-run and the confirmation screen so what is reviewed is what is
+    // written. It is printed even when nothing survived filtering: silently
+    // discarding the learner's notes is the failure mode this report exists to
+    // remove, so an empty batch must still account for every skipped file.
+    // Auto-chain additionally accounts for the notes the planner excluded among
+    // already-adopted paths and reports backbone/leaf/phase counts; a plain
+    // batch prints only the per-rule skip counts.
+    if (
         skippedByHygiene.size > 0 ||
-        skippedInvalidId.length > 0
+        skippedInvalidId.length > 0 ||
+        (options.autoChain && chainPlan !== null)
       ) {
         const excludedFromPlan = chainPlan ? chainPlan.excluded : new Map<string, Tier0SkipReason>();
         const countFor = (reason: Tier0SkipReason): number => {
@@ -1226,32 +1224,39 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         const excludedTotal =
           countFor('repo-meta') + countFor('translation') + countFor('template');
         console.log('Tier-0 hygiene:');
-        if (chainPlan) {
-          console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
-          console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
-        } else {
-          console.log('  Backbone:       0 notes (may gate the chain)');
-          console.log('  Leaves:         0 notes (attached, never gate)');
+        if (options.autoChain) {
+          if (chainPlan) {
+            console.log(`  Backbone:       ${chainPlan.counts.backbone} notes (may gate the chain)`);
+            console.log(`  Leaves:         ${chainPlan.counts.leaf} notes (attached, never gate)`);
+          } else {
+            console.log('  Backbone:       0 notes (may gate the chain)');
+            console.log('  Leaves:         0 notes (attached, never gate)');
+          }
         }
         console.log(`  Skipped (meta): ${countFor('repo-meta')} notes`);
         console.log(`  Skipped (translations): ${countFor('translation')} notes`);
         console.log(`  Skipped (template): ${countFor('template')} notes`);
-        console.log(
-          `  Phase subtrees: ${chainPlan ? chainPlan.counts.byReason['phase-subtree'] : 0} notes collapsed to leaves`
-        );
-        if (skippedInvalidId.length > 0) {
+        if (options.autoChain) {
           console.log(
-            `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
+            `  Phase subtrees: ${chainPlan ? chainPlan.counts.byReason['phase-subtree'] : 0} notes collapsed to leaves`
           );
+          if (skippedInvalidId.length > 0) {
+            console.log(
+              `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
+            );
+          }
         }
         console.log(`  Excluded total: ${excludedTotal} notes`);
-        if (!chainPlan && excludedTotal + skippedInvalidId.length > 0) {
+        if (options.autoChain && !chainPlan && excludedTotal + skippedInvalidId.length > 0) {
           console.log(
             '  → Nothing left to chain. Tier-0 hygiene is always on; to keep one of ' +
               'these notes anyway, adopt it directly: palee adopt "<path>"'
           );
+        } else if (!options.autoChain && excludedTotal > 0) {
+          console.log(
+            '  Not adopted. To keep one anyway, adopt it directly: palee adopt "<path>"'
+          );
         }
-      }
     }
 
     if (options.verbose) {
@@ -1287,11 +1292,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           console.log(`  ? ${relPath}`);
         }
       }
+      for (const [reason, list] of skippedByHygiene) {
+        console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
+        list.forEach((f) => console.log(`  ! ${f}`));
+      }
       if (options.autoChain) {
-        for (const [reason, list] of skippedByHygiene) {
-          console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
-          list.forEach((f) => console.log(`  ! ${f}`));
-        }
         if (chainPlan && chainPlan.excluded.size > 0) {
           console.log('\nExcluded from the chain by Tier-0 hygiene:');
           for (const [relPath, reason] of chainPlan.excluded) {

@@ -40,7 +40,7 @@ A partially-completed batch adoption restores each journaled note to its origina
 
 ### Single-file mode has no hygiene pass — intentionally
 
-Tier-0 hygiene (ADR-0010) runs only in batch mode. A learner who wants a hygiene-excluded note adopts it directly; the batch pass is about what a *scan* should conclude, not about what any individual note is allowed to be.
+Tier-0 hygiene (ADR-0010) runs in every batch mode. A learner who wants a hygiene-excluded note adopts it directly; the batch pass is about what a *scan* should conclude, not about what any individual note is allowed to be.
 
 ## Consequences
 
