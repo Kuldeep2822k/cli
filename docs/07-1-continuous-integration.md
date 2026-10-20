@@ -173,10 +173,11 @@ Sources:[.github/workflows/security.yml#1-101](https://github.com/Kuldeep2822k/c
 
 ### ESLint and TypeScript
 
-The project uses `typescript-eslint` for static analysis. The configuration in `eslint.config.mjs` applies recommended rules while providing specific overrides for the CLI environment [eslint.config.mjs#4-30](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L4-L30)
+The project uses `typescript-eslint` for static analysis. The configuration in `eslint.config.mjs` applies the recommended JavaScript and TypeScript rule sets, then overrides them for a CommonJS CLI whose test suite is a separate audience from its shipped code [eslint.config.mjs#4-9](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L4-L9)
 
 - Global Variables: Defines `process`, `require`, and `setTimeout` as available globals for the Node.js runtime [eslint.config.mjs#12-19](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L12-L19)
-- Rule Overrides: Relaxes certain rules like `@typescript-eslint/no-explicit-any` and `no-unused-vars` to facilitate rapid development in specific contexts, though the PR template encourages zero `any` casts in `src/`[eslint.config.mjs#21-28](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L21-L28)[.github/PULL_REQUEST_TEMPLATE.md#18](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1#L18-L18)
+- Repo-Wide Options: Hygiene rules are armed with surgical options rather than switched off — `no-empty` allows empty `catch` blocks, `eqeqeq` exempts the `x != null` idiom, `no-unused-vars` ignores `^_`-prefixed names and rethrow-only catch bindings, and `prefer-const` and `@typescript-eslint/no-useless-empty-export` are enforced everywhere [eslint.config.mjs#21-42](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L21-L42)
+- Shipped-Code Gates: `src/**` and `bin/**` additionally arm `@typescript-eslint/no-explicit-any` (the zero `any` casts in `src/` the PR template encourages), `@typescript-eslint/no-floating-promises`, `no-promise-executor-return`, and a `no-restricted-syntax` guard that fails `process.exitCode = <numeric literal>`, so handlers import `ExitCode` or route through `exitCodeFor()` — the discipline `src/cli/exit-codes.ts` states in its own header. Only `no-floating-promises` needs type information, which is why the block enables `projectService`; scoping the block to shipped code keeps `test/**` from being checked by these four, deliberately, because a fixture may fire-and-forget and asserts numeric exit codes as contract values rather than as source [eslint.config.mjs#44-78](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L44-L78)[.github/PULL_REQUEST_TEMPLATE.md#18](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1#L18-L18)
 
 ### Coverage Configuration
 
@@ -210,4 +211,4 @@ classDiagram
     Toolchain_Config --> Source_Code
 ```
 
-Sources:[eslint.config.mjs#1-30](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L1-L30)[.c8rc.json#1-12](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L1-L12)[.github/PULL_REQUEST_TEMPLATE.md#13-19](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1#L13-L19)
+Sources:[eslint.config.mjs#1-79](https://github.com/Kuldeep2822k/cli/blob/main/eslint.config.mjs#L1-L79)[.c8rc.json#1-12](https://github.com/Kuldeep2822k/cli/blob/main/.c8rc.json#L1-L12)[.github/PULL_REQUEST_TEMPLATE.md#13-19](https://github.com/Kuldeep2822k/cli/blob/main/.github/PULL_REQUEST_TEMPLATE.md?plain=1#L13-L19)
