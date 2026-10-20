@@ -47,7 +47,9 @@ const WINDOWS_RETRY_MAX_DELAY = 300; // ms
 function sleep(baseDelay: number, jitter: number = 0): Promise<void> {
   const jitterAmount = baseDelay * jitter;
   const delay = baseDelay + (Math.random() * 2 - 1) * jitterAmount;
-  return new Promise(resolve => setTimeout(resolve, Math.min(delay, WINDOWS_RETRY_MAX_DELAY)));
+  return new Promise(resolve => {
+    setTimeout(resolve, Math.min(delay, WINDOWS_RETRY_MAX_DELAY));
+  });
 }
 
 /**

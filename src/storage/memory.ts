@@ -855,9 +855,9 @@ async function writeDraftCheckpoint(
       if (attempt < MAX_CHECKPOINT_ATTEMPTS) {
         const baseDelay = CHECKPOINT_RETRY_BASE_MS * attempt;
         const jittered = baseDelay + (Math.random() * 2 - 1) * baseDelay * CHECKPOINT_RETRY_JITTER;
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, Math.max(0, Math.min(jittered, CHECKPOINT_RETRY_MAX_MS)))
-        );
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, Math.max(0, Math.min(jittered, CHECKPOINT_RETRY_MAX_MS)));
+        });
       }
     }
   }
