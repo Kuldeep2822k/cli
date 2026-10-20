@@ -336,10 +336,83 @@ function originOf(raw: string | undefined): string | null {
 }
 
 /**
+ * Resolves the configuration `set-base-url` may write when a stored key would
+ * move to a different origin.
+ *
+ * @param config - The configuration read before any prompt
+ * @param endpoint - The validated endpoint about to be written
+ * @param json - Whether machine-readable output is selected
+ * @param keepKey - Whether the caller passed `--keep-key`
+ * @param promptOutput - Stream receiving the confirmation prompt; defaults to stdout
+ * @returns The configuration to write, or `null` when the caller must stop
+ *
+ * @remarks
+ * The config has one key and one endpoint with no origin binding between them.
+ * Replacing the endpoint re-targets the key to whatever host the new URL names,
+ * so an origin change asks first. A path-only change stays same-origin. A
+ * non-interactive or JSON run refuses rather than prompting, and `--keep-key`
+ * is the explicit opt-in. A previous URL that cannot be parsed is treated as a
+ * change because there is no origin to compare.
+ *
+ * Returns `null` for a refusal, a stale snapshot, or a declined prompt; only the
+ * first two set `process.exitCode = 2`. A declined prompt writes nothing and
+ * keeps the exit code untouched.
+ */
+async function confirmCredentialRetarget(
+  config: PaleeConfig,
+  endpoint: URL,
+  json: boolean,
+  keepKey?: boolean,
+  promptOutput: NodeJS.WritableStream = process.stdout
+): Promise<PaleeConfig | null> {
+  const previousOrigin = originOf(config.baseUrl);
+  const retargetsKey =
+    Boolean(config.apiKey) &&
+    config.baseUrl !== undefined &&
+    previousOrigin !== endpoint.origin;
+
+  if (!retargetsKey || keepKey) return config;
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY || json) {
+    const why = previousOrigin
+      ? `refusing to change the provider origin from ${previousOrigin} to ${endpoint.origin} while a stored API key is configured`
+      : `refusing to change the provider origin to ${endpoint.origin} while a stored API key is configured because the previous base URL cannot be parsed`;
+    const how = 'Re-run with --keep-key to keep the stored key, or run `palee config unset-api-key` first';
+    if (json) console.error(JSON.stringify({ error: why, remedy: how }));
+    else { console.error(`Error: ${why}`); console.error(how); }
+    process.exitCode = 2;
+    return null;
+  }
+
+  console.log(`New provider origin: ${endpoint.origin}`);
+  console.log('An API key is configured.');
+  console.log(`Previous provider origin: ${previousOrigin ?? '(unparseable)'}`);
+  console.log('Saving this endpoint would send the stored key to the new origin.');
+  const keep = await promptConfirmation('Keep the stored API key and save? (y/N): ', promptOutput);
+  if (!keep) {
+    console.log('Aborted.');
+    return null;
+  }
+
+  // The prompt can stay open indefinitely. Re-read after it returns so a
+  // concurrent `unset-api-key` (or a new key/endpoint) is not reverted by
+  // writing the snapshot taken before the wait. Other fields are taken from
+  // the fresh read too, so a concurrent model/vault change is kept.
+  const fresh = loadConfig();
+  if (fresh.apiKey !== config.apiKey || fresh.baseUrl !== config.baseUrl) {
+    console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
+    process.exitCode = 2;
+    return null;
+  }
+  return fresh;
+}
+
+/**
  * Prompts on a TTY for a yes/no answer. Unlike {@link promptHidden}, the answer
  * is ordinary input: only origins are discussed, never the key.
  *
  * @param query - Prompt text shown before the answer
+ * @param output - Stream receiving the prompt and its trailing newline; defaults to stdout
  * @returns `true` only for `y` or `yes` (case-insensitive)
  *
  * @remarks
@@ -347,10 +420,13 @@ function originOf(raw: string | undefined): string | null {
  * callback. That is treated as a "No", so the caller never waits on a promise
  * that cannot settle and the command exits cleanly with nothing written.
  */
-async function promptConfirmation(query: string): Promise<boolean> {
+async function promptConfirmation(
+  query: string,
+  output: NodeJS.WritableStream = process.stdout
+): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout,
+    output,
   });
 
   return new Promise((resolve) => {
@@ -359,7 +435,7 @@ async function promptConfirmation(query: string): Promise<boolean> {
     rl.once('close', () => {
       if (answered) return;
       answered = true;
-      process.stdout.write('\n');
+      output.write('\n');
       resolve(false);
     });
     rl.question(query, (answer) => {
@@ -397,8 +473,9 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
  * unset-api-key, test-connection, set-model.
  * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
  * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
- * `json` selects machine-readable output for every action, not just `show`, and
- * `keepKey` opts `set-base-url` into carrying a stored key across an origin change.
+ * `json` selects machine-readable output for every action, not just `show`,
+ * `keepKey` opts `set-base-url` into carrying a stored key across an origin change,
+ * and `promptOutput` is an internal seam for tests that need to capture the prompt.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
  * and process.exitCode = 5 on unexpected exceptions. Under `--json` both arms are JSON:
@@ -415,7 +492,13 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
 async function configCommand(
   action?: string,
   value?: string,
-  options?: { fromEnv?: string; json?: boolean; keepKey?: boolean }
+  options?: {
+    fromEnv?: string;
+    json?: boolean;
+    keepKey?: boolean;
+    /** @internal test seam; the CLI leaves this unset so the prompt uses stdout. */
+    promptOutput?: NodeJS.WritableStream;
+  }
 ): Promise<void> {
   // Resolved once and used by every arm below, so no path can answer a run that
   // asked for JSON with a sentence.
@@ -510,54 +593,14 @@ async function configCommand(
         return;
       }
 
-      let config = loadConfig();
-      const previousOrigin = originOf(config.baseUrl);
-      // The config keeps one key and one endpoint with no origin field between
-      // them, so replacing the endpoint re-targets the key to whatever host the
-      // new URL names. A local typo is harmless; following a vendor's setup
-      // guide after using another provider is how a real token reaches the
-      // wrong service. Ask first, and in a non-interactive run require the
-      // caller to say so explicitly.
-      const retargetsKey =
-        Boolean(config.apiKey) &&
-        config.baseUrl !== undefined &&
-        previousOrigin !== endpoint.origin;
-
-      if (retargetsKey && !options?.keepKey) {
-        if (!process.stdin.isTTY || !process.stdout.isTTY || json) {
-          const why = previousOrigin
-            ? `refusing to change the provider origin from ${previousOrigin} to ${endpoint.origin} while a stored API key is configured`
-            : `refusing to change the provider origin to ${endpoint.origin} while a stored API key is configured because the previous base URL cannot be parsed`;
-          const how = 'Re-run with --keep-key to keep the stored key, or run `palee config unset-api-key` first';
-          if (json) console.error(JSON.stringify({ error: why, remedy: how }));
-          else { console.error(`Error: ${why}`); console.error(how); }
-          process.exitCode = 2;
-          return;
-        }
-
-        console.log(`New provider origin: ${endpoint.origin}`);
-        console.log('An API key is configured.');
-        console.log(`Previous provider origin: ${previousOrigin ?? '(unparseable)'}`);
-        console.log('Saving this endpoint would send the stored key to the new origin.');
-        const keep = await promptConfirmation('Keep the stored API key and save? (y/N): ');
-        if (!keep) {
-          console.log('Aborted.');
-          return;
-        }
-
-        // The prompt can stay open indefinitely. Re-read after it returns so a
-        // concurrent `unset-api-key` (or a new key/endpoint) is not reverted by
-        // writing the snapshot taken before the wait. Other fields are taken
-        // from the fresh read too, so a concurrent model/vault change is kept.
-        const fresh = loadConfig();
-        if (fresh.apiKey !== config.apiKey || fresh.baseUrl !== config.baseUrl) {
-          console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
-          process.exitCode = 2;
-          return;
-        }
-        config = fresh;
-      }
-
+      const config = await confirmCredentialRetarget(
+        loadConfig(),
+        endpoint,
+        json,
+        options?.keepKey,
+        options?.promptOutput
+      );
+      if (!config) return;
       config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
       saveConfig(config);
       emitStatus(json, `AI base URL set to: ${config.baseUrl}`, { status: 'set', base_url: config.baseUrl });
