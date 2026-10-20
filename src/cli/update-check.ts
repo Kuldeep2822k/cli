@@ -119,6 +119,12 @@ interface ParsedVersion {
 
 const FULL_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
+/**
+ * Splits a version string into its numeric core and prerelease identifiers.
+ *
+ * @param version - Candidate version, trimmed before matching
+ * @returns The parsed parts, or `null` unless the shape is `x.y.z[-pre][+build]`
+ */
 function parseVersion(version: string): ParsedVersion | null {
   const match = FULL_VERSION.exec(version.trim());
   if (!match) return null;
@@ -136,6 +142,15 @@ function compareNumericIdentifiers(a: string, b: string): -1 | 0 | 1 {
   return aDigits < bDigits ? -1 : aDigits > bDigits ? 1 : 0;
 }
 
+/**
+ * Compares one prerelease identifier of each side by the SemVer precedence
+ * rules: numeric identifiers sort numerically and below all others, and the
+ * rest compare as ASCII strings.
+ *
+ * @param a - Left identifier
+ * @param b - Right identifier
+ * @returns `-1`, `0`, or `1`
+ */
 function comparePrereleaseIdentifiers(a: string, b: string): -1 | 0 | 1 {
   const aNumeric = /^\d+$/.test(a);
   const bNumeric = /^\d+$/.test(b);

@@ -39,6 +39,7 @@ import {
 const REPO_ROOT = path.resolve(__dirname, '..');
 const TTL_24H = 24 * 60 * 60 * 1000;
 
+/** Creates a throwaway directory in the OS temp root; the caller owns the cleanup. */
 function mkTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -93,6 +94,7 @@ function captureOutput(fn: () => void): { stdout: string[]; stderr: string[] } {
   return { stdout, stderr };
 }
 
+/** Runs a function with `process.stdout.isTTY` forced, then restores the descriptor. */
 function withTtyStdout<T>(isTTY: boolean, fn: () => T): T {
   const original = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
   Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: isTTY });
@@ -210,6 +212,7 @@ describe('update: pure helpers', () => {
     withTempConfigDir((dir) => {
       const file = updateCheckPath();
       assert.strictEqual(file, path.join(dir, 'update-check.json'));
+      /** Writes a raw cache payload, so malformed JSON stays expressible. */
       const write = (raw: string): void => fs.writeFileSync(file, raw, 'utf8');
 
       write('not json at all');
@@ -253,6 +256,7 @@ describe('update: cache and notifier in process', () => {
     withTempConfigDir(() => {
       const beforeExitCode = process.exitCode;
       let calls = 0;
+      /** Answers every probe with 99.0.0 and counts the invocations. */
       const stub = (): Record<string, unknown> => {
         calls++;
         return spawnResult({ stdout: '99.0.0\n' });
@@ -313,6 +317,7 @@ describe('update: cache and notifier in process', () => {
   test('a failed probe does not re-arm the delivered mark', () => {
     withTempConfigDir(() => {
       let calls = 0;
+      /** Fails the first probe with ENOENT, then answers 99.0.0. */
       const stub = (): Record<string, unknown> => {
         calls++;
         if (calls === 1) {
@@ -422,6 +427,7 @@ describe('update: cache and notifier in process', () => {
     withTempConfigDir(() => {
       const beforeExitCode = process.exitCode;
       let calls = 0;
+      /** Would answer 99.0.0 if any gate ever let a probe through. */
       const stub = (): Record<string, unknown> => {
         calls++;
         return spawnResult({ stdout: '99.0.0\n' });
@@ -538,6 +544,7 @@ describe('update: the CLI through a PATH-shim npm', () => {
     env?: NodeJS.ProcessEnv;
   }
 
+  /** Runs the built CLI in a child process with a shimmed PATH; returns what it printed. */
   function run({ args, configDir, version, exitCode, viewExitCode, withShim, cwd, env: envExtras }: RunOptions): {
     status: number | null;
     stdout: string;
@@ -566,10 +573,12 @@ describe('update: the CLI through a PATH-shim npm', () => {
     return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
   }
 
+  /** A per-test config dir under the shared temp root, so cache reads never collide. */
   function freshConfigDir(): string {
     return fs.mkdtempSync(path.join(tempDir, 'cfg-'));
   }
 
+  /** Reads a run's cache entry for a version, asserting it exists and is an object. */
   function entryFor(configDir: string, version: string): UpdateCheckEntry {
     const store = JSON.parse(fs.readFileSync(path.join(configDir, 'update-check.json'), 'utf8')) as Record<string, unknown>;
     const entry = store[version];
