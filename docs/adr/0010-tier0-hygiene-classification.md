@@ -49,7 +49,7 @@ And one that #411 fixed after the fact (the defect was filed as #330): **an empt
 ### Positive
 
 - The chain stops inventing prerequisites out of repo furniture. The three dominant causes in #205's census — translation copies, meta files, and phase subtrees — are all classified out before planning runs.
-- Every excluded note is accounted for. Every batch prints the per-rule skip counts on the dry-run and the commit screen alike, and prints even when nothing survived filtering: silently discarding the learner's notes is the failure mode the pass exists to remove. Under `--auto-chain` the same report adds backbone/leaf counts.
+- Every excluded note is accounted for. A batch prints the per-rule skip counts on the dry-run and the commit screen alike whenever hygiene dropped a note, and prints even when nothing survived filtering: silently discarding the learner's notes is the failure mode the pass exists to remove. An `--auto-chain` run that produced a plan prints the block even when nothing was dropped, and there the same report adds backbone/leaf counts.
 - One predicate, one planner. `classifyNoteForChain` is pure and exported; the CLI's report and the planner's input cannot disagree because they call the same function.
 
 ### Negative / Tradeoffs

@@ -702,6 +702,13 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     const chained = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
     assert.strictEqual(chained.status, 0, chained.stdout + chained.stderr);
     assert.match(chained.stdout, /Ready to Adopt:\s+2 notes/, 'README stays a chain backbone');
+    // Adoption alone cannot tell backbone from leaf: both reach `Ready to
+    // Adopt`. The planner's own count is what pins the classification.
+    assert.match(
+      chained.stdout,
+      /Backbone:\s+2 notes \(may gate the chain\)/,
+      'README is classified backbone, not just adopted'
+    );
   });
 
   // #298 moved the hygiene report onto the plain batch too, so a note the learner
