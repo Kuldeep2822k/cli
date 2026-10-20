@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ExitCode } from '../src/cli/exit-codes';
 
 /**
  * #268's first item: `palee assess` was registered in `bin/palee.ts`, showed in
@@ -24,6 +25,21 @@ const exitSection = contract.slice(
 
 const registered = [...dispatcher.matchAll(/^ {2}\.command\('([a-z-]+)'/gm)].map((m) => m[1]);
 const documented = [...exitSection.matchAll(/^\| `palee ([a-z-]+)` \|/gm)].map((m) => m[1]);
+
+/**
+ * Commands named on one `agent.md` line: the first word of each backticked
+ * token, with an optional `palee` prefix. Only registered commands come back,
+ * so prose about a planned command (`test`/`tutor`) stays prose.
+ */
+function namedCommands(line: string): string[] {
+  return [
+    ...new Set(
+      [...line.matchAll(/`([^`]+)`/g)]
+        .map((match) => (match[1] ?? '').replace(/^palee\s+/i, '').trim().split(/\s+/)[0] ?? '')
+        .filter((name) => registered.includes(name))
+    ),
+  ];
+}
 
 describe('Exit-code contract covers every registered command (#268)', () => {
   test('the dispatcher registers a non-empty, duplicate-free command list', () => {
@@ -117,5 +133,84 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.match(scheduling, /## \d+\. Four-Pillar Assessment \(`palee assess`\)/);
     assert.match(scheduling, /palee assess <topic> \[--conceptual N\]/);
     assert.match(scheduling, /\| `palee assess` \|/);
+  });
+
+  test('the exit-code numbers and cells match the documented contract', () => {
+    // #486: the matrix was checked row-by-row but never as a numeric contract:
+    // a seventh code, a renumbered column, or a short row all passed. The
+    // numbers come from `ExitCode`, the same object the handlers import.
+    const codes = Object.values(ExitCode);
+    const documentedCodes = [...exitSection.matchAll(/^\| \*\*(\d+)\*\* \|/gm)].map((match) =>
+      Number(match[1])
+    );
+    assert.deepStrictEqual(
+      documentedCodes,
+      codes,
+      'the summary table documents every ExitCode exactly once, in order'
+    );
+
+    const header = exitSection
+      .split(/\r?\n/)
+      .find((line) => line.startsWith('| Command |'));
+    assert.ok(header, 'the per-command matrix has a header row');
+    const columns = [...header.matchAll(/Exit Code (\d+)/g)].map((match) => Number(match[1]));
+    assert.deepStrictEqual(columns, codes, 'the matrix has one numeric column per ExitCode');
+
+    const rows = new Map<string, string>();
+    for (const match of exitSection.matchAll(/^\| `palee ([a-z-]+)` \|(.+)\|$/gm)) {
+      const command = match[1];
+      if (command !== undefined) rows.set(command, match[2] ?? '');
+    }
+
+    for (const command of registered) {
+      if (command === undefined) continue;
+      const row = rows.get(command);
+      assert.ok(row !== undefined, `palee ${command} has a matrix row`);
+      const cells = row.split('|').map((cell) => cell.trim());
+      assert.strictEqual(cells.length, columns.length, `palee ${command} has one cell per code`);
+      assert.notStrictEqual(cells[0], 'N/A', `palee ${command} documents a success path`);
+      assert.ok(
+        cells.every((cell) => cell.length > 0),
+        `palee ${command} leaves no exit-code cell empty`
+      );
+    }
+
+    // `validate --fix` folds a repair skipped by an OCC conflict into
+    // `conflicts[]`; the note is still invalid, so the run exits 3 (#486).
+    const validateCells = (rows.get('validate') ?? '').split('|').map((cell) => cell.trim());
+    assert.strictEqual(validateCells[4], 'N/A', 'palee validate never exits 4');
+  });
+});
+
+/**
+ * #486: `agent.md` called `validate --fix` and `session end` "Phase-1 stubs"
+ * long after both shipped, and nothing failed because the claim lived only in
+ * prose. This ties a stub claim to the handler it names: a command may be
+ * called a stub only while its source still carries a stub marker.
+ */
+describe('agent.md stub claims match the handlers (#486)', () => {
+  test('the scanner recognises the historical claim it was written for', () => {
+    assert.deepStrictEqual(
+      namedCommands('`validate --fix` and `session end` are Phase-1 stubs.'),
+      ['validate', 'session']
+    );
+  });
+
+  test('a registered command called a stub still carries a stub marker in its handler', () => {
+    const agent = fs.readFileSync(path.join(root, 'agent.md'), 'utf8');
+    const marker = /\b(?:stubs?|unimplemented|not implemented)\b/i;
+    const stale: string[] = [];
+
+    for (const line of agent.split(/\r?\n/)) {
+      if (!marker.test(line)) continue;
+      for (const command of namedCommands(line)) {
+        const handler = fs.readFileSync(path.join(root, `src/cli/${command}.ts`), 'utf8');
+        if (!marker.test(handler)) {
+          stale.push(`\`palee ${command}\` — agent.md: "${line.trim()}"`);
+        }
+      }
+    }
+
+    assert.deepStrictEqual(stale, [], `agent.md calls shipped commands stubs:\n${stale.join('\n')}`);
   });
 });
