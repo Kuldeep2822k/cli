@@ -96,7 +96,12 @@ describe('CLI Adopt Batch Integration Tests', () => {
     const result = runCLI(['adopt', '--all', '--dry-run', '--verbose']);
     assert.strictEqual(result.status, 0);
     assert.match(result.stdout, /Dry-run complete\. No files were modified\./);
-    assert.match(result.stdout, /Ready to Adopt:\s+6 notes/);
+    assert.match(result.stdout, /Ready to Adopt:\s+5 notes/);
+    assert.match(
+      result.stdout,
+      /Skipped \(template\): 1 notes/,
+      'Tier-0 hygiene applies to the plain batch too (#298)'
+    );
 
     // Verify no files have palee_id
     const note = path.join(vaultDir, 'MODULES', '01-foundations', '01-systems.md');

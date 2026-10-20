@@ -1,4 +1,4 @@
-# ADR-0010: Tier-0 Hygiene Classification for Auto-Chain
+# ADR-0010: Tier-0 Hygiene Classification for Batch Adoption
 
 ## Status
 
@@ -8,11 +8,11 @@ Accepted
 
 `--auto-chain` originally saw every markdown file in the scanned scope as a potential lesson. #205's census showed what that costs: `microsoft/AI-For-Beginners` chains through `translations/` (98.7% false), `trekhleb/javascript-algorithms` gates the English `README.md` behind its own `README.ko-KR.md` (65.1% false), and repo-meta files like `CONTRIBUTING.md` become first-class topics that gate real lessons. A translation copy and the note it translates are the same lesson; only one of them may decide the order of anything.
 
-The fix is a classification pass that runs *before* planning, always on under `--auto-chain` (never opt-in — an explicit `--include` narrows the candidate set but cannot re-admit a note hygiene excludes; a learner who really wants one of those adopts it directly in single-file mode, which has no batch hygiene pass).
+The fix is a classification pass that runs *before* planning on every batch adoption (#298), not only under `--auto-chain` (never opt-in - an explicit `--include` narrows the candidate set but cannot re-admit a note hygiene excludes; a learner who really wants one of those adopts it directly in single-file mode, which has no batch hygiene pass).
 
 ## Decision
 
-`classifyNoteForChain(relPath)` in `src/engine/tier0-hygiene.ts` answers exactly one question per vault-relative path: is this note a **backbone** (may gate the chain), a **leaf** (attached to the chain, never gates), or **excluded** (never adopted, never chained)? The planner (`planAutoChainWithHygiene`) consumes the verdict; the CLI reports it per rule (B6).
+`classifyNoteForChain(relPath)` in `src/engine/tier0-hygiene.ts` answers exactly one question per vault-relative path: is this note a **backbone** (may gate the chain), a **leaf** (attached to the chain, never gates), or **excluded** (never adopted, never chained)? Every batch adoption consumes the `excluded` verdict before staging notes; under `--auto-chain`, the planner (`planAutoChainWithHygiene`) also consumes `backbone`/`leaf` for ordering. The CLI reports the verdict per rule (B6).
 
 ```mermaid
 flowchart TD
@@ -49,12 +49,12 @@ And one that #411 fixed after the fact (the defect was filed as #330): **an empt
 ### Positive
 
 - The chain stops inventing prerequisites out of repo furniture. The three dominant causes in #205's census — translation copies, meta files, and phase subtrees — are all classified out before planning runs.
-- Every excluded note is accounted for. The B6 report prints backbone/leaf/skipped counts per rule on the dry-run and the commit screen alike, and prints even when nothing survived filtering: silently discarding the learner's notes is the failure mode the pass exists to remove.
+- Every excluded note is accounted for. A batch prints the per-rule skip counts on the dry-run and the commit screen alike whenever hygiene dropped a note, and prints even when nothing survived filtering: silently discarding the learner's notes is the failure mode the pass exists to remove. An `--auto-chain` run that produced a plan prints the block even when nothing was dropped, and there the same report adds backbone/leaf counts.
 - One predicate, one planner. `classifyNoteForChain` is pure and exported; the CLI's report and the planner's input cannot disagree because they call the same function.
 
 ### Negative / Tradeoffs
 
-- **Hygiene is a scope change disguised as a wiring flag** (#298, open). `--auto-chain` is documented as a dependency-wiring flag, but it is the only path that runs the hygiene pass — `adopt --all` adopts machine translations and repo-meta notes as first-class topics; `adopt --all --auto-chain` adopts fewer notes, and the scope difference is invisible in the flag's description. Recorded as a known gap with a reproduction, not fixed here, because decoupling scope from wiring is a product decision about what `--all` means.
+- **Scope is no longer coupled to `--auto-chain`** (#298, fixed). Every batch now drops `excluded` notes before staging, so a plain `adopt --all` no longer adopts machine translations or repo-meta notes that `--auto-chain` would skip. README/SUMMARY remain the one intentional difference: a plain scan skips them as navigation docs (#442), while `--auto-chain` keeps them as chain backbone. Single-file adoption remains the override (ADR-0022).
 - **The classifier is a heuristic about names, and the locale-collision arm is a no-op today.** `LOCALE_CODE_COLLISIONS` (`js`, `ts`, `la`) only stops a note being *read as a translation*: `guide-js.md` is an unnumbered non-content sibling either way, so it classifies as a `leaf`, not a backbone lesson. The arm changes nothing until one of those codes is actually added to the language list — and the docstring says that plainly instead of implying a guard that fires.
 
 ## Alternatives Considered

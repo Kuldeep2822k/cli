@@ -640,6 +640,127 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
 
   // ── PAL-205-C: full tier TOC composition, --chain-tier strict|full, depends_on_source ──
 
+  // #298 - the same Tier-0 pass scopes a plain batch adoption. Before this,
+  // `adopt --all` adopted translation copies and templates as first-class
+  // topics while the identical scan with --auto-chain skipped them, so a
+  // wiring flag silently changed which notes entered the vault.
+  test('Tier-0 hygiene scopes a plain batch adoption, not only --auto-chain (#298)', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-foundations/01-setup.md': '# Setup\n',
+      'MODULES/02-advanced/02-next.md': '# Next\n',
+      'MODULES/translations/01-setup.es.md': '# Copia\n',
+      'MODULES/template.md': '# Starter\n',
+      'MODULES/LICENSE.md': '# MIT\n',
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Ready to Adopt:\s+2 notes/);
+    assert.match(dry.stdout, /Skipped \(meta\): 1 notes/);
+    assert.match(dry.stdout, /Skipped \(translations\): 1 notes/);
+    assert.match(dry.stdout, /Skipped \(template\): 1 notes/);
+    assert.match(dry.stdout, /Excluded total: 3 notes/);
+    assert.match(dry.stdout, /Not adopted\. To keep one anyway, adopt it directly/);
+
+    // An explicit include narrows the scan; it does not re-admit a note that
+    // Tier-0 excludes. Single-file adoption remains the override.
+    const included = runCLI(
+      ['adopt', 'MODULES', '--include', '**/*.md', '--dry-run'],
+      configDir
+    );
+    assert.strictEqual(included.status, 0, included.stdout + included.stderr);
+    assert.match(included.stdout, /Ready to Adopt:\s+2 notes/);
+    assert.match(included.stdout, /Excluded total: 3 notes/);
+
+    const run = runCLI(['adopt', 'MODULES', '-y'], configDir);
+    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+    assert.deepStrictEqual(
+      [...idToPath(vaultDir).values()].sort(),
+      ['MODULES/01-foundations/01-setup.md', 'MODULES/02-advanced/02-next.md'],
+      'only the two lessons are adopted'
+    );
+
+    const single = runCLI(['adopt', 'MODULES/translations/01-setup.es.md'], configDir);
+    assert.strictEqual(single.status, 0, single.stdout + single.stderr);
+    assert.ok(
+      [...idToPath(vaultDir).values()].includes('MODULES/translations/01-setup.es.md'),
+      'single-file adoption is still the deliberate override'
+    );
+  });
+
+  test('a plain batch skips README while --auto-chain keeps it as backbone', () => {
+    const { configDir } = freshVault({
+      'README.md': '# Course\n',
+      'guide/01-a.md': '# A\n',
+    });
+
+    const plain = runCLI(['adopt', '--all', '--dry-run'], configDir);
+    assert.strictEqual(plain.status, 0, plain.stdout + plain.stderr);
+    assert.match(plain.stdout, /Ready to Adopt:\s+1 notes/);
+    assert.match(plain.stdout, /Skipped \(meta\): 1 notes/, 'the plain scan keeps #442 behavior');
+
+    const chained = runCLI(['adopt', '--all', '--auto-chain', '--dry-run'], configDir);
+    assert.strictEqual(chained.status, 0, chained.stdout + chained.stderr);
+    assert.match(chained.stdout, /Ready to Adopt:\s+2 notes/, 'README stays a chain backbone');
+    // Adoption alone cannot tell backbone from leaf: both reach `Ready to
+    // Adopt`. The planner's own count is what pins the classification.
+    assert.match(
+      chained.stdout,
+      /Backbone:\s+2 notes \(may gate the chain\)/,
+      'README is classified backbone, not just adopted'
+    );
+  });
+
+  // #298 moved the hygiene report onto the plain batch too, so a note the learner
+  // dropped with `--tag` must still be accounted for by the filter that dropped
+  // it. The witness here is a note Tier-0 would adopt: a template as the witness
+  // would keep the assertion green even if `--tag` stopped filtering.
+  test('a --tag mismatch is attributed to the tag filter, not to Tier-0 hygiene', () => {
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-alpha.md': '---\ntags:\n  - type/concept\n---\n# Alpha\n',
+      'MODULES/02-beta.md': '---\ntags:\n  - type/reference\n---\n# Beta\n',
+    });
+
+    const dry = runCLI(['adopt', 'MODULES', '--tag', 'type/concept', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Ready to Adopt:\s+1 notes/);
+    assert.match(dry.stdout, /Excluded \(Tag\):\s+1 notes/);
+    assert.doesNotMatch(dry.stdout, /Tier-0 hygiene:/, 'nothing in this scope is a hygiene skip');
+
+    const run = runCLI(['adopt', 'MODULES', '--tag', 'type/concept', '-y'], configDir);
+    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+    assert.deepStrictEqual(
+      [...idToPath(vaultDir).values()].sort(),
+      ['MODULES/01-alpha.md'],
+      'the untagged note stays out because --tag dropped it'
+    );
+  });
+
+  // `--include` narrows the scan and never re-admits what the classifier excludes.
+  // Naming `**/*.md` matches every file, so it pins only the second half; naming a
+  // subset, and naming the excluded path itself, pins both halves at once.
+  test('--include narrows the scan yet cannot re-admit a hygiene exclusion', () => {
+    const { configDir } = freshVault({
+      'MODULES/01-a.md': '# A\n',
+      'MODULES/02-b.md': '# B\n',
+      'MODULES/translations/01-a.es.md': '# Copia\n',
+    });
+
+    const dry = runCLI(
+      ['adopt', 'MODULES', '--include', 'MODULES/translations/*.md', '--dry-run'],
+      configDir
+    );
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Total Scanned:\s+3 files/, 'the scan still saw every note');
+    assert.match(dry.stdout, /Excluded \(Pattern\):\s+2 notes/, 'the include narrowed the set');
+    assert.match(dry.stdout, /Skipped \(translations\): 1 notes/);
+    assert.match(
+      dry.stdout,
+      /Ready to Adopt:\s+0 notes/,
+      'naming an excluded path deliberately does not adopt it'
+    );
+  });
+
   /** Reads the `depends_on_source` label written for a note (C5). */
   function dependsOnSource(vaultDir: string, rel: string): string | undefined {
     const { frontmatter } = parseFrontmatter(fs.readFileSync(path.join(vaultDir, rel), 'utf8'));

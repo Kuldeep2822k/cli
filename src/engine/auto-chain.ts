@@ -691,9 +691,8 @@ export function planAutoChainWithHygiene(
     const normalized = raw.replace(/\\/g, '/');
     const decision = classifyNoteForChain(normalized, paleeIdOf ? paleeIdOf(normalized) : undefined);
     if (decision.cls === 'excluded') {
-      const reason = decision.reason ?? 'repo-meta';
-      excluded.set(normalized, reason);
-      byReason[reason] += 1;
+      excluded.set(normalized, decision.reason);
+      byReason[decision.reason] += 1;
       continue;
     }
     decisions.set(normalized, decision);
