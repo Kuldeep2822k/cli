@@ -280,6 +280,71 @@ describe('update: cache and notifier in process', () => {
     });
   });
 
+  test('an expired entry re-probes without re-announcing the version it already delivered', () => {
+    withTempConfigDir(() => {
+      let calls = 0;
+      withSpawnStub(
+        () => {
+          calls++;
+          return spawnResult({ stdout: '99.0.0\n' });
+        },
+        () => {
+          withTtyStdout(true, () => {
+            const expired = Date.now() - UPDATE_CHECK_TTL_MS - 1;
+            writeUpdateCheckRecord('1.0.0', { checkedAt: expired, latestVersion: '99.0.0', notifiedVersion: '99.0.0' });
+            const repeat = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+            assert.deepStrictEqual(repeat, { stdout: [], stderr: [] }, 'one notice per published version, not per TTL');
+            const refreshed = readUpdateCheckRecord('1.0.0');
+            assert.ok(refreshed !== null);
+            assert.ok(refreshed.checkedAt > expired, 'the expired entry is re-probed');
+            assert.strictEqual(refreshed.notifiedVersion, '99.0.0', 'the delivered mark survives the re-probe');
+
+            writeUpdateCheckRecord('1.0.0', { checkedAt: expired, latestVersion: '99.0.0', notifiedVersion: '98.0.0' });
+            const fresh = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+            assert.strictEqual(fresh.stderr.length, 1, 'a newly published release is still announced');
+            assert.match(fresh.stderr[0] ?? '', /99\.0\.0/);
+          });
+        }
+      );
+      assert.strictEqual(calls, 2, 'each expired entry costs exactly one probe');
+    });
+  });
+
+  test('a failed probe does not re-arm the delivered mark', () => {
+    withTempConfigDir(() => {
+      let calls = 0;
+      const stub = (): Record<string, unknown> => {
+        calls++;
+        if (calls === 1) {
+          const error = new Error('spawnSync npm ENOENT') as NodeJS.ErrnoException;
+          error.code = 'ENOENT';
+          return spawnResult({ status: null, error });
+        }
+        return spawnResult({ stdout: '99.0.0\n' });
+      };
+      withSpawnStub(stub, () => {
+        withTtyStdout(true, () => {
+          const expired = Date.now() - UPDATE_CHECK_TTL_MS - 1;
+          writeUpdateCheckRecord('1.0.0', { checkedAt: expired, latestVersion: '99.0.0', notifiedVersion: '99.0.0' });
+          const offline = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+          assert.deepStrictEqual(offline, { stdout: [], stderr: [] });
+          const failed = readUpdateCheckRecord('1.0.0');
+          assert.ok(failed !== null && failed.latestVersion === null, 'the failure is cached');
+          assert.strictEqual(failed.notifiedVersion, '99.0.0', 'the mark survives the failed probe');
+
+          writeUpdateCheckRecord('1.0.0', {
+            checkedAt: expired,
+            latestVersion: failed.latestVersion,
+            notifiedVersion: failed.notifiedVersion,
+          });
+          const back = captureOutput(() => maybeNotifyUpdate('1.0.0', 'next', false));
+          assert.deepStrictEqual(back, { stdout: [], stderr: [] }, 'the release announced before the outage stays silent');
+        });
+      });
+      assert.strictEqual(calls, 2);
+    });
+  });
+
   test('equal, older, and already-notified entries never spawn npm or print', () => {
     withTempConfigDir(() => {
       let calls = 0;

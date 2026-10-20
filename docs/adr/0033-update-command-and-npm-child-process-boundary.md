@@ -64,7 +64,7 @@ asserts the planted file never executes and the shim answers instead.
 
 `<configDir>/update-check.json` maps each running version to its own entry,
 `{ checkedAt, latestVersion, notifiedVersion }`; an entry is trusted for 24 h. Keying by version is
-what keeps two installs sharing the machine-global config dir (#311) from invalidating each other
+what keeps two installs sharing the same config dir (#311) from invalidating each other
 and re-probing npm on every command. A failed check is cached as `latestVersion: null` so an offline
 user does not re-pay the spawn and its timeout on every run. `notifiedVersion` records the release a
 notice was already printed for, so the reminder is delivered once per published version rather than

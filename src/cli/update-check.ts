@@ -404,11 +404,24 @@ export function evaluateUpdate(
 
   const probe = probeLatestVersion(options.timeoutMs);
   const checkedAt = Date.now();
+  // A re-probe must not re-arm a delivered notice: `notifiedVersion` outlives
+  // the TTL (the docs promise one notice per published version, not per day),
+  // and it survives a failed probe too, so an offline day cannot re-announce
+  // the release the user already saw.
+  const previous = readUpdateCheckRecord(currentVersion, checkedAt);
   if (probe.kind === 'failed') {
-    writeUpdateCheckRecord(currentVersion, { checkedAt, latestVersion: null, notifiedVersion: null });
+    writeUpdateCheckRecord(currentVersion, {
+      checkedAt,
+      latestVersion: null,
+      notifiedVersion: previous?.notifiedVersion ?? null,
+    });
     return { state: 'unknown', reason: probe.reason };
   }
-  writeUpdateCheckRecord(currentVersion, { checkedAt, latestVersion: probe.version, notifiedVersion: null });
+  writeUpdateCheckRecord(currentVersion, {
+    checkedAt,
+    latestVersion: probe.version,
+    notifiedVersion: previous?.notifiedVersion === probe.version ? probe.version : null,
+  });
   return {
     state: compareVersions(probe.version, currentVersion) === 1 ? 'update-available' : 'up-to-date',
     latestVersion: probe.version,
@@ -462,9 +475,10 @@ function formatNotice(currentVersion: string, latestVersion: string, binName: st
 
 /**
  * Prints the notice when {@link notificationSuppressed} allows it, at most once
- * per published version within the TTL. Swallows every failure: a version
- * notice can never fail a command that already succeeded, and it never touches
- * `process.exitCode`.
+ * per published version. The 24 h TTL bounds probing, not the delivered mark:
+ * an expired entry re-probes but stays silent for the release it already
+ * announced. Swallows every failure: a version notice can never fail a command
+ * that already succeeded, and it never touches `process.exitCode`.
  *
  * @param currentVersion - The running build's version
  * @param actionName - The command that just ran
@@ -489,6 +503,10 @@ export function maybeNotifyUpdate(currentVersion: string, actionName: string, js
 
     const report = evaluateUpdate(currentVersion, { force: false, timeoutMs: AUTO_CHECK_TIMEOUT_MS });
     if (report.state !== 'update-available') return;
+    // evaluateUpdate carries a delivered mark across the TTL; read the fresh
+    // record it just wrote, or an expired entry would announce its release again.
+    const delivered = readUpdateCheckRecord(currentVersion, Date.now());
+    if (delivered !== null && delivered.notifiedVersion === report.latestVersion) return;
     console.error(formatNotice(currentVersion, report.latestVersion, programName()));
 
     // Mark the notice delivered so runs inside the TTL stay quiet. If the
