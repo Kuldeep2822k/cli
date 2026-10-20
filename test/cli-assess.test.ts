@@ -435,3 +435,124 @@ describe('CLI assess — making topic_mastery reachable', () => {
     );
   });
 });
+
+describe('CLI assess — previewing a lowering and naming what it re-hides (#269)', () => {
+  /** A mastered prerequisite, and the one lesson that sits behind its gate. */
+  function gateVault(): Record<string, string> {
+    return {
+      'strong.md': note('Strong Topic', [], 0.9, '0.9'),
+      'gated.md': note('Gated Lesson', ['T-strong-topic']),
+    };
+  }
+
+  /** Zeroing all four pillars takes 0.9 back to 0, which re-hides `T-gated-lesson`. */
+  const zeroed = { conceptual: '0', practical: '0', debug: '0', feynman: '0' };
+
+  test('--dry-run reports the re-hide and changes nothing', async () => {
+    // The complaint in #269 is ordering, not honesty: the effect was always
+    // reported, but only after the note had been rewritten. A preview has to
+    // report the same effect having written nothing at all.
+    await runInTempVault(gateVault(), async (vaultPath) => {
+      const file = path.join(vaultPath, 'strong.md');
+      const before = fs.readFileSync(file, 'utf8');
+      const beforeMtime = fs.statSync(file).mtimeMs;
+
+      const output = await captureOutput(() => assessCommand('Strong Topic', { ...zeroed, dryRun: true }));
+
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /Assessment preview for Strong Topic \(T-strong-topic\)/);
+      assert.match(output, /mastery\s+0\.9 → 0/);
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./);
+      assert.match(output, /Dry-run complete\. No files were modified\./);
+      assert.doesNotMatch(output, /Assessment recorded/, 'a preview must not report a write it did not make');
+      assert.doesNotMatch(output, /⚠/, 'the warning describes what a recording did; a preview did nothing');
+      assert.doesNotMatch(output, /--force/, 'a preview has nothing to force');
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'a dry run leaves the note byte-identical');
+      assert.strictEqual(fs.statSync(file).mtimeMs, beforeMtime, 'and does not even rewrite its mtime');
+      assert.deepStrictEqual(
+        await readyIds(),
+        ['T-gated-lesson'],
+        'the dependent is still offered: nothing was lowered'
+      );
+    });
+  });
+
+  test('a recorded lowering names the notes it re-hid', async () => {
+    // This assertion pair is the one the finding actually needed: the plain
+    // "no longer offered" line existed in the source and no test anywhere in
+    // `test/` matched it, so deleting the branch that prints it kept the suite
+    // green while removing the only notice a learner gets.
+    await runInTempVault(gateVault(), async (vaultPath) => {
+      const output = await captureOutput(() => assessCommand('Strong Topic', zeroed));
+
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./);
+      assert.match(output, /⚠ Lowered from 0\.9 to 0 /);
+      assert.match(output, /Pass --force to record a lowering assessment without this warning/);
+      assert.strictEqual(readFrontmatter(vaultPath, 'strong.md').topic_mastery, 0, 'the lowering is recorded, not refused');
+      assert.deepStrictEqual(
+        await readyIds(),
+        ['T-strong-topic'],
+        'the lesson left the ready list behind its lowered gate'
+      );
+    });
+  });
+
+  test('--force silences the notice and still records the lowering', async () => {
+    // `palee review --force` established that this flag "silences the notice,
+    // not the record". Anything else would give one flag two meanings across
+    // two commands, and would turn an honest re-assessment into a two-step call.
+    await runInTempVault(gateVault(), async (vaultPath) => {
+      const output = await captureOutput(() => assessCommand('Strong Topic', { ...zeroed, force: true }));
+
+      assert.strictEqual(process.exitCode ?? 0, 0, output);
+      assert.doesNotMatch(output, /⚠/, 'the warning is what --force buys');
+      assert.doesNotMatch(output, /--force/, 'and its own hint must go with it');
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./, 'the report stays: the flag hides the warning, not the fact');
+      assert.strictEqual(readFrontmatter(vaultPath, 'strong.md').topic_mastery, 0);
+      assert.deepStrictEqual(await readyIds(), ['T-strong-topic']);
+    });
+  });
+
+  test('the preview predicts exactly what the recording reports', async () => {
+    // Shared code, so the claim must be pinned rather than promised: a `--dry-run`
+    // that forecast a different effect than the write produced would be worse
+    // than no preview, because the learner acted on it.
+    await runInTempVault(gateVault(), async () => {
+      const effect = (output: string): string => output
+        .split('\n')
+        .filter((line) => /^ {2}(mastery|\d+ topic\(s\)|Below the)/.test(line))
+        .join('\n');
+
+      const preview = await captureOutput(() => assessCommand('Strong Topic', { ...zeroed, dryRun: true }));
+      const recorded = await captureOutput(() => assessCommand('Strong Topic', zeroed));
+
+      assert.strictEqual(effect(preview), effect(recorded), 'the preview must say what the write will say');
+      assert.ok(effect(recorded).length > 0, 'the filter matched nothing, so the comparison above is vacuous');
+    });
+  });
+
+  test('--dry-run still refuses what a recording would refuse', async () => {
+    // A preview that skipped validation would be a lie about whether the call
+    // can be made at all: the unusable stored pillar and the unknown topic are
+    // both rejected before anything is written, with or without --dry-run.
+    await runInTempVault(
+      { 'bad.md': note('Bad Pillar', [], 0.9, '0.9').replace('feynman: 0.9', 'feynman: 2') },
+      async (vaultPath) => {
+        const file = path.join(vaultPath, 'bad.md');
+        const before = fs.readFileSync(file, 'utf8');
+
+        const corrupt = await captureOutput(() => assessCommand('Bad Pillar', { conceptual: '0.5', dryRun: true }));
+        assert.strictEqual(process.exitCode, 2, corrupt);
+        assert.match(corrupt, /Error: /);
+        assert.doesNotMatch(corrupt, /Dry-run complete/, 'a refused preview must not report a clean simulation');
+        assert.strictEqual(fs.readFileSync(file, 'utf8'), before);
+
+        process.exitCode = undefined;
+        const missing = await captureOutput(() => assessCommand('No Such Topic', { conceptual: '0.5', dryRun: true }));
+        assert.strictEqual(process.exitCode, 2, missing);
+        assert.match(missing, /No topic found/);
+      }
+    );
+  });
+});

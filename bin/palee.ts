@@ -184,6 +184,8 @@ program
   .option('--practical <score>', 'Practical application score (0-1)')
   .option('--debug <score>', 'Debugging & troubleshooting score (0-1)')
   .option('--feynman <score>', 'Feynman articulation score (0-1)')
+  .option('--force', 'Record an assessment that lowers mastery and re-hides dependents without printing the warning')
+  .option('--dry-run', 'Report the mastery change and what it does to dependent notes, without modifying files')
   .action(assessCommand);
 
 // palee validate

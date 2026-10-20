@@ -875,6 +875,21 @@ export interface AssessOptions {
   debug?: string;
   /** Feynman articulation score (0.0 - 1.0) */
   feynman?: string;
+  /**
+   * Record an assessment that lowers `topic_mastery` and so re-hides dependent
+   * notes (#269), without printing the notice that names them. The assessment
+   * is recorded and exits `0` either way; the flag only silences the notice —
+   * the same shape `palee review --force` set for an early review (#301).
+   */
+  force?: boolean;
+  /**
+   * Run every check a real assessment runs — vault, topic resolution, the
+   * stored pillar values, and the re-read and fingerprint compare that can
+   * still raise `ECONFLICT` — then report the mastery transition and what it
+   * would do to dependent notes. Acquires no lock and writes no file, so a
+   * preview exits `0` where the same call recorded would have modified the note.
+   */
+  dryRun?: boolean;
 }
 
 /**
