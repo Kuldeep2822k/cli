@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { Readable } from 'node:stream';
 import { PALEE_CMD, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
-import { loadConfig, isConfigDirStorableForKey } from '../src/cli/config';
+import configCommand, { loadConfig, saveConfig, isConfigDirStorableForKey } from '../src/cli/config';
 
 /**
  * The invoking shell's environment minus `PALEE_JSON`: an exported env var must
@@ -76,8 +77,9 @@ describe('CLI config provider credentials (#82)', () => {
         encoding: 'utf8',
         stdio: 'pipe',
         timeout: CLI_SPAWN_TIMEOUT_MS,
-        // Always a pipe, never a terminal: the interactive branch is the one a test
-        // cannot drive, and this keeps `set-api-key` off the prompt path.
+        // Always a pipe, never a terminal: this keeps `set-api-key` off the
+        // prompt path. The origin-confirmation prompt has its own in-process
+        // test below, with a fake TTY.
         input: opts.input ?? '',
       });
       return { status: 0, stdout, stderr: '' };
@@ -268,6 +270,205 @@ describe('CLI config provider credentials (#82)', () => {
     assert.strictEqual(readStored(configDir).baseUrl, 'https://opencode.ai/zen/v1', 'other settings survive');
     assert.match(runConfig(['show'], configDir).stdout, /API Key: \(not set\)/);
     assert.match(runConfig(['unset-api-key'], configDir).stdout, /[Nn]o API key/);
+  });
+
+  test('a stored key is not carried to a different origin without confirmation (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-origin-guard-6d1f';
+    assert.strictEqual(runConfig(['set-base-url', 'https://old.example/v1'], configDir).status, 0);
+    assert.strictEqual(
+      runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+        env: { PALEE_TEST_KEY: secret },
+      }).status,
+      0
+    );
+
+    const result = runConfig(['set-base-url', 'https://new.example/v1'], configDir);
+    assert.strictEqual(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /old\.example/);
+    assert.match(result.stderr, /new\.example/);
+    assert.match(result.stderr, /--keep-key/);
+    assert.match(result.stderr, /unset-api-key/);
+    assert.ok(
+      !result.stdout.includes(secret) && !result.stderr.includes(secret),
+      'the refusal must not echo the key'
+    );
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://old.example/v1', 'the refused change must not land');
+    assert.strictEqual(readStored(configDir).apiKey, secret);
+  });
+
+  test('--keep-key carries the stored key to a new origin, without printing it (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-keep-origin-8a2e';
+    runConfig(['set-base-url', 'https://old.example/v1'], configDir);
+    runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: secret },
+    });
+
+    const result = runConfig(['set-base-url', 'https://new.example/v1', '--keep-key'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://new.example/v1');
+    assert.strictEqual(readStored(configDir).apiKey, secret, 'the explicit flag keeps the key');
+    assert.ok(!result.stdout.includes(secret) && !result.stderr.includes(secret));
+  });
+
+  test('an interactive origin change prompts, and declining leaves both values intact (#482)', async () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-interactive-2f7a';
+    const previousConfigDir = process.env.PALEE_CONFIG_DIR;
+    process.env.PALEE_CONFIG_DIR = configDir;
+    saveConfig({ baseUrl: 'https://old.example/v1', apiKey: secret });
+
+    const realStdin = process.stdin;
+    const realStdoutWrite = process.stdout.write;
+    const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const realLog = console.log;
+    const realError = console.error;
+    let answer = 'n\n';
+    let promptText = '';
+    let lines: string[] = [];
+    let errors: string[] = [];
+
+    const installStdin = (): void => {
+      Object.defineProperty(process, 'stdin', {
+        value: Object.assign(Readable.from([answer]), { isTTY: true }),
+        configurable: true,
+        writable: true,
+      });
+    };
+
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    process.stdout.write = ((chunk: Uint8Array | string): boolean => {
+      promptText += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      return true;
+    }) as typeof process.stdout.write;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    installStdin();
+    process.exitCode = 0;
+
+    try {
+      await configCommand('set-base-url', 'https://new.example/v1', {});
+      assert.strictEqual(process.exitCode, 0);
+      const spoken = lines.join('\n');
+      assert.match(spoken, /New provider origin: https:\/\/new\.example/);
+      assert.match(spoken, /An API key is configured/);
+      assert.match(spoken, /would send the stored key to the new origin/);
+      assert.match(spoken, /Aborted\./);
+      assert.match(promptText, /Keep the stored API key and save\?/);
+      assert.strictEqual(errors.length, 0, 'a declined prompt is not an error');
+      assert.strictEqual(loadConfig().baseUrl, 'https://old.example/v1', 'declining leaves the URL alone');
+      assert.strictEqual(loadConfig().apiKey, secret, 'and leaves the key alone');
+
+      lines = [];
+      errors = [];
+      promptText = '';
+      answer = 'y\n';
+      installStdin();
+      await configCommand('set-base-url', 'https://new.example/v1', {});
+      assert.strictEqual(process.exitCode, 0);
+      assert.match(lines.join('\n'), /AI base URL set to: https:\/\/new\.example\/v1/);
+      assert.strictEqual(loadConfig().baseUrl, 'https://new.example/v1');
+      assert.strictEqual(loadConfig().apiKey, secret, 'accepting the prompt keeps the key');
+      assert.ok(!lines.join('\n').includes(secret) && !promptText.includes(secret), 'neither prompt nor result prints the key');
+    } finally {
+      console.log = realLog;
+      console.error = realError;
+      process.stdout.write = realStdoutWrite;
+      if (stdoutTTY) Object.defineProperty(process.stdout, 'isTTY', stdoutTTY);
+      else Reflect.deleteProperty(process.stdout, 'isTTY');
+      Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      if (previousConfigDir !== undefined) process.env.PALEE_CONFIG_DIR = previousConfigDir;
+      else delete process.env.PALEE_CONFIG_DIR;
+      process.exitCode = 0;
+    }
+  });
+
+  test('a same-origin path change keeps the key without --keep-key (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-same-origin-4c7b';
+    runConfig(['set-base-url', 'https://old.example/v1'], configDir);
+    runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: secret },
+    });
+
+    const result = runConfig(['set-base-url', 'https://old.example/v2'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://old.example/v2');
+    assert.strictEqual(readStored(configDir).apiKey, secret, 'a path change does not re-target the key');
+  });
+
+  test('a port change is a different origin even on the same host (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-port-origin-9d4c';
+    runConfig(['set-base-url', 'https://old.example:8443/v1'], configDir);
+    runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: secret },
+    });
+
+    const result = runConfig(['set-base-url', 'https://old.example/v2'], configDir);
+    assert.strictEqual(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /old\.example:8443/);
+    assert.match(result.stderr, /--keep-key/);
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://old.example:8443/v1');
+    assert.strictEqual(readStored(configDir).apiKey, secret);
+  });
+
+  test('setting the first endpoint with a stored key needs no confirmation (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-first-endpoint-2e9a';
+    const stored = runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: secret },
+    });
+    assert.strictEqual(stored.status, 0, stored.stderr);
+
+    const result = runConfig(['set-base-url', 'https://first.example/v1'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://first.example/v1');
+    assert.strictEqual(readStored(configDir).apiKey, secret);
+  });
+
+  test('an unparseable previous endpoint is treated as an origin change (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-bad-previous-3b8d';
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: 'not a url', apiKey: secret })
+    );
+
+    const result = runConfig(['set-base-url', 'https://new.example/v1'], configDir);
+    assert.strictEqual(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /cannot be parsed/);
+    assert.match(result.stderr, /--keep-key/);
+    assert.ok(!result.stdout.includes(secret) && !result.stderr.includes(secret));
+    assert.strictEqual(readStored(configDir).baseUrl, 'not a url', 'the refused change must not land');
+    assert.strictEqual(readStored(configDir).apiKey, secret);
+  });
+
+  test('the JSON refusal is one {error, remedy} object and leaves stdout empty (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-json-origin-5f0c';
+    runConfig(['set-base-url', 'https://old.example/v1'], configDir);
+    runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir, {
+      env: { PALEE_TEST_KEY: secret },
+    });
+
+    const result = runConfig(['set-base-url', 'https://new.example/v1', '--json'], configDir);
+    assert.strictEqual(result.status, 2, result.stdout + result.stderr);
+    assert.strictEqual(result.stdout, '', 'a refusal never writes a document to stdout');
+    const parsed = JSON.parse(result.stderr);
+    assert.match(parsed.error, /old\.example/);
+    assert.match(parsed.error, /new\.example/);
+    assert.match(parsed.remedy, /--keep-key/);
+    assert.match(parsed.remedy, /unset-api-key/);
+    assert.ok(!result.stderr.includes(secret), 'the refusal must not echo the key');
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://old.example/v1');
+  });
+
+  test('config --help advertises --keep-key (#482)', () => {
+    const help = runConfig(['--help'], freshConfigDir());
+    assert.strictEqual(help.status, 0, help.stderr);
+    assert.match(help.stdout, /--keep-key/);
   });
 
   test('loadConfig keeps only string values, so a hand-edited number is not a credential', () => {

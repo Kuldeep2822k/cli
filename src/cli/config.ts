@@ -315,6 +315,49 @@ function promptHidden(query: string, output: NodeJS.WritableStream = process.std
 }
 
 /**
+ * Returns the origin of a stored base URL, or `null` when it cannot be parsed.
+ *
+ * @param raw - A value from `PaleeConfig.baseUrl`
+ * @returns `URL.origin` (scheme, host and port), or `null` for an absent or invalid value
+ *
+ * @remarks
+ * `set-base-url` validates the value it is about to write, but the value already
+ * on disk may have been hand-edited. An unparseable previous value is treated as
+ * a change: there is no origin to compare the stored key against, so the safe
+ * reading is that saving would send it somewhere new.
+ */
+function originOf(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prompts on a TTY for a yes/no answer. Unlike {@link promptHidden}, the answer
+ * is ordinary input: only origins are discussed, never the key.
+ *
+ * @param query - Prompt text shown before the answer
+ * @returns `true` only for `y` or `yes` (case-insensitive)
+ */
+async function promptConfirmation(query: string): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(query, (answer) => {
+      rl.close();
+      const normalized = answer.trim().toLowerCase();
+      resolve(normalized === 'y' || normalized === 'yes');
+    });
+  });
+}
+
+/**
  * Reports the outcome of a config write in the format the caller asked for.
  *
  * @param json - Whether JSON output is selected for this run
@@ -340,7 +383,8 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
  * unset-api-key, test-connection, set-model.
  * @param value - Value for the actions that take one. `set-api-key` deliberately takes none.
  * @param options - Command options; `fromEnv` names the variable `set-api-key` reads,
- * `json` selects machine-readable output for every action, not just `show`.
+ * `json` selects machine-readable output for every action, not just `show`, and
+ * `keepKey` opts `set-base-url` into carrying a stored key across an origin change.
  * @returns Promise resolving when the command finishes.
  * @remarks Sets process.exitCode = 2 on missing/invalid arguments or unknown actions,
  * and process.exitCode = 5 on unexpected exceptions. Under `--json` both arms are JSON:
@@ -357,7 +401,7 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
 async function configCommand(
   action?: string,
   value?: string,
-  options?: { fromEnv?: string; json?: boolean }
+  options?: { fromEnv?: string; json?: boolean; keepKey?: boolean }
 ): Promise<void> {
   // Resolved once and used by every arm below, so no path can answer a run that
   // asked for JSON with a sentence.
@@ -453,6 +497,41 @@ async function configCommand(
       }
 
       const config = loadConfig();
+      const previousOrigin = originOf(config.baseUrl);
+      // The config keeps one key and one endpoint with no origin field between
+      // them, so replacing the endpoint re-targets the key to whatever host the
+      // new URL names. A local typo is harmless; following a vendor's setup
+      // guide after using another provider is how a real token reaches the
+      // wrong service. Ask first, and in a non-interactive run require the
+      // caller to say so explicitly.
+      const retargetsKey =
+        Boolean(config.apiKey) &&
+        config.baseUrl !== undefined &&
+        previousOrigin !== endpoint.origin;
+
+      if (retargetsKey && !options?.keepKey) {
+        if (!process.stdin.isTTY || !process.stdout.isTTY || json) {
+          const why = previousOrigin
+            ? `refusing to change the provider origin from ${previousOrigin} to ${endpoint.origin} while a stored API key is configured`
+            : `refusing to change the provider origin to ${endpoint.origin} while a stored API key is configured because the previous base URL cannot be parsed`;
+          const how = 'Re-run with --keep-key to keep the stored key, or run `palee config unset-api-key` first';
+          if (json) console.error(JSON.stringify({ error: why, remedy: how }));
+          else { console.error(`Error: ${why}`); console.error(how); }
+          process.exitCode = 2;
+          return;
+        }
+
+        console.log(`New provider origin: ${endpoint.origin}`);
+        console.log('An API key is configured.');
+        console.log(`Previous provider origin: ${previousOrigin ?? '(unparseable)'}`);
+        console.log('Saving this endpoint would send the stored key to the new origin.');
+        const keep = await promptConfirmation('Keep the stored API key and save? (y/N): ');
+        if (!keep) {
+          console.log('Aborted.');
+          return;
+        }
+      }
+
       config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
       saveConfig(config);
       emitStatus(json, `AI base URL set to: ${config.baseUrl}`, { status: 'set', base_url: config.baseUrl });
