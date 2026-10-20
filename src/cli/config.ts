@@ -352,7 +352,8 @@ function originOf(raw: string | undefined): string | null {
  * so an origin change asks first. A path-only change stays same-origin. A
  * non-interactive or JSON run refuses rather than prompting, and `--keep-key`
  * is the explicit opt-in. A previous URL that cannot be parsed is treated as a
- * change because there is no origin to compare.
+ * change because there is no origin to compare. An empty stored value is treated
+ * as unset, matching `resolveProviderSettings`.
  *
  * Returns `null` for a refusal, a stale snapshot, or a declined prompt; only the
  * first two set `process.exitCode = 2`. A declined prompt writes nothing and
@@ -368,7 +369,7 @@ async function confirmCredentialRetarget(
   const previousOrigin = originOf(config.baseUrl);
   const retargetsKey =
     Boolean(config.apiKey) &&
-    config.baseUrl !== undefined &&
+    Boolean(config.baseUrl) &&
     previousOrigin !== endpoint.origin;
 
   if (!retargetsKey || keepKey) return config;

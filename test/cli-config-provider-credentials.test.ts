@@ -426,6 +426,19 @@ describe('CLI config provider credentials (#82)', () => {
       assert.strictEqual(loadConfig().apiKey, secret);
     });
 
+    test('Ctrl+C is a decline, not a promise that never settles', async () => {
+      Object.defineProperty(promptOutput, 'isTTY', { value: true, configurable: true });
+      installStdin(['\u0003']);
+      const output = await runChange();
+      assert.strictEqual(process.exitCode, 0);
+      assert.match(lines.join('\n'), /Aborted\./);
+      assert.deepStrictEqual(errors, [], 'Ctrl+C is a declined prompt, not an error');
+      assert.match(promptText, /\n$/, 'Ctrl+C leaves a clean line after the prompt');
+      assertSecretAbsent(output, secret, 'Ctrl+C prompt');
+      assert.strictEqual(loadConfig().baseUrl, 'https://old.example/v1');
+      assert.strictEqual(loadConfig().apiKey, secret);
+    });
+
     test('accepting updates the URL and keeps the key', async () => {
       installStdin(['y\n']);
       const output = await runChange();
@@ -545,6 +558,21 @@ describe('CLI config provider credentials (#82)', () => {
 
     const result = runConfig(['set-base-url', 'https://first.example/v1'], configDir);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.strictEqual(readStored(configDir).baseUrl, 'https://first.example/v1');
+    assert.strictEqual(readStored(configDir).apiKey, secret);
+  });
+
+  test('an empty stored endpoint is treated as unset, matching the provider (#482)', () => {
+    const configDir = freshConfigDir();
+    const secret = 'testkey-blank-endpoint-6d2e';
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: '', apiKey: secret })
+    );
+
+    const result = runConfig(['set-base-url', 'https://first.example/v1'], configDir);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assertSecretAbsent(result.stdout + result.stderr, secret, 'blank-endpoint save');
     assert.strictEqual(readStored(configDir).baseUrl, 'https://first.example/v1');
     assert.strictEqual(readStored(configDir).apiKey, secret);
   });

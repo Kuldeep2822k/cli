@@ -22,7 +22,7 @@ npm install -g @kuldeep2822k/palee
 ```
 
 Upgrade that global install later with `palee update` (`--dry-run` reports without installing).
-Upon installation, the `palee` binary becomes available. The CLI uses standard exit codes for scripting: `0` for success, `2` for usage errors, and `4` for optimistic concurrency conflicts [README.md#190-198](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L190-L198)
+Upon installation, the `palee` binary becomes available. The CLI uses standard exit codes for scripting: `0` for success, `2` for usage errors and confirmation-time configuration races, and `4` for optimistic concurrency conflicts during file writes [README.md#exit-codes](https://github.com/Kuldeep2822k/cli/blob/main/README.md#exit-codes)
 
 Sources:[README.md#17-20](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L17-L20)[planning/palee_cli_spec.md#9-14](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L9-L14)[planning/palee_cli_spec.md#83](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L83-L83)
 
