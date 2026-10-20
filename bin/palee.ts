@@ -255,9 +255,9 @@ program
 let parsedActionOptions: { json?: boolean } | undefined;
 /**
  * Whether the command that is about to run declares a `--json` option at all.
- * The commands that do not (`review`, `adopt`, `assess`, `roadmap`, `migrate`)
- * are human end to end, so `PALEE_JSON` must not turn their fatal errors into
- * JSON either.
+ * The commands that do not (`review`, `adopt`, `assess`, `roadmap`, `migrate`,
+ * `update`) are human end to end, so `PALEE_JSON` must not turn their fatal
+ * errors into JSON either.
  */
 let actionDeclaresJson = false;
 
