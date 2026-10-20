@@ -64,6 +64,9 @@ argument, because `argv` is readable by every other process. `palee config show`
 is stored in the config file, written `0600` on POSIX. On Windows that mode is ignored, so `set-api-key`
 instead refuses to store the key when the config directory is outside your user profile (see Windows Notes).
 `PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to disk.
+Changing the base URL to a different origin while a key is stored asks for confirmation on a terminal; pass
+`--keep-key` to skip the prompt. A non-interactive or `--json` run refuses without that flag, so run
+`palee config unset-api-key` first if the stored key should not follow the new endpoint.
 
 `test-connection` sends one short prompt and reports the URL it called, which key source won, how long
 the reply took and how many tokens it cost. It is the only command that reaches the network, and nothing
@@ -157,7 +160,7 @@ palee progress
 | `palee validate` | Check data integrity |
 | `palee config set-vault <path>` | Set the Obsidian vault path |
 | `palee config set-provider <name>` | Name the AI provider |
-| `palee config set-base-url <url>` | Set the OpenAI-compatible endpoint (`http` / `https` only) |
+| `palee config set-base-url <url>` | Set the OpenAI-compatible endpoint (`http` / `https` only); a changed origin with a stored key needs confirmation or `--keep-key` |
 | `palee config set-api-key` | Store the provider key from stdin, `--from-env <VAR>`, or a prompt |
 | `palee config unset-api-key` | Remove the stored key |
 | `palee config set-model <model>` | Set the model identifier |
@@ -270,9 +273,9 @@ PALEE is built on three principles:
 PALEE uses standard exit codes to facilitate scripting:
 - `0`: Success
 - `1`: Partial failure (e.g., batch roadmap import where some topics failed)
-- `2`: Usage error (e.g., missing argument, unconfigured vault)
+- `2`: Usage error or configuration refusal (e.g., missing argument, unconfigured vault, a `set-base-url` confirmation invalidated by a concurrent config change)
 - `3`: Validation error (e.g., malformed roadmap, invalid dependency)
-- `4`: Optimistic concurrency conflict (file was modified by another process)
+- `4`: Optimistic concurrency conflict during a file write (file was modified by another process)
 - `5`: Unexpected error (e.g., Node.js exception)
 
 ## Machine-Readable Output

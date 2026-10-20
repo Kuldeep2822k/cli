@@ -22,7 +22,7 @@ npm install -g @kuldeep2822k/palee
 ```
 
 Upgrade that global install later with `palee update` (`--dry-run` reports without installing).
-Upon installation, the `palee` binary becomes available. The CLI uses standard exit codes for scripting: `0` for success, `2` for usage errors, and `4` for optimistic concurrency conflicts [README.md#190-198](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L190-L198)
+Upon installation, the `palee` binary becomes available. The CLI uses standard exit codes for scripting: `0` for success, `2` for usage errors and confirmation-time configuration races, and `4` for optimistic concurrency conflicts during file writes [README.md#exit-codes](https://github.com/Kuldeep2822k/cli/blob/main/README.md#exit-codes)
 
 Sources:[README.md#17-20](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1#L17-L20)[planning/palee_cli_spec.md#9-14](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L9-L14)[planning/palee_cli_spec.md#83](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L83-L83)
 
@@ -54,7 +54,9 @@ palee config set-model "nemotron-3-ultra-free"
 `set-api-key` reads the key from `--from-env`, from a pipe, or from an interactive prompt; passing it as an
 argument is refused so the secret never enters `argv`. `palee config unset-api-key` removes it again. A
 `PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to
-disk.
+disk. If you change `set-base-url` to a different origin while a key is stored, PALEE asks for confirmation on a
+terminal; pass `--keep-key` to skip the prompt. A non-interactive or `--json` run refuses without that flag, so
+run `palee config unset-api-key` first if the stored key should not follow the new endpoint.
 
 Confirm the whole path with `palee config test-connection`, which sends one short prompt and prints the URL
 it called, which key source was used, the latency and the token counts. It is the only command that reaches

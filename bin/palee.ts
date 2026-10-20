@@ -71,6 +71,7 @@ program
   .argument('[action]', 'Action: show, set-vault, set-provider, set-base-url, set-api-key, unset-api-key, test-connection, set-model')
   .argument('[value]', 'Value for set-* actions (never the API key)')
   .option('--from-env <var>', 'environment variable to read the API key from (set-api-key)')
+  .option('--keep-key', 'keep the stored API key when set-base-url changes the endpoint origin')
   .option('--json', 'Output in JSON format (every config action, not only show)')
   .action(configCommand);
 
