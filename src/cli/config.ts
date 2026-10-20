@@ -341,6 +341,11 @@ function originOf(raw: string | undefined): string | null {
  *
  * @param query - Prompt text shown before the answer
  * @returns `true` only for `y` or `yes` (case-insensitive)
+ *
+ * @remarks
+ * Ctrl+C or EOF closes the readline interface without invoking the question
+ * callback. That is treated as a "No", so the caller never waits on a promise
+ * that cannot settle and the command exits cleanly with nothing written.
  */
 async function promptConfirmation(query: string): Promise<boolean> {
   const rl = readline.createInterface({
@@ -349,7 +354,16 @@ async function promptConfirmation(query: string): Promise<boolean> {
   });
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.once('SIGINT', () => rl.close());
+    rl.once('close', () => {
+      if (answered) return;
+      answered = true;
+      process.stdout.write('\n');
+      resolve(false);
+    });
     rl.question(query, (answer) => {
+      answered = true;
       rl.close();
       const normalized = answer.trim().toLowerCase();
       resolve(normalized === 'y' || normalized === 'yes');
@@ -496,7 +510,7 @@ async function configCommand(
         return;
       }
 
-      const config = loadConfig();
+      let config = loadConfig();
       const previousOrigin = originOf(config.baseUrl);
       // The config keeps one key and one endpoint with no origin field between
       // them, so replacing the endpoint re-targets the key to whatever host the
@@ -530,6 +544,18 @@ async function configCommand(
           console.log('Aborted.');
           return;
         }
+
+        // The prompt can stay open indefinitely. Re-read after it returns so a
+        // concurrent `unset-api-key` (or a new key/endpoint) is not reverted by
+        // writing the snapshot taken before the wait. Other fields are taken
+        // from the fresh read too, so a concurrent model/vault change is kept.
+        const fresh = loadConfig();
+        if (fresh.apiKey !== config.apiKey || fresh.baseUrl !== config.baseUrl) {
+          console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
+          process.exitCode = 2;
+          return;
+        }
+        config = fresh;
       }
 
       config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');

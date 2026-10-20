@@ -312,7 +312,7 @@ describe('CLI config provider credentials (#82)', () => {
     assert.ok(!result.stdout.includes(secret) && !result.stderr.includes(secret));
   });
 
-  test('an interactive origin change prompts, and declining leaves both values intact (#482)', async () => {
+  test('an interactive origin change handles decline, EOF, accept, and a concurrent edit (#482)', async () => {
     const configDir = freshConfigDir();
     const secret = 'testkey-interactive-2f7a';
     const previousConfigDir = process.env.PALEE_CONFIG_DIR;
@@ -329,9 +329,9 @@ describe('CLI config provider credentials (#82)', () => {
     let lines: string[] = [];
     let errors: string[] = [];
 
-    const installStdin = (): void => {
+    const installStdin = (chunks?: string[]): void => {
       Object.defineProperty(process, 'stdin', {
-        value: Object.assign(Readable.from([answer]), { isTTY: true }),
+        value: Object.assign(Readable.from(chunks ?? [answer]), { isTTY: true }),
         configurable: true,
         writable: true,
       });
@@ -360,17 +360,89 @@ describe('CLI config provider credentials (#82)', () => {
       assert.strictEqual(loadConfig().baseUrl, 'https://old.example/v1', 'declining leaves the URL alone');
       assert.strictEqual(loadConfig().apiKey, secret, 'and leaves the key alone');
 
+      // EOF (Ctrl+D) closes readline without a question callback. It must be a
+      // clean "No", not a promise that never settles and a silent exit.
+      lines = [];
+      errors = [];
+      promptText = '';
+      installStdin([]);
+      process.exitCode = 0;
+      await configCommand('set-base-url', 'https://new.example/v1', {});
+      assert.strictEqual(process.exitCode, 0);
+      assert.match(lines.join('\n'), /Aborted\./);
+      assert.strictEqual(errors.length, 0, 'EOF is a declined prompt, not an error');
+      assert.match(promptText, /\n$/, 'EOF leaves a clean line after the prompt');
+      assert.strictEqual(loadConfig().baseUrl, 'https://old.example/v1');
+      assert.strictEqual(loadConfig().apiKey, secret);
+
       lines = [];
       errors = [];
       promptText = '';
       answer = 'y\n';
       installStdin();
+      process.exitCode = 0;
       await configCommand('set-base-url', 'https://new.example/v1', {});
       assert.strictEqual(process.exitCode, 0);
       assert.match(lines.join('\n'), /AI base URL set to: https:\/\/new\.example\/v1/);
       assert.strictEqual(loadConfig().baseUrl, 'https://new.example/v1');
       assert.strictEqual(loadConfig().apiKey, secret, 'accepting the prompt keeps the key');
       assert.ok(!lines.join('\n').includes(secret) && !promptText.includes(secret), 'neither prompt nor result prints the key');
+
+      // A concurrent key change while the prompt is open must not be reverted
+      // by saving the snapshot read before the wait.
+      lines = [];
+      errors = [];
+      promptText = '';
+      saveConfig({ baseUrl: 'https://old.example/v1', apiKey: secret });
+      const racingKey = 'testkey-raced-7e3a';
+      let raced = false;
+      const racingStdin = new Readable({
+        read() {
+          if (raced) return;
+          raced = true;
+          saveConfig({ baseUrl: 'https://old.example/v1', apiKey: racingKey });
+          this.push('y\n');
+          this.push(null);
+        },
+      });
+      Object.assign(racingStdin, { isTTY: true });
+      Object.defineProperty(process, 'stdin', { value: racingStdin, configurable: true, writable: true });
+      process.exitCode = 0;
+      await configCommand('set-base-url', 'https://new.example/v1', {});
+      assert.strictEqual(process.exitCode, 2);
+      assert.match(errors.join('\n'), /configuration changed while waiting for confirmation/);
+      assert.strictEqual(loadConfig().baseUrl, 'https://old.example/v1', 'the racing URL is preserved');
+      assert.strictEqual(loadConfig().apiKey, racingKey, 'the racing key is preserved');
+      assert.ok(
+        !lines.join('\n').includes(secret) && !lines.join('\n').includes(racingKey),
+        'the concurrent-edit refusal prints neither key'
+      );
+
+      // The endpoint itself can move while the prompt is open; the same stale
+      // snapshot guard must catch that, not just a changed key.
+      lines = [];
+      errors = [];
+      promptText = '';
+      saveConfig({ baseUrl: 'https://old.example/v1', apiKey: secret });
+      const racingUrl = 'https://other.example/v1';
+      let racedUrl = false;
+      const racingUrlStdin = new Readable({
+        read() {
+          if (racedUrl) return;
+          racedUrl = true;
+          saveConfig({ baseUrl: racingUrl, apiKey: secret });
+          this.push('y\n');
+          this.push(null);
+        },
+      });
+      Object.assign(racingUrlStdin, { isTTY: true });
+      Object.defineProperty(process, 'stdin', { value: racingUrlStdin, configurable: true, writable: true });
+      process.exitCode = 0;
+      await configCommand('set-base-url', 'https://new.example/v1', {});
+      assert.strictEqual(process.exitCode, 2);
+      assert.match(errors.join('\n'), /configuration changed while waiting for confirmation/);
+      assert.strictEqual(loadConfig().baseUrl, racingUrl, 'the racing endpoint is preserved');
+      assert.strictEqual(loadConfig().apiKey, secret);
     } finally {
       console.log = realLog;
       console.error = realError;
