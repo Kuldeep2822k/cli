@@ -176,7 +176,8 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     }
 
     // `validate --fix` folds a repair skipped by an OCC conflict into
-    // `conflicts[]`; the note is still invalid, so the run exits 3 (#486).
+    // `conflicts[]`; it never sets exit 4, and the exit code follows the
+    // normal severity rule (#486).
     const validateCells = (rows.get('validate') ?? '').split('|').map((cell) => cell.trim());
     assert.strictEqual(validateCells[4], 'N/A', 'palee validate never exits 4');
   });
