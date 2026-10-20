@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import { resolveTopicQuery } from './topic-query';
 import { programName } from './program-name';
 import {
@@ -36,7 +36,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
   try {
     if (!/^[0-5]$/.test(qualityStr)) {
       console.error('Error: Quality must be an integer from 0 to 5');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
     const quality = parseInt(qualityStr, 10);
@@ -53,7 +53,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
 
     if (resolution.kind === 'none') {
       console.error(`Error: No topic found matching "${topicQuery}"`);
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -63,7 +63,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
         console.error(`  - ${c.palee_id}: ${c.title}`);
       }
       console.error('Please provide a more specific query.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 

@@ -16,7 +16,7 @@ import { ProviderError } from '../ai';
 export const ExitCode = {
   /** Command completed successfully */
   Success: 0,
-  /** Partial import failure (e.g. some roadmap entries skipped) */
+  /** Partial failure: the note landed, but sub-items did not (roadmap skips, session cleanup) */
   PartialImport: 1,
   /** Invalid usage: missing/invalid arguments, unconfigured vault */
   Usage: 2,

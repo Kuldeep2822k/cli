@@ -9,7 +9,7 @@ import os from 'os';
 import crypto from 'crypto';
 import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import { isJsonOutput, emitError } from './onboarding';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
@@ -381,7 +381,7 @@ async function confirmCredentialRetarget(
     const how = 'Re-run with --keep-key to keep the stored key, or run `palee config unset-api-key` first';
     if (json) console.error(JSON.stringify({ error: why, remedy: how }));
     else { console.error(`Error: ${why}`); console.error(how); }
-    process.exitCode = 2;
+    process.exitCode = ExitCode.Usage;
     return null;
   }
 
@@ -402,7 +402,7 @@ async function confirmCredentialRetarget(
   const fresh = loadConfig();
   if (fresh.apiKey !== config.apiKey || fresh.baseUrl !== config.baseUrl) {
     console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
-    process.exitCode = 2;
+    process.exitCode = ExitCode.Usage;
     return null;
   }
   return fresh;
@@ -529,19 +529,19 @@ async function configCommand(
     if (action === 'set-vault') {
       if (!value) {
         emitError('vault path required', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
       const absolutePath = path.resolve(value);
       if (!fs.existsSync(absolutePath)) {
         emitError(`vault path does not exist: ${absolutePath}`, options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       if (!fs.statSync(absolutePath).isDirectory()) {
         emitError(`vault path is not a directory: ${absolutePath}`, options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -555,7 +555,7 @@ async function configCommand(
     if (action === 'set-provider') {
       if (!value) {
         emitError('provider name required', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -569,7 +569,7 @@ async function configCommand(
     if (action === 'set-base-url') {
       if (!value) {
         emitError('base URL required', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -590,7 +590,7 @@ async function configCommand(
       // without echoing the value. A provider endpoint has no use for either.
       if (endpoint.search || endpoint.hash) {
         emitError('base URL must not carry a query or fragment; set the credential with set-api-key', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -614,13 +614,13 @@ async function configCommand(
         const how = 'Run with --from-env VAR, pipe the key on stdin, or run with no input to be prompted';
         if (json) console.error(JSON.stringify({ error: why, remedy: how }));
         else { console.error(`Error: ${why}`); console.error(how); }
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
       const key = await readApiKey(options?.fromEnv, options);
       if (key === null) {
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -630,7 +630,7 @@ async function configCommand(
       // The key is never echoed, so the message names the fault, not the value.
       if (!isSendable(key)) {
         emitError('the API key contains a non-printable character and cannot be sent in an HTTP header; check for a stray control character or newline', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -647,7 +647,7 @@ async function configCommand(
           const how = 'Use PALEE_API_KEY at runtime instead, point PALEE_CONFIG_DIR under %LOCALAPPDATA% or %USERPROFILE%, or set PALEE_ALLOW_INSECURE_CONFIG_DIR=1 to override.';
           if (json) console.error(JSON.stringify({ error: why, remedy: how }));
           else { console.error(`Error: ${why}`); console.error(how); }
-          process.exitCode = 2;
+          process.exitCode = ExitCode.Usage;
           return;
         }
       }
@@ -675,7 +675,7 @@ async function configCommand(
     if (action === 'test-connection') {
       if (value) {
         emitError('test-connection takes no argument', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       // The one place a stored credential can prove itself. It sends the shortest
@@ -734,7 +734,7 @@ async function configCommand(
     if (action === 'set-model') {
       if (!value) {
         emitError('model name required', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -752,7 +752,7 @@ async function configCommand(
       console.error(`Error: unknown action '${action}'`);
       console.error(`Valid actions: ${validActions.join(', ')}`);
     }
-    process.exitCode = 2;
+    process.exitCode = ExitCode.Usage;
     return;
 
   } catch (e: unknown) {

@@ -266,7 +266,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             ...vaultTargetFields(target),
             message: 'Unconfirmed draft checkpoints detected. Run with --interactive to resolve.',
           }));
-          process.exitCode = 2;
+          process.exitCode = ExitCode.Usage;
           return;
         }
 
@@ -282,7 +282,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           console.log();
           console.log('Unconfirmed draft checkpoint detected.');
           console.log('Run "palee session start --interactive" to resolve.');
-          process.exitCode = 2;
+          process.exitCode = ExitCode.Usage;
           return;
         }
 
@@ -529,7 +529,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       const topicId = topicOutcome.kind === 'topic' ? topicOutcome.topicId : null;
       if (!topicId) {
         emitError('Topic required. Specify --topic <topic-id> or start a session on an active topic.', options);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -745,7 +745,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       if (cleanupResult.errors.length > 0) {
         warn(`⚠ Warning: Failed to clean up ${cleanupResult.errors.length} draft(s) — manual cleanup may be needed.`);
-        process.exitCode = 1;
+        process.exitCode = ExitCode.PartialImport;
       }
 
       // Regenerate derived views
@@ -864,7 +864,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       console.error(`Error: Unknown session action: '${action}'`);
       console.error(`Valid actions: ${validActions.join(', ')}`);
     }
-    process.exitCode = 2;
+    process.exitCode = ExitCode.Usage;
     return;
 
   } catch (e: unknown) {
