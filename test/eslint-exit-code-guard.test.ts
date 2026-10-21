@@ -81,10 +81,17 @@ async function livePattern(): Promise<ExitCodePattern> {
 
 const linter = new Linter();
 
-/** Runs the live pattern over one snippet: no project service, no type info, no temp file. */
+/**
+ * Runs the live pattern over one snippet: no project service, no type info, no temp
+ * file. The parser is needed only so the TypeScript wrapper cases parse; the
+ * selector itself is purely syntactic.
+ */
 function report(code: string, pattern: ExitCodePattern): Array<{ ruleId: string | null; message: string; severity: number }> {
   return linter
-    .verify(code, { rules: { [GUARD]: ['error', pattern] } })
+    .verify(code, {
+      languageOptions: { parser: tsParser, sourceType: 'module', ecmaVersion: 2022 },
+      rules: { [GUARD]: ['error', pattern] }
+    })
     .map(({ ruleId, message, severity }) => ({ ruleId, message, severity }));
 }
 
@@ -125,9 +132,37 @@ describe('ESLint exit-code guard enforcement (#207)', () => {
     );
   });
 
+  test('the armed selector catches TypeScript wrappers, negative literals, and bracket writes', async () => {
+    const pattern = await livePattern();
+    // A cast is how a numeric literal sneaks past a selector that only looks for a
+    // direct Literal child; each form below previously reached `process.exitCode`
+    // untouched.
+    const bypasses = [
+      'process.exitCode = 2 as number;',
+      'process.exitCode = 2!;',
+      'process.exitCode = 2 satisfies number;',
+      'process.exitCode = <number>2;',
+      'process.exitCode = -1;',
+      "process['exitCode'] = 2;",
+      "process['exitCode'] = 2 as number;",
+      "process['exitCode'] = 2!;"
+    ];
+    for (const code of bypasses) {
+      assert.deepStrictEqual(
+        report(code, pattern),
+        [{ ruleId: GUARD, message: pattern.message, severity: 2 }],
+        `${code} is a numeric exit-code write and must be caught`
+      );
+    }
+  });
+
   test('the armed selector stays silent on the two forms the exit-code contract prescribes', async () => {
     const pattern = await livePattern();
-    for (const code of ['process.exitCode = ExitCode.Usage;', 'process.exitCode = exitCodeFor(error);']) {
+    for (const code of [
+      'process.exitCode = ExitCode.Usage;',
+      'process.exitCode = exitCodeFor(error);',
+      "process['exitCode'] = ExitCode.Usage;"
+    ]) {
       assert.deepStrictEqual(report(code, pattern), [], `${code} is the correct form; a guard that reports it will be disabled, not obeyed`);
     }
     // The value, not a value somewhere below it: `2` reaches a helper as an argument, so

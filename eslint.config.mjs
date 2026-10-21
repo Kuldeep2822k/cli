@@ -1,6 +1,11 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
+// The left-hand side of an exit-code write, dot or bracket form. Kept as one
+// combinator so the guard test can still find a single pattern by its message.
+const exitCodeTarget =
+  "AssignmentExpression[left.object.name='process']:matches([left.property.name='exitCode'], [left.property.value='exitCode'])";
+
 export default tseslint.config(
   {
     // A second copy of this repo inside the tree — an agent worktree under `.qoder/`, a
@@ -12,6 +17,11 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    linterOptions: {
+      // A stale disable comment hides the next real finding, and warnings do not
+      // fail `npm run lint`; make the directive itself an error.
+      reportUnusedDisableDirectives: 'error'
+    },
     languageOptions: {
       globals: {
         require: true,
@@ -27,15 +37,24 @@ export default tseslint.config(
       // storage (a note vanishing mid-scan is a legal outcome, not a bug); an
       // empty `if`/`try` still has to be written down.
       'no-empty': ['error', { allowEmptyCatch: true }],
+      // A callback that returns on one branch and not another silently produces
+      // `undefined` entries in map/filter/sort results.
+      'array-callback-return': 'error',
       'prefer-const': 'error',
       '@typescript-eslint/no-explicit-any': 'off',
       // CommonJS output: require() is the real module primitive here.
       '@typescript-eslint/no-require-imports': 'off',
-      // Test doubles and catch bindings are routinely named but unread: `_` marks
-      // the deliberate ones, and a rethrow-only `catch (e)` still needs its binding.
+      // `_` marks deliberately unused bindings. Catch bindings are checked too
+      // (`caughtErrors: 'all'` is the typescript-eslint default); a rethrow uses
+      // its binding, so `none` would only hide genuinely dead catches.
       '@typescript-eslint/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_', caughtErrors: 'none', varsIgnorePattern: '^_' }
+        {
+          argsIgnorePattern: '^_',
+          caughtErrors: 'all',
+          caughtErrorsIgnorePattern: '^_',
+          varsIgnorePattern: '^_'
+        }
       ],
       // `x != null` is the repo's "neither null nor undefined" idiom; every other
       // comparison stays strict.
@@ -59,8 +78,8 @@ export default tseslint.config(
     files: ['src/**/*.ts', 'bin/**/*.ts'],
     languageOptions: {
       parserOptions: {
-        // Only `no-floating-promises` needs type information. This block's `files` keeps
-        // `test/**` from being checked by it, which is what the exemption is for.
+        // The type-aware rules below need a program; this block's `files` keeps
+        // `test/**` from being checked by them, which is what the exemption is for.
         projectService: true,
         tsconfigRootDir: import.meta.dirname
       }
@@ -68,16 +87,41 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
+      // Type-aware bug classes tsc cannot see: async callbacks passed to void
+      // contexts, unbound methods, non-Error throws/rejections, string/Map/Set
+      // spreads, and missing union cases. All measured zero on shipped code.
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-misused-spread': 'error',
+      '@typescript-eslint/only-throw-error': 'error',
+      '@typescript-eslint/prefer-promise-reject-errors': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      '@typescript-eslint/unbound-method': 'error',
       // The sleep and prompt helpers mean "wait"; a value returned from the
       // executor cannot be read, so the body must not return one.
       'no-promise-executor-return': 'error',
       'no-restricted-syntax': [
         'error',
         {
-          selector: "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'] > Literal",
+          // Direct literals, TS wrappers (`as`, `!`, `satisfies`, `<number>`),
+          // negative literals, and bracket writes. One comma-separated string
+          // keeps the single-pattern contract the guard test asserts.
+          selector: [
+            `${exitCodeTarget} > Literal`,
+            `${exitCodeTarget} > :matches(TSAsExpression, TSNonNullExpression, TSSatisfiesExpression, TSTypeAssertion) > Literal`,
+            `${exitCodeTarget} > UnaryExpression[operator='-'] > Literal`
+          ].join(', '),
           message: 'Set process.exitCode from ExitCode or exitCodeFor(), never a numeric literal.'
         }
       ]
+    }
+  },
+  {
+    // The CLI owns stdout: a log from a library layer corrupts `--json` and
+    // duplicates the handler's message. `bin/` and `src/cli/` keep console.
+    files: ['src/**/*.ts'],
+    ignores: ['src/cli/**'],
+    rules: {
+      'no-console': 'error'
     }
   }
 );
