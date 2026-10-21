@@ -6,6 +6,7 @@ import {
   resolveProviderSettings,
   normalizeProviderEndpoint,
   isLoopbackHost,
+  isReservedHost,
   DEFAULT_MODEL,
   API_KEY_ENV,
   MAX_MESSAGE_CHARS,
@@ -169,6 +170,18 @@ describe('provider endpoint validation (#24)', () => {
       // checker `[::ffff:a9fe:a9fe]`, never the dotted spelling a rule would match naively.
       'https://[::ffff:a9fe:a9fe]/v1',
       'https://[::ffff:169.254.169.254]/v1',
+      // The translation prefixes encode the same address in another family: NAT64
+      // `64:ff9b::/96` keeps it in the last 32 bits, 6to4 `2002::/16` in the next 32.
+      'https://[64:ff9b::a9fe:a9fe]/v1',
+      'https://[2002:a9fe:a9fe::]/v1',
+      // Compression hides which trailing hextet is which: `::808` is 0.0.8.8, not
+      // 8.8.0.0, so the gateway is the unspecified address and reserved.
+      'https://[64:ff9b::808]/v1',
+      'https://[2002::1]/v1',
+      // Teredo `2001::/32` stores its server in bits 32-63 and its client in bits 96-127,
+      // bitwise-inverted; either field can be the metadata address it encodes.
+      'https://[2001:0:a9fe:a9fe:8000:63bf:3fff:fdd2]/v1',
+      'https://[2001:0:4136:e378:8000:63bf:5601:5601]/v1',
       'https://metadata.google.internal/v1',
     ]) {
       assert.throws(() => normalizeProviderEndpoint(refused), /reserved address space/, refused);
@@ -186,8 +199,36 @@ describe('provider endpoint validation (#24)', () => {
       'https://[fec0::1]/v1',
       // A mapped literal that encodes a public address is not reserved either.
       'https://[::ffff:8.8.8.8]/v1',
+      // Nor is a translation prefix whose embedded address is public. The Teredo client
+      // decodes to RFC 1918 space, which stays permitted like the dotted quad would.
+      'https://[64:ff9b::808:808]/v1',
+      'https://[2002:808:808::1]/v1',
+      'https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/v1',
+      'https://[2001:0:4136:e378:8000:63bf:f5ff:fffe]/v1',
     ]) {
       assert.doesNotThrow(() => normalizeProviderEndpoint(allowed), `${allowed} should not be refused`);
+    }
+  });
+
+  test('translation prefixes decode by group position, not by their spelling', () => {
+    // `normalizeProviderEndpoint` can only see the compressed form Node serializes, so the
+    // decoder is exercised directly too: an expanded literal places the same groups, and
+    // the field rules are positional rather than a suffix match.
+    for (const refused of [
+      '[0:0:0:0:0:ffff:a9fe:a9fe]',
+      '[64:ff9b:0:0:0:0:a9fe:a9fe]',
+      '[2002:a9fe:a9fe:0:0:0:0:0]',
+      '[2001:0:a9fe:a9fe:0:0:0:1]',
+      '[2001:0:4136:e378:0:0:5601:5601]',
+    ]) {
+      assert.strictEqual(isReservedHost(refused), true, refused);
+    }
+    for (const allowed of [
+      '[64:ff9b:0:0:0:0:808:808]',
+      '[2002:808:808:0:0:0:0:1]',
+      '[2001:0:4136:e378:0:0:f5ff:fffe]',
+    ]) {
+      assert.strictEqual(isReservedHost(allowed), false, allowed);
     }
   });
 

@@ -212,28 +212,101 @@ function isReservedIPv4(host: string): boolean {
   return first >= 224;
 }
 
+/** The number of 16-bit groups in an IPv6 address. */
+const IPV6_GROUP_COUNT = 8;
+
 /**
- * The dotted quad inside an IPv4-mapped IPv6 literal, if the host is one.
+ * Expands an IPv6 literal into its eight canonical hextets, or `undefined` if it is not one.
  *
  * @param bare - An IPv6 host with its brackets already removed
- * @returns The embedded address as a dotted quad, or `undefined`
  *
  * @remarks
- * Matched against Node's *serialised* form, which was measured rather than assumed:
- * `https://[::ffff:169.254.169.254]/` reaches `URL.hostname` as `[::ffff:a9fe:a9fe]`, not
- * as a dotted quad. A rule written against the spelling a caller types would never fire.
+ * The embedded address cannot be read off the spelling a caller types, and not off Node's
+ * compressed serialisation either: `64:ff9b::808` and `64:ff9b::8:8` are different
+ * addresses, because the run `::` replaced decides which hextet is which. Expansion makes
+ * the position of every group explicit before a prefix rule reads it.
  */
-function embeddedIPv4(bare: string): string | undefined {
-  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
-  if (!mapped) return undefined;
+function expandIPv6(bare: string): string | undefined {
+  const halves = bare.split('::');
+  if (halves.length > 2) return undefined;
+  const parseGroups = (text: string | undefined): string[] | undefined => {
+    if (text === undefined || text === '') return [];
+    const groups: string[] = [];
+    for (const group of text.split(':')) {
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return undefined;
+      groups.push(Number.parseInt(group, 16).toString(16));
+    }
+    return groups;
+  };
+  const head = parseGroups(halves[0]);
+  if (head === undefined) return undefined;
+  if (halves.length === 1) {
+    return head.length === IPV6_GROUP_COUNT ? head.join(':') : undefined;
+  }
+  const tail = parseGroups(halves[1]);
+  if (tail === undefined) return undefined;
+  const missing = IPV6_GROUP_COUNT - head.length - tail.length;
+  if (missing < 1) return undefined;
+  return [...head, ...Array<string>(missing).fill('0'), ...tail].join(':');
+}
+
+/** The dotted quad for the high and low 16-bit halves of an IPv4 address. */
+function quadFromNumbers(hi: number, lo: number): string {
+  return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
+}
+
+/** The dotted quad held by the first two capture groups of `match`, if it matched. */
+function quadFromMatch(match: RegExpExecArray | null): string | undefined {
+  if (match === null) return undefined;
   // A match fills both capture groups, but the type system cannot know that; fail
   // explicitly rather than parsing an undefined value.
-  const hiText = mapped[1];
-  const loText = mapped[2];
+  const hiText = match[1];
+  const loText = match[2];
   if (hiText === undefined || loText === undefined) return undefined;
-  const hi = Number.parseInt(hiText, 16);
-  const lo = Number.parseInt(loText, 16);
-  return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
+  return quadFromNumbers(Number.parseInt(hiText, 16), Number.parseInt(loText, 16));
+}
+
+/**
+ * The IPv4 addresses an IPv6 literal encodes, if it is a translation form.
+ *
+ * @param bare - An IPv6 host with its brackets already removed
+ * @returns The dotted quads the literal stands for, or an empty list
+ *
+ * @remarks
+ * Four prefix families carry an IPv4 address in a fixed position, and all of them are
+ * judged by the IPv4 rules rather than by their IPv6 spelling:
+ *
+ * - IPv4-mapped `::ffff:0:0/96` and NAT64 `64:ff9b::/96` carry it in the last 32 bits;
+ * - 6to4 `2002::/16` carries its gateway in the next 32 bits;
+ * - Teredo `2001::/32` carries two — its server in bits 32-63 and its client in bits
+ *   96-127, the latter bitwise-inverted (RFC 4380).
+ *
+ * The mapped family was the only one implemented, so an encoded metadata address in any
+ * of the other three prefixes passed as an ordinary IPv6 host.
+ */
+function embeddedIPv4s(bare: string): string[] {
+  const groups = expandIPv6(bare);
+  if (groups === undefined) return [];
+
+  const quads: string[] = [];
+  const mapped = quadFromMatch(/^0:0:0:0:0:ffff:([0-9a-f]+):([0-9a-f]+)$/.exec(groups));
+  if (mapped !== undefined) quads.push(mapped);
+  const nat64 = quadFromMatch(/^64:ff9b:0:0:0:0:([0-9a-f]+):([0-9a-f]+)$/.exec(groups));
+  if (nat64 !== undefined) quads.push(nat64);
+  const sixToFour = quadFromMatch(/^2002:([0-9a-f]+):([0-9a-f]+):/.exec(groups));
+  if (sixToFour !== undefined) quads.push(sixToFour);
+
+  const teredoServer = quadFromMatch(/^2001:0:([0-9a-f]+):([0-9a-f]+):/.exec(groups));
+  if (teredoServer !== undefined) quads.push(teredoServer);
+  const teredoClient = /^2001:0:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:([0-9a-f]+):([0-9a-f]+)$/.exec(groups);
+  if (teredoClient !== null) {
+    const hiText = teredoClient[1];
+    const loText = teredoClient[2];
+    if (hiText !== undefined && loText !== undefined) {
+      quads.push(quadFromNumbers(Number.parseInt(hiText, 16) ^ 0xffff, Number.parseInt(loText, 16) ^ 0xffff));
+    }
+  }
+  return quads;
 }
 
 /**
@@ -255,10 +328,11 @@ function embeddedIPv4(bare: string): string | undefined {
  * IPv6 is decided on the canonical hextet prefixes the serializer produces: link-local is
  * `fe80::/10`, which spans `fe80` through `febf` — not merely the `fe80` literal — while
  * `fec0` (the retired site-local range) stays outside the refusal. `fc00::/7` and
- * `ff00::/12` are unique-local and multicast. An IPv4-mapped literal is unwrapped and
- * judged by the IPv4 rules, so `[::ffff:a9fe:a9fe]` is the metadata address it encodes.
- * `::1` is exempt: it is loopback, and permitting it is what makes a local provider on
- * IPv6 usable over http.
+ * `ff00::/8` are unique-local and multicast. The translation prefixes are unwrapped and
+ * judged by the IPv4 rules, so `[::ffff:a9fe:a9fe]`, `[64:ff9b::a9fe:a9fe]`,
+ * `[2002:a9fe:a9fe::]` and Teredo's server or client field are the metadata address they
+ * encode. `::1` is exempt: it is loopback, and permitting it is what makes a local provider
+ * on IPv6 usable over http.
  */
 export function isReservedHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
@@ -266,8 +340,8 @@ export function isReservedHost(hostname: string): boolean {
     const bare = host.slice(1, -1);
     if (bare === '::') return true;
     if (bare === '::1') return false;
-    const embedded = embeddedIPv4(bare);
-    if (embedded !== undefined) return isReservedIPv4(embedded);
+    const embedded = embeddedIPv4s(bare);
+    if (embedded.length > 0) return embedded.some(isReservedIPv4);
     return /^fe[89ab]/.test(bare) || /^f[cd]/.test(bare) || /^ff/.test(bare);
   }
   // Matched by address shape, never by the start of a DNS name: `169.254.example.com` is a

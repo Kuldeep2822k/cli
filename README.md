@@ -73,7 +73,8 @@ the reply took and how many tokens it cost. It is the only command that reaches 
 in `palee next`, `palee plan`, `palee review`, `palee validate`, `palee adopt`, `palee roadmap --from` or `palee migrate` can do the same —
 `test/ai-network-boundary.test.ts` fails if a second socket site appears. It refuses plain HTTP to any
 host that is not loopback, refuses endpoints in reserved address space (link-local and the cloud metadata
-address, the unspecified and multicast ranges, IPv4-mapped literals, and `.internal` names), refuses
+address, the unspecified and multicast ranges, IPv4-mapped, NAT64, 6to4 and Teredo literals, and
+`.internal` names), refuses
 redirects rather than re-sending the credential to a host nobody approved, reads no more than 256 KiB of a
 response before giving up on it, and exits `2` on a bad endpoint, `3` on a reply that broke the output
 contract, `5` when the provider could not be reached.
