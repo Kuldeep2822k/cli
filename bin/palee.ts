@@ -288,6 +288,82 @@ function isDebugEnabled(): boolean {
   return value !== undefined && value !== '' && value !== '0';
 }
 
+/**
+ * Whether the fatal path should emit the machine-readable payload.
+ *
+ * @remarks
+ * JSON mode comes from the option commander parsed for the command that ran
+ * (#338), routed through `isJsonOutput` so `PALEE_JSON` is honored on the
+ * fatal path exactly as it is on every command's success path - except on a
+ * command that declares no `--json` flag, which stays human end to end. A
+ * positional `process.argv.includes('--json')` also fires when `--json` is
+ * merely a *value* (`palee config -- --json`), so that sniff is kept only as
+ * the pre-action fallback when no action ran and there is nothing parsed.
+ */
+function isFatalJsonMode(): boolean {
+  return parsedActionOptions
+    ? actionDeclaresJson && isJsonOutput(parsedActionOptions.json === true ? { json: true } : {})
+    : isJsonOutput() || process.argv.includes('--json');
+}
+
+/** Guards against a second process-level failure printing a duplicate report. */
+let fatalReported = false;
+
+/**
+ * Print one fatal diagnostic and set the documented unexpected-exception code.
+ *
+ * @param error - The escaped rejection reason or uncaught exception
+ * @returns Void
+ *
+ * @remarks
+ * The message is the user-facing diagnostic; the stack is a debugging artifact
+ * that stays behind `PALEE_DEBUG` (#338). Setting `process.exitCode` instead of
+ * calling `process.exit` lets redirected stdout drain, so a piped `--json`
+ * caller never receives a truncated payload (#320). This is the one reporter
+ * shared by the `parseAsync().catch()` path and the two process-level handlers,
+ * so a failure cannot skip the exit-code contract just because it bypassed the
+ * dispatcher (#480).
+ */
+function reportFatal(error: unknown): void {
+  if (fatalReported) return;
+  fatalReported = true;
+
+  // #320: exiting through `process.exit` discards writes still queued to a
+  // redirected stdout, so the JSON payload below could arrive truncated for
+  // exactly the piped callers that read it. Setting the code before writing,
+  // then returning, lets the event loop drain first - the same policy the
+  // Commander branch below follows. It also keeps the exit code correct if the
+  // diagnostic write itself fails.
+  process.exitCode = ExitCode.Unexpected;
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (isFatalJsonMode()) {
+    console.log(JSON.stringify({
+      status: 'error',
+      code: ExitCode.Unexpected,
+      error: message,
+    }));
+  } else if (isDebugEnabled() && error instanceof Error && error.stack) {
+    // The message is the user-facing diagnostic; the stack is a debugging
+    // artifact that #338 reports being dumped on every fatal error.
+    console.error(error.stack);
+  } else {
+    console.error(message);
+  }
+}
+
+// A floating promise or a synchronous throw that escapes every command handler
+// never reaches the `parseAsync()` chain, so Node's default would exit 1 with a
+// raw stack - the partial-import code, not the documented unexpected-exception
+// code. These backstops report through the same policy as the catch below and
+// let the process drain (#480).
+process.on('unhandledRejection', (reason: unknown) => {
+  reportFatal(reason);
+});
+process.on('uncaughtException', (error: unknown) => {
+  reportFatal(error);
+});
+
 // Parse and execute
 program.parseAsync(process.argv).catch((err: unknown) => {
   const cmdErr = err as { code?: unknown; exitCode?: unknown };
@@ -307,36 +383,5 @@ program.parseAsync(process.argv).catch((err: unknown) => {
     return;
   }
 
-  // JSON mode comes from the option commander parsed for the command that ran
-  // (#338), routed through `isJsonOutput` so `PALEE_JSON` is honored on the
-  // fatal path exactly as it is on every command's success path — except on a
-  // command that declares no `--json` flag, which stays human end to end. A
-  // positional `process.argv.includes('--json')` also fires when `--json` is
-  // merely a *value* (`palee config -- --json`), so that sniff is kept only as
-  // the pre-action fallback when no action ran and there is nothing parsed.
-  const isJson = parsedActionOptions
-    ? actionDeclaresJson && isJsonOutput(parsedActionOptions.json === true ? { json: true } : {})
-    : isJsonOutput() || process.argv.includes('--json');
-  const message = err instanceof Error ? err.message : String(err);
-  if (isJson) {
-    console.log(JSON.stringify({
-      status: 'error',
-      code: ExitCode.Unexpected,
-      error: message,
-    }));
-  } else if (isDebugEnabled() && err instanceof Error && err.stack) {
-    // The message is the user-facing diagnostic; the stack is a debugging
-    // artifact that #338 reports being dumped on every fatal error. It stays
-    // behind `PALEE_DEBUG`.
-    console.error(err.stack);
-  } else {
-    console.error(message);
-  }
-  // #320: exiting through `process.exit` discards writes still queued to a
-  // redirected stdout, so the JSON payload above could arrive truncated for
-  // exactly the piped callers that read it. Setting the code and returning lets
-  // the event loop drain first — the same policy the Commander branch above
-  // follows.
-  process.exitCode = ExitCode.Unexpected;
-  return;
+  reportFatal(err);
 });

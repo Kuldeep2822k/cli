@@ -29,6 +29,9 @@ import { PALEE_ARGV } from './palee-cli';
  *   of `process.argv`, which misfires when `--json` is merely a value (#338);
  *   the argv sniff survives only as the fallback for a failure before any
  *   action ran.
+ * - a floating rejection or a synchronous throw that bypasses the dispatcher
+ *   is caught by the process-level backstops, reported through the same
+ *   JSON/human/stack policy, and exits 5 rather than Node's default 1 (#480).
  */
 
 const ROOT = path.resolve(__dirname, '..');
@@ -69,8 +72,18 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
         "const { program } = req('commander');",
         "const stage = process.env.PALEE_FATAL_PROBE_STAGE || 'postAction';",
         "const repeat = Number(process.env.PALEE_FATAL_PROBE_REPEAT || 0);",
+        "const mode = process.env.PALEE_FATAL_PROBE_MODE || 'throw';",
         'program.hook(stage, () => {',
-        `  throw new Error('${MARKER} ' + 'x'.repeat(repeat));`,
+        "  const message = '" + MARKER + " ' + 'x'.repeat(repeat);",
+        "  if (mode === 'rejection') {",
+        '    void Promise.reject(new Error(message));',
+        '    return;',
+        '  }',
+        "  if (mode === 'uncaught') {",
+        '    setImmediate(() => { throw new Error(message); });',
+        '    return;',
+        '  }',
+        '  throw new Error(message);',
         '});',
       ].join('\n'),
       'utf8'
@@ -89,7 +102,13 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
 
   function runFatal(
     args: string[],
-    opts: { repeat?: number; stage?: string; debug?: string; paleeJson?: string } = {}
+    opts: {
+      repeat?: number;
+      stage?: string;
+      mode?: 'throw' | 'rejection' | 'uncaught';
+      debug?: string;
+      paleeJson?: string;
+    } = {}
   ): Run {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -100,6 +119,7 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
     delete env.PALEE_DEBUG;
     delete env.PALEE_JSON;
     if (opts.stage !== undefined) env.PALEE_FATAL_PROBE_STAGE = opts.stage;
+    if (opts.mode !== undefined) env.PALEE_FATAL_PROBE_MODE = opts.mode;
     if (opts.debug !== undefined) env.PALEE_DEBUG = opts.debug;
     if (opts.paleeJson !== undefined) env.PALEE_JSON = opts.paleeJson;
 
@@ -138,11 +158,11 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
     );
   });
 
-  test('the fatal path sets the exit code and returns; it never calls process.exit (#320)', () => {
+  test('the fatal path sets the exit code and returns; it never calls process.exit (#320, #480)', () => {
     const dispatcher = fs.readFileSync(path.join(ROOT, 'bin', 'palee.ts'), 'utf8');
-    const start = dispatcher.indexOf('.parseAsync(process.argv)');
-    assert.ok(start >= 0, 'the entry point parses through parseAsync so rejections reach the catch');
-    const fatalBranch = dispatcher.slice(start);
+    const reporterStart = dispatcher.indexOf('function reportFatal(');
+    assert.ok(reporterStart >= 0, 'one reporter owns the fatal output and exit code');
+    const fatalBranch = dispatcher.slice(reporterStart);
     assert.ok(
       !/process\.exit\s*\(/u.test(fatalBranch),
       '#320: process.exit discards queued stdout writes; the fatal path must set process.exitCode'
@@ -151,6 +171,24 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
       fatalBranch,
       /process\.exitCode\s*=\s*ExitCode\.Unexpected/u,
       'the documented exit code 5 is still the fatal outcome'
+    );
+
+    const parseStart = dispatcher.indexOf('.parseAsync(process.argv)');
+    assert.ok(parseStart >= 0, 'the entry point parses through parseAsync so rejections reach the catch');
+    assert.match(
+      dispatcher.slice(parseStart),
+      /reportFatal\(err\)/u,
+      'the async catch must delegate to the shared reporter'
+    );
+    assert.match(
+      dispatcher,
+      /process\.on\('unhandledRejection'[\s\S]*?reportFatal\(reason\)/u,
+      'the unhandled-rejection backstop must delegate to the shared reporter'
+    );
+    assert.match(
+      dispatcher,
+      /process\.on\('uncaughtException'[\s\S]*?reportFatal\(error\)/u,
+      'the uncaught-exception backstop must delegate to the shared reporter'
     );
   });
 
@@ -183,6 +221,26 @@ describe('Entry-point fatal output contract (#320, #338)', () => {
         !STACK_FRAME.test(run.stderr),
         `PALEE_DEBUG=${JSON.stringify(debug)} is not an opt-in, got: ${JSON.stringify(run.stderr)}`
       );
+    }
+  });
+
+  test('process-level rejections and exceptions use the fatal contract (#480)', () => {
+    for (const mode of ['rejection', 'uncaught'] as const) {
+      const json = runFatal(['dashboard', '--json'], { mode, repeat: 32 });
+      assert.strictEqual(json.status, 5, `${mode}: the unexpected-exception code must win`);
+      const line = payloadLine(json.stdout);
+      assert.ok(line, `${mode}: JSON mode must still receive the fatal payload`);
+      const parsed = JSON.parse(line) as { status: string; code: number; error: string };
+      assert.strictEqual(parsed.status, 'error');
+      assert.strictEqual(parsed.code, 5);
+      assert.ok(parsed.error.startsWith(`${MARKER} `), `${mode}: the message must be preserved`);
+      assert.ok(!STACK_FRAME.test(json.stderr), `${mode}: the stack stays off stderr`);
+
+      const human = runFatal(['dashboard'], { mode, repeat: 32 });
+      assert.strictEqual(human.status, 5, `${mode}: human mode uses the same exit code`);
+      assert.match(human.stderr, new RegExp(MARKER, 'u'), `${mode}: the message is still reported`);
+      assert.strictEqual(payloadLine(human.stdout), undefined, `${mode}: plain mode writes no JSON`);
+      assert.ok(!STACK_FRAME.test(human.stderr), `${mode}: the stack stays off stderr`);
     }
   });
 
