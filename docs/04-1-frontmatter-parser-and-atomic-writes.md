@@ -65,16 +65,17 @@ PALEE implements an Optimistic Concurrency Control (OCC) protocol to guard again
 To prevent file corruption during system crashes, power interruptions, or incomplete writes, PALEE never writes directly to the destination file. Instead, it follows a multi-step replacement sequence:
 
 1. **Lock Acquisition**: Acquires an exclusive lock directory (`.palee/locks/<hash>.lockdir`) for the target path.
-2. **Unique Temp File**: Writes the full content to a process-isolated temporary file (`<target>.tmp.<pid>`).
-3. **Storage Flush (`fsyncSync`)**: Calls `fsyncSync` on the file descriptor to ensure data and metadata are physically committed to non-volatile storage before closing the file descriptor.
-4. **Atomic Rename**: Calls `fs.renameSync` to atomically swap the temporary file over the destination file.
+2. **Abandoned Temp Reclaim**: From inside the lock, and only after the fingerprint check above has passed, deletes any leftover `<target>.tmp.<pid>.<entropy>` belonging to *this* target whose owner process is no longer on the host and whose age exceeds the 30-second floor, then skips and never raises on anything it cannot prove ([#481](https://github.com/Kuldeep2822k/cli/issues/481), ADR-0034). A file that is young, owned by a live process, named differently, or not a regular file survives — the floor and the liveness probe together are what spare a writer on a second host sharing the same vault.
+3. **Unique Temp File**: Writes the full content to a process-isolated temporary file (`<target>.tmp.<pid>.<entropy>`).
+4. **Storage Flush (`fsyncSync`)**: Calls `fsyncSync` on the file descriptor to ensure data and metadata are physically committed to non-volatile storage before closing the file descriptor.
+5. **Atomic Rename**: Calls `fs.renameSync` to atomically swap the temporary file over the destination file.
 
 ### Windows Retry Logic
 
 On Windows filesystems, file locks held briefly by virus scanners, search indexers, or cloud sync clients can cause transient `EPERM` or `EBUSY` exceptions during rename. `atomicWrite` implements an exponential backoff retry loop:
 - **Attempts**: Up to 5 attempts (`WINDOWS_RETRY_ATTEMPTS = 5`).
 - **Initial Delay**: 50 ms (`WINDOWS_RETRY_INITIAL_DELAY = 50`), doubling each retry (`WINDOWS_RETRY_MULTIPLIER = 2`) with $\pm 25\%$ jitter (`WINDOWS_RETRY_JITTER = 0.25`), capped at 300 ms.
-- **Cleanup**: If all retries are exhausted, temporary files are cleaned up (`fs.unlinkSync(tempPath)`) and the error is rethrown.
+- **Cleanup**: If all retries are exhausted, temporary files are cleaned up (`fs.unlinkSync(tempPath)`) and the error is rethrown. This runs only on a *handled* error: a process killed by a signal reaches neither this branch nor any `finally`, because no handler exists on the write path (the only `SIGINT` listener in `src/` closes a readline prompt in `src/cli/config.ts`) — which is the residue step 2 above reclaims.
 
 ### Data Flow: Atomic Write Sequence
 
@@ -98,11 +99,12 @@ sequenceDiagram
         AW-->>CLI: throw Error (code: 'ECONFLICT')
         Note over CLI: isConflictError(e) === true → process.exitCode = 4
     else Clean State (Fingerprint Matches)
-        AW->>FS: openSync(target.tmp.pid, 'w')
+        Note over AW,FS: Reclaim this target abandoned temps first: exact spelling, owner process gone, older than 30 s (ADR-0034)
+        AW->>FS: openSync(target.tmp.pid.entropy, 'w')
         AW->>FS: writeSync(fd, newContent)
         AW->>FS: fsyncSync(fd)
         AW->>FS: closeSync(fd)
-        AW->>FS: renameSync(target.tmp.pid, target)
+        AW->>FS: renameSync(target.tmp.pid.entropy, target)
         AW->>Lock: release() (rmdirSync)
         AW-->>CLI: Resolve Promise (Success → exitCode 0)
     end

@@ -6,14 +6,16 @@
  * 1. Asserts the resolved destination lies inside the vault (#264).
  * 2. Acquires target file {@link Lock}.
  * 3. Compares `expectedFingerprint` against disk state (OCC) to detect concurrent modifications.
- * 4. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
+ * 4. Reclaims this target's own abandoned temporary files, but only those whose owner
+ *    process is gone and which are older than the staleness floor (#481).
+ * 5. Writes contents to a unique temporary file (`<target>.tmp.<pid>.<entropy>`), restoring
  *    the destination's prior permission mode on the temp fd before rename (#318).
- * 5. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
- * 6. Atomically renames temporary file over the destination file.
- * 7. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
+ * 6. Calls `fsyncSync` on the temp fd, flushing the file's data and metadata.
+ * 7. Atomically renames temporary file over the destination file.
+ * 8. Best-effort `fsyncSync` of the destination's containing directory, because on POSIX the
  *    rename is not durable until the directory entry is flushed; platforms that refuse a
  *    directory open or fsync (Windows raises `EPERM`/`EISDIR`) are ignored (#333).
- * 8. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
+ * 9. Handles Windows filesystem locking (`EPERM`/`EBUSY`) using exponential backoff with jitter.
  */
 
 import fs from 'fs';
@@ -29,6 +31,116 @@ const WINDOWS_RETRY_INITIAL_DELAY = 50; // ms
 const WINDOWS_RETRY_MULTIPLIER = 2;
 const WINDOWS_RETRY_JITTER = 0.25; // ±25%
 const WINDOWS_RETRY_MAX_DELAY = 300; // ms
+
+/**
+ * Minimum age before a stale temporary file of the *current* target is reclaimed.
+ *
+ * @remarks
+ * A write that is still in flight is younger than this, so the floor spares a live
+ * writer on another host that shares this vault over a network filesystem — the case
+ * the process-table probe below cannot see. Raise it to widen that margin.
+ */
+const STALE_TEMP_MIN_AGE_MS = 30_000;
+
+/**
+ * Matches exactly the spelling {@link atomicWrite} gives its temporary file:
+ * `<target>.tmp.<pid>.<8+ hex>`, anchored at end-of-name.
+ *
+ * @remarks
+ * The anchor is load-bearing. A prefix test alone would also match
+ * `note.md.tmp.1234.abcd1234.md`, which `walkVault` counts as a real note, so the
+ * match is anchored and an unreproducible older spelling is simply left alone: this
+ * primitive deletes only what it can prove it wrote.
+ */
+const TEMP_FILE_PATTERN = /^\.tmp\.(\d+)\.([0-9a-fA-F]{8,})$/;
+
+/**
+ * Probes whether a process id exists in this host's process table.
+ *
+ * @param pid - Process id read from a temporary file's name
+ * @returns `true` when the process exists or belongs to another user
+ *
+ * @remarks
+ * `kill(pid, 0)` sends no signal; it only reports reachability. `EPERM` means the
+ * process exists but is not ours, which counts as alive — the probe fails safe, and
+ * a recycled pid can only ever spare a stray, never condemn a live write.
+ */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: unknown) {
+    return (e as NodeError).code === 'EPERM';
+  }
+}
+
+/**
+ * Reclaims temporary files this target left behind in an earlier crashed run.
+ *
+ * @param resolvedTarget - Canonical destination, already inside the vault
+ * @param selfTempPath - This call's own temp path, never a candidate
+ *
+ * @remarks
+ * A process killed by a signal between the temp write and the rename leaves
+ * `<target>.tmp.<pid>.<entropy>` in the note's own directory: `atomicWrite` unlinks
+ * only from the `catch` of a *handled* error, and a signal reaches neither that nor
+ * any `finally` (#481). The residue ends in neither `.md` nor a lock name, so no
+ * enumerator ever sees it and nothing ever removes it — it surfaces in Obsidian's
+ * file picker and in every vault git diff.
+ *
+ * Runs inside the lock and after the OCC check, so a write that aborts on conflict
+ * mutates nothing, and holding the lock means no cooperating local writer can have a
+ * temp here. Deletion still requires both guards — the owner pid is gone *and* the
+ * file is older than {@link STALE_TEMP_MIN_AGE_MS} — because the lock proves nothing
+ * about a second host on a shared vault.
+ *
+ * Best-effort: a directory it cannot read, or a file another process still holds
+ * open, is skipped rather than raised. This primitive does not turn litter into a
+ * failed write.
+ */
+function reapStaleTempsForTarget(resolvedTarget: string, selfTempPath: string): void {
+  const directory = path.dirname(resolvedTarget);
+  const prefix = path.basename(resolvedTarget);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.startsWith(prefix)) continue;
+
+    const match = TEMP_FILE_PATTERN.exec(entry.name.slice(prefix.length));
+    if (match === null) continue;
+
+    const stalePath = path.join(directory, entry.name);
+    if (stalePath === selfTempPath) continue;
+
+    const pid = Number(match[1]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+
+    let ageMs: number;
+    try {
+      // `lstatSync`, not `statSync`: a link swapped in for the stray must not
+      // resolve out of the directory this call is allowed to touch.
+      ageMs = now - fs.lstatSync(stalePath).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (ageMs <= STALE_TEMP_MIN_AGE_MS) continue;
+    if (isPidAlive(pid)) continue;
+
+    try {
+      fs.unlinkSync(stalePath);
+    } catch {
+      // A writer on another host, or an antivirus holding the handle: leaving the
+      // stray is always safer than raising over it.
+    }
+  }
+}
 /**
  * Asynchronously pauses execution for a randomized duration to implement retry backoff.
  *
@@ -299,6 +411,13 @@ async function atomicWrite(
     }
 
     const tempPath = `${resolvedTarget}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+
+    // Strays from earlier runs that were killed mid-write are reclaimed here, once
+    // the lock is held and the OCC check above has passed (#481). Both matter for
+    // ordering: before the lock a sweep would unlink a concurrent writer's in-flight
+    // temp, and before the OCC check a write that went on to refuse would still have
+    // mutated the directory.
+    reapStaleTempsForTarget(resolvedTarget, tempPath);
 
     for (let attempt = 1; attempt <= WINDOWS_RETRY_ATTEMPTS; attempt++) {
       try {

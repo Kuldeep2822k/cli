@@ -45,13 +45,14 @@ compute fingerprint(path, size, mtime, content hash)
 parse and modify a preserved document
 re-read target and compare fingerprint
 if changed: abort with a conflict
+reclaim this target's own abandoned temporary files, when their owner process is gone and they are older than the staleness floor
 write temporary file in the same directory
 flush and close the temporary file
 atomically replace the target
 release the lock in a finally block
 ```
 
-Atomic replacement prevents partial files. Fingerprint comparison prevents PALEE from overwriting a change made before the lock was acquired or during the read/parse phase. The lock closes the remaining PALEE-to-PALEE race between the final fingerprint check and replacement. External applications that do not honor PALEE locks are still protected by fingerprint checks and conflict reporting, but cannot be made fully transactional by a user-space CLI.
+Atomic replacement prevents partial files. Fingerprint comparison prevents PALEE from overwriting a change made before the lock was acquired or during the read/parse phase. The lock closes the remaining PALEE-to-PALEE race between the final fingerprint check and replacement. A process killed by a signal between the temporary write and the rename reaches no error path at all, so it leaves that file behind permanently; the next write of the same target reclaims it once the name proves it was this primitive's, its owner process is gone, and it is old enough that no live writer can still hold it (ADR-0034). External applications that do not honor PALEE locks are still protected by fingerprint checks and conflict reporting, but cannot be made fully transactional by a user-space CLI.
 
 The lock is created with exclusive-create semantics at `.palee/locks/<sha256-canonical-relative-path>.lock` and contains:
 
