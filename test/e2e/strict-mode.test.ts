@@ -7,7 +7,8 @@
  *   so flag-registration or argument-wiring regressions are caught.
  * - A warnings-only vault exits 3 through the packaged CLI with
  *   `--strict`, and 0 without it.
- * - `--strict --json` composes: JSON contract intact, exit code escalated.
+ * - `--strict --json` composes: JSON contract intact, exit code escalated,
+ *   and `gated_by_warnings` identifies the warnings-only strict failure.
  */
 
 import { describe, test, beforeEach, afterEach } from 'node:test';
@@ -60,8 +61,15 @@ describe('validate --strict: e2e CLI wiring (#25)', () => {
       .split('\n')
       .find((line) => line.includes('"valid"'));
     assert.ok(jsonLine, 'expected a JSON output line');
-    const parsed = JSON.parse(jsonLine) as { valid: boolean; warning_count: number };
+    const parsed = JSON.parse(jsonLine) as {
+      valid: boolean;
+      strict: boolean;
+      gated_by_warnings: boolean;
+      warning_count: number;
+    };
     assert.strictEqual(parsed.valid, true);
+    assert.strictEqual(parsed.strict, true);
+    assert.strictEqual(parsed.gated_by_warnings, true);
     assert.strictEqual(parsed.warning_count, 1);
   });
 

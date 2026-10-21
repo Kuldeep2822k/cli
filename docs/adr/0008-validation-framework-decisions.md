@@ -38,7 +38,7 @@ Canonical storage is `'beginner' | 'intermediate' | 'advanced'`; `src/types.ts` 
 
 ### Decision 3: Warnings exit 0; `--strict` escalates to 3 (issue #25)
 
-A warnings-only vault exits `0` by default and `3` with `palee validate --strict`, in both human and JSON modes.
+A warnings-only vault exits `0` by default and `3` with `palee validate --strict`, in both human and JSON modes. The JSON payload keeps `valid` errors-only; its additive `strict` and `gated_by_warnings` fields identify the warnings-only strict failure without changing that guarantee.
 
 **Why:** Matches the ESLint/TypeScript/Ruff convention — non-fatal advisories (stale derived views, duplicate array entries, missing prerequisites) do not block local workflows, while CI pipelines requiring zero warnings opt in explicitly. Delivered in #162.
 

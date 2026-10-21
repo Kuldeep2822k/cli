@@ -4,6 +4,8 @@
  * Contracts under test:
  * - Warnings-only vault exits 0 by default (adopted severity policy).
  * - The same vault exits 3 with `strict: true`, in both human and JSON mode.
+ * - JSON keeps `valid` errors-only and marks the warnings-only strict failure
+ *   with `strict: true` and `gated_by_warnings: true`.
  * - `--strict` never downgrades errors: errors vault exits 3 with or without
  *   strict, and strict + errors + warnings still exits 3.
  * - A clean vault exits 0 under strict too (strict is an escalation, not a
@@ -107,13 +109,19 @@ describe('validate --strict: warning escalation (#25)', () => {
     await validateCommand({ json: true, strict: true });
 
     assert.strictEqual(process.exitCode, 3);
-    // JSON contract stays intact under strict: warnings[] present, valid true
-    // (valid reflects errors only; strict escalates the exit code, not the
-    // payload contract).
+    // `valid` stays errors-only; the additive fields make the warning gate
+    // machine-readable so a caller can tell this apart from an errors failure.
     const jsonLine = loggedOutputs.find((line) => line.includes('"valid"'));
     assert.ok(jsonLine, 'expected a JSON output line');
-    const parsed = JSON.parse(jsonLine) as { valid: boolean; warning_count: number };
+    const parsed = JSON.parse(jsonLine) as {
+      valid: boolean;
+      strict: boolean;
+      gated_by_warnings: boolean;
+      warning_count: number;
+    };
     assert.strictEqual(parsed.valid, true);
+    assert.strictEqual(parsed.strict, true);
+    assert.strictEqual(parsed.gated_by_warnings, true);
     assert.strictEqual(parsed.warning_count, 1);
   });
 

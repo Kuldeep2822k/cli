@@ -430,7 +430,9 @@ async function applyFixes(
  * pass (a note skipped due to an OCC conflict is still an error), and
  * process.exitCode = 5 on unexpected exceptions.
  * Warnings never gate the exit code unless `--strict` is passed
- * (adopted severity policy, #25).
+ * (adopted severity policy, #25). JSON mode reports `strict` and names a
+ * warnings-only strict failure with `gated_by_warnings`, while `valid` stays
+ * errors-only so existing consumers keep their contract.
  * `--fix` dispatches over the rule catalog by each rule's own `fixable`
  * metadata (#323) and reports what it did in `repairs[]` /
  * `repair_conflicts[]`; it never changes `valid`, `error_count`, or the
@@ -483,6 +485,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
         formatJson(issues, {
           topicCount: uniqueTopicCount,
           fileCount: reportContext.files.length,
+          strict: options.strict === true,
         })
       ) as Record<string, unknown>;
       if (options.fix) {

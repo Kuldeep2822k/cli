@@ -6,7 +6,7 @@
  *   repo's output style (bullets, no colors, ✗/✓/⚠ symbols).
  * - JSON formatter preserves the documented contract keys (`valid`,
  *   `topic_count`, `file_count`, `error_count`, `errors[]`) and adds
- *   warnings additively.
+ *   warnings and strict-gating fields additively.
  * - Formatters are pure: no console output, just string/JSON results.
  */
 
@@ -103,6 +103,8 @@ describe('JSON formatter (#25)', () => {
     const data = JSON.parse(payload);
 
     assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.strict, false);
+    assert.strictEqual(data.gated_by_warnings, false);
     assert.strictEqual(data.topic_count, 3);
     assert.strictEqual(data.file_count, 7);
     assert.strictEqual(data.error_count, 0);
@@ -127,9 +129,48 @@ describe('JSON formatter (#25)', () => {
     const data = JSON.parse(payload);
 
     assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.strict, false);
+    assert.strictEqual(data.gated_by_warnings, false);
     assert.strictEqual(data.error_count, 0);
     assert.strictEqual(data.warning_count, 1);
     assert.strictEqual(data.warnings[0].rule_id, 'parse-frontmatter');
+  });
+
+  test('strict marks a warnings-only run as gated without flipping valid', () => {
+    const payload = formatJson([WARNING_ISSUE], {
+      topicCount: 1,
+      fileCount: 2,
+      strict: true,
+    });
+    const data = JSON.parse(payload);
+
+    assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.strict, true);
+    assert.strictEqual(data.gated_by_warnings, true);
+    assert.strictEqual(data.error_count, 0);
+    assert.strictEqual(data.warning_count, 1);
+  });
+
+  test('strict does not claim warnings gated a run that already has errors', () => {
+    const payload = formatJson([ERROR_ISSUE, WARNING_ISSUE], {
+      topicCount: 2,
+      fileCount: 5,
+      strict: true,
+    });
+    const data = JSON.parse(payload);
+
+    assert.strictEqual(data.valid, false);
+    assert.strictEqual(data.strict, true);
+    assert.strictEqual(data.gated_by_warnings, false);
+  });
+
+  test('strict on a clean vault reports no warning gate', () => {
+    const payload = formatJson([], { topicCount: 0, fileCount: 0, strict: true });
+    const data = JSON.parse(payload);
+
+    assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.strict, true);
+    assert.strictEqual(data.gated_by_warnings, false);
   });
 
   test('round-trips every locator field', () => {

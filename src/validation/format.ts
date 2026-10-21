@@ -23,6 +23,12 @@ export interface FormatCounts {
   topicCount: number;
   /** Number of scanned vault files */
   fileCount: number;
+  /**
+   * Whether `--strict` was active. When true and the run has warnings but no
+   * errors, {@link formatJson} marks `gated_by_warnings` so a machine caller
+   * can distinguish a warnings-only strict failure from an errors failure.
+   */
+  strict?: boolean;
 }
 
 /** Legacy `type` key for rules that existed before the framework. */
@@ -102,24 +108,33 @@ function formatBlock(block: ValidationIssue[]): string[] {
  * legacy locator fields (`id`/`files`, `topic`/`missing`, `path`) so
  * existing scripts keep working, and adds `rule_id`/`severity`/`message`.
  * Warnings land in the new additive `warnings[]` array and never affect
- * `valid` or `error_count`. Output is single-line JSON.
+ * `valid` or `error_count`. The additive `strict` and `gated_by_warnings`
+ * fields make a warnings-only `--strict` failure distinguishable from an
+ * errors failure without changing that guarantee.
  *
  * @param issues - All reported validation issues, in runner order
- * @param options - Counts for `topic_count` and `file_count`
+ * @param options - Counts for `topic_count` and `file_count`, plus whether
+ * `--strict` was active
  * @returns Single-line JSON string
  *
  * @example
  * ```typescript
- * console.log(formatJson(issues, { topicCount: 3, fileCount: 9 }));
+ * console.log(formatJson(issues, { topicCount: 3, fileCount: 9, strict: true }));
  * ```
  */
 function formatJson(issues: ValidationIssue[], options: FormatCounts): string {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity === 'warning');
   const valid = errors.length === 0;
+  const strict = options.strict === true;
+  // `valid` is deliberately errors-only. This flag names the one case where
+  // the exit code is non-zero despite a valid payload: strict-mode warnings.
+  const gatedByWarnings = strict && valid && warnings.length > 0;
 
   return JSON.stringify({
     valid,
+    strict,
+    gated_by_warnings: gatedByWarnings,
     topic_count: options.topicCount,
     file_count: options.fileCount,
     error_count: errors.length,
