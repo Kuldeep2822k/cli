@@ -216,7 +216,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const validInputs = ['beginner', 'intermediate', 'advanced', '1', '2', '3', '4', '5'];
       if (!validInputs.includes(rawInput)) {
         console.error('Error: Invalid difficulty. Must be one of: beginner, intermediate, advanced');
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       difficulty = normalizeDifficulty(options.difficulty);
@@ -229,7 +229,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       } catch (err: unknown) {
         const e = err as Error;
         console.error(`Error: ${e.message}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
     }
@@ -239,7 +239,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       } catch (err: unknown) {
         const e = err as Error;
         console.error(`Error: ${e.message}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
     }
@@ -314,7 +314,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
         console.error(`Error: Path escapes vault: ${targetPath}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -327,18 +327,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // over the learner's own.
       if (frontmatterError !== undefined) {
         console.error(`Error: ${targetPath} has malformed frontmatter (${frontmatterError}); nothing was adopted.`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       if (hasUnclosedFrontmatterOpener(content)) {
         console.error(`Error: ${targetPath} opens a frontmatter block but never closes it; nothing was adopted.`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
       if (frontmatter && frontmatter.palee_id) {
         console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -465,7 +465,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // ─────────────────────────────────────────────────────────────────
     if (!targetPath && !options.all) {
       console.error('Error: Specify a note path, a directory, or use --all to adopt notes across the vault.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -474,13 +474,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const candidatePath = path.resolve(vaultPath, targetPath);
       if (!fs.existsSync(candidatePath)) {
         console.error(`Error: Target directory not found: ${targetPath}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       const realCandidate = fs.realpathSync(candidatePath);
       if (!realCandidate.startsWith(resolvedVault + path.sep) && realCandidate !== resolvedVault) {
         console.error(`Error: Path escapes vault: ${targetPath}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       const candidateStat = fs.statSync(candidatePath);
@@ -500,11 +500,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
               `Error: Not a markdown note: ${targetPath} — pass a .md file or a directory to adopt`
             );
           }
-          process.exitCode = 2;
+          process.exitCode = ExitCode.Usage;
           return;
         }
         console.error(`Error: Expected directory path for batch adoption: ${targetPath}`);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       scanRoot = candidatePath;
@@ -1345,7 +1345,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     if (!options.yes) {
       if (!process.stdin.isTTY) {
         console.error('Error: Non-interactive environment. Use -y or --yes to confirm batch adoption.');
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 

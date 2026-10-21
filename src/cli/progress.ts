@@ -1,6 +1,6 @@
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Progress Command Handler
  * Shows learning progress summary
@@ -104,7 +104,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         } else {
           console.error(`Error: Topic not found: ${options.topic}`);
         }
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 
@@ -124,7 +124,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
           }
           console.error('Please provide a more specific query.');
         }
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
 

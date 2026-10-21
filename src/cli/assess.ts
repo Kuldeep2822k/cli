@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
-import { exitCodeFor } from './exit-codes';
+import { ExitCode, exitCodeFor } from './exit-codes';
 import { resolveTopicQuery } from './topic-query';
 import {
   loadTopics,
@@ -77,7 +77,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
       console.error('Error: assess needs at least one pillar score');
       console.error(`Usage: ${programName()} assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]`);
       console.error('Each score is a number from 0 to 1.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -86,7 +86,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
       const result = parsePillar(pillar, options[pillar] as string);
       if (result.error) {
         console.error(result.error);
-        process.exitCode = 2;
+        process.exitCode = ExitCode.Usage;
         return;
       }
       parsed.set(pillar, result.value as number);
@@ -104,7 +104,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
 
     if (resolution.kind === 'none') {
       console.error(`Error: No topic found matching "${topicQuery}"`);
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -114,7 +114,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
         console.error(`  - ${c.palee_id}: ${c.title}`);
       }
       console.error('Please provide a more specific query.');
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
 
@@ -154,7 +154,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const result = buildAssessmentUpdate(frontmatter, parsed, new Date());
     if (!result.ok) {
       console.error(result.error);
-      process.exitCode = 2;
+      process.exitCode = ExitCode.Usage;
       return;
     }
     const { scores, previousMastery, topicMastery, updates } = result.value;

@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { programName } from './program-name';
+import { ExitCode } from './exit-codes';
 
 export interface VaultValidationOptions {
   json?: boolean;
@@ -103,7 +104,7 @@ export function validateVaultPath(vaultPath?: string, options: VaultValidationOp
    */
   function reportError(msg: string): void {
     emitError(msg, options);
-    process.exitCode = 2;
+    process.exitCode = ExitCode.Usage;
   }
 
   if (!vaultPath) {

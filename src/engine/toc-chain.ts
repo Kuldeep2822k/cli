@@ -825,7 +825,7 @@ export function foldTocDestination(destination: string, tocDir: string): TocTarg
     }
     segments.push(segment);
   }
-  let last = segments[segments.length - 1] ?? '';
+  const last = segments[segments.length - 1] ?? '';
   if (destination.endsWith('/')) {
     // Folder link → its README. Trailing slash dedupes with an explicit
     // README.md link naturally via first-appearance dedup downstream. A
