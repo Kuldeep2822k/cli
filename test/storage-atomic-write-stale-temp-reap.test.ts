@@ -100,6 +100,7 @@ describe('atomicWrite reclaims abandoned temp files of its own target (#481)', (
     fs.utimesSync(created, when, when);
   }
 
+  /** Creates a file a killed writer could have abandoned and, when `aged`, backdates it past the floor. */
   function plantStray(dir: string, name: string, aged: boolean): string {
     const created = path.join(dir, name);
     fs.writeFileSync(created, 'bytes abandoned by a killed writer\n', 'utf8');
@@ -109,6 +110,7 @@ describe('atomicWrite reclaims abandoned temp files of its own target (#481)', (
     return created;
   }
 
+  /** Lists a directory's entries sorted, so a test asserts the exact set that survives. */
   function names(dir: string): string[] {
     return fs.readdirSync(dir).sort();
   }
