@@ -109,7 +109,11 @@ function printAssessmentEffect(
         (unlocked.length > 3 ? `, +${unlocked.length - 3} more` : '')
     );
   } else if (newlyBlocked.length > 0) {
-    console.log(`  ${newlyBlocked.length} topic(s) are no longer offered by palee plan.`);
+    const listed = newlyBlocked.slice(0, 3).join(', ');
+    console.log(
+      `  ${newlyBlocked.length} topic(s) are no longer offered by palee plan: ${listed}` +
+        (newlyBlocked.length > 3 ? `, +${newlyBlocked.length - 3} more` : '')
+    );
     if (context.recording && !context.force) {
       console.log(`  ⚠ Lowered from ${previousMastery} to ${topicMastery} - these notes were ready while mastery sat above ${threshold}; palee plan stops offering them until it rises again`);
       console.log('  Pass --force to record a lowering assessment without this warning, or --dry-run to see it before you commit to it.');

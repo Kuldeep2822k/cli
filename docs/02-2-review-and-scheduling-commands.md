@@ -388,14 +388,14 @@ A lowered mastery closes the gate it had opened, so the notes that were ready be
   mastery     0.9 → 0
   Below the 0.70 threshold, so it still gates what depends on it.
   The feynman pillar is 0, and mastery is (conceptual + practical + debug + 2 * feynman) / 5, so the other three cap at 0.60 and cannot reach 0.70. Score --feynman to lift this gate.
-  1 topic(s) are no longer offered by palee plan.
+  1 topic(s) are no longer offered by palee plan: T-001
   ⚠ Lowered from 0.9 to 0 - these notes were ready while mastery sat above 0.70; palee plan stops offering them until it rises again
   Pass --force to record a lowering assessment without this warning, or --dry-run to see it before you commit to it.
 ```
 
 The warning is not a gate. `--force` drops the two lines above it and changes nothing else: the assessment is recorded and exits `0` either way, which is the same bargain `palee review --force` strikes with an early review (#301). Refusing a lowering outright would have made the honest case — a learner discovering they did not know the material — the expensive one.
 
-`--dry-run` prints that report and writes nothing. The note is not locked, not modified, and its mtime does not move; but every check a recording run performs before the atomic write still runs first, including the stored-pillar reads and the note re-read with its fingerprint compare. So a preview that exits `2` or `4` is telling you the real call would have exited the same way, and a preview that says `1 topic(s) are no longer offered` is reporting the effect the write produces — both come from one code path, which is what keeps a forecast from drifting into a lie (#269). Parity ends at the write itself: the preview reports the pre-write exit result and the write's anticipated effect, but it acquires no lock, and the recording run takes the note's lock inside the atomic write, where a lock held by another process is an `ECONFLICT` in its own right. A preview that exits `0` therefore does not promise the recording run will — an active lock can still make it exit `4`.
+`--dry-run` prints the mastery and dependent-availability output from that report, but omits the lowering warning and `--force` hint, which are printed only for a non-forced recording run. It writes nothing. The note is not locked, not modified, and its mtime does not move; but every check a recording run performs before the atomic write still runs first, including the stored-pillar reads and the note re-read with its fingerprint compare. So a preview that exits `2` or `4` is telling you the real call would have exited the same way, and a preview that says `1 topic(s) are no longer offered` is reporting the effect the write produces — both come from one code path, which is what keeps a forecast from drifting into a lie (#269). Parity ends at the write itself: the preview reports the pre-write exit result and the write's anticipated effect, but it acquires no lock, and the recording run takes the note's lock inside the atomic write, where a lock held by another process is an `ECONFLICT` in its own right. A preview that exits `0` therefore does not promise the recording run will — an active lock can still make it exit `4`.
 
 ### Concurrency
 

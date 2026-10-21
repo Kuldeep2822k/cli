@@ -462,7 +462,7 @@ describe('CLI assess — previewing a lowering and naming what it re-hides (#269
       assert.strictEqual(process.exitCode ?? 0, 0, output);
       assert.match(output, /Assessment preview for Strong Topic \(T-strong-topic\)/);
       assert.match(output, /mastery\s+0\.9 → 0/);
-      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./);
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan: T-gated-lesson/);
       assert.match(output, /Dry-run complete\. No files were modified\./);
       assert.doesNotMatch(output, /Assessment recorded/, 'a preview must not report a write it did not make');
       assert.doesNotMatch(output, /⚠/, 'the warning describes what a recording did; a preview did nothing');
@@ -486,7 +486,7 @@ describe('CLI assess — previewing a lowering and naming what it re-hides (#269
       const output = await captureOutput(() => assessCommand('Strong Topic', zeroed));
 
       assert.strictEqual(process.exitCode ?? 0, 0, output);
-      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./);
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan: T-gated-lesson/);
       assert.match(output, /⚠ Lowered from 0\.9 to 0 /);
       assert.match(output, /Pass --force to record a lowering assessment without this warning/);
       assert.strictEqual(readFrontmatter(vaultPath, 'strong.md').topic_mastery, 0, 'the lowering is recorded, not refused');
@@ -508,7 +508,7 @@ describe('CLI assess — previewing a lowering and naming what it re-hides (#269
       assert.strictEqual(process.exitCode ?? 0, 0, output);
       assert.doesNotMatch(output, /⚠/, 'the warning is what --force buys');
       assert.doesNotMatch(output, /--force/, 'and its own hint must go with it');
-      assert.match(output, /1 topic\(s\) are no longer offered by palee plan\./, 'the report stays: the flag hides the warning, not the fact');
+      assert.match(output, /1 topic\(s\) are no longer offered by palee plan: T-gated-lesson/, 'the report stays: the flag hides the warning, not the fact');
       assert.strictEqual(readFrontmatter(vaultPath, 'strong.md').topic_mastery, 0);
       assert.deepStrictEqual(await readyIds(), ['T-strong-topic']);
     });
