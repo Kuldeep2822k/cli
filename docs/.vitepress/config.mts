@@ -17,8 +17,7 @@ export default withMermaid(
     },
 
     head: [
-      ['link', { rel: 'icon', type: 'image/png', href: '/cli/favicon.png' }],
-      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/cli/palee-logo.svg' }]
+      ['link', { rel: 'icon', type: 'image/png', href: '/cli/favicon.png' }]
     ],
 
     mermaid: {
