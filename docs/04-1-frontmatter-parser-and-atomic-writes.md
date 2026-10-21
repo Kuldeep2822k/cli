@@ -100,11 +100,11 @@ sequenceDiagram
         Note over CLI: isConflictError(e) === true → process.exitCode = 4
     else Clean State (Fingerprint Matches)
         Note over AW,FS: Reclaim this target abandoned temps first: exact spelling, owner process gone, older than 30 s (ADR-0034)
-        AW->>FS: openSync(target.tmp.pid, 'w')
+        AW->>FS: openSync(target.tmp.pid.entropy, 'w')
         AW->>FS: writeSync(fd, newContent)
         AW->>FS: fsyncSync(fd)
         AW->>FS: closeSync(fd)
-        AW->>FS: renameSync(target.tmp.pid, target)
+        AW->>FS: renameSync(target.tmp.pid.entropy, target)
         AW->>Lock: release() (rmdirSync)
         AW-->>CLI: Resolve Promise (Success → exitCode 0)
     end
