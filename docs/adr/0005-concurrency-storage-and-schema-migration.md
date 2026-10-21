@@ -12,7 +12,7 @@ We implemented a multi-layered storage hardening and schema migration strategy:
 1. **Entropy-Augmented Collision-Proof Temporary Files**:
    - In `atomicWrite()`, temporary filenames are constructed using `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`.
    - Eliminates intra-process race conditions where concurrent promises in the same process instance write to overlapping temporary filenames.
-   - Unlinks lingering temporary files in `finally` blocks on any write, fsync, or rename exception. A process killed by a signal reaches none of those paths and leaves the file behind; ADR-0034 records how that residue is reclaimed, bounded to the target it belongs to.
+   - Unlinks the temporary file in the outer `catch` once a write, fsync, or rename failure is not retried or its retries are exhausted (Windows `EPERM`/`EBUSY` is retried first); the file descriptor itself is closed in an inner `finally`. A process killed by a signal reaches neither path and leaves the file behind; ADR-0034 records how that residue is reclaimed, bounded to the target it belongs to.
 
 2. **Automated OCC Schema Migration (`palee migrate --fix`)**:
    - Extends the `migrate` CLI command with an automatic `--fix` flag.

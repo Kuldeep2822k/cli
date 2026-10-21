@@ -66,7 +66,7 @@ To prevent file corruption during system crashes, power interruptions, or incomp
 
 1. **Lock Acquisition**: Acquires an exclusive lock directory (`.palee/locks/<hash>.lockdir`) for the target path.
 2. **Abandoned Temp Reclaim**: From inside the lock, and only after the fingerprint check above has passed, deletes any leftover `<target>.tmp.<pid>.<entropy>` belonging to *this* target whose owner process is no longer on the host and whose age exceeds the 30-second floor, then skips and never raises on anything it cannot prove ([#481](https://github.com/Kuldeep2822k/cli/issues/481), ADR-0034). A file that is young, owned by a live process, named differently, or not a regular file survives — the floor and the liveness probe together are what spare a writer on a second host sharing the same vault.
-3. **Unique Temp File**: Writes the full content to a process-isolated temporary file (`<target>.tmp.<pid>`).
+3. **Unique Temp File**: Writes the full content to a process-isolated temporary file (`<target>.tmp.<pid>.<entropy>`).
 4. **Storage Flush (`fsyncSync`)**: Calls `fsyncSync` on the file descriptor to ensure data and metadata are physically committed to non-volatile storage before closing the file descriptor.
 5. **Atomic Rename**: Calls `fs.renameSync` to atomically swap the temporary file over the destination file.
 
