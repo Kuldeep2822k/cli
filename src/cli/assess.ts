@@ -160,7 +160,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     const given = PILLARS.filter((p) => options[p] !== undefined);
     if (given.length === 0) {
       console.error('Error: assess needs at least one pillar score');
-      console.error(`Usage: ${programName()} assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]`);
+      console.error(`Usage: ${programName()} assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N] [--force] [--dry-run]`);
       console.error('Each score is a number from 0 to 1.');
       process.exitCode = 2;
       return;

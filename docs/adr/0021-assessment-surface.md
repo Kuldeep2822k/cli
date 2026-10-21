@@ -44,7 +44,7 @@ The four-pillar model, the persisted frontmatter fields, the weighting and the 0
 
 `assess` is the only command that raises `topic_mastery` from scores the learner types. `review`, `adopt`, `roadmap` and `validate --fix` also write it, but each derives it from values already on the note. That asymmetry decides the shape of the fix: the learner is the only reliable source of "I do not actually know this", and `assess` is the only command that lets them say so — so a lowering gets a notice, never a refusal.
 
-A recorded lowering that re-hides dependents prints the count, the transition, and a `⚠` line naming what `palee plan` will stop offering. `--force` drops the notice and records anyway; `--dry-run` performs every check the recording performs — the stored-pillar reads, the note re-read, the fingerprint compare — then prints the identical report without taking the lock or writing a byte. Neither flag adds an exit code to the table above.
+A recorded lowering that re-hides dependents prints the count, the transition, and a `⚠` line naming what `palee plan` will stop offering. `--force` drops the notice and records anyway; `--dry-run` performs every check the recording performs — the stored-pillar reads for every omitted pillar, the note re-read, the fingerprint compare — then prints the shared assessment-effect report without taking the lock or writing a byte. Neither flag adds an exit code to the table above.
 
 Three rulings are inside that shape:
 
