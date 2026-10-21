@@ -390,6 +390,10 @@ stays human-readable (#357).
 $ palee validate --json | jq .valid
 true
 
+# Under --strict, valid stays errors-only; read the explicit gate field
+$ palee validate --strict --json | jq '{valid, strict, gated_by_warnings, warning_count}'
+{"valid":true,"strict":true,"gated_by_warnings":true,"warning_count":1}
+
 # Extract total reviews due from dashboard
 $ PALEE_JSON=1 palee dashboard | jq .reviews_due
 3

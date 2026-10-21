@@ -105,6 +105,8 @@ describe('validate command: framework wiring (#25)', () => {
     assert.ok(rawOutput, 'Expected at least one console.log output');
     const data = JSON.parse(rawOutput);
     assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.strict, false);
+    assert.strictEqual(data.gated_by_warnings, false);
     assert.strictEqual(data.error_count, 0);
     assert.strictEqual(data.warning_count, 1);
     assert.strictEqual(data.warnings[0].rule_id, 'parse-frontmatter');
@@ -149,6 +151,14 @@ describe('validate command: framework wiring (#25)', () => {
     process.exitCode = 0;
     await validateCommand({ json: true, strict: true });
     assert.strictEqual(process.exitCode, 3);
+
+    const strictOutput = loggedOutputs[loggedOutputs.length - 1];
+    assert.ok(strictOutput, 'Expected the strict JSON output');
+    const strictData = JSON.parse(strictOutput);
+    assert.strictEqual(strictData.valid, true);
+    assert.strictEqual(strictData.strict, true);
+    assert.strictEqual(strictData.gated_by_warnings, true);
+    assert.strictEqual(strictData.warning_count, 1);
   });
 
   test('duplicate IDs report one error per ID with all files (human mode)', async () => {
