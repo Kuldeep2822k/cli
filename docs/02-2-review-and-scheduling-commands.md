@@ -322,12 +322,12 @@ In `--json`, `reviews_due` and `counts.due` carry that same gated-in list, so `c
 
 ## 4. Four-Pillar Assessment (`palee assess`)
 
-`palee review` records recall quality; `palee assess` records competence. It writes pillar scores on a topic note, recomputes `topic_mastery`, and reports what that recompute did to the notes gated behind it. Because mastery is what opens a prerequisite gate, and `assess` is the only command that moves it (INV-37), it is also the only remedy a learner has for a gate they believe is wrong.
+`palee review` records recall quality; `palee assess` records competence. It writes pillar scores on a topic note, recomputes `topic_mastery`, and reports what that recompute did to the notes gated behind it. Mastery is what opens a prerequisite gate, and `assess` is the only command that raises it from scores the learner types — `review`, `adopt`, `roadmap` and `validate --fix` also write `topic_mastery`, but each of them *derives* it from values already on the note, and only `assess` stamps `assessed_at`. So `assess` is the one remedy a learner has for a gate they believe is wrong, and the one that can also close a gate again (see [ADR-0021](./adr/0021-assessment-surface.md) and [ADR-0009](./adr/0009-gating-model-depends-on-source.md)).
 
 ### Command Syntax
 
 ```bash
-palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]
+palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N] [--dry-run] [--force]
 ```
 
 ### Arguments and Options
@@ -339,6 +339,8 @@ palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N]
 | `--practical <N>` | `number` | `0`..`1` | Ability to apply it. | `0.7` |
 | `--debug <N>` | `number` | `0`..`1` | Troubleshooting a broken case. | `0.6` |
 | `--feynman <N>` | `number` | `0`..`1` | Explaining it from memory, in your own words. Double-weighted; see the formula below. | `0.9` |
+| `--force` | `boolean` | `false` | Record the assessment without printing the notice that names the notes a lowered mastery re-hides. It is recorded and exits `0` either way; the flag only silences the notice, exactly as it does for `palee review --force` (#301, #269). | `palee assess "Recursion" --conceptual 0.3 --force` |
+| `--dry-run` | `boolean` | `false` | Run the same checks a recording run runs — the vault, the topic resolution, every omitted stored pillar, and the note re-read and fingerprint compare that can still raise `ECONFLICT` — then report the mastery transition and what it does to dependents. Takes no lock and writes no byte, so a call that would have recorded exits `0` having changed nothing (#269). | `palee assess "Recursion" --conceptual 0.3 --dry-run` |
 
 At least one pillar option is required: `assess` with none exits `2` and prints the usage line rather than recomputing mastery from zeros. Each score must be a finite number in `0..1`; anything else exits `2`, naming the flag and the value received [src/cli/assess.ts#parsePillar](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/assess.ts).
 
@@ -373,6 +375,28 @@ Raising or lowering one note's mastery changes which of its dependents are ready
 
 Lowering a score prints `N topic(s) are no longer offered by palee plan.`; when nothing crosses the boundary the line is `No topic changes availability; a dependent may gate on something else.`
 
+### Seeing a Lowering Before You Commit to It
+
+A lowered mastery closes the gate it had opened, so the notes that were ready behind it leave `palee plan`. That is reported — and it is reported in the same words whether or not anything was written:
+
+```
+✓ Assessment recorded for Strong Topic (T-strong-topic)
+  conceptual  0
+  practical   0
+  debug       0
+  feynman     0
+  mastery     0.9 → 0
+  Below the 0.70 threshold, so it still gates what depends on it.
+  The feynman pillar is 0, and mastery is (conceptual + practical + debug + 2 * feynman) / 5, so the other three cap at 0.60 and cannot reach 0.70. Score --feynman to lift this gate.
+  1 topic(s) are no longer offered by palee plan: T-001
+  ⚠ Lowered from 0.9 to 0 - these notes were ready while mastery sat above 0.70; palee plan stops offering them until it rises again
+  Pass --force to record a lowering assessment without this warning, or --dry-run to see it before you commit to it.
+```
+
+The warning is not a gate. `--force` drops the two lines above it and changes nothing else: the assessment is recorded and exits `0` either way, which is the same bargain `palee review --force` strikes with an early review (#301). Refusing a lowering outright would have made the honest case — a learner discovering they did not know the material — the expensive one.
+
+`--dry-run` prints the mastery and dependent-availability output from that report, but omits the lowering warning and `--force` hint, which are printed only for a non-forced recording run. It writes nothing. The note is not locked, not modified, and its mtime does not move; but every check a recording run performs before the atomic write still runs first, including the stored-pillar reads and the note re-read with its fingerprint compare. So a preview that exits `2` or `4` is telling you the real call would have exited the same way, and a preview that says `1 topic(s) are no longer offered` is reporting the effect the write produces — both come from one code path, which is what keeps a forecast from drifting into a lie (#269). Parity ends at the write itself: the preview reports the pre-write exit result and the write's anticipated effect, but it acquires no lock, and the recording run takes the note's lock inside the atomic write, where a lock held by another process is an `ECONFLICT` in its own right. A preview that exits `0` therefore does not promise the recording run will — an active lock can still make it exit `4`.
+
 ### Concurrency
 
 The note is re-read immediately before the write and its fingerprint compared. A note modified, moved or deleted in that window is an `ECONFLICT` — exit `4`, nothing written, re-run to retry — rather than a merge of two assessments.
@@ -384,6 +408,6 @@ The note is re-read immediately before the write and its fingerprint compared. A
 | Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `palee review` | Successfully recorded SM-2 review and calculated next interval and due date; an early review (#301) also prints a warning naming the previous due date unless `--force` is given. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
-| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported. | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. | Unexpected runtime exception. |
+| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported; a lowering that re-hides dependents also prints a warning naming them unless `--force` is given, and `--dry-run` reports the same effect while writing nothing (#269). | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. A `--dry-run` reaches this too, because it performs the same re-read without writing. | Unexpected runtime exception. |
 | `palee next` | Successfully displayed next due topic, all due topics (`--all`), a fully prerequisite-gated queue (`status: "blocked"`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
 | `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — extended for #269 by the section "A lowering is named, not blocked". The v0.6.0 decisions above it stand unchanged; that section also corrects two claims made about this surface elsewhere.
 
 ## Context
 
@@ -39,6 +39,20 @@ Mastery is `(conceptual + practical + debug + 2·feynman) / 5`, so the three ord
 ### SM-2 untouched, threshold untouched, no new keys
 
 The four-pillar model, the persisted frontmatter fields, the weighting and the 0.70 threshold all already existed; the command writes the pillars it is given, preserves the rest, recomputes `topic_mastery`, and prints what the change unlocks. No schema version change.
+
+### A lowering is named, not blocked (#269)
+
+`assess` is the only command that raises `topic_mastery` from scores the learner types. `review`, `adopt`, `roadmap` and `validate --fix` also write it, but each derives it from values already on the note. That asymmetry decides the shape of the fix: the learner is the only reliable source of "I do not actually know this", and `assess` is the only command that lets them say so — so a lowering gets a notice, never a refusal.
+
+A recorded lowering that re-hides dependents prints the count, the transition, and a `⚠` line naming what `palee plan` will stop offering. `--force` drops the notice and records anyway; `--dry-run` performs every check the recording performs — the stored-pillar reads for every omitted pillar, the note re-read, the fingerprint compare — then prints the shared assessment-effect report without taking the lock or writing a byte. Neither flag adds an exit code to the table above.
+
+Three rulings are inside that shape:
+
+- **The preview and the recording share one printer.** A `--dry-run` that forecast a different effect than the write reports is worse than no preview, because the learner acted on it. Both paths call `printAssessmentEffect`, and a test compares their shared lines rather than trusting the code shape.
+- **`--force` keeps the meaning it already has on `review` (#301): it silences a notice, not the record.** Making `assess --force` a confirmation while `review --force` stayed a suppression would have given one flag two jobs in one CLI.
+- **The notice prints after the write, exactly like review's early-review warning.** A pre-write warning could fire for a record that then failed `ECONFLICT` and never landed. `--dry-run` is how the effect is seen beforehand, and it is trustworthy precisely because it ran the same checks.
+
+This section also corrects the record on two claims that were made about this surface. First, `assess` is **not** the only writer of `topic_mastery` — a citation of INV-37 for that proposition was wrong, and INV-37 is about LLM tool schemas carrying no mutations. Second, no key records *which* command wrote a mastery. `assessed_at` says an assessment happened (only `assess` stamps it) and nothing more: `validate --fix` recomputes `topic_mastery` from stored pillars and leaves the timestamp untouched, and `roadmap` writes `assessed_at: null` onto notes that never carried the key. A provenance key was considered here and **rejected as out of scope for this change**: it is a schema addition whose only plausible reader — INV-41/INV-42's "established topic", defined as a prior `assessed_at` plus four pillars above a floor — is not implemented, and a value stamped by one of five writers would leave the other four ambiguous regardless. It also has a trap: `adopt --undo` strips exactly `PALEE_OWNED_KEYS`, so a key owned by nobody would survive the undo that removed the assessment it attests to. #269 item 4 stays open on that half.
 
 ## Consequences
 
