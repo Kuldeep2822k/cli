@@ -341,8 +341,9 @@ describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
     assert.strictEqual(firstIssue.field, 'assessed_at');
   });
 
-  test('partial pillars still validate mastery (Greptile P1)', () => {
-    // Only feynman present: (0 + 0 + 0 + 2*0.9) / 5 = 0.36
+  test('partial pillars are skipped — absent means no data, not zero (#514)', () => {
+    // Only feynman present: absent pillars are "no data" per #514, so the
+    // rule skips — no drift is reported regardless of stored mastery.
     const topics = [makeTopic({
       palee_id: 'T-partial',
       frontmatter: { feynman: 0.9, assessed_at: '2026-09-01' },
@@ -351,18 +352,16 @@ describe('review-fix rounds on #36/#37 (PR #163 bot findings)', () => {
     assert.deepStrictEqual(validTopicMasteryRule.run(makeContext(topics)), []);
   });
 
-  test('partial pillars with stale mastery report drift (Greptile P1)', () => {
+  test('partial pillars with stale mastery are not repaired — absent means no data (#514)', () => {
+    // Only feynman present: absent pillars are "no data" per #514, so the
+    // rule skips — no drift is reported regardless of stored mastery.
     const topics = [makeTopic({
       palee_id: 'T-partial-stale',
       frontmatter: { feynman: 0.9, assessed_at: '2026-09-01' },
       topic_mastery: 0.1,
     })];
     const issues = validTopicMasteryRule.run(makeContext(topics));
-    assert.strictEqual(issues.length, 1);
-    const [firstIssue] = issues;
-    assert.ok(firstIssue !== undefined);
-    assert.strictEqual(firstIssue.topicId, 'T-partial-stale');
-    assert.strictEqual(firstIssue.details?.expected, 0.36);
+    assert.strictEqual(issues.length, 0);
   });
 
   test('invalid assessed_at skips mastery rule — no double report (Greptile P2)', () => {
