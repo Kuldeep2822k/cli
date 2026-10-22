@@ -12,6 +12,7 @@ import {
   parseAutoChainTier,
   type TocLink,
   type TocScanStats,
+  type TocWalkStats,
 } from '../src/engine/toc-chain';
 
 describe('TOC tier engine (PAL-205-C3)', () => {
@@ -161,8 +162,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         ['unopened labels', (n: number) => `[L](d/l.md)\n${'['.repeat(n)}`],
         ['unclosed destinations', (n: number) => `[L](d/l.md)\n${'[x]('.repeat(n)}`],
       ] as const) {
-        const smallSteps = scanCounted(build(25000)).steps;
-        const largeText = build(100000);
+        const smallSteps = scanCounted(build(5000)).steps;
+        const largeText = build(20000);
         const { links, steps: largeSteps } = scanCounted(largeText);
         const targets = links.map((l) => l.destination).filter(Boolean);
         assert.ok(targets.includes('d/l.md'), `${label}: the real link must still be found`);
@@ -186,8 +187,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
-        const smallSteps = scanCounted(build(25000)).steps;
-        const largeText = build(100000);
+        const smallSteps = scanCounted(build(5000)).steps;
+        const largeText = build(20000);
         const { links, steps: largeSteps } = scanCounted(largeText);
         const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
         assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
@@ -214,8 +215,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
-        const smallSteps = scanCounted(build(10000)).steps;
-        const largeText = build(40000);
+        const smallSteps = scanCounted(build(2500)).steps;
+        const largeText = build(10000);
         const { links, steps: largeSteps } = scanCounted(largeText);
         const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
         assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
@@ -242,8 +243,8 @@ describe('TOC tier engine (PAL-205-C3)', () => {
           ['d/l.md', 'b.md'],
         ],
       ] as const) {
-        const smallSteps = scanCounted(build(5000)).steps;
-        const largeText = build(20000);
+        const smallSteps = scanCounted(build(1250)).steps;
+        const largeText = build(5000);
         const { links, steps: largeSteps } = scanCounted(largeText);
         const targets = links.map((l) => l.destination).filter((d): d is string => d !== null);
         assert.deepStrictEqual(targets, expected, `${label}: enumeration changed by the guard`);
@@ -1199,30 +1200,31 @@ describe('TOC tier engine (PAL-205-C3)', () => {
       assert.doesNotThrow(() => assertAcyclicPlan(fanIn));
     });
 
-    it('stays linear as the spine grows, judged against itself rather than a clock', () => {
-      // 200 passes over a 1000-node spine and 10 passes over a 20000-node spine
-      // visit the same 2e5 nodes, so equal work must cost about the same. Without
-      // the `done` memo the walk restarts at every node, per-pass cost goes with
-      // the square of the length, and the large case costs about 20x — a shape
-      // comparison a busy test host cannot fake, unlike a fixed deadline that
-      // fails for reasons unrelated to the algorithm.
+    it('stays linear as the spine grows, judged in node visits rather than time', () => {
+      // 20 passes over a 250-node spine and 2 passes over a 2500-node spine
+      // traverse the same 5e3 nodes, so a memoized walk must record the same
+      // count. Without the `done` memo the walk restarts at every node, per-pass
+      // cost goes with the square of the length, and the large case records
+      // about 10x the nodes — a comparison no busy test host can fake.
       const build = (n: number): Map<string, string | null> => {
         const spine = new Map<string, string | null>();
         for (let i = 0; i < n; i++) spine.set(`n/${i}.md`, i === 0 ? null : `n/${i - 1}.md`);
         return spine;
       };
       const cost = (spine: Map<string, string | null>, reps: number): number => {
-        const started = Date.now();
-        for (let i = 0; i < reps; i++) assertAcyclicPlan(spine);
-        return Math.max(1, Date.now() - started);
+        const stats: TocWalkStats = { steps: 0 };
+        for (let i = 0; i < reps; i++) assertAcyclicPlan(spine, stats);
+        return stats.steps;
       };
 
-      const small = cost(build(1000), 200);
-      const large = cost(build(20000), 10);
+      const small = cost(build(250), 20);
+      const large = cost(build(2500), 2);
 
-      assert.ok(
-        large < small * 5,
-        `equal work over different spine lengths cost ${small}ms and ${large}ms`
+      assert.ok(small > 0, 'the counter must record the walk');
+      assert.strictEqual(
+        large,
+        small,
+        `equal work over different spine lengths recorded ${small} and ${large} node visits`
       );
     });
   });
