@@ -76,7 +76,8 @@
   "overrides": {
     "vite": "^6.4.3",
     "mermaid": {
-      "katex": "0.18.11"
+      "katex": "0.18.11",
+      "dompurify": "^3.4.17"
     },
     "speech-rule-engine": {
       "@xmldom/xmldom": "0.9.12"

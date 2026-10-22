@@ -884,7 +884,23 @@ export function assertBackwardEdges(orderedPaths: string[], predecessorOf: Map<s
 }
 
 /**
+ * Operation count for one {@link assertAcyclicPlan} run.
+ *
+ * @remarks One unit per node the walk traverses. A node already resolved by an
+ * earlier start ends that walk before the step is counted, so the count is the
+ * work the memo saves. The plan's complexity guard asserts it stays linear as
+ * the spine grows, the node-visit counterpart of {@link TocScanStats}.
+ */
+export interface TocWalkStats {
+  steps: number;
+}
+
+/**
  * Throws when following {@link predecessorOf} pointers reaches any node twice.
+ *
+ * @param predecessorOf - The merged plan's one-predecessor map
+ * @param stats - Optional accumulator receiving the number of nodes the walk
+ * traversed; the run adds to any steps already recorded
  *
  * @remarks
  * The graph-level companion of {@link assertBackwardEdges} for merged plans:
@@ -893,7 +909,8 @@ export function assertBackwardEdges(orderedPaths: string[], predecessorOf: Map<s
  * does. Each node has at most one predecessor, so a three-color iterative walk
  * is linear and cannot miss a loop.
  */
-export function assertAcyclicPlan(predecessorOf: Map<string, string | null>): void {
+export function assertAcyclicPlan(predecessorOf: Map<string, string | null>, stats?: TocWalkStats): void {
+  const counter: TocWalkStats = stats ?? { steps: 0 };
   const done = new Set<string>();
   for (const start of predecessorOf.keys()) {
     if (done.has(start)) continue;
@@ -904,6 +921,7 @@ export function assertAcyclicPlan(predecessorOf: Map<string, string | null>): vo
         throw new Error(`toc-chain invariant violated: predecessor cycle through ${node}`);
       }
       if (done.has(node)) break;
+      counter.steps++;
       walking.add(node);
       node = predecessorOf.get(node) ?? null;
     }

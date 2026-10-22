@@ -245,11 +245,10 @@ async function applyReviewFieldRepairs(
  * The repair recomputes through `computeTopicMastery` — the single writer of
  * mastery (`src/engine/mastery.ts`) — instead of copying a number out of the
  * finding, so a repaired note carries exactly what an `adopt`/`review` write
- * would have produced. Pillar normalization mirrors
- * `valid-topic-mastery`'s own eligibility gate (a shaped score feeds the
- * formula, anything else is the documented adopt default `0`), and the rule
- * only reports topics that passed that gate, so the recomputed value is the
- * one the rule expects.
+ * would have produced. Only topics the rule actually flagged are repaired;
+ * the rule skips any topic with an absent pillar (absent = "no data", per
+ * #277/#300), so by the time a topic reaches this loop all four pillars are
+ * present and shaped — no zero-fill needed.
  *
  * Writes take the same `updateFrontmatter` + `atomicWrite` OCC path as the
  * review-field repair: a note modified since collection conflicts, is reported,
@@ -276,8 +275,10 @@ async function applyMasteryRepairs(
   for (const topic of topics) {
     if (!driftedTopicIds.has(topic.palee_id)) continue;
 
+    // The rule only flags topics where all four pillars are present and
+    // shaped, so these are guaranteed to all be finite numbers.
     const pillars = MASTERY_PILLARS.map((field) => {
-      const value: unknown = topic.frontmatter[field];
+      const value = topic.frontmatter[field];
       return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
         ? value
         : 0;

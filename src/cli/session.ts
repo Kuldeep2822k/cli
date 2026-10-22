@@ -88,7 +88,7 @@ function isSessionTopicFailure(outcome: SessionTopicOutcome): outcome is Session
  * if (outcome.kind === 'topic') console.log(outcome.topicId);
  * ```
  */
-export function resolveSessionTopicResolution(
+function resolveSessionTopicResolution(
   vaultPath: string,
   explicitTopic?: string,
   options: { tolerateActiveTopic?: boolean } = {}

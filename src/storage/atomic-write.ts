@@ -450,6 +450,18 @@ async function atomicWrite(
           throw movedErr;
         }
 
+        // #479: re-check that the lock is still ours between the OCC read and
+        // the rename. A stale-takeover heartbeat sets lockLost if another
+        // process reclaimed the target's lock dir while this holder was
+        // descheduled; renaming over a legitimate takeover's bytes would be a
+        // lost update the OCC fingerprint cannot see (the takeover wrote
+        // different content, so the fingerprint match is meaningless). Abort
+        // with ECONFLICT so the caller retries on fresh state.
+        if (lock.lockLost) {
+          const lostErr = new Error(`OCC conflict: ${resolvedTarget} lock was taken over mid-write`) as NodeError;
+          lostErr.code = 'ECONFLICT';
+          throw lostErr;
+        }
         let fd: number | null = null;
         // Permission mode of the destination that is about to be replaced (#318).
         // Captured before the temp file is opened because `renameSync` swaps the
@@ -476,6 +488,53 @@ async function atomicWrite(
         } finally {
           if (fd !== null) {
             try { fs.closeSync(fd); } catch {}
+          }
+        }
+
+        // #479 follow-up: re-verify the target's existence and content haven't
+        // changed during the synchronous write/fsync above. The heartbeat cannot
+        // fire during synchronous syscalls, so lockLost may still be false even
+        // if another process touched the destination. A final check before the
+        // rename catches the synchronous takeover window: if the target's
+        // existence state or content changed since the OCC read, the rename
+        // would be a lost update over the takeover's bytes.
+        const targetExistsPostWrite = fs.existsSync(resolvedTarget);
+        if (options.expectExists === false && targetExistsPostWrite) {
+          const staleConflict = new Error(
+            `OCC conflict: ${resolvedTarget} was created by a concurrent write during the write`
+          ) as NodeError;
+          staleConflict.code = 'ECONFLICT';
+          throw staleConflict;
+        }
+        if (expectedFingerprint !== null) {
+          if (!targetExistsPostWrite) {
+            const staleConflict = new Error(
+              `OCC conflict: ${resolvedTarget} was deleted by a concurrent write during the write`
+            ) as NodeError;
+            staleConflict.code = 'ECONFLICT';
+            throw staleConflict;
+          }
+          let postWriteContent: string;
+          try {
+            postWriteContent = fs.readFileSync(resolvedTarget, 'utf8');
+          } catch (e: unknown) {
+            const readErr = e as NodeError;
+            if (readErr.code === 'ENOENT') {
+              const staleConflict = new Error(
+                `OCC conflict: ${resolvedTarget} was deleted by a concurrent write during the write`
+              ) as NodeError;
+              staleConflict.code = 'ECONFLICT';
+              throw staleConflict;
+            }
+            throw readErr;
+          }
+          const postWriteFingerprint = computeFingerprint(postWriteContent);
+          if (postWriteFingerprint !== expectedFingerprint) {
+            const staleConflict = new Error(
+              `OCC conflict: ${resolvedTarget} was modified by a concurrent takeover during the write`
+            ) as NodeError;
+            staleConflict.code = 'ECONFLICT';
+            throw staleConflict;
           }
         }
 

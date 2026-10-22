@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ensureVaultDirectory` is contained before it creates** ([#335](https://github.com/Kuldeep2822k/cli/issues/335)): target checked against vault root before any `mkdir`, blocking symlink escapes.
 - **Docs toolchain audit pins** ([#459](https://github.com/Kuldeep2822k/cli/issues/459)): `overrides` pin `katex 0.18.11` and `@xmldom/xmldom 0.9.12`, bringing `npm audit --audit-level=high` to 0.
 - **The docs logo no longer carries a generated SVG wrapper** ([#459](https://github.com/Kuldeep2822k/cli/issues/459)): removed `scripts/sync-svg.js` and 2.6 MB of base64 SVG; PNG favicon and theme logo unchanged.
+- **IPv6 translation prefixes are unwrapped before the reserved-address check** ([#483](https://github.com/Kuldeep2822k/cli/issues/483)).
 
 ## [1.0.0] - 2026-10-11
 
