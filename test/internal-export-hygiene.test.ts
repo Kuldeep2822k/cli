@@ -95,11 +95,28 @@ describe('Internal export hygiene — CLI layer utilities', () => {
     const filePath = path.join(SRC_DIR, 'cli', 'session.ts');
     const content = fs.readFileSync(filePath, 'utf8');
 
-    // Verify the declaration is NOT exported
+    // Verify the declaration is NOT exported via any pattern:
+    // 1. Direct: export function resolveSessionTopicResolution
+    // 2. Grouped single-line: export { resolveSessionTopicResolution }
+    // 3. Grouped multi-line: export { ... \n resolveSessionTopicResolution \n ... }
     assert.ok(
       !content.includes('export function resolveSessionTopicResolution'),
-      'resolveSessionTopicResolution must not be exported — it is used only inside session.ts'
+      'resolveSessionTopicResolution must not use `export function` — it is used only inside session.ts'
     );
+    assert.ok(
+      !content.includes('export { resolveSessionTopicResolution'),
+      'resolveSessionTopicResolution must not be in a grouped export — it is used only inside session.ts'
+    );
+    // Check multiline grouped exports: "export {" ... "resolveSessionTopicResolution" ... "}"
+    const exportBlockMatch = content.match(/export\s*\{[^}]*\}/g);
+    if (exportBlockMatch) {
+      for (const block of exportBlockMatch) {
+        assert.ok(
+          !block.includes('resolveSessionTopicResolution'),
+          `resolveSessionTopicResolution must not be exported via grouped export: ${block}`
+        );
+      }
+    }
 
     // Verify no source file outside session.ts imports it
     const importers = findReferences('resolveSessionTopicResolution', filePath);
@@ -113,11 +130,28 @@ describe('Internal export hygiene — CLI layer utilities', () => {
     const filePath = path.join(SRC_DIR, 'cli', 'vault-echo.ts');
     const content = fs.readFileSync(filePath, 'utf8');
 
-    // Verify the declaration is NOT exported
+    // Verify the declaration is NOT exported via any pattern:
+    // 1. Direct: export function echoVaultTarget
+    // 2. Grouped single-line: export { echoVaultTarget }
+    // 3. Grouped multi-line: export { ... \n echoVaultTarget \n ... }
     assert.ok(
       !content.includes('export function echoVaultTarget'),
-      'echoVaultTarget must not be exported — it is used only inside vault-echo.ts'
+      'echoVaultTarget must not use `export function` — it is used only inside vault-echo.ts'
     );
+    assert.ok(
+      !content.includes('export { echoVaultTarget'),
+      'echoVaultTarget must not be in a grouped export — it is used only inside vault-echo.ts'
+    );
+    // Check multiline grouped exports: "export {" ... "echoVaultTarget" ... "}"
+    const exportBlockMatch = content.match(/export\s*\{[^}]*\}/g);
+    if (exportBlockMatch) {
+      for (const block of exportBlockMatch) {
+        assert.ok(
+          !block.includes('echoVaultTarget'),
+          `echoVaultTarget must not be exported via grouped export: ${block}`
+        );
+      }
+    }
 
     // Verify no source file outside vault-echo.ts imports it
     const importers = findReferences('echoVaultTarget', filePath);
