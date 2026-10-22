@@ -378,12 +378,13 @@ describe('lock takeover is visible to the holder (#334)', () => {
 
     let readCount = 0;
     const originalReadFileSync = fs.readFileSync;
+    const targetBasename = path.basename(target);
 
     (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = ((
       file: fs.PathLike | number,
       ...rest: unknown[]
     ) => {
-      if (typeof file === 'string' && file === target) {
+      if (typeof file === 'string' && file.endsWith(targetBasename)) {
         readCount += 1;
         // Second read of the target (post-write check): return modified content
         // to simulate a taker overwriting during the synchronous write/fsync block.
