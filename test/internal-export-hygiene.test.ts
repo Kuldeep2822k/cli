@@ -108,14 +108,12 @@ describe('Internal export hygiene — CLI layer utilities', () => {
       'resolveSessionTopicResolution must not be in a grouped export — it is used only inside session.ts'
     );
     // Check multiline grouped exports: "export {" ... "resolveSessionTopicResolution" ... "}"
-    const exportBlockMatch = content.match(/export\s*\{[^}]*\}/g);
-    if (exportBlockMatch) {
-      for (const block of exportBlockMatch) {
-        assert.ok(
-          !block.includes('resolveSessionTopicResolution'),
-          `resolveSessionTopicResolution must not be exported via grouped export: ${block}`
-        );
-      }
+    const groupedExports = content.match(/export\s*\{[\s\S]*?\}/g) ?? [];
+    for (const block of groupedExports) {
+      assert.ok(
+        !/\bresolveSessionTopicResolution\b/.test(block),
+        `resolveSessionTopicResolution must not be exported via grouped export: ${block}`
+      );
     }
 
     // Verify no source file outside session.ts imports it
@@ -143,14 +141,12 @@ describe('Internal export hygiene — CLI layer utilities', () => {
       'echoVaultTarget must not be in a grouped export — it is used only inside vault-echo.ts'
     );
     // Check multiline grouped exports: "export {" ... "echoVaultTarget" ... "}"
-    const exportBlockMatch = content.match(/export\s*\{[^}]*\}/g);
-    if (exportBlockMatch) {
-      for (const block of exportBlockMatch) {
-        assert.ok(
-          !block.includes('echoVaultTarget'),
-          `echoVaultTarget must not be exported via grouped export: ${block}`
-        );
-      }
+    const groupedExports = content.match(/export\s*\{[\s\S]*?\}/g) ?? [];
+    for (const block of groupedExports) {
+      assert.ok(
+        !/\bechoVaultTarget\b/.test(block),
+        `echoVaultTarget must not be exported via grouped export: ${block}`
+      );
     }
 
     // Verify no source file outside vault-echo.ts imports it
