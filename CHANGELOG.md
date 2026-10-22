@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-23
+
 ### Added
 
 - **`palee assess --dry-run`** ([#269](https://github.com/Kuldeep2822k/cli/issues/269)): previews an assessment exactly as a recording run would — checking each stored pillar for every omitted score, re-reading the note, comparing fingerprints — without taking a lock or writing a byte. A preview exiting `2` or `4` predicts precisely what the real call will do. `--force` silences the warning about lowering mastery and hiding dependent notes, and records anyway.
