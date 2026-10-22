@@ -450,6 +450,18 @@ async function atomicWrite(
           throw movedErr;
         }
 
+        // #479: re-check that the lock is still ours between the OCC read and
+        // the rename. A stale-takeover heartbeat sets lockLost if another
+        // process reclaimed the target's lock dir while this holder was
+        // descheduled; renaming over a legitimate takeover's bytes would be a
+        // lost update the OCC fingerprint cannot see (the takeover wrote
+        // different content, so the fingerprint match is meaningless). Abort
+        // with ECONFLICT so the caller retries on fresh state.
+        if (lock.lockLost) {
+          const lostErr = new Error(`OCC conflict: ${resolvedTarget} lock was taken over mid-write`) as NodeError;
+          lostErr.code = 'ECONFLICT';
+          throw lostErr;
+        }
         let fd: number | null = null;
         // Permission mode of the destination that is about to be replaced (#318).
         // Captured before the temp file is opened because `renameSync` swaps the

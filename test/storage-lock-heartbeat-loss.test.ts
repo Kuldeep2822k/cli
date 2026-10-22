@@ -29,6 +29,7 @@ import path from 'path';
 import os from 'os';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from '../src/storage/lock';
 import { atomicWrite } from '../src/storage/atomic-write';
+import { computeFingerprint } from '../src/storage/frontmatter';
 import { NodeError } from '../src/types';
 
 /** The single `*.json` record a lock directory holds, or null when it holds none. */
@@ -52,6 +53,27 @@ interface LockInternals {
 
 function internals(lock: Lock): LockInternals {
   return lock as unknown as LockInternals;
+}
+
+/** Deletes every `.json` record in a lock dir, simulating a takeover's quarantine+delete. */
+function wipeLockRecords(lockDir: string): void {
+  if (!fs.existsSync(lockDir)) return;
+  for (const f of fs.readdirSync(lockDir)) {
+    if (f.endsWith('.json')) {
+      const lf = path.join(lockDir, f);
+      fs.renameSync(lf, lf + '.quarantine');
+      fs.unlinkSync(lf + '.quarantine');
+    }
+  }
+}
+
+/** Returns the first `.lockdir` inside a vault's locks directory, or null. */
+function findLockDir(vault: string): string | null {
+  const locksDir = path.join(vault, '.palee', 'locks');
+  if (!fs.existsSync(locksDir)) return null;
+  const lockDirs = fs.readdirSync(locksDir).filter((f) => f.endsWith('.lockdir'));
+  if (lockDirs.length === 0) return null;
+  return path.join(locksDir, lockDirs[0]!);
 }
 
 describe('lock takeover is visible to the holder (#334)', () => {
@@ -269,6 +291,77 @@ describe('lock takeover is visible to the holder (#334)', () => {
     } finally {
       holder.release();
       taker.release();
+    }
+  });
+
+  test('#479 mid-write loss is caught before the rename commits over a takeover', { skip: process.platform !== 'win32' }, async (t) => {
+    // Scenario: atomicWrite acquires its internal Lock and starts the heartbeat,
+    // then a taker takes over while atomicWrite is suspended in the Windows
+    // retry loop. The heartbeat ticks, sets lockLost=true, and the guard before
+    // renameSync aborts with ECONFLICT instead of committing over the takeover.
+    //
+    // This test exercises the Windows-specific retry path: only on win32 does
+    // a transient EPERM from openSync enter the `await sleep` retry loop, giving
+    // the heartbeat a tick window to set lockLost before the guard re-checks
+    // on the next iteration. On POSIX there is no await between the guard and
+    // renameSync, so mid-write loss cannot occur and the guard cannot be tested
+    // this way.
+    //
+    // We simulate the mid-write takeover by stubbing fs.openSync: on the first
+    // temp-file open we wipe atomicWrite's lock record and tick the heartbeat
+    // (setting lockLost), then throw a transient EPERM to force the retry loop
+    // where the guard re-checks lockLost and must catch it.
+    startClock(t);
+    const target = newTarget('mid-write-loss');
+    let takeoverStaged = false;
+
+    try {
+      fs.writeFileSync(target, '# mid-write-loss\n', 'utf8');
+      const priorContent = fs.readFileSync(target, 'utf8');
+      const priorFingerprint = computeFingerprint(priorContent);
+
+      const originalOpen = fs.openSync;
+      (fs as { openSync: typeof fs.openSync }).openSync = (file: fs.PathLike | number, ...rest: unknown[]) => {
+        if (!takeoverStaged && typeof file === 'string' && file.includes('.tmp.')) {
+          takeoverStaged = true;
+          // Wipe atomicWrite's internal lock record so the heartbeat detects loss.
+          const lockDir = findLockDir(vault);
+          if (lockDir) {
+            wipeLockRecords(lockDir);
+          }
+          // Tick the heartbeat: atomicWrite's internal Lock heartbeat fires,
+          // finds its own record gone, sets lockLost=true.
+          t.mock.timers.tick(HEARTBEAT_INTERVAL);
+          // Throw EPERM to enter the Windows retry loop, where the guard
+          // at line 460 re-checks lockLost and must catch it.
+          const e = new Error('simulated EPERM on temp file (transient)') as NodeError;
+          e.code = 'EPERM';
+          throw e;
+        }
+        return (originalOpen as (...a: unknown[]) => number)(file, ...rest);
+      };
+
+      try {
+        await assert.rejects(
+          () => atomicWrite(vault, target, '# Stale holder writes\n', priorFingerprint),
+          (err: unknown) => {
+            const e = err as Error & { code?: string };
+            assert.strictEqual(e.code, 'ECONFLICT', `expected ECONFLICT, got ${e.code}: ${e.message}`);
+            assert.match(e.message, /lock was taken over mid-write/, `got: ${e.message}`);
+            return true;
+          }
+        );
+        assert.strictEqual(takeoverStaged, true, 'the takeover must have been staged');
+        assert.strictEqual(fs.readFileSync(target, 'utf8'), priorContent, 'the target must be untouched');
+      } finally {
+        (fs as { openSync: typeof fs.openSync }).openSync = originalOpen;
+      }
+    } finally {
+      // Clean up lock dir for this target.
+      const lockDir = findLockDir(vault);
+      if (lockDir) {
+        try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch {}
+      }
     }
   });
 });
