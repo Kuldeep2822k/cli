@@ -113,7 +113,7 @@ export function resolveVaultTarget(
  * echoVaultTarget({ vaultPath: 'D:/vault', configPath: 'C:/…/palee/config.json' });
  * ```
  */
-export function echoVaultTarget(target: VaultTarget): void {
+function echoVaultTarget(target: VaultTarget): void {
   console.log(`• Vault:  ${target.vaultPath}`);
   console.log(`• Config: ${target.configPath}`);
 }
