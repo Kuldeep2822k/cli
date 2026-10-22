@@ -43,27 +43,33 @@ function readAllTsFiles(dir: string): { file: string; lines: string[] }[] {
 const SOURCE_FILES = [...readAllTsFiles(SRC_DIR), ...readAllTsFiles(BIN_DIR)];
 
 /**
- * Returns lines containing `pattern`, excluding lines in `excludeFile`.
- * Scans source files and test files for actual import/require statements
- * or cross-file references, but excludes the calling test file itself.
+ * Returns import statements referencing `pattern` from source files outside `excludeFile`.
+ * Only matches actual `import`/`require` lines, not comments or JSDoc `{@link}` tags.
  */
 function findReferences(pattern: string, excludeFile: string): string[] {
   const matches: string[] = [];
   const thisTestFile = path.join(TEST_DIR, 'internal-export-hygiene.test.ts');
+  const importPatterns = [
+    // ESM: import { X, ... } from '...';  or import X from '...';
+    /^import\b.*?\bfrom\b/,
+    // Dynamic: const X = require('...');  or  import('...')
+    /\brequire\s*\(/,
+    /\bimport\s*\(/,
+  ];
   for (const { file, lines } of SOURCE_FILES) {
     if (path.relative(file, excludeFile) === '') continue;
     lines.forEach((line, idx) => {
-      if (line.includes(pattern)) {
+      if (importPatterns.some((re) => re.test(line)) && line.includes(pattern)) {
         matches.push(`${file}:${idx + 1}: ${line.trim()}`);
       }
     });
   }
-  // Also check test files for the symbol being imported (actual imports only)
+  // Also check test files for actual import/require statements
   for (const { file, lines } of readAllTsFiles(TEST_DIR)) {
     if (path.relative(file, excludeFile) === '') continue;
-    if (path.relative(file, thisTestFile) === '') continue; // skip this test file itself
+    if (path.relative(file, thisTestFile) === '') continue;
     lines.forEach((line, idx) => {
-      if (line.includes(pattern) && (line.includes('import') || line.includes('require'))) {
+      if (importPatterns.some((re) => re.test(line)) && line.includes(pattern)) {
         matches.push(`${file}:${idx + 1}: ${line.trim()}`);
       }
     });
