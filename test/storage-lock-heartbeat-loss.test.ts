@@ -51,6 +51,7 @@ interface LockInternals {
   lockData: { lock_id: string } | null;
 }
 
+/** Casts a Lock to its internal shape, exposing private fields for test assertions. */
 function internals(lock: Lock): LockInternals {
   return lock as unknown as LockInternals;
 }
