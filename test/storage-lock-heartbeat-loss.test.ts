@@ -411,4 +411,83 @@ describe('lock takeover is visible to the holder (#334)', () => {
       (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = originalReadFileSync;
     }
   });
+
+  test('#479 follow-up: post-write check catches a deletion during the synchronous write', async () => {
+    const target = newTarget('post-write-deletion-test');
+    const priorContent = fs.readFileSync(target, 'utf8');
+    const expectedFingerprint = computeFingerprint(priorContent);
+
+    // Stub existsSync: the target exists during the OCC read (calls 1+2), but
+    // is gone by the post-write check (call 3). Simulates a taker deleting it
+    // during the synchronous write/fsync block.
+    // Note: existsSync is called 3 times for the target — once in getLockDir
+    // (lock.ts:133), once in the OCC check (atomic-write.ts:388), and once
+    // in the post-write check (atomic-write.ts:501).
+    const originalExistsSync = fs.existsSync;
+    let targetExistsCount = 0;
+    const targetBasename = path.basename(target);
+
+    (fs as { existsSync: typeof fs.existsSync }).existsSync = ((p: fs.PathLike) => {
+      if (typeof p === 'string' && p.endsWith(targetBasename)) {
+        targetExistsCount += 1;
+        return targetExistsCount <= 2; // true on calls 1+2, false on call 3 (post-write)
+      }
+      return (originalExistsSync as (p: fs.PathLike) => boolean)(p);
+    }) as typeof fs.existsSync;
+
+    try {
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# Stale holder writes\n', expectedFingerprint),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'ECONFLICT', `expected ECONFLICT, got ${e.code}`);
+          assert.match(e.message, /was deleted by a concurrent write/, `got: ${e.message}`);
+          return true;
+        }
+      );
+      // The target must still exist on disk (unchanged, no rename happened)
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), priorContent, 'the target must be untouched');
+    } finally {
+      (fs as { existsSync: typeof fs.existsSync }).existsSync = originalExistsSync;
+    }
+  });
+
+  test('#479 follow-up: post-write check catches a creation during the synchronous write', async () => {
+    // Target does not exist initially — caller expects absence
+    const target = path.join(vault, '.palee', 'post-write-creation-test.md');
+    // Ensure parent directory exists
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+
+    // Stub existsSync: target does NOT exist during the OCC read (calls 1+2),
+    // but EXISTS by the post-write check (call 3). Simulates a taker creating
+    // the target during the synchronous write/fsync block.
+    // Note: existsSync is called 3 times for the target — once in getLockDir
+    // (lock.ts:133), once in the OCC check (atomic-write.ts:374), and once
+    // in the post-write check (atomic-write.ts:501).
+    const originalExistsSync = fs.existsSync;
+    let targetExistsCount = 0;
+    const targetBasename = path.basename(target);
+
+    (fs as { existsSync: typeof fs.existsSync }).existsSync = ((p: fs.PathLike) => {
+      if (typeof p === 'string' && p.endsWith(targetBasename)) {
+        targetExistsCount += 1;
+        return targetExistsCount >= 3; // false on calls 1+2, true on call 3 (post-write)
+      }
+      return (originalExistsSync as (p: fs.PathLike) => boolean)(p);
+    }) as typeof fs.existsSync;
+
+    try {
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# First creator writes\n', null, { expectExists: false }),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'ECONFLICT', `expected ECONFLICT, got ${e.code}`);
+          assert.match(e.message, /was created by a concurrent write/, `got: ${e.message}`);
+          return true;
+        }
+      );
+    } finally {
+      (fs as { existsSync: typeof fs.existsSync }).existsSync = originalExistsSync;
+    }
+  });
 });
