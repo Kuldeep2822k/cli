@@ -365,4 +365,49 @@ describe('lock takeover is visible to the holder (#334)', () => {
       }
     }
   });
+
+  test('#479 follow-up: post-write fingerprint check catches a synchronous takeover', async () => {
+    // Scenario: a taker overwrites the target after the OCC read but during the
+    // synchronous write/fsync block. The heartbeat cannot fire during synchronous
+    // syscalls, so lockLost stays false — but the final fingerprint check before
+    // renameSync catches the content change and aborts with ECONFLICT.
+    const target = newTarget('post-write-takeover');
+    fs.writeFileSync(target, '# post-write-takeover\n', 'utf8');
+    const priorContent = fs.readFileSync(target, 'utf8');
+    const priorFingerprint = computeFingerprint(priorContent);
+
+    let readCount = 0;
+    const originalReadFileSync = fs.readFileSync;
+
+    (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = ((
+      file: fs.PathLike | number,
+      ...rest: unknown[]
+    ) => {
+      if (typeof file === 'string' && file === target) {
+        readCount += 1;
+        // Second read of the target (post-write check): return modified content
+        // to simulate a taker overwriting during the synchronous write/fsync block.
+        if (readCount === 2) {
+          return "# post-write-takeover\n## Modified by the taker\n";
+        }
+      }
+      return (originalReadFileSync as (...a: unknown[]) => string)(file as fs.PathLike, ...rest);
+    }) as typeof fs.readFileSync;
+
+    try {
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# Stale holder writes\n', priorFingerprint),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'ECONFLICT', `expected ECONFLICT, got ${e.code}: ${e.message}`);
+          assert.match(e.message, /concurrent takeover during the write/, `got: ${e.message}`);
+          return true;
+        }
+      );
+      assert.strictEqual(readCount >= 2, true, 'the post-write check must have read the target');
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), '# post-write-takeover\n', 'the target must be untouched');
+    } finally {
+      (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = originalReadFileSync;
+    }
+  });
 });

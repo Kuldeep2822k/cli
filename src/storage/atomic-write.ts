@@ -491,6 +491,25 @@ async function atomicWrite(
           }
         }
 
+        // #479 follow-up: re-verify the target's content hasn't been overwritten
+        // by a takeover during the synchronous write/fsync above. The heartbeat
+        // cannot fire during synchronous syscalls, so lockLost may still be false
+        // even if another process renamed over the destination. A final fingerprint
+        // check before the rename catches a stale takeover that the heartbeat
+        // missed: if the target changed since the OCC read, the rename would be
+        // a lost update over the takeover's bytes.
+        if (expectedFingerprint !== null && fs.existsSync(resolvedTarget)) {
+          const postWriteContent = fs.readFileSync(resolvedTarget, 'utf8');
+          const postWriteFingerprint = computeFingerprint(postWriteContent);
+          if (postWriteFingerprint !== expectedFingerprint) {
+            const staleConflict = new Error(
+              `OCC conflict: ${resolvedTarget} was modified by a concurrent takeover during the write`
+            ) as NodeError;
+            staleConflict.code = 'ECONFLICT';
+            throw staleConflict;
+          }
+        }
+
         fs.renameSync(tempPath, resolvedTarget);
 
         // Durability of the rename itself (#333): on POSIX the directory entry is
