@@ -514,7 +514,20 @@ async function atomicWrite(
             staleConflict.code = 'ECONFLICT';
             throw staleConflict;
           }
-          const postWriteContent = fs.readFileSync(resolvedTarget, 'utf8');
+          let postWriteContent: string;
+          try {
+            postWriteContent = fs.readFileSync(resolvedTarget, 'utf8');
+          } catch (e: unknown) {
+            const readErr = e as NodeError;
+            if (readErr.code === 'ENOENT') {
+              const staleConflict = new Error(
+                `OCC conflict: ${resolvedTarget} was deleted by a concurrent write during the write`
+              ) as NodeError;
+              staleConflict.code = 'ECONFLICT';
+              throw staleConflict;
+            }
+            throw readErr;
+          }
           const postWriteFingerprint = computeFingerprint(postWriteContent);
           if (postWriteFingerprint !== expectedFingerprint) {
             const staleConflict = new Error(

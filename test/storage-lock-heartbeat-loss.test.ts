@@ -412,6 +412,92 @@ describe('lock takeover is visible to the holder (#334)', () => {
     }
   });
 
+  test('#479 follow-up: post-write read catches ENOENT from a racing deletion', async () => {
+    // Scenario: between the post-write existsSync (which sees the target as present)
+    // and the post-write readFileSync, a concurrent takeover deletes the target.
+    // The ENOENT from readFileSync must be converted to ECONFLICT, not propagated.
+    const target = newTarget('post-write-enoent-race');
+    const priorContent = fs.readFileSync(target, 'utf8');
+    const expectedFingerprint = computeFingerprint(priorContent);
+
+    let readCount = 0;
+    const originalReadFileSync = fs.readFileSync;
+    const targetBasename = path.basename(target);
+
+    (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = ((
+      file: fs.PathLike | number,
+      ...rest: unknown[]
+    ) => {
+      if (typeof file === 'string' && file.endsWith(targetBasename)) {
+        readCount += 1;
+        // Second read of the target (post-write check): throw ENOENT to simulate
+        // the target being deleted between existsSync and readFileSync.
+        if (readCount === 2) {
+          const enoent = new Error(`ENOENT: no such file or directory, open '${target}'`) as NodeError;
+          enoent.code = 'ENOENT';
+          throw enoent;
+        }
+      }
+      return (originalReadFileSync as (...a: unknown[]) => string)(file as fs.PathLike, ...rest);
+    }) as typeof fs.readFileSync;
+
+    try {
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# Stale holder writes\n', expectedFingerprint),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'ECONFLICT', `expected ECONFLICT, got ${e.code}`);
+          assert.match(e.message, /was deleted by a concurrent write/, `got: ${e.message}`);
+          return true;
+        }
+      );
+    } finally {
+      (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = originalReadFileSync;
+    }
+  });
+
+  test('#479 follow-up: post-write read propagates non-ENOENT errors unchanged', async () => {
+    // Scenario: the post-write readFileSync throws a non-ENOENT error (e.g. EIO).
+    // That error must be propagated unchanged, not converted to ECONFLICT.
+    const target = newTarget('post-write-non-enoent-error');
+    const priorContent = fs.readFileSync(target, 'utf8');
+    const expectedFingerprint = computeFingerprint(priorContent);
+
+    let readCount = 0;
+    const originalReadFileSync = fs.readFileSync;
+    const targetBasename = path.basename(target);
+
+    (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = ((
+      file: fs.PathLike | number,
+      ...rest: unknown[]
+    ) => {
+      if (typeof file === 'string' && file.endsWith(targetBasename)) {
+        readCount += 1;
+        // Second read of the target (post-write check): throw EIO
+        // (not EPERM/EBUSY, which win32 retries)
+        if (readCount === 2) {
+          const eio = new Error(`EIO: i/o error, read '${target}'`) as NodeError;
+          eio.code = 'EIO';
+          throw eio;
+        }
+      }
+      return (originalReadFileSync as (...a: unknown[]) => string)(file as fs.PathLike, ...rest);
+    }) as typeof fs.readFileSync;
+
+    try {
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# Stale holder writes\n', expectedFingerprint),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'EIO', `expected EIO, got ${e.code}`);
+          return true;
+        }
+      );
+    } finally {
+      (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = originalReadFileSync;
+    }
+  });
+
   test('#479 follow-up: post-write check catches a deletion during the synchronous write', async () => {
     const target = newTarget('post-write-deletion-test');
     const priorContent = fs.readFileSync(target, 'utf8');
