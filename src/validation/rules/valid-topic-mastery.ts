@@ -13,9 +13,11 @@
  *   (#36); when any pillar is not a finite number in `[0, 1]` (or
  *   `assessed_at` is invalid), this rule skips the topic rather than
  *   reporting a mastery warning on top of #36's errors.
- * - Missing assessment data (the newly-adopted default state) has nothing to
- *   compare against and never reports — that includes legacy topics whose
- *   pre-adoption `topic_mastery` predates the assessment formula.
+ * - Missing assessment data (the newly-adopted default state, as well as
+ *   any topic with a partial pillar set) has nothing to compare against and
+ *   never reports — absent pillars mean "no data", per #277 and #300, not
+ *   "zero". Only topics where all four pillars are present and shaped are
+ *   eligible, and the formula is computed from those without inventing inputs.
  * - Archived topics are still checked: internal consistency matters for any
  *   topic the vault still stores.
  * - The stored value is read raw from frontmatter: the loader coerces
@@ -64,31 +66,32 @@ export const validTopicMasteryRule: ValidationRule = {
     const issues: ValidationIssue[] = [];
 
     for (const topic of context.topics) {
-      // All four pillars absent: the newly-adopted default state has no
-      // assessment data to derive mastery from. A stored non-zero legacy
-      // mastery here is pre-adoption data, not drift against this
-      // formula — comparing it against computed 0 would be a false
-      // warning (escalated to exit 3 by --strict). Partial assessments
-      // remain eligible: present pillars feed the formula with the
-      // documented 0 default for absent ones.
-      const allPillarsAbsent = SCORE_FIELDS.every(
-        (field) =>
-          topic.frontmatter[field] === undefined ||
-          topic.frontmatter[field] === null
-      );
-      if (allPillarsAbsent) continue;
+      // Absent pillars mean "no data", not "zero", per the established
+      // direction of #277 (carriedPillarScores omits absent pillars) and
+      // #300 (review drops them). A topic with any missing pillar has
+      // incomplete assessment data: the four-pillar formula cannot be
+      // computed honestly, so there is nothing to compare against — the
+      // same "no data" skip that already covers the all-absent default.
+      const anyPillarAbsent = SCORE_FIELDS.some((field) => {
+        const raw = topic.frontmatter[field];
+        return raw === undefined || raw === null;
+      });
+      if (anyPillarAbsent) continue;
 
       const scores = SCORE_FIELDS.map((field): number | undefined => {
         const value: unknown = topic.frontmatter[field];
-        // #36 reports non-numeric/out-of-range shapes; missing pillars are the
-        // documented adopt default (0) and DO feed the formula — partial
-        // assessments are valid input, not a skip condition.
+        // #36 reports non-numeric/out-of-range shapes; a present-but-malformed
+        // value is `undefined` after the guard and must skip this rule.
+        // Absent pillars never reach here: anyPillarAbsent above already skipped.
         return isShapedScore(value) ? value : undefined;
       });
 
-      // #36 jurisdiction: invalid score SHAPES are reported there, not here.
-      // A present-but-malformed value is `undefined` after the guard and
-      // must skip this rule; an absent pillar normalizes to 0 below.
+      // #36 jurisdiction: a present-but-malformed score is `undefined` after
+      // the isShapedScore guard above and must skip this rule — #36 owns
+      // shape errors so this rule never double-reports them. Since any
+      // absent pillar already caused an early skip, `scores` here is either
+      // all numbers (valid shapes) or contains a leading undefined (shape
+      // error), which is exactly the case this guard catches.
       if (
         scores.some((value, i) => {
           // `SCORE_FIELDS` is a fixed 4-tuple and `scores` was mapped from it,
@@ -110,9 +113,10 @@ export const validTopicMasteryRule: ValidationRule = {
       // assessed_at is (impossible dates like 2026-02-30 included).
       if (!isValidAssessedAt(topic.frontmatter.assessed_at)) continue;
 
-      // Missing pillars default to 0 per the adopt policy — the same
-      // normalization the loader applies (parseScore with 0 fallback).
-      const present = scores.map((value) => value ?? 0);
+      // All four pillars are present and shaped (absent ones were skipped
+      // above; shape errors were skipped above), so every entry is a finite
+      // number — no zero-fill needed.
+      const present = scores as [number, number, number, number];
 
       const expected = computeTopicMastery(
         present[0],

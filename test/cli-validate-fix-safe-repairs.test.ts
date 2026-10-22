@@ -447,6 +447,59 @@ describe('#323 validate --fix: topic mastery is recomputed through the engine', 
       }
     });
   });
+
+  test('#514 partial pillars: --fix does not invent missing inputs or repair mastery', async () => {
+    // Three notes under the reproduction from #514:
+    // - T-no-pillars: no assessment data at all — never flagged (default state)
+    // - T-half: two pillars absent — must NOT be flagged or repaired
+    // - T-full: all four pillars present, drifted — must still be flagged + repaired
+    await runInTempVault(async (vaultPath) => {
+      writeTopic(vaultPath, 'no-pillars.md', {
+        palee_id: 'T-no-pillars',
+        assessed_at: null,
+        topic_mastery: 0.9,
+      });
+      writeTopic(vaultPath, 'half.md', {
+        palee_id: 'T-half',
+        conceptual: 0.9,
+        practical: 0.9,
+        debug: 0.9,
+        assessed_at: '2026-08-01T10:00:00.000Z',
+        topic_mastery: 0.9,
+      });
+      writeTopic(vaultPath, 'full.md', {
+        palee_id: 'T-full',
+        conceptual: 0.8,
+        practical: 0.7,
+        debug: 0.9,
+        feynman: 0.85,
+        assessed_at: '2026-08-01T10:00:00.000Z',
+        topic_mastery: 0.1,
+      });
+
+      // Before --fix: only T-full should be flagged for mastery drift.
+      const before = await captureOutput(() => validateCommand({ json: true }));
+      const beforeReport = parseReport(before.out);
+      const beforeMasteryWarnings = (beforeReport.warnings as Array<{ rule_id: string }>).filter(w => w.rule_id === 'valid-topic-mastery');
+      assert.strictEqual(beforeMasteryWarnings.length, 1, `expected only T-full flagged, got: ${before.out}`);
+
+      // --fix: only T-full should be repaired.
+      const fixed = await captureOutput(() => validateCommand({ fix: true, json: true }));
+      const fixedReport = parseReport(fixed.out);
+      const repairedTopics = repairsOf(fixedReport).map(r => r.topic_id);
+      assert.deepStrictEqual(repairedTopics, ['T-full'], `expected only T-full repaired, got: ${JSON.stringify(repairedTopics)}`);
+
+      // T-half's topic_mastery must be untouched (not 0.54, not 0.9 rewritten).
+      const halfMastery = readFrontmatter(vaultPath, 'half.md').topic_mastery;
+      assert.strictEqual(halfMastery, 0.9, `T-half mastery must not be rewritten by --fix, got ${halfMastery}`);
+
+      // After --fix: only T-full's warning should be cleared.
+      const after = await captureOutput(() => validateCommand({ json: true }));
+      const afterReport = parseReport(after.out);
+      const afterMasteryWarnings = (afterReport.warnings as Array<{ rule_id: string }>).filter(w => w.rule_id === 'valid-topic-mastery');
+      assert.strictEqual(afterMasteryWarnings.length, 0, `expected all mastery warnings cleared, got: ${after.out}`);
+    });
+  });
 });
 
 describe('#323 validate --fix: dispatch is authorized by rule metadata', () => {
