@@ -1,0 +1,104 @@
+name: "🐛 Report a problem"
+description: "Report an issue with the PALEE CLI, scheduling engine, or Obsidian integration"
+title: "Bug: (fill in)"
+labels:
+    - bug
+body:
+    - type: markdown
+      attributes:
+          value: |
+              By opening an issue, you agree to help the PALEE maintainers keep this project healthy.
+              Please fill in as much detail as possible — we can only fix what we can reproduce.
+    - type: textarea
+      id: environment
+      attributes:
+          label: Environment
+          description: |
+              How are you running PALEE?
+          value: |
+              PALEE version:
+              Node version:
+              npm version:
+              Operating System:
+              Obsidian version (if relevant):
+      validations:
+          required: true
+    - type: textarea
+      id: vault
+      attributes:
+          label: Vault information (optional but helpful)
+          description: |
+              How large is your vault? How many notes have PALEE frontmatter?
+          value: |
+              Number of notes:
+              Notes with PALEE frontmatter:
+              Vault sync method (iCloud, OneDrive, Dropbox, local, etc.):
+      validations:
+          required: false
+    - type: textarea
+      id: steps
+      attributes:
+          label: Steps to reproduce
+          description: |
+              Please include a *minimal* reproduction. If possible, include the exact command and
+              its output.
+          value: |
+              1. `palee ...`
+              2. ...
+      validations:
+          required: true
+    - type: textarea
+      id: expected
+      attributes:
+          label: What did you expect to happen?
+      validations:
+          required: true
+    - type: textarea
+      id: actual
+      attributes:
+          label: What actually happened?
+          description: |
+              Paste the full error message or output. Use a fenced code block with `shell` language.
+          render: shell
+      validations:
+          required: true
+    - type: textarea
+      id: config
+      attributes:
+          label: PALEE configuration (optional)
+          description: |
+              Output of `palee config show --json` or relevant excerpt from your config file.
+          value: |
+              ```json
+              // paste palee config show --json output here
+              ```
+          render: json
+      validations:
+          required: false
+    - type: checkboxes
+      attributes:
+          label: Pre-submission checklist
+          options:
+              - label: "I've read the [CHANGELOG.md](CHANGELOG.md) to check if this was already fixed"
+                required: true
+              - label: "I've searched existing issues to avoid duplicates"
+                required: true
+              - label: "I've tried running `palee validate --fix` to repair data issues"
+                required: false
+    - type: checkboxes
+      attributes:
+          label: AI acknowledgment
+          options:
+              - label: "I did not use AI to generate this issue report."
+                required: false
+              - label: "(If the above is not checked) I have reviewed the AI-generated content before submitting."
+                required: false
+    - type: textarea
+      id: comments
+      attributes:
+          label: Additional comments
+          description: |
+              Is there anything else that's important for the team to know?
+              e.g. whether this is related to a Phase 2 AI feature or affects vault migration.
+      validations:
+          required: false
