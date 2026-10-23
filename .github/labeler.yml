@@ -62,12 +62,11 @@ types:
         - 'src/index.ts'
 
 # --- Tests ---
-# Any test file change.
+# Any test file change, including shared helpers like test/palee-cli.ts.
 tests:
   - changed-files:
       any-glob-to-any-file:
-        - 'test/**/*.test.ts'
-        - 'test/e2e/**/*'
+        - 'test/**/*'
 
 # --- Documentation ---
 # User-facing docs only — NOT CHANGELOG.md (every release PR touches it).
@@ -106,6 +105,7 @@ ci:
       any-glob-to-any-file:
         - '.github/workflows/**/*'
         - '.github/*.yml'
+        - '.github/ISSUE_TEMPLATE/**/*.yml'
         - '.github/**/*.md'
 
 # --- Dependencies ---
