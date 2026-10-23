@@ -23,7 +23,7 @@ Check all that apply:
     Instead, mark one item and explain below.
 -->
 
-[X] This is a new feature
+[ ] This is a new feature
 
     <!-- Explain: e.g. `palee plan --shuffle` adds randomized session ordering -->
 

@@ -35,7 +35,6 @@ body:
           label: Acceptance criteria
           description: |
               What does "done" look like? List concrete, testable outcomes.
-          render: json
           placeholder: |
               - `palee adopt --dry-run` exits 0 on a symlinked vault
               - New test: test/storage-vault.test.ts covers symlink cycles

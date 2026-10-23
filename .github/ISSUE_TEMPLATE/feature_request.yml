@@ -55,8 +55,7 @@ body:
       attributes:
           label: Scope
           description: |
-              Which area does this touch? (Select all that apply)
-          multiple: true
+              Which area does this touch? (Select one; you can mention more in the details below.)
           options:
               - "Core scheduling engine (SM-2, DAG, mastery)"
               - "Dependency chain / topological sort"

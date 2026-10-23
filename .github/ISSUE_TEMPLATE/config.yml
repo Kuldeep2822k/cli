@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Ask a question
     url: https://github.com/Kuldeep2822k/cli/discussions
-    mapping: discussions
+    about: "Ask questions and discuss with the community"
   - name: Documentation
     url: https://kuldeep2822k.github.io/cli/
-    mapping: docs
+    about: "Read the full PALEE documentation"
