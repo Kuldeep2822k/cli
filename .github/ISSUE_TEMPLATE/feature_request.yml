@@ -1,0 +1,105 @@
+name: "🚀 Request a change"
+description: "Request a new feature, command, or enhancement to existing functionality"
+title: "Feature: (fill in)"
+labels:
+    - enhancement
+body:
+    - type: markdown
+      attributes:
+          value: |
+              By opening an issue, you agree to help shape PALEE's roadmap.
+              If this is part of the Phase 2 AI roadmap (tutor, Feynman testing, etc.),
+              maintainers will apply the `AI` and `phase 2 redefine` labels as needed.
+    - type: input
+      id: version
+      attributes:
+          label: PALEE version
+          description: |
+              Output of `palee --version` or `npm ls @kuldeep2822k/palee`
+          placeholder: "e.g. 1.0.0"
+      validations:
+          required: true
+    - type: textarea
+      id: problem
+      attributes:
+          label: What problem do you want to solve?
+          description: |
+              Explain your use case in as much detail as possible.
+          placeholder: |
+              Currently I can't...
+      validations:
+          required: true
+    - type: textarea
+      id: solution
+      attributes:
+          label: What do you think is the correct solution?
+          description: |
+              Explain how you'd like PALEE to change to address the problem.
+              Be specific about CLI UX and behavior.
+          placeholder: |
+              I'd like `palee` to...
+      validations:
+          required: true
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: What alternatives have you considered?
+          description: |
+              What else did you consider? Why wasn't it enough?
+          placeholder: |
+              I've tried...
+      validations:
+          required: false
+    - type: dropdown
+      id: scope
+      attributes:
+          label: Scope
+          description: |
+              Which area does this touch? (Select one; you can mention more in the details below.)
+          options:
+              - "Core scheduling engine (SM-2, DAG, mastery)"
+              - "Dependency chain / topological sort"
+              - "Vault scanning / frontmatter preservation"
+              - "Session continuity (hot.md, sessions/)"
+              - "Obsidian integration"
+              - "AI provider / Phase 2 (test, tutor, roadmap interview)"
+              - "CLI UX / machine-readable output (--json)"
+              - "Migration / data integrity"
+              - "Documentation"
+      validations:
+          required: true
+    - type: textarea
+      id: ai-relevance
+      attributes:
+          label: AI / Phase 2 relevance (optional)
+          description: |
+              Does this relate to the AI tutor, Feynman testing, or Phase 2 roadmap?
+              If so, describe how the deterministic core and AI augmentation should interact.
+      validations:
+          required: false
+    - type: checkboxes
+      attributes:
+          label: Participation
+          options:
+              - label: "I am willing to submit a pull request for this change."
+                required: false
+    - type: markdown
+      attributes:
+          value: |
+            Please **do not** open a pull request until this issue has been accepted by the team.
+    - type: checkboxes
+      attributes:
+          label: AI acknowledgment
+          options:
+              - label: "I did not use AI to generate this issue report."
+                required: false
+              - label: "(If the above is not checked) I have reviewed the AI-generated content before submitting."
+                required: false
+    - type: textarea
+      id: comments
+      attributes:
+          label: Additional comments
+          description: |
+              Anything else — related issues, designs, or sketches.
+      validations:
+          required: false
