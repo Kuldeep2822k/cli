@@ -18,36 +18,24 @@ Check all that apply:
 
 #### What is the purpose of this pull request? (put an "X" next to an item)
 
-<!--
-    The purpose section is intentionally not a markdown checkbox list.
-    Instead, mark one item and explain below.
--->
+<!-- Mark one item and explain in the line below it -->
 
 [ ] This is a new feature
-
-    <!-- Explain: e.g. `palee plan --shuffle` adds randomized session ordering -->
+<!-- Explain: e.g. `palee plan --shuffle` adds randomized session ordering -->
 
 [ ] This is a bug fix
-
-    <!-- If this fixes an issue, link it below: e.g. Fixes #123 -->
+<!-- If this fixes an issue, link it below: e.g. Fixes #123 -->
 
 [ ] This is a documentation update
-
-    <!-- e.g. README update, VitePress docs, JSDoc -->
+<!-- e.g. README update, VitePress docs, JSDoc -->
 
 [ ] This is a refactor / performance improvement / internal change
-
-    <!-- e.g. vault scanner, session memory, build pipeline -->
+<!-- e.g. vault scanner, session memory, build pipeline -->
 
 [ ] This is a test / CI change
-
-    <!-- e.g. new test suite, coverage gate, CI workflow -->
+<!-- e.g. new test suite, coverage gate, CI workflow -->
 
 [ ] Other, please explain:
-
-    <!--
-
--->
 
 #### Description
 

@@ -1,38 +1,126 @@
-documentation:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'README.md'
-      - 'CHANGELOG.md'
-      - 'LICENSE'
-      - 'docs/**/*'
-      - 'examples/**/*'
-      - 'planning/**/*'
+# Pull Request Labeler Configuration
+#
+# Labels are applied based on changed files in the PR diff.
+# Rules are evaluated independently — a PR can get multiple labels.
+# Glob patterns use minimatch semantics.
+#
+# Design principles:
+# 1. Avoid blanket catches that produce false positives (e.g. CHANGELOG.md).
+# 2. Map file paths to the most specific PALEE subsystem label.
+# 3. Allow overlap where it's informative (e.g. a test file under src/ gets both `core` and `tests`).
 
+# --- AI / Phase 2 ---
+# Any change to AI provider code or Phase 2 features.
+"AI":
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/ai/**/*'
+        - 'test/ai-*.test.ts'
+        - 'test/ai-provider*.test.ts'
+
+"phase 2 redefine":
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/ai/provider.ts'
+        - 'src/cli/onboarding.ts'
+
+# --- Core deterministic engine ---
+# SM-2, DAG, mastery, dependency resolution, validation.
 core:
   - changed-files:
-    - any-glob-to-any-file:
-      - 'src/**/*'
-      - 'bin/**/*'
+      any-glob-to-any-file:
+        - 'src/engine/**/*'
+        - 'src/validation/**/*'
 
+# --- Storage / Obsidian integration ---
+# Vault scanner, frontmatter, atomic writes, session memory, TOC, wikilinks.
+storage:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/storage/**/*'
+
+# --- Application layer ---
+# High-level app logic that orchestrates engine + storage.
+application:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/application/**/*'
+
+# --- CLI layer ---
+# Command handlers.
+cli:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/cli/**/*'
+        - 'bin/**/*'
+
+# --- Types & entry point ---
+types:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/types.ts'
+        - 'src/index.ts'
+
+# --- Tests ---
+# Any test file change, including shared helpers like test/palee-cli.ts.
 tests:
   - changed-files:
-    - any-glob-to-any-file:
-      - 'test/**/*'
+      any-glob-to-any-file:
+        - 'test/**/*'
 
+# --- Documentation ---
+# User-facing docs only — NOT CHANGELOG.md (every release PR touches it).
+documentation:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'README.md'
+        - 'LICENSE'
+        - 'docs/**/*'
+        - 'examples/**/*'
+        - 'planning/**/*.md'
+        - 'agent.md'
+        - 'DOCS_AUDIT_REPORT.md'
+
+# --- Build / Config / Project tooling ---
+# Build system, linting, project config files.
 build:
   - changed-files:
-    - any-glob-to-any-file:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - 'eslint.config.mjs'
-      - '.github/**/*'
-      - 'scripts/**/*'
-      - '.*ignore'
-      - '.*rc*'
+      any-glob-to-any-file:
+        - 'package.json'
+        - 'package-lock.json'
+        - 'tsconfig.json'
+        - 'eslint.config.mjs'
+        - 'scripts/**/*'
+        - '.c8rc.json'
+        - 'renovate.json'
+        - 'skills-lock.json'
+        - '.*ignore'
+        - '.claude/**/*'
+        - '.skylos/**/*'
 
+# --- CI / GitHub Actions ---
+# Workflow definitions and labeler config.
+ci:
+  - changed-files:
+      any-glob-to-any-file:
+        - '.github/workflows/**/*'
+        - '.github/*.yml'
+        - '.github/ISSUE_TEMPLATE/**/*.yml'
+        - '.github/**/*.md'
+
+# --- Dependencies ---
+# Dependency version bumps (package.json + lockfile).
 dependencies:
   - changed-files:
-    - any-glob-to-any-file:
-      - 'package.json'
-      - 'package-lock.json'
+      any-glob-to-any-file:
+        - 'package.json'
+        - 'package-lock.json'
+
+# --- Security ---
+# Changes that touch credential/key handling or security-sensitive code.
+security:
+  - changed-files:
+      any-glob-to-any-file:
+        - 'src/cli/config.ts'
+        - 'src/storage/atomic-write.ts'
+        - 'src/storage/containment.ts'
