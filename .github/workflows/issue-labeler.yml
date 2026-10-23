@@ -1,0 +1,144 @@
+name: Issue Labeler
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  actions: write
+
+jobs:
+  label-issues:
+    name: Label by title prefix
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    concurrency:
+      group: issue-labeler-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Label issue by title
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // --- Fetch fresh issue state to avoid race conditions with rapid edits ---
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+            });
+
+            const title = issue.title || '';
+            const lowerTitle = title.toLowerCase();
+            const lowerBody = (issue.body || '').toLowerCase();
+            const existingLabels = new Set(issue.labels.map(l => typeof l === 'string' ? l : l.name));
+
+            const toAdd = [];
+            const toRemove = [];
+
+            // --- Type labels from title prefix (mutually exclusive) ---
+            // Type labels are derived from the title prefix. When the prefix changes
+            // to a different recognized type, the old one is removed. When there is no
+            // recognized prefix, type labels are left alone (they may be from a template
+            // or a maintainer assignment).
+            const typeLabels = ['bug', 'refactor', 'enhancement', 'documentation', 'chore'];
+            let intendedType = null;
+
+            const prefixMatch = title.match(/^([A-Za-z][\w\s-]*?):\s*(.*)$/);
+            const prefix = prefixMatch ? prefixMatch[1].trim().toLowerCase() : '';
+
+            if (prefix === 'bug') {
+              intendedType = 'bug';
+            } else if (prefix === 'feature' || prefix === 'feat') {
+              intendedType = 'enhancement';
+            } else if (prefix === 'docs' || prefix === 'documentation') {
+              intendedType = 'documentation';
+            } else if (prefix === 'task') {
+              intendedType = 'chore';
+            }
+
+            if (intendedType) {
+              // Remove other type labels so they stay mutually exclusive.
+              // This is safe: a title prefix defines the type, and switching prefixes
+              // should switch the type label.
+              for (const label of typeLabels) {
+                if (label !== intendedType && existingLabels.has(label)) {
+                  toRemove.push(label);
+                }
+              }
+              if (!existingLabels.has(intendedType)) {
+                toAdd.push(intendedType);
+              }
+            }
+
+            // --- Content-based heuristic labels (add-only) ---
+            // These are advisory: the bot only adds them, never removes them.
+            // This prevents the bot from stripping labels set by templates or maintainers.
+            // If a label is no longer relevant, a human can remove it manually.
+            const heuristics = new Map([
+              ['security', lowerTitle.includes('security') || lowerBody.includes('security') || lowerBody.includes('vulnerab')],
+              ['breaking', lowerTitle.includes('breaking') || lowerBody.includes('breaking change')],
+              // Use word boundary on title to avoid matching "fails", "details", "maintain".
+              // For body, require "phase 2 ai" to avoid matching the form field heading.
+              ['AI', /\bai\b/.test(lowerTitle) || lowerBody.includes('phase 2 ai')],
+              ['priority: critical', lowerTitle.includes('priority: critical') || lowerBody.includes('priority: critical')],
+              ['good first issue', lowerTitle.includes('good first') || lowerBody.includes('good first issue')],
+              ['help wanted', lowerTitle.includes('help wanted') || lowerBody.includes('help wanted')],
+            ]);
+
+            for (const [label, shouldAdd] of heuristics) {
+              if (shouldAdd && !existingLabels.has(label)) {
+                toAdd.push(label);
+              }
+            }
+
+            // --- Apply changes ---
+            if (toAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: toAdd
+              });
+              console.log('Added:', toAdd.join(', '));
+            }
+
+            // Guard each removal: the label may have been removed between our fresh read and now.
+            if (toRemove.length > 0) {
+              for (const label of toRemove) {
+                if (existingLabels.has(label)) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      name: label
+                    });
+                    console.log('Removed:', label);
+                  } catch (e) {
+                    // Only ignore 404 (label not found). Re-throw all other errors.
+                    if (e.status === 404) {
+                      console.log('Skip removal (already gone):', label);
+                    } else {
+                      throw e;
+                    }
+                  }
+                }
+              }
+            }
+
+            if (toAdd.length === 0 && toRemove.length === 0) {
+              console.log('No label changes needed.');
+            } else {
+              // Trigger a re-sync of project fields, since label changes made with the
+              // default GITHUB_TOKEN don't fire labeled/unlabeled events that would
+              // trigger sync-project-fields.yml automatically.
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'sync-project-fields.yml',
+                ref: 'main',
+                inputs: { 'issue-number': String(issue.number) },
+              });
+              console.log('Triggered sync-project-fields for #' + issue.number);
+            }
