@@ -43,6 +43,18 @@
 - name: security
   color: "d93f0b"
   description: Dependency updates fixing known vulnerabilities
+- name: storage
+  color: "7057ff"
+  description: "Storage layer: vault scanning, frontmatter, atomic writes, session memory"
+- name: application
+  color: "98e1d9"
+  description: "Application layer: orchestration of engine and storage"
+- name: cli
+  color: "531987"
+  description: "CLI command handlers and bin layer"
+- name: types
+  color: "1f76ff"
+  description: "Type definitions and entry point"
 - name: refactor
   color: "e99695"
   description: Refactoring code without changing behavior
