@@ -7,7 +7,11 @@ description: "palee validate began as three hardcoded checks (duplicate topic ID
 
 ## Status
 
-Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided. Decision 5 (backlog-to-catalog reconciliation) was added 2026-09-15. The `--fix` deferral in the framework architecture was amended by ADR-0035 on 2026-10-22: three conservative repairs now ship (`rebuild_derived_views`, `recompute_topic_mastery`, `reset_review_fields`).
+Accepted (2026-09-13)
+
+Amended by ADR-0035: the `--fix` deferral is superseded; three conservative repairs now ship (`rebuild_derived_views`, `recompute_topic_mastery`, `reset_review_fields`).
+
+Decisions 1-4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided. Decision 5 (backlog-to-catalog reconciliation) was added 2026-09-15.
 
 ## Context
 

@@ -7,7 +7,9 @@ description: "ADR-0009's gating model is correct for the v0.6.x writer: one depe
 
 ## Status
 
-Proposed — specified in #224, not implemented
+Proposed
+
+Specified in #224; not implemented.
 
 ## Context
 

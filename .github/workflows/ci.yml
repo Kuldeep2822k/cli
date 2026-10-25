@@ -49,6 +49,9 @@ jobs:
       - name: Build documentation
         run: npm run docs:build
 
+      - name: Verify documentation invariants
+        run: npm run docs:verify
+
   test-matrix:
     name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}

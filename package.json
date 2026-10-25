@@ -28,6 +28,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
+    "docs:verify": "node scripts/verify-docs.mjs",
     "pretest": "npm run build",
     "test": "node --import tsx --test --test-concurrency=4 \"test/**/*.test.ts\"",
     "test:unit": "node --import tsx --test \"test/storage-*.test.ts\" \"test/engine-*.test.ts\" \"test/types-*.test.ts\" \"test/smoke.test.ts\"",

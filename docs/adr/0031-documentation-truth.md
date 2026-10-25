@@ -7,7 +7,9 @@ description: "A 15-slice audit of every command invocation in the repository (#4
 
 ## Status
 
-Accepted — applied in Phase 3 of #451
+Accepted
+
+Applied in Phase 3 of #451.
 
 ## Context
 

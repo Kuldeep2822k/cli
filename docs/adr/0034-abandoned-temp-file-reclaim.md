@@ -7,7 +7,9 @@ description: "atomicWrite creates .tmp. . in the destination's own directory and
 
 ## Status
 
-Accepted — amends ADR-0005 §1 (*Entropy-Augmented Collision-Proof Temporary Files*), whose cleanup clause covers only a handled exception. Fixes [#481](https://github.com/Kuldeep2822k/cli/issues/481).
+Accepted
+
+Amends ADR-0005 §1 (*Entropy-Augmented Collision-Proof Temporary Files*), whose cleanup clause covers only a handled exception. Fixes [#481](https://github.com/Kuldeep2822k/cli/issues/481).
 
 ## Context
 

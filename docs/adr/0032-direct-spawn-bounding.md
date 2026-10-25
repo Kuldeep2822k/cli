@@ -7,7 +7,9 @@ description: "ADR-0029's universal \"every spawn is bounded\" claim was false: 2
 
 ## Status
 
-Accepted — amends ADR-0029 in part (the section "Every spawn is bounded, and a timeout names the command"). ADR-0029's other decisions stand unchanged. Supersedes the "by design" line in #460.
+Accepted
+
+Amends ADR-0029 in part (the section "Every spawn is bounded, and a timeout names the command"). ADR-0029's other decisions stand unchanged. Supersedes the "by design" line in #460.
 
 ## Context
 

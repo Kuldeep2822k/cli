@@ -7,7 +7,9 @@ description: "topic_mastery is the only thing that opens a prerequisite gate —
 
 ## Status
 
-Accepted — extended for #269 by the section "A lowering is named, not blocked". The v0.6.0 decisions above it stand unchanged; that section also corrects two claims made about this surface elsewhere.
+Accepted
+
+Extended for #269 by the section "A lowering is named, not blocked". The v0.6.0 decisions above it stand unchanged; that section also corrects two claims made about this surface elsewhere.
 
 ## Context
 

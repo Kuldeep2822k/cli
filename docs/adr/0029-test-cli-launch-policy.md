@@ -7,7 +7,9 @@ description: "Every execSync- and spawnSync-launched CLI child in the suite goes
 
 ## Status
 
-Accepted — amended in part by [ADR-0032](./0032-direct-spawn-bounding.md), which corrects the scope of the "every spawn is bounded" claim below. Every other decision in this record stands.
+Accepted
+
+Amended by [ADR-0032](./0032-direct-spawn-bounding.md): corrects the scope of the "every spawn is bounded" claim below. Every other decision in this record stands.
 
 ## Context
 

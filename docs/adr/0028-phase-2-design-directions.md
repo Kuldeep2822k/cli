@@ -7,7 +7,9 @@ description: "Four Phase-2 designs are fully specified in the issue tracker and 
 
 ## Status
 
-Proposed — specified in open issues, not implemented
+Proposed
+
+Specified in open issues; not implemented.
 
 ## Context
 
