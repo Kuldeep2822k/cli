@@ -38,29 +38,49 @@ jobs:
 
             // --- Type labels from title prefix (mutually exclusive) ---
             // Type labels are derived from the title prefix. When the prefix changes
-            // to a different recognized type, the old one is removed. When there is no
-            // recognized prefix, type labels are left alone (they may be from a template
-            // or a maintainer assignment).
+            // to a different recognized type, the old one is removed.
             const typeLabels = ['bug', 'refactor', 'enhancement', 'documentation', 'chore'];
             let intendedType = null;
+            let titleScope = null;
 
-            const prefixMatch = title.match(/^([A-Za-z][\w\s-]*?):\s*(.*)$/);
-            const prefix = prefixMatch ? prefixMatch[1].trim().toLowerCase() : '';
+            // Matches prefixes like "Fix: ...", "fix(storage): ...", "[Bug]: ...", "[Bug] ...", "Task: ..."
+            const prefixRegex = /^(?:\[([A-Za-z\s-]+)\](?::\s*|\s+)|([A-Za-z][\w\s-]*?)(?:\(([^)]+)\))?:\s*)(.*)$/;
+            const prefixMatch = title.match(prefixRegex);
 
-            if (prefix === 'bug') {
-              intendedType = 'bug';
-            } else if (prefix === 'feature' || prefix === 'feat') {
-              intendedType = 'enhancement';
-            } else if (prefix === 'docs' || prefix === 'documentation') {
-              intendedType = 'documentation';
-            } else if (prefix === 'task') {
-              intendedType = 'chore';
+            if (prefixMatch) {
+              const rawPrefix = (prefixMatch[1] || prefixMatch[2] || '').trim().toLowerCase();
+              titleScope = (prefixMatch[3] || '').trim().toLowerCase();
+
+              if (['bug', 'fix', 'bugfix', 'hotfix'].includes(rawPrefix)) {
+                intendedType = 'bug';
+              } else if (['feature', 'feat', 'enhancement', 'request'].includes(rawPrefix)) {
+                intendedType = 'enhancement';
+              } else if (['docs', 'doc', 'documentation'].includes(rawPrefix)) {
+                intendedType = 'documentation';
+              } else if (['task', 'chore', 'cleanup', 'maintenance', 'maint'].includes(rawPrefix)) {
+                intendedType = 'chore';
+              } else if (['refactor', 'refactoring', 'perf', 'performance'].includes(rawPrefix)) {
+                intendedType = 'refactor';
+              }
+            }
+
+            // Fallback type inference for issues opened without a conventional prefix
+            if (!intendedType) {
+              if (/\b(bug|crash|segfault|broken)\b/.test(lowerTitle)) {
+                intendedType = 'bug';
+              } else if (/\b(feature|rfc|proposal)\b/.test(lowerTitle)) {
+                intendedType = 'enhancement';
+              } else if (/\b(docs?|documentation)\b/.test(lowerTitle) && !lowerTitle.includes('skip docs')) {
+                intendedType = 'documentation';
+              } else if (/\b(chore|cleanup|clean up|housekeeping)\b/.test(lowerTitle)) {
+                intendedType = 'chore';
+              } else if (/\b(refactor|refactoring)\b/.test(lowerTitle)) {
+                intendedType = 'refactor';
+              }
             }
 
             if (intendedType) {
               // Remove other type labels so they stay mutually exclusive.
-              // This is safe: a title prefix defines the type, and switching prefixes
-              // should switch the type label.
               for (const label of typeLabels) {
                 if (label !== intendedType && existingLabels.has(label)) {
                   toRemove.push(label);
@@ -71,23 +91,78 @@ jobs:
               }
             }
 
+            // --- Subsystem labels from conventional commit scope (e.g. fix(storage): ...) ---
+            const scopeMap = {
+              core: 'core',
+              engine: 'core',
+              storage: 'storage',
+              vault: 'storage',
+              cli: 'cli',
+              app: 'application',
+              application: 'application',
+              types: 'types',
+              test: 'tests',
+              tests: 'tests',
+              build: 'build',
+              ci: 'ci',
+              action: 'ci',
+              actions: 'ci',
+              deps: 'dependencies',
+              dependencies: 'dependencies',
+              security: 'security',
+              ai: 'AI',
+              doc: 'documentation',
+              docs: 'documentation',
+              documentation: 'documentation',
+            };
+            if (titleScope && scopeMap[titleScope] && !existingLabels.has(scopeMap[titleScope]) && !toAdd.includes(scopeMap[titleScope])) {
+              toAdd.push(scopeMap[titleScope]);
+            }
+
+            // --- Subsystem labels from Issue Form dropdowns ---
+            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:core engine|core scheduling|dependency chain)/i.test(issue.body || '')) {
+              if (!existingLabels.has('core') && !toAdd.includes('core')) toAdd.push('core');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:storage|vault scanning|session memory|session continuity|obsidian)/i.test(issue.body || '')) {
+              if (!existingLabels.has('storage') && !toAdd.includes('storage')) toAdd.push('storage');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:cli\s*\/\s*bin layer|cli ux)/i.test(issue.body || '')) {
+              if (!existingLabels.has('cli') && !toAdd.includes('cli')) toAdd.push('cli');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?tests/i.test(issue.body || '')) {
+              if (!existingLabels.has('tests') && !toAdd.includes('tests')) toAdd.push('tests');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?build\s*\/\s*ci/i.test(issue.body || '')) {
+              if (!existingLabels.has('ci') && !toAdd.includes('ci')) toAdd.push('ci');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?ai\s*\/\s*phase 2/i.test(issue.body || '')) {
+              if (!existingLabels.has('AI') && !toAdd.includes('AI')) toAdd.push('AI');
+            }
+            if (/###\s+(?:scope|area)\s+[\s\S]*?documentation/i.test(issue.body || '')) {
+              if (!existingLabels.has('documentation') && !toAdd.includes('documentation')) toAdd.push('documentation');
+            }
+
             // --- Content-based heuristic labels (add-only) ---
-            // These are advisory: the bot only adds them, never removes them.
-            // This prevents the bot from stripping labels set by templates or maintainers.
-            // If a label is no longer relevant, a human can remove it manually.
             const heuristics = new Map([
+              ['ci', /\bci\b/.test(lowerTitle) || /\b(github actions?|workflows?|ci\.yml)\b/.test(lowerTitle) || lowerBody.includes('ci.yml') || lowerBody.includes('github action')],
+              ['dependencies', /\b(deps?|dependencies|package(-lock)?\.json|renovate)\b/.test(lowerTitle) || lowerBody.includes('npm ci') || lowerBody.includes('package.json')],
+              ['storage', /\b(vault|frontmatter|containment|atomic-write|hot\.md)\b/.test(lowerTitle) || lowerBody.includes('src/storage/')],
+              ['core', /\b(sm-2|sm2|mastery|scheduling)\b/.test(lowerTitle) || lowerBody.includes('src/engine/')],
+              ['cli', /\b(cli|palee\s+\w+|--json)\b/.test(lowerTitle) || lowerBody.includes('src/cli/')],
+              ['tests', /\b(tests?|coverage|jest|test suite)\b/.test(lowerTitle) || lowerBody.includes('test/')],
               ['security', lowerTitle.includes('security') || lowerBody.includes('security') || lowerBody.includes('vulnerab')],
               ['breaking', lowerTitle.includes('breaking') || lowerBody.includes('breaking change')],
-              // Use word boundary on title to avoid matching "fails", "details", "maintain".
-              // For body, require "phase 2 ai" to avoid matching the form field heading.
               ['AI', /\bai\b/.test(lowerTitle) || lowerBody.includes('phase 2 ai')],
-              ['priority: critical', lowerTitle.includes('priority: critical') || lowerBody.includes('priority: critical')],
+              ['priority: critical', lowerTitle.includes('priority: critical') || lowerBody.includes('priority: critical') || /\bp1\b/.test(lowerTitle)],
+              ['priority: high', lowerTitle.includes('priority: high') || lowerBody.includes('priority: high') || /\bp2\b/.test(lowerTitle)],
+              ['priority: medium', lowerTitle.includes('priority: medium') || lowerBody.includes('priority: medium') || /\bp3\b/.test(lowerTitle)],
+              ['priority: low', lowerTitle.includes('priority: low') || lowerBody.includes('priority: low')],
               ['good first issue', lowerTitle.includes('good first') || lowerBody.includes('good first issue')],
               ['help wanted', lowerTitle.includes('help wanted') || lowerBody.includes('help wanted')],
             ]);
 
             for (const [label, shouldAdd] of heuristics) {
-              if (shouldAdd && !existingLabels.has(label)) {
+              if (shouldAdd && !existingLabels.has(label) && !toAdd.includes(label)) {
                 toAdd.push(label);
               }
             }
