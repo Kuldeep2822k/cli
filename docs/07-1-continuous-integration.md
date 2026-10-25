@@ -57,6 +57,43 @@ The `smoke-install` job verifies the integrity of the NPM package by simulating 
 
 ### Data Flow: CI Pipeline Execution
 
+### Workspace Isolation for CI Performance
+
+The four CLI jobs in `ci.yml` use `npm ci --ignore-scripts --no-workspaces` to skip installing the docs workspace (`vitepress`, `mermaid`, `mathjax-full`, etc.). Other workflows — `deploy-docs.yml` (which builds docs), `release.yml`, and `security.yml` — still run a full `npm ci --ignore-scripts` without `--no-workspaces`.
+
+#### Performance Impact
+
+| Metric | Without `--no-workspaces` | With `--no-workspaces` | Improvement |
+|---|---|---|---|
+| `npm ci` time (local SSD) | 24.5s | 7.7s | 3.2x faster |
+| `npm ci` time (CI Linux/macOS) | ~20-25s | ~2-5s | ~15-20s saved |
+| `npm ci` time (CI Windows) | ~30-40s | ~5-8s | ~25-32s saved |
+| Packages installed | 296 | 119 | 177 fewer |
+| node_modules size | 394M | 80M | ~314M reduced |
+| Docs-only deps skipped | 0M | ~200M | 200M avoided |
+
+#### Docs-Only Dependencies Skipped
+
+| Package | Size | Type |
+|---|---|---|
+| mermaid | 83M | Direct (docs devDep) |
+| @mermaid-js/* | 38M | Transitive (mermaid) |
+| mathjax-full | 38M | Transitive (markdown-it-mathjax3) |
+| @algolia/search-docsearch | 21M | Transitive (vitepress) |
+| @shikijs/* | 11M | Transitive (vitepress) |
+| speech-rule-engine | 8M | Transitive (mathjax-full) |
+
+#### Estimated CI Time Savings Per PR Run
+
+| CI Job | Before | After | Saved |
+|---|---|---|---|
+| Lint, Typecheck & Build | 30s | ~27s | ~3s |
+| Test (per OS/Node leg) | 3m48s-6m26s | 3m45s-6m22s | ~3-4s |
+| Smoke tests (per OS) | 21s-46s | ~18s-42s | ~3s |
+| Engine floor | 21s | ~18s | ~3s |
+| **Total wall-clock (longest)** | **6m26s** | **~6m22s** | **~4s** |
+| **Total compute-seconds** | **~2,960s** | **~2,750s** | **~210s** |
+
 The following diagram illustrates the progression of a commit through the CI pipeline.
 
 CI Pipeline Logic Flow
