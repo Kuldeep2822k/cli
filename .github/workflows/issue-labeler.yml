@@ -32,14 +32,13 @@ jobs:
             const lowerTitle = title.toLowerCase();
             const lowerBody = (issue.body || '').toLowerCase();
             const existingLabels = new Set(issue.labels.map(l => typeof l === 'string' ? l : l.name));
+            const typeLabels = ['bug', 'refactor', 'enhancement', 'documentation', 'chore'];
+            const hasExistingType = typeLabels.some(l => existingLabels.has(l));
 
             const toAdd = [];
             const toRemove = [];
 
             // --- Type labels from title prefix (mutually exclusive) ---
-            // Type labels are derived from the title prefix. When the prefix changes
-            // to a different recognized type, the old one is removed.
-            const typeLabels = ['bug', 'refactor', 'enhancement', 'documentation', 'chore'];
             let intendedType = null;
             let titleScope = null;
 
@@ -64,8 +63,10 @@ jobs:
               }
             }
 
-            // Fallback type inference for issues opened without a conventional prefix
-            if (!intendedType) {
+            // Fallback type inference ONLY if the issue has NO prefix and NO existing type label.
+            // This prevents keyword guesses (e.g. "Support crash reports") from overriding
+            // explicitly assigned types or template defaults.
+            if (!intendedType && !hasExistingType) {
               if (/\b(bug|crash|segfault|broken)\b/.test(lowerTitle)) {
                 intendedType = 'bug';
               } else if (/\b(feature|rfc|proposal)\b/.test(lowerTitle)) {
@@ -80,10 +81,13 @@ jobs:
             }
 
             if (intendedType) {
-              // Remove other type labels so they stay mutually exclusive.
-              for (const label of typeLabels) {
-                if (label !== intendedType && existingLabels.has(label)) {
-                  toRemove.push(label);
+              // Only remove existing type labels if the intended type comes from an authoritative prefix.
+              // Fallback keyword guesses never remove existing type labels.
+              if (prefixMatch) {
+                for (const label of typeLabels) {
+                  if (label !== intendedType && existingLabels.has(label)) {
+                    toRemove.push(label);
+                  }
                 }
               }
               if (!existingLabels.has(intendedType)) {
@@ -92,6 +96,7 @@ jobs:
             }
 
             // --- Subsystem labels from conventional commit scope (e.g. fix(storage): ...) ---
+            // Note: documentation is an issue type, not a subsystem label, so it is omitted from scopeMap.
             const scopeMap = {
               core: 'core',
               engine: 'core',
@@ -111,35 +116,60 @@ jobs:
               dependencies: 'dependencies',
               security: 'security',
               ai: 'AI',
-              doc: 'documentation',
-              docs: 'documentation',
-              documentation: 'documentation',
             };
             if (titleScope && scopeMap[titleScope] && !existingLabels.has(scopeMap[titleScope]) && !toAdd.includes(scopeMap[titleScope])) {
               toAdd.push(scopeMap[titleScope]);
             }
 
             // --- Subsystem labels from Issue Form dropdowns ---
-            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:core engine|core scheduling|dependency chain)/i.test(issue.body || '')) {
-              if (!existingLabels.has('core') && !toAdd.includes('core')) toAdd.push('core');
+            // Extract ONLY the Scope or Area field value up to the next heading,
+            // preventing matches against later fields (like "### AI / Phase 2 relevance").
+            const sectionMatch = (issue.body || '').match(/###\s+(?:Scope|Area)\s*\r?\n([\s\S]*?)(?=\r?\n###|\s*$)/i);
+            const formArea = sectionMatch ? sectionMatch[1].trim().toLowerCase() : '';
+            if (formArea) {
+              if (formArea.includes('core engine') || formArea.includes('core scheduling') || formArea.includes('dependency chain')) {
+                if (!existingLabels.has('core') && !toAdd.includes('core')) toAdd.push('core');
+              }
+              if (formArea.includes('storage') || formArea.includes('vault scanning') || formArea.includes('session memory') || formArea.includes('session continuity') || formArea.includes('obsidian')) {
+                if (!existingLabels.has('storage') && !toAdd.includes('storage')) toAdd.push('storage');
+              }
+              if (formArea.includes('cli / bin layer') || formArea.includes('cli ux')) {
+                if (!existingLabels.has('cli') && !toAdd.includes('cli')) toAdd.push('cli');
+              }
+              if (formArea.includes('tests')) {
+                if (!existingLabels.has('tests') && !toAdd.includes('tests')) toAdd.push('tests');
+              }
+              if (formArea.includes('build / ci')) {
+                if (!existingLabels.has('ci') && !toAdd.includes('ci')) toAdd.push('ci');
+              }
+              if (formArea.includes('ai / phase 2') || formArea.includes('ai provider')) {
+                if (!existingLabels.has('AI') && !toAdd.includes('AI')) toAdd.push('AI');
+              }
+              // If documentation was chosen as Scope/Area, only set type if no type was assigned yet.
+              if (formArea.includes('documentation') && !intendedType && !hasExistingType) {
+                intendedType = 'documentation';
+                toAdd.push('documentation');
+              }
             }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:storage|vault scanning|session memory|session continuity|obsidian)/i.test(issue.body || '')) {
-              if (!existingLabels.has('storage') && !toAdd.includes('storage')) toAdd.push('storage');
-            }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?(?:cli\s*\/\s*bin layer|cli ux)/i.test(issue.body || '')) {
-              if (!existingLabels.has('cli') && !toAdd.includes('cli')) toAdd.push('cli');
-            }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?tests/i.test(issue.body || '')) {
-              if (!existingLabels.has('tests') && !toAdd.includes('tests')) toAdd.push('tests');
-            }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?build\s*\/\s*ci/i.test(issue.body || '')) {
-              if (!existingLabels.has('ci') && !toAdd.includes('ci')) toAdd.push('ci');
-            }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?ai\s*\/\s*phase 2/i.test(issue.body || '')) {
-              if (!existingLabels.has('AI') && !toAdd.includes('AI')) toAdd.push('AI');
-            }
-            if (/###\s+(?:scope|area)\s+[\s\S]*?documentation/i.test(issue.body || '')) {
-              if (!existingLabels.has('documentation') && !toAdd.includes('documentation')) toAdd.push('documentation');
+
+            // --- Priority heuristics (mutually exclusive: P0 -> critical, P1 -> high, P2 -> medium, P3 -> low) ---
+            // Aligned with sync-project-fields.yml priorityFrom mapping.
+            const priorityLabels = ['priority: critical', 'priority: high', 'priority: medium', 'priority: low', 'P1', 'P2', 'P3'];
+            const hasExistingPriority = priorityLabels.some(p => existingLabels.has(p));
+            if (!hasExistingPriority) {
+              let matchedPriority = null;
+              if (lowerTitle.includes('priority: critical') || lowerBody.includes('priority: critical') || /\b(p0|critical)\b/i.test(title)) {
+                matchedPriority = 'priority: critical';
+              } else if (lowerTitle.includes('priority: high') || lowerBody.includes('priority: high') || /\bp1\b/i.test(title)) {
+                matchedPriority = 'priority: high';
+              } else if (lowerTitle.includes('priority: medium') || lowerBody.includes('priority: medium') || /\bp2\b/i.test(title)) {
+                matchedPriority = 'priority: medium';
+              } else if (lowerTitle.includes('priority: low') || lowerBody.includes('priority: low') || /\bp3\b/i.test(title)) {
+                matchedPriority = 'priority: low';
+              }
+              if (matchedPriority && !existingLabels.has(matchedPriority) && !toAdd.includes(matchedPriority)) {
+                toAdd.push(matchedPriority);
+              }
             }
 
             // --- Content-based heuristic labels (add-only) ---
@@ -153,10 +183,6 @@ jobs:
               ['security', lowerTitle.includes('security') || lowerBody.includes('security') || lowerBody.includes('vulnerab')],
               ['breaking', lowerTitle.includes('breaking') || lowerBody.includes('breaking change')],
               ['AI', /\bai\b/.test(lowerTitle) || lowerBody.includes('phase 2 ai')],
-              ['priority: critical', lowerTitle.includes('priority: critical') || lowerBody.includes('priority: critical') || /\bp1\b/.test(lowerTitle)],
-              ['priority: high', lowerTitle.includes('priority: high') || lowerBody.includes('priority: high') || /\bp2\b/.test(lowerTitle)],
-              ['priority: medium', lowerTitle.includes('priority: medium') || lowerBody.includes('priority: medium') || /\bp3\b/.test(lowerTitle)],
-              ['priority: low', lowerTitle.includes('priority: low') || lowerBody.includes('priority: low')],
               ['good first issue', lowerTitle.includes('good first') || lowerBody.includes('good first issue')],
               ['help wanted', lowerTitle.includes('help wanted') || lowerBody.includes('help wanted')],
             ]);
