@@ -1,3 +1,8 @@
+---
+description: "loadTopics is the boundary every command reads the vault through, and the v1.0.0 audit round hardened four things about it: what it accepts, what it..."
+---
+
+
 # ADR-0018: Note Read Path, Caching, and Locking
 
 ## Status

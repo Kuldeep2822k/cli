@@ -1,3 +1,8 @@
+---
+description: "atomicWrite is the single write primitive every vault mutation goes through — roadmap, adopt, migrate, review, session, and the .palee tree itself. ADR-0002..."
+---
+
+
 # ADR-0014: Atomic-Write Durability and Vault Containment
 
 ## Status

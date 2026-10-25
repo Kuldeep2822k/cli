@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, nextTick } from 'vue'
+import { onContentUpdated } from 'vitepress'
 
 interface DiagramController {
   card: HTMLElement
@@ -45,6 +46,13 @@ function attachDiagramController(card: HTMLElement) {
     svg.parentNode?.insertBefore(viewport, svg)
     viewport.appendChild(svg)
   }
+
+  viewport.tabIndex = 0
+  viewport.setAttribute('role', 'group')
+  viewport.setAttribute(
+    'aria-label',
+    'Interactive diagram. Use plus and minus to zoom, arrow keys to pan, and 0 to reset.'
+  )
 
   // Create GitHub-style Toolbar
   const toolbar = document.createElement('div')
@@ -128,6 +136,12 @@ function attachDiagramController(card: HTMLElement) {
     destroy() {
       if (state.rafId) cancelAnimationFrame(state.rafId)
       document.removeEventListener('pointerdown', onDocPointerDown)
+      viewport.removeEventListener('keydown', onViewportKeyDown)
+      if (card.classList.contains('is-fullscreen')) {
+        document.body.style.overflow = ''
+      }
+      card.classList.remove('is-focused', 'is-fullscreen')
+      delete card.dataset.panzoomAttached
     }
   }
 
@@ -148,6 +162,50 @@ function attachDiagramController(card: HTMLElement) {
       card.classList.add('is-focused')
     }
   })
+
+  const onViewportKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+    const pan = e.shiftKey ? 80 : 24
+    switch (e.key) {
+      case '+':
+      case '=':
+        e.preventDefault()
+        state.zoom(1.15, viewport.clientWidth / 2, viewport.clientHeight / 2)
+        break
+      case '-':
+      case '_':
+        e.preventDefault()
+        state.zoom(1 / 1.15, viewport.clientWidth / 2, viewport.clientHeight / 2)
+        break
+      case '0':
+        e.preventDefault()
+        state.reset()
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        state.x -= pan
+        state.applyTransform()
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        state.x += pan
+        state.applyTransform()
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        state.y -= pan
+        state.applyTransform()
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        state.y += pan
+        state.applyTransform()
+        break
+    }
+  }
+  viewport.addEventListener('keydown', onViewportKeyDown)
 
   activeControllers.push(state)
 
@@ -296,6 +354,16 @@ function handleGlobalKeyDown(e: KeyboardEvent) {
   }
 }
 
+function destroyAll() {
+  activeControllers.forEach((controller) => controller.destroy())
+  activeControllers.length = 0
+  activeCards.forEach((card) => {
+    delete card.dataset.panzoomAttached
+  })
+  activeCards.length = 0
+  document.body.style.overflow = ''
+}
+
 function scanAndAttach() {
   if (typeof document === 'undefined') return
   const contentArea = document.querySelector('.VPContent') || document.body
@@ -317,6 +385,11 @@ function debouncedScan() {
 }
 
 let observer: MutationObserver | null = null
+
+onContentUpdated(() => {
+  destroyAll()
+  nextTick(() => scanAndAttach())
+})
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
@@ -341,6 +414,7 @@ onUnmounted(() => {
   }
   if (debounceTimer) clearTimeout(debounceTimer)
   if (observer) observer.disconnect()
+  destroyAll()
 })
 </script>
 

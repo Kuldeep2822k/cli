@@ -1,3 +1,8 @@
+---
+description: "loadTopics requires a non-empty string palee_id by design (B7, src/engine/tier0-hygiene.ts). A note whose id YAML read as a number (palee_id: 20240115), or..."
+---
+
+
 # ADR-0015: Identity Preservation — An Identity on Disk Is Not a Command's to Invent
 
 ## Status

@@ -1,3 +1,8 @@
+---
+description: "atomicWrite creates .tmp. . in the destination's own directory and unlinks it from the catch of a handled error. A process killed by a signal between the..."
+---
+
+
 # ADR-0034: Reclaiming a Killed Writer's Temporary File, Bounded to the Target It Belongs To
 
 ## Status

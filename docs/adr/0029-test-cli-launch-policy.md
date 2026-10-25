@@ -1,3 +1,8 @@
+---
+description: "Every execSync- and spawnSync-launched CLI child in the suite goes through one pair of exports in test/palee-cli.ts — PALEE_ARGV for spawn-style launches..."
+---
+
+
 # ADR-0029: Test-Time CLI Launch Policy
 
 ## Status

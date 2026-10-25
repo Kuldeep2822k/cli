@@ -1,3 +1,8 @@
+---
+description: "planning/memory_design.md defines .palee/hot.md as a derived working-memory view that must be tolerant of external edits (Obsidian, sync daemons, manual text..."
+---
+
+
 # ADR-0007: Hot-Memory Read-State Contract
 
 ## Status

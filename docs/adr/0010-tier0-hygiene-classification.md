@@ -1,3 +1,8 @@
+---
+description: "--auto-chain originally saw every markdown file in the scanned scope as a potential lesson. #205's census showed what that costs: microsoft/AI-For-Beginners..."
+---
+
+
 # ADR-0010: Tier-0 Hygiene Classification for Batch Adoption
 
 ## Status

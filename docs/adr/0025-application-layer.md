@@ -1,3 +1,8 @@
+---
+description: "Command handlers combined argument handling, configuration loading, vault/storage access, domain logic, output formatting, and process/exit handling in one..."
+---
+
+
 # ADR-0025: The Application Layer and the CLI Boundary
 
 ## Status

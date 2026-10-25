@@ -1,6 +1,10 @@
+---
+description: "This section serves as a central index for the planning/ directory, containing the foundational specifications, design proposals, and roadmaps that guide..."
+---
+
+
 # 8. Planning and Design Documents
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [docs/adr/0008-validation-framework-decisions.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
@@ -12,7 +16,7 @@
 - [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
 - [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
 
-</details>
+:::
 
 This section serves as a central index for the `planning/` directory, containing the foundational specifications, design proposals, and roadmaps that guide the PALEE codebase. These documents capture the architectural decisions, system invariants, and the multi-phase execution strategy used to build the engine.
 
@@ -22,9 +26,9 @@ Phase 1 focuses on the deterministic core of PALEE: the storage layer, the SM-2 
 
 ### Core Specifications
 
-- Problem Statement & Architecture: The system follows a three-layer architecture (Storage → Engine Core → CLI) designed to maintain a deterministic learning loop [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
-- Storage Invariants: The system guarantees that updating a PALEE field preserves the Markdown body byte-for-byte [planning/invariants.md#7-8](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L7-L8) It uses an atomic write protocol (temp file → fsync → rename) to prevent data loss [planning/storage_design.md#39-52](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L39-L52)
-- SM-2 Algorithm: Scheduling follows the SM-2 logic where `ease_factor` is capped at a minimum of 1.30 [planning/invariants.md#23](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L23-L23) and intervals progress through a `1, 6, round(prev * EF)` sequence [planning/invariants.md#26](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L26-L26)
+- Problem Statement & Architecture: The system follows a layered architecture (Storage → Engine Core → Application/Validation → CLI) designed to maintain a deterministic learning loop [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
+- Storage Invariants: The system guarantees that updating a PALEE field preserves the Markdown body byte-for-byte [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1) It uses an atomic write protocol (temp file → fsync → rename) to prevent data loss [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
+- SM-2 Algorithm: Scheduling follows the SM-2 logic where `ease_factor` is capped at a minimum of 1.30 [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1) and intervals progress through a `1, 6, round(prev * EF)` sequence [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
 ### Implementation Tracking
 
@@ -40,13 +44,13 @@ Phase 2 introduces the "Personal Active Learning" aspect via Large Language Mode
 
 ### AI Tutoring & Sessions
 
-- Feynman Testing: The `palee test` command will use AI to conduct conceptual probes and grade responses across four dimensions: conceptual, practical, debug, and feynman [planning/ai_module_design.md#88-102](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L88-L102)
-- Session Continuity: PALEE uses a "Hot Memory" system (`hot.md`) limited to 250 words to provide the AI with immediate context of the learner's current position without exceeding token limits [planning/memory_design.md#41-43](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1#L41-L43)
-- Tool-Calling Loop: The AI interacts with the engine through a read-only tool interface, ensuring the LLM cannot mutate the vault without explicit learner confirmation [planning/ai_module_design.md#64-80](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L64-L80)
+- Feynman Testing: The `palee test` command will use AI to conduct conceptual probes and grade responses across four dimensions: conceptual, practical, debug, and feynman [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
+- Session Continuity: PALEE uses a "Hot Memory" system (`hot.md`) limited to 250 words to provide the AI with immediate context of the learner's current position without exceeding token limits [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
+- Tool-Calling Loop: The AI interacts with the engine through a read-only tool interface, ensuring the LLM cannot mutate the vault without explicit learner confirmation [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
 
 ### Roadmap Generation
 
-Future iterations will support guided interviews to generate personalized learning paths. This mode will collect learner goals, constraints, and time availability to propose a Topic DAG (Directed Acyclic Graph) [planning/roadmap_design.md#15-30](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1#L15-L30)
+Future iterations will support guided interviews to generate personalized learning paths. This mode will collect learner goals, constraints, and time availability to propose a Topic DAG (Directed Acyclic Graph) [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
 
 For details, see [Future: AI Module and Phase 2 Design](./08-2-future-ai-module-and-phase-2-design.md)
 
@@ -160,7 +164,7 @@ sequenceDiagram
     Storage->>Hot: Regenerate (250-word cap)
 ```
 
-Sources:[planning/memory_design.md#91-100](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1#L91-L100)[planning/ai_module_design.md#7-8](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1#L7-L8)[src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
+Sources:[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)[planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)[src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 
 ## Planning Resource Matrix
 

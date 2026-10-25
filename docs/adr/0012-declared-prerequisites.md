@@ -1,3 +1,8 @@
+---
+description: "ADR-0009's gating rule has three gates: the learner's own frontmatter, the numbered tree, and the note's own declaration. The first two existed from the..."
+---
+
+
 # ADR-0012: Declared Prerequisites — Reading a Note's Own Text
 
 ## Status

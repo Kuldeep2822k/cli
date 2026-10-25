@@ -1,3 +1,8 @@
+---
+description: "Two workflows install the real package and check it: ci.yml's smoke-install job packs the tarball, runs scripts/verify-tarball.js, installs it globally with..."
+---
+
+
 # ADR-0030: Installed-Artifact CI Evidence
 
 ## Status

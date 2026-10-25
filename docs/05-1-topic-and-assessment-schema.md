@@ -1,6 +1,10 @@
+---
+description: "The PALEE system utilizes a structured data model to track learning progress, mastery levels, and spaced-repetition schedules for individual topics within a..."
+---
+
+
 # Topic and Assessment Schema
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)
 - [examples/Docker Networking.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Networking.md?plain=1)
@@ -12,7 +16,7 @@
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
-</details>
+:::
 
 The PALEE system utilizes a structured data model to track learning progress, mastery levels, and spaced-repetition schedules for individual topics within a Markdown-based vault. This data is primarily stored as YAML frontmatter within each topic's Markdown file.
 
@@ -22,11 +26,11 @@ The `Topic` interface is the central entity in the system, representing a single
 
 ### Key Attributes
 
-- `palee_schema`: An integer versioning the metadata structure (currently `1`) [src/types.ts#50](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L50-L50)
-- `palee_id`: A unique identifier generated during adoption, typically following the pattern `T-YYYYMMDDTHHMMSS-xxxx`[src/cli/adopt.ts#13-18](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L13-L18)
-- `status`: Tracks the learning lifecycle (`not_started`, `learning`, `paused`, `archived`) [src/types.ts#54](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L54-L54)
-- `difficulty`: A normalized categorization of the topic's complexity [src/types.ts#55](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L55-L55)
-- `dependencies`: An array of `palee_id` strings representing prerequisite topics [src/types.ts#56](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L56-L56)
+- `palee_schema`: An integer versioning the metadata structure (currently `1`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `palee_id`: A unique identifier generated during adoption, typically following the pattern `T-YYYYMMDDTHHMMSS-xxxx`[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
+- `status`: Tracks the learning lifecycle (`not_started`, `learning`, `paused`, `archived`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `difficulty`: A normalized categorization of the topic's complexity [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `dependencies`: An array of `palee_id` strings representing prerequisite topics [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ### Topic Data Flow
 
@@ -53,7 +57,7 @@ flowchart LR
     F --> D
 ```
 
-Sources:[src/types.ts#49-59](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L49-L59)[src/cli/adopt.ts#13-18](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L13-L18)[src/cli/adopt.ts#53-62](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L53-L62)
+Sources:[src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 
 ---
 
@@ -73,7 +77,7 @@ Feynman technique evaluation carries double weighting (40%) to prioritize true c
 | `feynman` | `number` | Ability to explain the topic simply to others (0.0 to 1.0, 40% weight). |
 | `assessed_at` | `string \| null` | ISO timestamp of the last assessment update. |
 
-Sources:[src/types.ts#3-9](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L3-L9)[planning/invariants.md#33](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L33)[examples/Docker Fundamentals.md#9-12](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1#L9-L12)
+Sources:[src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)
 
 ---
 
@@ -83,13 +87,13 @@ The `Review` object stores the Spaced Repetition System (SRS) state, implementin
 
 ### SRS Fields
 
-- `ease_factor`: The multiplier for the next interval (default `2.5`, minimum `1.3`) [src/types.ts#14](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L14-L14)
-- `interval_days`: The number of days until the next review [src/types.ts#12](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L12-L12)
-- `repetition`: Count of consecutive successful reviews [src/types.ts#13](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L13-L13)
-- `lapses`: Count of failed reviews (quality < 3) on learned topics [src/types.ts#15](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L15-L15)
-- `last_quality`: The most recent recall quality rating (0–5) [src/types.ts#16](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L16-L16)
-- `last_reviewed_at`: A date-only string (`YYYY-MM-DD`) recording when the topic was last reviewed [src/types.ts#17](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L17)
-- `due_at`: A date-only string (`YYYY-MM-DD`) indicating when the topic is next due for review [src/types.ts#18](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L18-L18)
+- `ease_factor`: The multiplier for the next interval (default `2.5`, minimum `1.3`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `interval_days`: The number of days until the next review [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `repetition`: Count of consecutive successful reviews [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `lapses`: Count of failed reviews (quality < 3) on learned topics [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `last_quality`: The most recent recall quality rating (0–5) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `last_reviewed_at`: A date-only string (`YYYY-MM-DD`) recording when the topic was last reviewed [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `due_at`: A date-only string (`YYYY-MM-DD`) indicating when the topic is next due for review [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 Review State Transition Logic
 
@@ -112,7 +116,7 @@ flowchart TD
     D --> E
 ```
 
-Sources:[src/cli/review.ts#73-88](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L73-L88)[src/engine/sm2.ts#80-82](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts#L80-L82)[src/types.ts#11-19](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L11-L19)
+Sources:[src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)[src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)[src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ---
 
@@ -130,7 +134,7 @@ The system provides a robust `normalizeDifficulty` function to handle varied use
 | Number | `>= 4` | `advanced` |
 | Unknown | `null`, `undefined`, "expert" | `intermediate` (Fallback) |
 
-Sources:[src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)[test/types-difficulty.test.ts#14-50](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L14-L50)
+Sources:[src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
 ---
 
@@ -161,4 +165,4 @@ const paleeData: Record<string, unknown> = {
 };
 ```
 
-Sources:[src/cli/adopt.ts#68-86](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L68-L86)[examples/Docker Fundamentals.md#1-20](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1#L1-L20)
+Sources:[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)[examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)

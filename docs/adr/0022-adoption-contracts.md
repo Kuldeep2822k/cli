@@ -1,3 +1,8 @@
+---
+description: "palee adopt writes palee_id and the SM-2/assessment frontmatter into the learner's own notes, and it is documented as strictly non-destructive. The..."
+---
+
+
 # ADR-0022: Adoption — Non-Destructive, Reversible, Honest About Filters
 
 ## Status

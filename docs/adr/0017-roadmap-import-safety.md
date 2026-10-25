@@ -1,3 +1,8 @@
+---
+description: "palee roadmap --from rewrites depends_on across the whole vault, and it is the one command whose blast radius is the entire graph rather than a single note..."
+---
+
+
 # ADR-0017: Roadmap Import Safety
 
 ## Status

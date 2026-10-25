@@ -1,13 +1,17 @@
+---
+description: "This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types..."
+---
+
+
 # Data Model and Types
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/index.ts)
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
-</details>
+:::
 
 This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types are defined in [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
 
@@ -49,7 +53,7 @@ flowchart LR
     E --> G
 ```
 
-Sources: [src/types.ts#17-389](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L389)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ---
 
@@ -57,20 +61,20 @@ Sources: [src/types.ts#17-389](https://github.com/Kuldeep2822k/cli/blob/main/src
 
 The learning model is centered around the `Topic` interface, which represents the state of a single note within the Obsidian vault.
 
-- **`Topic`**: The primary unit of learning, containing metadata, mastery status, and scheduling data [src/types.ts#104-125](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L104-L125).
-- **`Assessment`**: A four-pillar model (Conceptual, Practical, Debug, Feynman) used to track mastery levels [src/types.ts#17-28](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L28).
-- **`Review`**: Contains the Spaced Repetition System (SRS) state, including ease factor, repetition count, lapses, and next due date [src/types.ts#38-53](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L38-L53).
-- **`Difficulty`**: Union type `'beginner' | 'intermediate' | 'advanced'` [src/types.ts#58](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L58).
+- **`Topic`**: The primary unit of learning, containing metadata, mastery status, and scheduling data [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`Assessment`**: A four-pillar model (Conceptual, Practical, Debug, Feynman) used to track mastery levels [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`Review`**: Contains the Spaced Repetition System (SRS) state, including ease factor, repetition count, lapses, and next due date [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`Difficulty`**: Union type `'beginner' | 'intermediate' | 'advanced'` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
 
 For details on how these fields are used in the SRS algorithm and frontmatter, see [Topic and Assessment Schema](./05-1-topic-and-assessment-schema.md).
 
-Sources: [src/types.ts#17-125](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L17-L125)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ---
 
 ### Difficulty Normalization
 
-PALEE uses a strict `Difficulty` union type: `'beginner' | 'intermediate' | 'advanced'` [src/types.ts#21](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L21). To handle varied user input from the CLI or Markdown frontmatter, the system provides a `normalizeDifficulty` utility.
+PALEE uses a strict `Difficulty` union type: `'beginner' | 'intermediate' | 'advanced'` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts). To handle varied user input from the CLI or Markdown frontmatter, the system provides a `normalizeDifficulty` utility.
 
 | Input Type | Value | Result |
 | --- | --- | --- |
@@ -80,7 +84,7 @@ PALEE uses a strict `Difficulty` union type: `'beginner' | 'intermediate' | 'adv
 | Numeric | `4`, `5` or `"4"`, `"5"` | `'advanced'` |
 | Fallback | `null`, `undefined`, "expert" | `'intermediate'` |
 
-Sources: [src/types.ts#29-47](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L29-L47)[test/types-difficulty.test.ts#14-50](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts#L14-L50)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
 ---
 
@@ -147,11 +151,11 @@ function formatSessionSummary(session: Session): string {
 
 #### Memory and Synchronization Types
 
-- **`DraftRecoveryAction`**: Union of user choices when resuming or processing an unfinished draft session (`'resume' | 'save' | 'discard' | 'ignore'`) [src/types.ts#231](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L231).
-- **`HotMemoryData`**: Represents the runtime state stored in `.palee/hot.md`, caching `memory_id`, `active_topic`, `last_session`, and `updated_at` [src/types.ts#182-193](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L182-L193).
-- **`LockData`**: Payload written into `.palee/locks/<hash>.lockdir/<lock_id>.json` containing `lock_id`, `target`, `pid`, `hostname`, and `created_at` [src/types.ts#255-266](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L255-L266).
+- **`DraftRecoveryAction`**: Union of user choices when resuming or processing an unfinished draft session (`'resume' | 'save' | 'discard' | 'ignore'`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`HotMemoryData`**: Represents the runtime state stored in `.palee/hot.md`, caching `memory_id`, `active_topic`, `last_session`, and `updated_at` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`LockData`**: Payload written into `.palee/locks/<hash>.lockdir/<lock_id>.json` containing `lock_id`, `target`, `pid`, `hostname`, and `created_at` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
 
-Sources: [src/types.ts#141-231](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L141-L231)[src/storage/memory.ts#1-214](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L1-L214)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 
 ---
 
@@ -159,15 +163,15 @@ Sources: [src/types.ts#141-231](https://github.com/Kuldeep2822k/cli/blob/main/sr
 
 These types support the internal workings of the storage layer and the command-line interface.
 
-- **`PaleeConfig`**: Defines user environment settings in `config.json`, including `vaultPath`, `aiProvider`, and `model`. The file is read from `$PALEE_CONFIG_DIR` when set — otherwise the per-user `%LOCALAPPDATA%\palee` on Windows, the per-user `~/.config/palee` elsewhere — so each user account keeps its own default vault path, provider and model [src/types.ts#238-245](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L238-L245)[src/cli/config.ts#29-43](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L29-L43).
-- **`CacheEntry<T>`**: Generic schema for in-memory file cache entries tracking `mtime`, `size`, `fingerprint`, `data`, and `lastVerified` [src/types.ts#275-286](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L275-L286).
-- **`FrontmatterResult`**: Result object from CST parsing holding `frontmatter`, `body`, `raw`, `doc`, and optional `error` [src/types.ts#293-305](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L293-L305).
-- **`ValidationError` & `ValidationResult`**: Vault integrity error representations (`duplicate_id`, `missing_dependency`, `cycle`) and aggregated validation status [src/types.ts#311-336](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L311-L336).
-- **CLI Options**: Specific argument interfaces including `AdoptOptions`, `NextOptions`, `PlanOptions`, `DashboardOptions`, `ProgressOptions`, `ValidateOptions`, `SessionOptions`, and `RoadmapOptions` [src/types.ts#396-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L396-L484).
+- **`PaleeConfig`**: Defines user environment settings in `config.json`, including `vaultPath`, `aiProvider`, and `model`. The file is read from `$PALEE_CONFIG_DIR` when set — otherwise the per-user `%LOCALAPPDATA%\palee` on Windows, the per-user `~/.config/palee` elsewhere — so each user account keeps its own default vault path, provider and model [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts).
+- **`CacheEntry<T>`**: Generic schema for in-memory file cache entries tracking `mtime`, `size`, `fingerprint`, `data`, and `lastVerified` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`FrontmatterResult`**: Result object from CST parsing holding `frontmatter`, `body`, `raw`, `doc`, and optional `error` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **`ValidationError` & `ValidationResult`**: Vault integrity error representations (`duplicate_id`, `missing_dependency`, `cycle`) and aggregated validation status [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
+- **CLI Options**: Specific argument interfaces including `AdoptOptions`, `NextOptions`, `PlanOptions`, `DashboardOptions`, `ProgressOptions`, `ValidateOptions`, `SessionOptions`, and `RoadmapOptions` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts).
 
 For details on configuration paths and CLI flags, see [Configuration and CLI Option Types](./05-2-configuration-and-cli-option-types.md).
 
-Sources: [src/types.ts#234-484](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L234-L484)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ---
 
@@ -195,6 +199,6 @@ flowchart LR
     TN --> VE
 ```
 
-Sources: [src/types.ts#343-389](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L343-L389)
+Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 > **Gating semantics (ADR cross-references).** How a `depends_on` list is interpreted is not a plain graph walk: the additive `depends_on_source` field makes `toc`/`tie` edges advisory (never gating) while an absent or unrecognized label gates fail-closed — the binding rule is ADR-0009. Identity of a node across renames (`palee_id`, the value a rename preserves) is ADR-0015, and the storage-normalization of `depends_on`/`dependencies` with byte-fidelity on any frontmatter rewrite is ADR-0016.

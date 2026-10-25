@@ -1,6 +1,10 @@
+---
+description: "The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition..."
+---
+
+
 # Engine Core
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - [src/engine/index.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/index.ts)
@@ -10,7 +14,7 @@
 - [test/engine-mastery.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-mastery.test.ts)
 - [test/engine-sm2.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-sm2.test.ts)
 
-</details>
+:::
 
 The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition scheduling, pedagogical mastery evaluation, and curriculum dependency sequencing. Operating without file system I/O or CLI dependencies, every engine calculation is deterministic: identical inputs (review quality, assessment pillar scores, topic graph topology) always yield identical outputs (next review due date, weighted mastery score, ready topic queue).
 
@@ -18,7 +22,7 @@ The engine is structured into three dedicated subsystems:
 
 1. **SM-2 Spaced Repetition Engine** (`src/engine/sm2.ts`): Schedules individual topic review intervals, computes Ease Factor deltas, tracks retention lapses, and executes DST-safe calendar date math.
 2. **4-Pillar Pedagogical Mastery Engine** (`src/engine/mastery.ts`): Evaluates holistic learner competency across Conceptual, Practical, Debugging, and Feynman dimensions with double-weighted communication scoring and score clamping.
-3. **Dependency Graph Engine** (`src/engine/dependency.ts`): Manages prerequisite graphs as a Directed Acyclic Graph (DAG), validates graph integrity, detects circular references via 3-color Depth-First Search (DFS), and calculates prerequisite readiness against the `0.70` mastery threshold.
+3. **Dependency Graph Engine** (`src/engine/dependency.ts`): Manages prerequisite graphs as a Directed Acyclic Graph (DAG), validates graph integrity, detects circular references via iterative Tarjan SCC analysis, and calculates prerequisite readiness against the `0.70` mastery threshold.
 
 ---
 
@@ -56,7 +60,7 @@ flowchart TD
     subgraph DepSub ["3. Dependency Graph Subsystem (src/engine/dependency.ts)"]
         DEP_READY["getReadyTopics()"]
         DEP_SAT["areDependenciesSatisfied()"]
-        DEP_CYCLE["detectCycle() (3-Color DFS)"]
+        DEP_CYCLE["detectCycle() (Tarjan SCC)"]
         DEP_VAL["validateDependencyGraph()"]
         DEP_EXT["getTopicDependencies()"]
     end
@@ -136,7 +140,7 @@ Rather than reducing topic comprehension to a single 1-dimensional recall score,
 
 The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts.
 
-- **3-Color DFS Cycle Detection**: Traverses prerequisites using White (unvisited), Gray (visiting / recursion stack), and Black (visited / fully settled) node states. Re-encountering a Gray node detects a cyclic back-edge, returning the exact cycle path slice from `pathStack`.
+- **SCC Cycle Detection**: `computeSccs` runs an iterative Tarjan pass over the prerequisite edge map. Multi-node components are cyclic, as are single-node components with a self-edge. `detectCycle` returns the lexicographically smallest canonical cycle; `detectCycles` uses Johnson enumeration when every distinct loop is needed.
 - **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in the canonical `depends_on` array exist in the vault and possess `topic_mastery >= 0.70`.
 - **Ready Topic Queuing**: `getReadyTopics` scans the vault, filtering for unmastered topics (`topic_mastery < 0.70`) whose prerequisites are fully satisfied.
 - **Topological Integrity Validation**: `validateDependencyGraph` inspects the entire graph, detecting dangling prerequisites (`missing_dependency`) and circular loops (`cycle`).
@@ -154,21 +158,21 @@ The following diagram illustrates how raw topic inputs flow through the three en
 ```mermaid
 flowchart TD
     subgraph Inputs ["Input Data Space (Markdown Frontmatter)"]
-        InReview["SRS State:<br/>- ease_factor (default: 2.5)<br/>- interval_days (default: 1)<br/>- repetition (default: 0)<br/>- lapses (default: 0)<br/>+ Review Quality: q &isin; {0,1,2,3,4,5}"]
-        InPillars["4 Assessment Pillars:<br/>- conceptual &isin; [0.0, 1.0]<br/>- practical &isin; [0.0, 1.0]<br/>- debug &isin; [0.0, 1.0]<br/>- feynman &isin; [0.0, 1.0]"]
-        InGraph["Graph Topology:<br/>- palee_id<br/>- depends_on (canonical, storage-normalized)<br/>- topic_mastery &isin; [0.0, 1.0]"]
+        InReview["SRS State<br/>EF 2.5 · interval 1<br/>rep 0 · lapses 0<br/>quality q &isin; 0..5"]
+        InPillars["4 Pillars<br/>conceptual · practical<br/>debug · feynman<br/>each &isin; [0, 1]"]
+        InGraph["Graph<br/>palee_id<br/>depends_on (normalized)<br/>topic_mastery &isin; [0, 1]"]
     end
 
     subgraph Processing ["Engine Core Processing (Pure Functions)"]
         ProcSM2["processReview(current, quality)<br/>computeDueDate(now, newInterval)"]
         ProcMastery["computeTopicMastery(c, p, d, f)<br/>normalizeScore(pillar)"]
-        ProcDep["areDependenciesSatisfied(topic, topics, 0.70)<br/>getReadyTopics(topics, 0.70)<br/>detectCycle(topics)"]
+        ProcDep["areDependenciesSatisfied(...)<br/>getReadyTopics(...)<br/>detectCycle(...)"]
     end
 
     subgraph Outputs ["Output Results (Deterministic Data)"]
-        OutSM2["Updated Review State:<br/>- ease_factor &ge; 1.30<br/>- interval_days<br/>- repetition<br/>- lapses<br/>- due_at (Date)"]
-        OutMastery["Topic Mastery Score:<br/>- topic_mastery &isin; [0.0, 1.0]<br/>- is_mastered = (score &ge; 0.70)"]
-        OutDep["Curriculum Queue & Health:<br/>- Ready Topics (TopicNode[])<br/>- ValidationResult (valid, errors[])"]
+        OutSM2["Updated Review State<br/>EF &ge; 1.30 · interval<br/>repetition · lapses<br/>due_at"]
+        OutMastery["topic_mastery &isin; [0, 1]<br/>is_mastered = score &ge; 0.70"]
+        OutDep["Ready Topics (TopicNode[])<br/>ValidationResult(valid, errors[])"]
     end
 
     InReview --> ProcSM2

@@ -1,7 +1,11 @@
+---
+description: "Topic management commands handle the ingestion, configuration, and structural lifecycle of learning material within an Obsidian vault. These commands allow..."
+---
+
+
 # Topic Management Commands
 
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts)
@@ -16,7 +20,7 @@
 - [test/storage-pattern-matcher.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-pattern-matcher.test.ts)
 - [test/types-difficulty.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/types-difficulty.test.ts)
 
-</details>
+:::
 
 Topic management commands handle the ingestion, configuration, and structural lifecycle of learning material within an Obsidian vault. These commands allow you to adopt existing Markdown notes as tracked PALEE topics, batch-import structured curricula via YAML roadmaps, and verify metadata schema consistency across your vault.
 
@@ -104,7 +108,8 @@ Because the anchored form can name a path that does not exist, a batch run count
 ```
   Excluded (Pattern): 0 notes
 ⚠ Warning: --exclude 'a/*.md' matched no file in this scope; check the pattern.
-    It contains `/`, so it is matched against the whole vault-relative path from the root, not against a filename — see `palee adopt --help`.
+    It contains `/`, so it is matched against the whole vault-relative path
+    from the root, not against a filename - see `palee adopt --help`.
 ```
 
 `--verbose` prints the same accounting per pattern (`--exclude '*draft*': 1 of 3 files`), and a pattern that matched at least one file produces no warning.
@@ -297,14 +302,14 @@ The following table lists all options for `palee roadmap` [src/types.ts `Roadmap
 
 ### Curriculum Validation & Graph Integrity Engine
 
-Before performing file creation or modification, `roadmapCommand` executes a comprehensive preflight validation pass [src/cli/roadmap.ts#59-132](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts#L59-L132):
+Before performing file creation or modification, `roadmapCommand` executes a comprehensive preflight validation pass [src/cli/roadmap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/roadmap.ts):
 
 1. **Schema Structure**: Confirms the roadmap contains a valid `topics` list with non-empty `id`, `title`, and `path` fields. An `id` that is present but violates the centralized topic-ID policy in [src/engine/topic-id.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/topic-id.ts) — `T-` plus lowercase kebab-case segments, with the exact legacy adopt-generated format still accepted — is rejected here too, naming the offending id and the rule, so a roadmap whose ids `palee validate` would later refuse never reaches the disk (#308).
 2. **Duplicate Detection**: Verifies there are no duplicate `id` values or duplicate target `path` locations.
 3. **Vault Boundary & Path Visibility**: Ensures all target topic paths reside within the vault boundary and do not escape via symlinked parent directories, and that each declared path is a note the rest of the CLI can see. A path with a dot-named segment, or one with no name before its extension, is rejected here: `path: .md` makes `path.extname('.md')` empty, so the writer creates a directory named `.md`, drops a note inside it, reports "Created: 1 notes" and exits `0` — while `walkVault` never lists anything under a dot-named segment, so no other command ever loads the note it promised to create.
 4. **Identity Preservation**: A topic entry may not name a different `palee_id` for a note the vault already adopted. Writing a new id over that path retires the id every existing edge names, and a dependent note whose prerequisite resolves to nothing stays out of `palee plan` for good while `palee validate` counts a missing dependency only as a warning and exits `0`. Such an entry is rejected here with both ids and the note path named, and nothing is written; re-importing a roadmap under the ids its notes already carry is unaffected.
 5. **Dependency Resolution**: Checks that every prerequisite ID in `depends_on` exists either in the roadmap or within existing vault notes.
-6. **3-Color DFS Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
+6. **SCC Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
 
 ### Idempotent Updates, Safe Directory Management & Batch Resilience
 
@@ -396,6 +401,10 @@ Schema v1: 42 notes
 | `--include-unlabeled-ties` | Also reach notes carrying **no** `depends_on_source` key at all — the shape notes adopted before that label existed were left in. Opt-in because such a note is byte-identical whether the chain or a person wrote its list, so this writes a key that was never there rather than correcting one. |
 | `--dry-run` | With `--relabel-ties`, print every note it would touch and write nothing. Unlike the audit preview, a dry run is never truncated to five. |
 
+::: warning `--relabel-ties` edits note frontmatter
+The pass rewrites the `depends_on_source` label on each demotable note. Run it with `--dry-run` first and keep the vault under version control or backed up.
+:::
+
 A note is demoted only when the numbered plan really could have produced its edge:
 
 1. exactly **one** stored prerequisite, pointing **backward** in filename order;
@@ -432,11 +441,26 @@ After a write: `✓ Relabelled N of M notes to depends_on_source: tie`, annotate
 
 Topic management commands follow the standardized PALEE exit code contract:
 
-| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee adopt` | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. | OCC conflict during atomic write (`isConflictError`). | Batch rollback error or unhandled file system exception. |
-| `palee roadmap` | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`. | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
-| `palee migrate` | All notes verified to be schema v1. | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". | Unexpected runtime exception or YAML parsing error. |
+Only exits a command can produce are listed; codes it never returns are omitted.
+
+| Command | Exit | Behavior |
+| :--- | :---: | :--- |
+| `palee adopt` | 0 | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). |
+| `palee adopt` | 2 | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. |
+| `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. |
+| `palee adopt` | 4 | OCC conflict during atomic write (`isConflictError`). |
+| `palee adopt` | 5 | Batch rollback error or unhandled file system exception. |
+| `palee roadmap` | 0 | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. |
+| `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
+| `palee roadmap` | 2 | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. |
+| `palee roadmap` | 3 | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`. |
+| `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
+| `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
+| `palee migrate` | 0 | All notes verified to be schema v1. |
+| `palee migrate` | 2 | Unconfigured or non-existent vault path. |
+| `palee migrate` | 3 | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). |
+| `palee migrate` | 4 | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". |
+| `palee migrate` | 5 | Unexpected runtime exception or YAML parsing error. |
 
 ---
 
@@ -447,6 +471,6 @@ Topic management commands follow the standardized PALEE exit code contract:
 | **Topic ID Prefix** | `T-` | UTC date and time + 8-character hex entropy (32 bits): `T-YYYYMMDD-HHMMSS-<hex>`, e.g. `T-20260830-120000-a1b2c3d4`. The pre-#29 form `T-YYYYMMDDTHHMMSS-<hex>` stays valid for ids already minted in it. | [src/engine/topic-id.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/topic-id.ts) |
 | **Default Ease Factor** | `2.5` | Initial SuperMemo SM-2 difficulty multiplier. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
 | **Initial Interval** | `1` day | Spaced repetition review interval after initial adoption. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
-| **Default Difficulty** | `intermediate` | Baseline topic complexity level. | [src/cli/adopt.ts#144](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts#L144) |
+| **Default Difficulty** | `intermediate` | Baseline topic complexity level. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |
 | **Mastery Threshold** | `0.70` | Required mastery score to unlock dependent child topics. | [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts) |
 | **Schema Version** | `1` | Current PALEE metadata schema version. | [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts) |

@@ -1,3 +1,8 @@
+---
+description: "Four Phase-2 designs are fully specified in the issue tracker and recorded nowhere durable. Each one is a decision about what the AI may and may not do, made..."
+---
+
+
 # ADR-0028: Phase-2 Design Directions
 
 ## Status

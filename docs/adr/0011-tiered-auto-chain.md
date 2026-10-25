@@ -1,3 +1,8 @@
+---
+description: "ADR-0009 established that only three things may gate: the learner's own list, the numbered tree, and the note's own declaration (ADR-0012). This ADR records..."
+---
+
+
 # ADR-0011: Tiered Auto-Chain — strict | full
 
 ## Status

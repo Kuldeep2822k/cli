@@ -1,3 +1,8 @@
+---
+description: "Obsidian vaults are local directories modified by users, sync services (Obsidian Sync, iCloud, Dropbox, OneDrive), and automated CLI tools concurrently. We..."
+---
+
+
 # ADR-0002: Atomic File Locking and Optimistic Concurrency Control
 
 ## Status

@@ -1,4 +1,13 @@
-# ADR-0035: `--fix` mastery repair skips topics with partial pillar data
+---
+description: "palee validate --fix recomputes topic_mastery via applyMasteryRepairs, which zero-fills absent pillars before calling computeTopicMastery. The..."
+---
+
+
+# ADR-0035: `--fix` Mastery Repair and Partial Pillar Eligibility
+
+## Status
+
+Accepted (2026-10-22)
 
 ## Context
 

@@ -1,3 +1,8 @@
+---
+description: "Phase 1 is deterministic and offline: palee next, plan, review, validate, adopt, roadmap --from and migrate open no sockets. Phase 2 needs a provider, and..."
+---
+
+
 # ADR-0027: The AI Provider Adapter and Its Network Boundary
 
 ## Status

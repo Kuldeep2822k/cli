@@ -1,3 +1,8 @@
+---
+description: "topic_mastery is the only thing that opens a prerequisite gate — areDependenciesSatisfied blocks a topic until every prerequisite reaches 0.70 — and until..."
+---
+
+
 # ADR-0021: The Assessment Surface
 
 ## Status

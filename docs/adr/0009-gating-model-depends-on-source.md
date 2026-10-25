@@ -1,3 +1,8 @@
+---
+description: "palee adopt --auto-chain used to chain every note in scan order, and filesystem order was treated as prerequisite order. A 10-repository burn-in of 9,713..."
+---
+
+
 # ADR-0009: The Gating Model — What May Lock a Note
 
 ## Status

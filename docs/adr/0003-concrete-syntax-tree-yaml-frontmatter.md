@@ -1,3 +1,8 @@
+---
+description: "PALEE stores metadata (mastery scores, SM-2 parameters, topic IDs, dependencies) inside Markdown frontmatter headers (--- ... ---). Users frequently..."
+---
+
+
 # ADR-0003: Non-Destructive Frontmatter Updates via YAML Document API
 
 ## Status

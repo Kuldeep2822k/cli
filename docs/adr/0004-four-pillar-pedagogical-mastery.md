@@ -1,3 +1,8 @@
+---
+description: "Traditional flashcard spaced repetition models measure recall as a 1-dimensional score. However, real-world engineering and technical mastery requires..."
+---
+
+
 # ADR-0004: Four-Pillar Pedagogical Assessment Model
 
 ## Status

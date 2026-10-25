@@ -1,3 +1,8 @@
+---
+description: "Two independent defects, one theme: a comparison or a rewrite that half-applied a rule the rest of the pipeline applied fully. Both produced silent..."
+---
+
+
 # ADR-0016: Frontmatter Byte Fidelity and Unicode Fold Discipline
 
 ## Status

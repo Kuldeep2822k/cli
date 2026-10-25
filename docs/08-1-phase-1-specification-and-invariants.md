@@ -1,6 +1,10 @@
+---
+description: "This page summarizes the foundational specifications, architectural requirements, and safety invariants established for Phase 1 of the PALEE (Personal..."
+---
+
+
 # Phase 1 Specification and Invariants
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)
 - [CHANGELOG.md](https://github.com/Kuldeep2822k/cli/blob/main/CHANGELOG.md?plain=1)
@@ -8,13 +12,13 @@
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
-</details>
+:::
 
 This page summarizes the foundational specifications, architectural requirements, and safety invariants established for Phase 1 of the PALEE (Personal Active Learning & Evaluation Engine) CLI. Phase 1 focuses on a deterministic, AI-free core that handles storage, spaced repetition, and dependency management with high reliability.
 
 ## 1. Solution Architecture
 
-PALEE is designed with a strict separation of concerns, ensuring that the engine remains deterministic and reliable even when AI features are added in later phases [planning/palee_cli_spec.md#20-22](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L20-L22)
+PALEE is designed with a strict separation of concerns, ensuring that the engine remains deterministic and reliable even when AI features are added in later phases [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 ### 1.1 Architectural Layers
 
@@ -25,7 +29,7 @@ PALEE is designed with a strict separation of concerns, ensuring that the engine
 | Tool Interface | Validated mutation contract for state changes. | `src/types.ts` |
 | CLI Layer | Deterministic commands (e.g., `next`, `plan`, `review`). | `src/cli/`, `bin/palee.ts` |
 
-Sources: [planning/palee_cli_spec.md#23-84](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L23-L84)
+Sources: [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 ### 1.2 Data Flow: Command Execution
 
@@ -55,7 +59,7 @@ flowchart LR
     AW --> User
 ```
 
-Sources: [planning/palee_cli_spec.md#50-83](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L50-L83)[planning/palee_cli_spec.md#139-147](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L139-L147)[planning/invariants.md#5-18](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L5-L18)
+Sources: [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
 ---
 
@@ -76,7 +80,7 @@ Invariants are non-negotiable rules that the codebase must satisfy to ensure dat
 - Interval Logic: A `quality < 3` result resets repetition to 0 and interval to 1 [planning/invariants.md — INV-16](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 - Mastery Calculation: `topic_mastery` is calculated as `round((conceptual + practical + debug + (feynman * 2)) / 5, 4)`[planning/invariants.md — INV-21](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)
 
-Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/palee_cli_spec.md#149-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L149-L160)
+Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 
 ---
 
@@ -86,14 +90,14 @@ Phase 1 implements a set of deterministic commands designed for both human use a
 
 | Command | Purpose | Output/Contract |
 | --- | --- | --- |
-| `adopt` | Injects `palee_id` and schema into a note. | Adds `palee_schema: 1`[planning/palee_cli_spec.md#122-125](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L122-L125) |
+| `adopt` | Injects `palee_id` and schema into a note. | Adds `palee_schema: 1`[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1) |
 | `next` | Suggests the next topic based on due date and dependencies. | Supports `--json` for automation [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1) |
-| `plan` | Generates an ordered study session. | Respects `depends_on` graph [planning/palee_cli_spec.md#70](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L70-L70) |
+| `plan` | Generates an ordered study session. | Respects `depends_on` graph [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1) |
 | `validate` | Checks for cycles and missing dependencies. | Reports exact cycle paths [planning/invariants.md — INV-25](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1) |
 
 ### Topic Identification Logic
 
-The system uses a stable `palee_id` as the primary identifier. Topic matching is one shared resolver, `resolveTopicQuery` (`src/cli/topic-query.ts`), used by `review`, `assess`, `progress` and `session`: an exact `palee_id` wins outright, and otherwise a partial ID substring or a case-insensitive title substring must match exactly one topic — no match, or several candidates, errors with exit code 2 and lists the candidates (`src/cli/review.ts`, `src/cli/assess.ts`, `src/cli/progress.ts`). When nothing matched by ID or title, the query is compared against each note's vault-relative path, because `next`, `plan` and `adopt` print that path as a topic's identifier and refusing it back was a defect of the same size as accepting it (#313); the path comparison is exact after separator folding, case-folded only on win32, and it can never shadow an ID/title match. `session start`/`session draft`/`session end` resolve `--topic` through the same resolver (#302), so a query naming nothing or several things is refused at exit 2 instead of being written into `.palee/sessions/` verbatim, and a query that resolves is recorded as the topic's canonical `palee_id` rather than the words the learner typed. When the flag is omitted the fallback stays hot memory's `active_topic` and is deliberately not re-resolved (`resolveSessionTopic` in `src/cli/session.ts`): `hot.md` is canonical, and a learner must still be able to end a session whose note was renamed or deleted mid-flight. The full precedence ladder — exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match — is the specified contract [planning/invariants.md#42](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1#L42-L42) with the interactive disambiguation contract in [planning/palee_cli_spec.md#203](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1#L203-L203), and is tracked as Planned in [08-2](https://github.com/Kuldeep2822k/cli/blob/main/docs/08-2-future-ai-module-and-phase-2-design.md)
+The system uses a stable `palee_id` as the primary identifier. Topic matching is one shared resolver, `resolveTopicQuery` (`src/cli/topic-query.ts`), used by `review`, `assess`, `progress` and `session`: an exact `palee_id` wins outright, and otherwise a partial ID substring or a case-insensitive title substring must match exactly one topic — no match, or several candidates, errors with exit code 2 and lists the candidates (`src/cli/review.ts`, `src/cli/assess.ts`, `src/cli/progress.ts`). When nothing matched by ID or title, the query is compared against each note's vault-relative path, because `next`, `plan` and `adopt` print that path as a topic's identifier and refusing it back was a defect of the same size as accepting it (#313); the path comparison is exact after separator folding, case-folded only on win32, and it can never shadow an ID/title match. `session start`/`session draft`/`session end` resolve `--topic` through the same resolver (#302), so a query naming nothing or several things is refused at exit 2 instead of being written into `.palee/sessions/` verbatim, and a query that resolves is recorded as the topic's canonical `palee_id` rather than the words the learner typed. When the flag is omitted the fallback stays hot memory's `active_topic` and is deliberately not re-resolved (`resolveSessionTopic` in `src/cli/session.ts`): `hot.md` is canonical, and a learner must still be able to end a session whose note was renamed or deleted mid-flight. The full precedence ladder — exact ID, exact title/filename, legacy alias, normalized slug, then token-distance match — is the specified contract [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1) with the interactive disambiguation contract in [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1), and is tracked as Planned in [08-2](https://github.com/Kuldeep2822k/cli/blob/main/docs/08-2-future-ai-module-and-phase-2-design.md)
 
 Entity Mapping: Natural Language to Code
 
@@ -101,7 +105,7 @@ Entity Mapping: Natural Language to Code
 flowchart TD
     subgraph subGraph1 ["Code Entities (src/)"]
         TopicInterface["interface Topic (types.ts)"]
-        SM2Func["computeNextState (engine/sm2.ts)"]
+        SM2Func["processReview (engine/sm2.ts)"]
         VaultWalker["walkVault (storage/vault-walker.ts)"]
         GraphEngine["TopicNode (engine/dependency.ts)"]
     end
@@ -135,7 +139,7 @@ All Phase 1 gates have been verified as of August 2026.
 
 ### Known Gaps (Phase 2)
 
-- AI Integration: `test` and `tutor` commands remain stubs until Phase 2 AI module implementation [planning/PHASE_2_GAPS.md#112-128](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L112-L128)
-- Transactional Auto-Fix: `validate --fix` performs the scoped BUG-003 repair — resetting corrupted `valid-review-fields` (SM-2) values to adopt defaults via OCC-safe atomic writes; the general transactional fix engine remains a future enhancement — fixability is modeled in rule metadata (`fixable`), the engine itself is deferred per [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
+- AI Integration: `test` and `tutor` are not shipped; they exist only as Phase 2 design. See [Future AI Module & Phase 2 Design](./08-2-future-ai-module-and-phase-2-design.md) and [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1).
+- Broader Auto-Fix: `validate --fix` ships three conservative repairs - rebuilding `.palee/hot.md` and `.palee/index.md`, recomputing `topic_mastery` when all four pillars are present, and resetting invalid SM-2 fields to adopt defaults via OCC-safe atomic writes. A general transactional fix engine for every `fixable` finding remains future work; see [ADR-0035](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0035-validate-fix-partial-pillar-eligibility.md) and [ADR-0008](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md).
 
-Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md#1-160](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1#L1-L160)
+Sources: [planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)

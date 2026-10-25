@@ -1,7 +1,11 @@
+---
+description: "The review and scheduling commands drive PALEE's active learning loop. They orchestrate spaced repetition calculations via the SuperMemo SM-2 algorithm,..."
+---
+
+
 # Review and Scheduling Commands
 
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts)
 - [src/cli/next.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/next.ts)
@@ -13,7 +17,7 @@
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
 
-</details>
+:::
 
 The review and scheduling commands drive PALEE's active learning loop. They orchestrate spaced repetition calculations via the SuperMemo SM-2 algorithm, identify overdue topics, and build daily study schedules using the DAG Dependency Graph Engine.
 
@@ -23,7 +27,7 @@ The review and scheduling commands drive PALEE's active learning loop. They orch
 
 The `palee review` command records active recall test results for a topic note, updating its Spaced Repetition System (SRS) state and computing the next review date (`due_at`).
 
-### Command Syntax
+### Review Syntax
 
 ```bash
 palee review <topic> <quality> [--force]
@@ -58,7 +62,8 @@ note was actually due:
   Next interval: 1 day(s)
   Due: 2026-08-25
   Repetitions: 2
-  ⚠ Reviewed early - this note was not due until 2026-09-30; counting it now compounds the interval off-schedule
+  ⚠ Reviewed early - this note was not due until 2026-09-30;
+    counting it now compounds the interval off-schedule
   Pass --force to record early reviews without this warning.
 ```
 
@@ -74,7 +79,7 @@ lives in the application layer (`src/application/record-review.ts`), never in
 
 ### SuperMemo SM-2 Quality Scale
 
-PALEE implements the standard 6-point SuperMemo recall grading scale [src/cli/review.ts#20-25](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L20-L25):
+PALEE implements the standard 6-point SuperMemo recall grading scale [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts):
 
 | Quality (`q`) | Recall Classification | Effect on SM-2 Interval | Effect on Ease Factor (`EF`) |
 | :---: | :--- | :--- | :--- |
@@ -89,7 +94,7 @@ PALEE implements the standard 6-point SuperMemo recall grading scale [src/cli/re
 
 ### Review State Transition Logic
 
-When `palee review` executes [src/cli/review.ts#58-115](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts#L58-L115):
+When `palee review` executes [src/cli/review.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/review.ts):
 
 1. **Topic Resolution**: Discovers candidate notes by checking exact ID matches, ID substring matches, and case-insensitive title substring matches. If multiple notes match, it lists all candidates and exits with code `2` to prevent ambiguous writes. If *nothing* matched, the query is compared once against each note's vault-relative path — `next` and `plan` print that path, so feeding the displayed identifier back is a valid lookup, not a refusal. The path comparison is exact after folding `\` to `/` (and case on Windows, where the filesystem does the same); because an ID or title hit is settled first, the path reading can never dislodge a match the learner already had (#313).
 2. **SM-2 State Calculation**:
@@ -142,7 +147,7 @@ flowchart TD
 
 The `palee next` command surfaces topics currently due for review whose prerequisites are satisfied. It acts as the primary "what should I study right now?" entrypoint.
 
-### Syntax & Options
+### Next Syntax & Options
 
 ```bash
 palee next [flags]
@@ -264,7 +269,7 @@ $ palee next --json | jq .
 
 The `palee plan` command generates a comprehensive daily learning schedule, combining due reviews with new topics that have met prerequisite mastery requirements.
 
-### Syntax & Options
+### Plan Syntax & Options
 
 ```bash
 palee plan [flags]
@@ -307,7 +312,8 @@ Ready to Learn: 2
   • Unsafe Abstractions (T-20260814T120400-qrst) - advanced
 
 Blocked by prerequisites: 1
-  • Zero-Copy FFI (T-20260814T120300-mnop) — waiting on Unsafe Abstractions (T-20260814T120400-qrst) at mastery 0.4000, needs 0.70
+  • Zero-Copy FFI (T-20260814T120300-mnop) — waiting on Unsafe Abstractions
+    (T-20260814T120400-qrst) at mastery 0.4000, needs 0.70
 
 Progress Summary:
   Total Topics: 12
@@ -324,7 +330,7 @@ In `--json`, `reviews_due` and `counts.due` carry that same gated-in list, so `c
 
 `palee review` records recall quality; `palee assess` records competence. It writes pillar scores on a topic note, recomputes `topic_mastery`, and reports what that recompute did to the notes gated behind it. Mastery is what opens a prerequisite gate, and `assess` is the only command that raises it from scores the learner types — `review`, `adopt`, `roadmap` and `validate --fix` also write `topic_mastery`, but each of them *derives* it from values already on the note, and only `assess` stamps `assessed_at`. So `assess` is the one remedy a learner has for a gate they believe is wrong, and the one that can also close a gate again (see [ADR-0021](./adr/0021-assessment-surface.md) and [ADR-0009](./adr/0009-gating-model-depends-on-source.md)).
 
-### Command Syntax
+### Assess Syntax
 
 ```bash
 palee assess <topic> [--conceptual N] [--practical N] [--debug N] [--feynman N] [--dry-run] [--force]
@@ -387,10 +393,14 @@ A lowered mastery closes the gate it had opened, so the notes that were ready be
   feynman     0
   mastery     0.9 → 0
   Below the 0.70 threshold, so it still gates what depends on it.
-  The feynman pillar is 0, and mastery is (conceptual + practical + debug + 2 * feynman) / 5, so the other three cap at 0.60 and cannot reach 0.70. Score --feynman to lift this gate.
+  The feynman pillar is 0, and mastery is
+  (conceptual + practical + debug + 2 * feynman) / 5, so the other three cap
+  at 0.60 and cannot reach 0.70. Score --feynman to lift this gate.
   1 topic(s) are no longer offered by palee plan: T-001
-  ⚠ Lowered from 0.9 to 0 - these notes were ready while mastery sat above 0.70; palee plan stops offering them until it rises again
-  Pass --force to record a lowering assessment without this warning, or --dry-run to see it before you commit to it.
+  ⚠ Lowered from 0.9 to 0 - these notes were ready while mastery sat above 0.70;
+    palee plan stops offering them until it rises again
+  Pass --force to record a lowering assessment without this warning, or
+  --dry-run to see it before you commit to it.
 ```
 
 The warning is not a gate. `--force` drops the two lines above it and changes nothing else: the assessment is recorded and exits `0` either way, which is the same bargain `palee review --force` strikes with an early review (#301). Refusing a lowering outright would have made the honest case — a learner discovering they did not know the material — the expensive one.
@@ -405,9 +415,21 @@ The note is re-read immediately before the write and its fingerprint compared. A
 
 ## 5. Exit Codes for Review & Scheduling Commands
 
-| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee review` | Successfully recorded SM-2 review and calculated next interval and due date; an early review (#301) also prints a warning naming the previous due date unless `--force` is given. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. | N/A | OCC conflict during atomic write (`isConflictError`). | File write error or unexpected runtime exception. |
-| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the availability change reported; a lowering that re-hides dependents also prints a warning naming them unless `--force` is given, and `--dry-run` reports the same effect while writing nothing (#269). | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. A `--dry-run` reaches this too, because it performs the same re-read without writing. | Unexpected runtime exception. |
-| `palee next` | Successfully displayed next due topic, all due topics (`--all`), a fully prerequisite-gated queue (`status: "blocked"`), or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee plan` | Successfully displayed topological study plan or empty vault state. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
+Only exits a command can produce are listed; codes it never returns are omitted.
+
+| Command | Exit | Behavior |
+| :--- | :---: | :--- |
+| `palee review` | 0 | Successfully recorded SM-2 review and calculated next interval and due date; an early review (#301) also prints a warning naming the previous due date unless `--force` is given. |
+| `palee review` | 2 | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query. |
+| `palee review` | 4 | OCC conflict during atomic write (`isConflictError`). |
+| `palee review` | 5 | File write error or unexpected runtime exception. |
+| `palee assess` | 0 | Assessment recorded, `topic_mastery` recomputed, and the availability change reported; a lowering that re-hides dependents also prints a warning naming them unless `--force` is given, and `--dry-run` reports the same effect while writing nothing (#269). |
+| `palee assess` | 2 | No pillar score given, a score outside `0..1`, a stored pillar score that is unusable, topic not found, or an ambiguous query (every match is listed). |
+| `palee assess` | 4 | The note was modified, moved or deleted between the read and the write (`ECONFLICT`); re-run to retry. A `--dry-run` reaches this too, because it performs the same re-read without writing. |
+| `palee assess` | 5 | Unexpected runtime exception. |
+| `palee next` | 0 | Successfully displayed next due topic, all due topics (`--all`), a fully prerequisite-gated queue (`status: "blocked"`), or empty vault state. |
+| `palee next` | 2 | Unconfigured or non-existent vault path. |
+| `palee next` | 5 | Unexpected runtime exception or file read failure. |
+| `palee plan` | 0 | Successfully displayed topological study plan or empty vault state. |
+| `palee plan` | 2 | Unconfigured or non-existent vault path. |
+| `palee plan` | 5 | Unexpected runtime exception or graph calculation failure. |
