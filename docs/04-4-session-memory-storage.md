@@ -114,11 +114,11 @@ Sources: [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/s
 
 ## Topic Resolution Logic
 
-When starting or ending a session, the system must determine the `active_topic`. The `resolveSessionTopic` function follows a specific precedence [src/cli/session.ts#23-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L23-L53):
+When starting or ending a session, the system must determine the `active_topic`. The `resolveSessionTopic` function follows a specific precedence [src/cli/session.ts#91-150](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L91-L150):
 
-1. Explicit Flag: If `--topic <id>` is provided, it is used immediately [src/cli/session.ts#24-30](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L24-L30)
-2. Hot Memory: If no flag is provided, the system parses `.palee/hot.md` and looks for the `active_topic` key in the frontmatter [src/cli/session.ts#33-46](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L33-L46)
-3. None: If the value is `(none)` or missing, the session proceeds without a specific topic context [src/cli/session.ts#43-52](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L43-L52)
+1. Explicit Flag: If `--topic <id>` is provided, it is used immediately [src/cli/session.ts#96-121](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L96-L121)
+2. Hot Memory: If no flag is provided, the system parses `.palee/hot.md` and looks for the `active_topic` key in the frontmatter [src/cli/session.ts#123-126](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L123-L126)
+3. None: If the value is `(none)` or missing, nothing resolves — `start`, `draft`, and `end` each refuse with exit code `2` instead of proceeding, and a refused `start` writes no session and prints no success banner (#546) [src/cli/session.ts#123-129](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L123-L129)
 
 ### Natural Language to Code Mapping
 

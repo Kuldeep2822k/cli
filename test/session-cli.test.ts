@@ -166,8 +166,9 @@ describe('Session CLI In-Process Coverage', () => {
   });
 
   test('sessionCommand handles start, draft, end, and list actions', async () => {
-    // 1. session start
-    await sessionCommand('start');
+    // 1. session start (#546: a topicless start with no active topic refuses at
+    // exit 2, so the lifecycle walk names the topic it studies)
+    await sessionCommand('start', { topic: 'T-draft-test' });
 
     // 2. session draft
     await sessionCommand('draft', { topic: 'T-draft-test' });
@@ -246,6 +247,109 @@ describe('Session CLI In-Process Coverage', () => {
     assert.ok(frontmatter?.started_at, 'started_at must be populated in hot.md');
     const startMs = new Date(frontmatter?.started_at as string).getTime();
     assert.ok(!Number.isNaN(startMs), 'started_at must be a valid timestamp');
+  });
+
+  test('session start without --topic and no resolvable active topic refuses at exit 2 and writes nothing (#546)', async () => {
+    // The old flow printed the started banner and exited 0 while the write gate
+    // skipped everything, so the follow-up `end` found no session to record —
+    // the issue's exact reproduction. The refusal must name the condition and
+    // leave hot.md byte-unchanged.
+    const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+    fs.writeFileSync(
+      hotPath,
+      '---\npalee_schema: 1\nmemory_id: H-active\nlast_session: null\nactive_topic: null\nupdated_at: 2026-08-30\n---\n# Working Memory\n',
+      'utf8'
+    );
+    const hotBefore = fs.readFileSync(hotPath, 'utf8');
+
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const origLog = console.log;
+    const origError = console.error;
+    console.log = (msg?: unknown) => { logs.push(String(msg ?? '')); };
+    console.error = (msg?: unknown) => { errors.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('start');
+    } finally {
+      console.log = origLog;
+      console.error = origError;
+    }
+    assert.strictEqual(process.exitCode, 2, 'a start with nothing to open a session for must refuse');
+    assert.ok(
+      !logs.some((l) => l.includes('=== PALEE Session Started ===')),
+      'no success banner may print for a start that wrote nothing'
+    );
+    assert.ok(errors.some((l) => l.includes('No topic to start')), 'the refusal must name the condition');
+    assert.strictEqual(
+      fs.readFileSync(hotPath, 'utf8'),
+      hotBefore,
+      'the refused start must not touch hot.md (no partial write)'
+    );
+    assert.ok(
+      !fs.existsSync(path.join(vaultDir, '.palee', 'active-session.md')),
+      'no active-session marker may be written'
+    );
+    const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+    const confirmed = fs.existsSync(sessionsDir)
+      ? fs.readdirSync(sessionsDir).filter((f) => f.startsWith('S-') && f.endsWith('.md'))
+      : [];
+    assert.strictEqual(confirmed.length, 0, 'no session note may be minted');
+
+    // The issue's reproduction: after the refused start there is no session to end.
+    process.exitCode = undefined;
+    const endErrors: string[] = [];
+    const origEndError = console.error;
+    console.error = (msg?: unknown) => { endErrors.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('end');
+    } finally {
+      console.error = origEndError;
+    }
+    assert.strictEqual(process.exitCode, 2);
+    assert.ok(endErrors.some((l) => l.includes('no active session')));
+  });
+
+  test('a refused topicless start answers one {error} document on stderr, never a started document (#546)', async () => {
+    const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+    fs.writeFileSync(hotPath, '---\npalee_schema: 1\nactive_topic: null\n---\n# Working Memory\n', 'utf8');
+
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const origLog = console.log;
+    const origError = console.error;
+    console.log = (msg?: unknown) => { logs.push(String(msg ?? '')); };
+    console.error = (msg?: unknown) => { errors.push(String(msg ?? '')); };
+    try {
+      await sessionCommand('start', { json: true });
+    } finally {
+      console.log = origLog;
+      console.error = origError;
+    }
+    assert.strictEqual(process.exitCode, 2);
+    assert.strictEqual(logs.length, 0, 'stdout must carry no started document');
+    assert.strictEqual(errors.length, 1, 'the refusal is exactly one document on stderr');
+    const [errorLine] = errors;
+    assert.ok(errorLine !== undefined);
+    const parsed = JSON.parse(errorLine) as { error: string };
+    assert.match(parsed.error, /No topic to start/);
+  });
+
+  test('session start without --topic still continues the hot.md active topic (#546)', async () => {
+    // The refusal fires only when nothing is resolvable: an active_topic in
+    // hot.md is the documented fallback and must keep starting successfully.
+    await sessionCommand('start', { topic: 'T-start-topic' });
+    assert.ok(fs.existsSync(path.join(vaultDir, '.palee', 'active-session.md')));
+
+    process.exitCode = undefined;
+    await sessionCommand('start');
+    assert.strictEqual(
+      process.exitCode,
+      undefined,
+      'a resolvable active_topic keeps the topicless start at success'
+    );
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(path.join(vaultDir, '.palee', 'hot.md'), 'utf8'));
+    assert.strictEqual(frontmatter?.active_topic, 'T-start-topic');
+    assert.ok(frontmatter?.started_at, 'the continued session still carries started_at');
   });
 
   test('session draft inherits started_at from active hot.md', async () => {
