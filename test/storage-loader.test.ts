@@ -290,6 +290,55 @@ last_quality: .nan
     assert.strictEqual(t.last_quality, null);
   });
 
+  test('loadTopics falls back to canonical defaults when review counters are blank or whitespace-only strings (Issue #543)', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic-blank.md'),
+      `---
+palee_schema: 1
+palee_id: T-topic-blank
+title: Blank Counters Topic
+repetition: ""
+lapses: ""
+ease_factor: ""
+interval_days: ""
+last_quality: ""
+---
+# Blank Topic
+`,
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic-whitespace.md'),
+      `---
+palee_schema: 1
+palee_id: T-topic-whitespace
+title: Whitespace Counters Topic
+repetition: "  "
+lapses: "  "
+ease_factor: "  "
+interval_days: "  "
+last_quality: "  "
+---
+# Whitespace Topic
+`,
+      'utf8'
+    );
+
+    const byId = new Map(loadTopics(tmpVault).map((t) => [t.palee_id, t]));
+
+    for (const id of ['T-topic-blank', 'T-topic-whitespace']) {
+      const t = byId.get(id);
+      assert.ok(t !== undefined);
+      // A blank string is an unwritten value, not a reviewed zero: the
+      // documented defaults apply, and last_quality stays never-reviewed.
+      assert.strictEqual(t.repetition, 0);
+      assert.strictEqual(t.lapses, 0);
+      assert.strictEqual(t.ease_factor, 2.5);
+      assert.strictEqual(t.interval_days, 1);
+      assert.strictEqual(t.last_quality, null);
+    }
+  });
+
   test('loadTopics accepts pre-scanned files array to avoid redundant directory walks', () => {
     const file1 = path.join(tmpVault, 'prescan1.md');
     fs.writeFileSync(
