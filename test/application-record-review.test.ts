@@ -61,4 +61,17 @@ describe('buildReviewUpdate', () => {
     const { newState } = buildReviewUpdate({ repetition: 0, interval_days: 1, ease_factor: 2.5 }, 5, reviewedAt);
     assert.strictEqual(newState.repetition, 1);
   });
+
+  test('a string lapses in frontmatter is refused, not concatenated (#547)', () => {
+    // Before #547 the blind `as number` cast passed the string through and the
+    // lapse branch wrote the concatenation "21" back into the note.
+    assert.throws(
+      () => buildReviewUpdate(
+        { ease_factor: 2.5, interval_days: 10, repetition: 5, lapses: '2' },
+        2,
+        reviewedAt
+      ),
+      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2' }
+    );
+  });
 });

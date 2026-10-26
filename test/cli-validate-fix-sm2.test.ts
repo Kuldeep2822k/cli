@@ -265,4 +265,38 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not write a scheduled NaN into the note');
     });
   });
+
+  test('regression pin (#547): a string stored lapses exits 5, prints the repair hint, and leaves the note byte-identical', async () => {
+    await runInTempVault(async (vaultPath) => {
+      // `repetition: 5` + quality 2 is a lapse: before #547 the unguarded
+      // `lapses += 1` concatenated the string — "2" became "21", then "211",
+      // one more digit every review.
+      const filePath = createTopicNote(vaultPath, 'lapse.md', {
+        palee_id: 'T-lapse',
+        ease_factor: 2.5,
+        interval_days: 10,
+        repetition: 5,
+        lapses: '2',
+        due_at: '2026-09-25',
+      });
+      const before = fs.readFileSync(filePath);
+
+      const { out, err } = await captureOutput(() => reviewCommand('T-lapse', '2'));
+      assert.strictEqual(
+        process.exitCode,
+        5,
+        `expected exit 5, got ${process.exitCode}: ${out}${err}`
+      );
+      // ADR-0021: the refusal names the field *and* the value it refused, so the
+      // learner can find the line to fix.
+      assert.match(err, /Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2/);
+      // Same repair path as the other three SM-2 fields: `validate --fix` resets
+      // a non-numeric lapses to 0 (valid-review-fields already listed it).
+      assert.match(
+        err,
+        /Hint: this note's SM-2 review state is invalid\. Run "palee validate --fix" to repair it\./
+      );
+      assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not concatenate into the note');
+    });
+  });
 });
