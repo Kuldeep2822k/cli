@@ -1,5 +1,5 @@
 ---
-description: "palee validate --fix recomputes topic_mastery via applyMasteryRepairs, which zero-fills absent pillars before calling computeTopicMastery. The..."
+description: "Mastery repair skips topics with missing assessment pillars. Only topics with all four valid pillar scores are checked and repaired."
 ---
 
 

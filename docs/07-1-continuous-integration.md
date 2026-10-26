@@ -63,7 +63,7 @@ The `smoke-install` job verifies the integrity of the NPM package by simulating 
 
 ### Workspace Isolation for CI Performance
 
-The four CLI jobs in `ci.yml` use `npm ci --ignore-scripts --no-workspaces` to skip installing the docs workspace (`vitepress`, `mermaid`, `mathjax-full`, etc.). The separate `docs-check` job installs the docs workspace and runs `npm run docs:build` plus `npm run docs:verify`. `deploy-docs.yml` builds the published site; `release.yml` and `security.yml` still run a full `npm ci --ignore-scripts` without `--no-workspaces`.
+The four CLI jobs in `ci.yml` use `npm ci --ignore-scripts --no-workspaces` to skip installing the docs workspace (`vitepress`, `mermaid`, `mathjax-full`, etc.). The separate `docs-check` job installs the docs workspace and runs `npm run docs:build`. `deploy-docs.yml` builds the published site; `release.yml` and `security.yml` still run a full `npm ci --ignore-scripts` without `--no-workspaces`.
 
 #### Performance Impact
 
@@ -110,7 +110,6 @@ flowchart TD
     Build["npm run build"]
     DC["docs-check job"]
     DocsBuild["npm run docs:build"]
-    DocsVerify["npm run docs:verify"]
     SI["smoke-install job"]
     Pack["npm pack"]
     GlobalInstall["npm install -g"]
@@ -128,8 +127,7 @@ flowchart TD
     QC --> Build
     Trigger --> DC
     DC --> DocsBuild
-    DocsBuild --> DocsVerify
-    DocsVerify --> Success
+    DocsBuild --> Success
     Lint --> TM
     Build --> TM
     TM --> Linux

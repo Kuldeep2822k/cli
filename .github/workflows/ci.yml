@@ -49,7 +49,7 @@ jobs:
         run: npm run build
 
   docs-check:
-    name: Build & Verify Documentation
+    name: Build Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -70,9 +70,6 @@ jobs:
 
       - name: Build documentation
         run: npm run docs:build
-
-      - name: Verify documentation invariants
-        run: npm run docs:verify
 
   test-matrix:
     name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})

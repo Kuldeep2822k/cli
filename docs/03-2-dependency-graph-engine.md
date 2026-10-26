@@ -121,12 +121,15 @@ Iterative traversal avoids call-stack limits on deep curricula, and nodes are pr
 
 ### Stage 2: Cycle Selection and Enumeration
 
-Two consumers need different answers:
+Three APIs serve different consumers:
 
-- `detectCycle()` is the bounded path used by `palee roadmap` and the `no-dependency-cycle` validation rule. It finds the lexicographically smallest canonical cycle by direct search in $O(V \cdot (V + E))$ worst case and never enumerates the full cycle set, so a dense graph cannot blow up the command.
-- `detectCycles()` and `detectCyclesBounded()` expose the complete set for validation and quarantine. Inside a multi-node SCC, `enumerateSccCycles()` adapts Johnson's algorithm to report each elementary cycle exactly once; canonicalization rotates a cycle to start at its smallest node and deduplication removes rotations of the same loop.
+- `detectCycle()` returns only the lexicographically smallest canonical cycle. It is the bounded first-cycle helper for engine callers that need a single answer; it finds that path by direct search in $O(V \cdot (V + E))$ worst case and never enumerates the full cycle set.
+- `detectCycles()` returns every distinct canonical cycle without a limit. `validateDependencyGraph()` uses it when the caller needs a complete audit.
+- `detectCyclesBounded()` is the same enumeration capped at `maxCycles` (default 1000). It sets `truncated` when the cap is reached; `no-dependency-cycle`, `palee roadmap`, `adopt --auto-chain`, and interactive `plan` use it so pathological graphs produce bounded output with an explicit truncation signal.
 
-The returned path repeats its first node (for example `['T-react', 'T-hooks', 'T-react']`), and `null` means the graph is acyclic.
+Inside a multi-node SCC, `enumerateSccCycles()` adapts Johnson's algorithm to report each elementary cycle exactly once; canonicalization rotates a cycle to start at its smallest node and deduplication removes rotations of the same loop.
+
+`detectCycle()` returns a path that repeats its first node (for example `['T-react', 'T-hooks', 'T-react']`), and `null` means the graph is acyclic. The enumeration APIs return arrays of such paths; `detectCyclesBounded()` adds the `truncated` flag.
 
 ```mermaid
 flowchart TD
@@ -135,31 +138,28 @@ flowchart TD
     C -- "no" --> D["acyclic<br/>detectCycle() returns null"]
     C -- "yes" --> E["cyclic nodes"]
     E --> F["detectCycle()<br/>lexicographically smallest cycle"]
-    E --> G["detectCycles()<br/>Johnson enumeration per SCC"]
-    G --> H["canonicalize + deduplicate"]
+    E --> G["detectCycles()<br/>unbounded Johnson enumeration"]
+    E --> H["detectCyclesBounded()<br/>capped enumeration + truncated flag"]
+    G --> I["canonicalize + deduplicate"]
+    H --> I
 ```
 
-The two-stage split is deliberate: `validate` must report every distinct loop, while `roadmap` only needs to refuse the graph and name one concrete cycle.
+The split is deliberate: `validateDependencyGraph()` can take the unbounded enumeration when completeness matters, while CLI surfaces use the bounded form and report truncation instead of waiting indefinitely.
 
 ---
 
 ## Graph Integrity Validation
 
-The `validateDependencyGraph` function is the primary entry point for curriculum integrity audits (`palee validate`).
+The `validateDependencyGraph` function is the engine's standalone curriculum-integrity audit. The CLI `palee validate` command runs the validation rule registry instead; its `no-dependency-cycle` rule uses `detectCyclesBounded()` and reports a truncation finding when the 1000-cycle cap is reached.
 
 ### Validation Pipeline Diagram
 
 ```mermaid
 flowchart TD
-    subgraph CLI ["CLI Layer (src/cli/validate.ts)"]
-        VC["validateCommand()"]
-        Load["loadTopics(vaultPath) &rarr; Map&lt;string, TopicNode&gt;"]
-    end
-
     subgraph Engine ["Engine Layer (src/engine/dependency.ts)"]
         VDG["validateDependencyGraph(topics)"]
         CheckDangling["1. Prerequisite Existence Check<br/>(Find dangling depends_on)"]
-        RunDFS["2. detectCycle(topics)<br/>(Tarjan SCC + bounded search)"]
+        RunCycles["2. detectCycles(topics)<br/>(Tarjan SCC + full enumeration)"]
         CollectErrors["Aggregate ValidationError[]<br/>- missing_dependency<br/>- cycle"]
     end
 
@@ -167,13 +167,10 @@ flowchart TD
         VResult["ValidationResult:<br/>{ valid: boolean, errors: ValidationError[] }"]
     end
 
-    VC --> Load
-    Load --> VDG
     VDG --> CheckDangling
-    CheckDangling --> RunDFS
-    RunDFS --> CollectErrors
+    CheckDangling --> RunCycles
+    RunCycles --> CollectErrors
     CollectErrors --> VResult
-    VResult --> VC
 ```
 
 ### Validation Error Catalog

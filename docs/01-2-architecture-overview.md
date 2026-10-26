@@ -38,7 +38,7 @@ A pure-function library that contains the business logic for learning. It is dec
 
 ### 3. Application & Validation
 
-The application layer holds pure use-cases that coordinate storage and engine contracts without touching Commander or process state. `getNextTopics()` powers `next`, `plan`, and `dashboard`; `buildReviewUpdate()` and `buildAssessmentUpdate()` translate user input into frontmatter updates; and `summarizeMastery()` powers progress reporting.
+The application layer holds pure use-cases that coordinate storage and engine contracts without touching Commander or process state. `getNextTopics()` powers `next` and `dashboard`; `plan` uses `findPrerequisiteBlocked()` and `partitionDue()` alongside the engine's `getReadyTopics()`. `buildReviewUpdate()` and `buildAssessmentUpdate()` translate user input into frontmatter updates, and `summarizeMastery()` powers progress reporting.
 
 The validation layer is the audit framework behind `palee validate`: `collectVault()`, `runRules()`, and the `rules/` registry produce structured `ValidationError` records and optional repairs.
 

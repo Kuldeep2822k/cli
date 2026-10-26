@@ -17,14 +17,32 @@ const contract = fs.readFileSync(path.join(root, 'docs/02-0-cli-commands.md'), '
 
 // The page carries a second `| Command |` table for machine-readable output, so the
 // assertion reads the exit-code section alone; a command with a JSON row but no exit
-// row is exactly the gap this test exists to catch.
+// row is exactly the gap this test exists to catch. The exit table has one row per
+// documented (command, exit) pair, so the parser groups rows by command.
 const exitSection = contract.slice(
   contract.indexOf('## Exit Code Contract'),
   contract.indexOf('\n## ', contract.indexOf('## Exit Code Contract') + 1)
 );
 
 const registered = [...dispatcher.matchAll(/^ {2}\.command\('([a-z-]+)'/gm)].map((m) => m[1]);
-const documented = [...exitSection.matchAll(/^\| `palee ([a-z-]+)` \|/gm)].map((m) => m[1]);
+
+interface ExitRow {
+  command: string;
+  exit: number;
+  behavior: string;
+}
+
+const exitRows: ExitRow[] = [
+  ...exitSection.matchAll(/^\|\s*`palee ([a-z-]+)`\s*\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*$/gm),
+]
+  .map((match) => ({
+    command: match[1] ?? '',
+    exit: Number(match[2]),
+    behavior: (match[3] ?? '').trim(),
+  }))
+  .filter((row) => row.command.length > 0);
+
+const documented = [...new Set(exitRows.map((row) => row.command))];
 
 /**
  * Commands named on one `agent.md` line: the first word of each backticked
@@ -47,12 +65,11 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.strictEqual(new Set(registered).size, registered.length, 'no command is registered twice');
   });
 
-  test('the matrix has exactly one row per command, and no row for a command that is not one', () => {
-    assert.strictEqual(documented.length, new Set(documented).size, 'a command has no second matrix row');
+  test('every registered command has a matrix row, and no row invents a command', () => {
     assert.deepStrictEqual(
       [...documented].sort(),
       [...registered].sort(),
-      'every `palee --help` command needs a matrix row, and the matrix may not invent one'
+      'every `palee --help` command needs at least one matrix row, and the matrix may not invent one'
     );
   });
 
@@ -135,8 +152,8 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.match(scheduling, /\| `palee assess` \|/);
   });
 
-  test('the exit-code numbers and cells match the documented contract', () => {
-    // #486: the matrix was checked row-by-row but never as a numeric contract:
+  test('the exit-code numbers and rows match the documented contract', () => {
+    // #486: the summary was checked row-by-row but never as a numeric contract:
     // a seventh code, a renumbered column, or a short row all passed. The
     // numbers come from `ExitCode`, the same object the handlers import.
     const codes = Object.values(ExitCode);
@@ -152,34 +169,40 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     const header = exitSection
       .split(/\r?\n/)
       .find((line) => line.startsWith('| Command |'));
-    assert.ok(header, 'the per-command matrix has a header row');
-    const columns = [...header.matchAll(/Exit Code (\d+)/g)].map((match) => Number(match[1]));
-    assert.deepStrictEqual(columns, codes, 'the matrix has one numeric column per ExitCode');
+    assert.strictEqual(
+      header,
+      '| Command | Exit | Behavior |',
+      'the per-command matrix uses the long-form header'
+    );
 
-    const rows = new Map<string, string>();
-    for (const match of exitSection.matchAll(/^\| `palee ([a-z-]+)` \|(.+)\|$/gm)) {
-      const command = match[1];
-      if (command !== undefined) rows.set(command, match[2] ?? '');
+    const validCodes = new Set<number>(codes);
+    const pairs = new Set<string>();
+    for (const row of exitRows) {
+      assert.ok(
+        validCodes.has(row.exit),
+        `palee ${row.command} documents exit ${row.exit}, which is not an ExitCode`
+      );
+      assert.ok(row.behavior.length > 0, `palee ${row.command} exit ${row.exit} has behavior text`);
+      const key = `${row.command}\u0000${row.exit}`;
+      assert.ok(!pairs.has(key), `palee ${row.command} documents exit ${row.exit} twice`);
+      pairs.add(key);
     }
 
     for (const command of registered) {
       if (command === undefined) continue;
-      const row = rows.get(command);
-      assert.ok(row !== undefined, `palee ${command} has a matrix row`);
-      const cells = row.split('|').map((cell) => cell.trim());
-      assert.strictEqual(cells.length, columns.length, `palee ${command} has one cell per code`);
-      assert.notStrictEqual(cells[0], 'N/A', `palee ${command} documents a success path`);
       assert.ok(
-        cells.every((cell) => cell.length > 0),
-        `palee ${command} leaves no exit-code cell empty`
+        exitRows.some((row) => row.command === command && row.exit === ExitCode.Success),
+        `palee ${command} documents an exit-0 success path`
       );
     }
 
     // `validate --fix` folds a repair skipped by an OCC conflict into
     // `conflicts[]`; it never sets exit 4, and the exit code follows the
     // normal severity rule (#486).
-    const validateCells = (rows.get('validate') ?? '').split('|').map((cell) => cell.trim());
-    assert.strictEqual(validateCells[4], 'N/A', 'palee validate never exits 4');
+    assert.ok(
+      !exitRows.some((row) => row.command === 'validate' && row.exit === ExitCode.Conflict),
+      'palee validate never exits 4'
+    );
   });
 });
 

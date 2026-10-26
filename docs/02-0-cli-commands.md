@@ -136,7 +136,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee dashboard` | 0 | Successfully rendered high-level dashboard metrics or empty vault onboarding. |
 | `palee dashboard` | 2 | Unconfigured or non-existent vault path. |
 | `palee dashboard` | 5 | Unexpected runtime exception or calculation failure. |
-| `palee update` | 0 | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. |
+| `palee update` | 0 | Already on the latest published version, `--dry-run` reported the update status, or `npm install -g @kuldeep2822k/palee@latest` exited 0. |
 | `palee update` | 2 | Commander's own usage path: an unknown option or an unexpected positional argument. |
 | `palee update` | 5 | npm could not be found on PATH or run, the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
 
@@ -320,7 +320,7 @@ palee update --dry-run
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | `false` | Report the current and latest versions and the exact npm command; install nothing. |
+| `--dry-run` | `boolean` | `false` | Check for a newer version; if one exists, report it and print the exact npm command that would run. Installs nothing. |
 
 The command:
 

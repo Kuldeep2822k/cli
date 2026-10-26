@@ -28,11 +28,13 @@ const activeControllers: DiagramController[] = []
 
 function attachDiagramController(card: HTMLElement) {
   if (card.dataset.panzoomAttached) return
-  card.dataset.panzoomAttached = 'true'
-  activeCards.push(card)
-
   const svg = card.querySelector('svg')
   if (!svg) return
+
+  card.dataset.panzoomAttached = 'true'
+  activeCards.push(card)
+  const listeners = new AbortController()
+  const { signal } = listeners
 
   card.classList.add('mermaid-diagram-card')
 
@@ -135,8 +137,11 @@ function attachDiagramController(card: HTMLElement) {
     },
     destroy() {
       if (state.rafId) cancelAnimationFrame(state.rafId)
-      document.removeEventListener('pointerdown', onDocPointerDown)
-      viewport.removeEventListener('keydown', onViewportKeyDown)
+      listeners.abort()
+      toolbar.remove()
+      svg.style.transform = ''
+      viewport.classList.remove('is-dragging')
+      state.activePointers.clear()
       if (card.classList.contains('is-fullscreen')) {
         document.body.style.overflow = ''
       }
@@ -154,14 +159,14 @@ function attachDiagramController(card: HTMLElement) {
       }
     }
   }
-  document.addEventListener('pointerdown', onDocPointerDown)
+  document.addEventListener('pointerdown', onDocPointerDown, { signal })
 
   card.addEventListener('pointerdown', () => {
     if (!state.isFocused) {
       state.isFocused = true
       card.classList.add('is-focused')
     }
-  })
+  }, { signal })
 
   const onViewportKeyDown = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement | null
@@ -205,7 +210,7 @@ function attachDiagramController(card: HTMLElement) {
         break
     }
   }
-  viewport.addEventListener('keydown', onViewportKeyDown)
+  viewport.addEventListener('keydown', onViewportKeyDown, { signal })
 
   activeControllers.push(state)
 
@@ -214,18 +219,18 @@ function attachDiagramController(card: HTMLElement) {
     e.stopPropagation()
     const rect = viewport.getBoundingClientRect()
     state.zoom(1.15, rect.width / 2, rect.height / 2)
-  })
+  }, { signal })
 
   zoomOutBtn.addEventListener('click', (e) => {
     e.stopPropagation()
     const rect = viewport.getBoundingClientRect()
     state.zoom(1 / 1.15, rect.width / 2, rect.height / 2)
-  })
+  }, { signal })
 
   resetBtn.addEventListener('click', (e) => {
     e.stopPropagation()
     state.reset()
-  })
+  }, { signal })
 
   function toggleFullscreen() {
     if (card.classList.contains('is-fullscreen')) {
@@ -243,7 +248,7 @@ function attachDiagramController(card: HTMLElement) {
   fullscreenBtn.addEventListener('click', (e) => {
     e.stopPropagation()
     toggleFullscreen()
-  })
+  }, { signal })
 
   // Wheel zoom centered on mouse:
   // Only intercepts wheel when in fullscreen, or focused by click, or holding Ctrl/Meta.
@@ -264,7 +269,7 @@ function attachDiagramController(card: HTMLElement) {
     // Lower sensitivity: gentle 5% step per wheel notch instead of 15%-60%
     const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05
     state.zoom(factor, originX, originY)
-  }, { passive: false })
+  }, { passive: false, signal })
 
   // Double click to toggle 2x or reset
   viewport.addEventListener('dblclick', (e) => {
@@ -275,7 +280,7 @@ function attachDiagramController(card: HTMLElement) {
       const rect = viewport.getBoundingClientRect()
       state.zoom(2, e.clientX - rect.left, e.clientY - rect.top)
     }
-  })
+  }, { signal })
 
   // Pointer drag events with hardware acceleration
   viewport.addEventListener('pointerdown', (e) => {
@@ -296,7 +301,7 @@ function attachDiagramController(card: HTMLElement) {
       state.initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
       state.initialPinchScale = state.scale
     }
-  })
+  }, { signal })
 
   viewport.addEventListener('pointermove', (e) => {
     if (!state.activePointers.has(e.pointerId)) return
@@ -317,7 +322,7 @@ function attachDiagramController(card: HTMLElement) {
       state.scale = Math.min(Math.max(state.initialPinchScale * factor, 0.25), 8)
       state.applyTransform()
     }
-  })
+  }, { signal })
 
   const endDrag = (e: PointerEvent) => {
     state.activePointers.delete(e.pointerId)
@@ -335,8 +340,8 @@ function attachDiagramController(card: HTMLElement) {
     }
   }
 
-  viewport.addEventListener('pointerup', endDrag)
-  viewport.addEventListener('pointercancel', endDrag)
+  viewport.addEventListener('pointerup', endDrag, { signal })
+  viewport.addEventListener('pointercancel', endDrag, { signal })
 }
 
 function handleGlobalKeyDown(e: KeyboardEvent) {

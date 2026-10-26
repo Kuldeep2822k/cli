@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://kuldeep2822k.github.io/cli/sitemap.xml
