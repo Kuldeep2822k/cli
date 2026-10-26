@@ -25,9 +25,9 @@
     "check": "npm run typecheck && npm run lint",
     "build": "tsc && node -e \"require('fs').copyFileSync('package.json', 'dist/package.json')\"",
     "prepublishOnly": "npm run build",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs",
+    "docs:dev": "npm run dev --workspace=@kuldeep2822k/cli-docs",
+    "docs:build": "npm run build --workspace=@kuldeep2822k/cli-docs",
+    "docs:preview": "npm run preview --workspace=@kuldeep2822k/cli-docs",
     "docs:verify": "node scripts/verify-docs.mjs",
     "pretest": "npm run build",
     "test": "node --import tsx --test --test-concurrency=4 \"test/**/*.test.ts\"",
@@ -66,13 +66,9 @@
     "c8": "^12.0.0",
     "diff-cover": "^2.0.5",
     "eslint": "^10.8.1",
-    "markdown-it-mathjax3": "^4.3.2",
-    "mermaid": "^11.16.1",
     "tsx": "^4.23.11",
     "typescript": "^5.6.3",
-    "typescript-eslint": "^8.66.0",
-    "vitepress": "^1.6.4",
-    "vitepress-plugin-mermaid": "^2.0.17"
+    "typescript-eslint": "^8.66.0"
   },
   "overrides": {
     "vite": "^6.4.3",
@@ -83,5 +79,8 @@
     "speech-rule-engine": {
       "@xmldom/xmldom": "0.9.12"
     }
-  }
+  },
+  "workspaces": [
+    "docs"
+  ]
 }

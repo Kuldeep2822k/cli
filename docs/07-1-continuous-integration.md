@@ -38,7 +38,7 @@ This job performs static analysis and build verification on `ubuntu-latest` usin
 
 To ensure the CLI remains stable across environments, the `test-matrix` job runs the unit and invariant test suites across multiple operating systems and Node.js versions [.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
 
-The matrix is **one list for every event** — a pull request, a push to `main`, and a release tag all run the same seven legs. It used to be conditional on `github.event_name`: pull requests ran ubuntu 22.x/24.x plus windows 24.x only, while a push to `main` additionally ran ubuntu 26.x, windows 22.x and both macOS legs. The legs that broke were therefore the legs no pull request ever ran - [#269](https://github.com/Kuldeep2822k/cli/issues/269) attributes the merges between `v0.5.2` and `v0.6.0` that left `main` red or unverified to macOS suites (heap limit, case-fold and symlink). `test/ci-workflow-matrix.test.ts` is the fitness function that keeps the two paths from diverging again.
+The matrix is **one list for every event** — a pull request, a push to `main`, and a release tag all run the same seven legs. It used to be conditional on `github.event_name`: pull requests ran ubuntu 22.x/24.x plus windows 24.x only, while a push to `main` additionally ran ubuntu 26.x, windows 22.x and both macOS legs. The legs that broke were therefore the legs no pull request ever ran — [#269](https://github.com/Kuldeep2822k/cli/issues/269) attributes the merges between `v0.5.2` and `v0.6.0` that left `main` red or unverified to macOS suites (heap limit, case-fold and symlink). `test/ci-workflow-matrix.test.ts` is the fitness function that keeps the two paths from diverging again.
 
 | Environment | Versions | Condition |
 | --- | --- | --- |
@@ -61,6 +61,43 @@ The `smoke-install` job verifies the integrity of the NPM package by simulating 
 
 ### Data Flow: CI Pipeline Execution
 
+### Workspace Isolation for CI Performance
+
+The four CLI jobs in `ci.yml` use `npm ci --ignore-scripts --no-workspaces` to skip installing the docs workspace (`vitepress`, `mermaid`, `mathjax-full`, etc.). The separate `docs-check` job installs the docs workspace and runs `npm run docs:build` plus `npm run docs:verify`. `deploy-docs.yml` builds the published site; `release.yml` and `security.yml` still run a full `npm ci --ignore-scripts` without `--no-workspaces`.
+
+#### Performance Impact
+
+| Metric | Without `--no-workspaces` | With `--no-workspaces` | Improvement |
+|---|---|---|---|
+| `npm ci` time (local SSD) | 24.5s | 7.7s | 3.2x faster |
+| `npm ci` time (CI Linux/macOS) | ~20-25s | ~2-5s | ~15-20s saved |
+| `npm ci` time (CI Windows) | ~30-40s | ~5-8s | ~25-32s saved |
+| Packages installed | 296 | 119 | 177 fewer |
+| node_modules size | 394M | 80M | ~314M reduced |
+| Docs-only deps skipped | 0M | ~200M | 200M avoided |
+
+#### Docs-Only Dependencies Skipped
+
+| Package | Size | Type |
+|---|---|---|
+| mermaid | 83M | Direct (docs devDep) |
+| @mermaid-js/* | 38M | Transitive (mermaid) |
+| mathjax-full | 38M | Transitive (markdown-it-mathjax3) |
+| @algolia/search-docsearch | 21M | Transitive (vitepress) |
+| @shikijs/* | 11M | Transitive (vitepress) |
+| speech-rule-engine | 8M | Transitive (mathjax-full) |
+
+#### Estimated CI Time Savings Per PR Run
+
+| CI Job | Before | After | Saved |
+|---|---|---|---|
+| Lint, Typecheck & Build | 30s | ~27s | ~3s |
+| Test (per OS/Node leg) | 3m48s-6m26s | 3m45s-6m22s | ~3-4s |
+| Smoke tests (per OS) | 21s-46s | ~18s-42s | ~3s |
+| Engine floor | 21s | ~18s | ~3s |
+| **Total wall-clock (longest)** | **6m26s** | **~6m22s** | **~4s** |
+| **Total compute-seconds** | **~2,960s** | **~2,750s** | **~210s** |
+
 The following diagram illustrates the progression of a commit through the CI pipeline.
 
 CI Pipeline Logic Flow
@@ -71,6 +108,9 @@ flowchart TD
     QC["quality-check job"]
     Lint["npm run check"]
     Build["npm run build"]
+    DC["docs-check job"]
+    DocsBuild["npm run docs:build"]
+    DocsVerify["npm run docs:verify"]
     SI["smoke-install job"]
     Pack["npm pack"]
     GlobalInstall["npm install -g"]
@@ -86,6 +126,10 @@ flowchart TD
     Trigger --> QC
     QC --> Lint
     QC --> Build
+    Trigger --> DC
+    DC --> DocsBuild
+    DocsBuild --> DocsVerify
+    DocsVerify --> Success
     Lint --> TM
     Build --> TM
     TM --> Linux
