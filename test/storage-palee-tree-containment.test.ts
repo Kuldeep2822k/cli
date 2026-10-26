@@ -41,6 +41,7 @@ import {
   regenerateIndex,
   writeDraftCheckpoint,
   deleteSessionNote,
+  clearActiveSession,
 } from '../src/storage/memory';
 import { isConflictError } from '../src/storage/atomic-write';
 import { isContainmentError } from '../src/storage/containment';
@@ -187,6 +188,28 @@ describe('the .palee tree is contained before it is created or used', () => {
     );
 
     assertNothingOutside(outside, palee);
+  });
+
+  test('clearing the active session refuses the junctioned tree instead of unlinking through it', async () => {
+    // The one `.palee` mutator that still built its target with a bare
+    // `path.join` + `unlinkSync` (#544): through the planted link it deleted the
+    // marker outside the vault — the issue's canary — and reported success. It
+    // now takes the same `getPaleeDir` route as the writers, so the refusal is
+    // the same `ECONTAINMENT` surface and the marker survives.
+    const { vault, outside, palee } = junctionedPaleeVault('junction-clear-active');
+    fs.writeFileSync(path.join(outside, 'active-session.md'), '# Active Session\n', 'utf8');
+
+    await assert.rejects(
+      () => clearActiveSession(vault),
+      (err: unknown) => assertContainmentRefusal(err, palee)
+    );
+
+    assert.deepStrictEqual(
+      fs.readdirSync(outside),
+      ['active-session.md'],
+      'the refusal must create nothing outside the vault and leave the planted marker in place'
+    );
+    assert.ok(fs.lstatSync(palee).isSymbolicLink(), 'the planted link must survive untouched');
   });
 
   test('a sessions link that stays inside the vault still records the session', async () => {

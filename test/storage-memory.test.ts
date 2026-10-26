@@ -21,6 +21,8 @@ import {
   getTopicDrafts,
   deleteTopicDrafts,
   deleteSessionNote,
+  writeActiveSession,
+  clearActiveSession,
   Lock,
   recoverDraft,
   parseFrontmatter,
@@ -1123,6 +1125,108 @@ ${body}
       assert.strictEqual(hasCompletedSession(testVaultPath, 'S-valid-test-123'), false);
 
       fs.unlinkSync(testSessionPath);
+    });
+  });
+
+  // ── clearActiveSession (#544) ────────────────────────────────────────
+
+  describe('clearActiveSession', () => {
+    /** Symlink type that works on both POSIX and Windows without elevated rights. */
+    const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
+
+    test('refuses a junctioned .palee like writeActiveSession and deletes nothing outside the vault', async () => {
+      const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-clear-active-'));
+      try {
+        const vault = path.join(baseDir, 'vault');
+        const outside = path.join(baseDir, 'outside-palee');
+        fs.mkdirSync(vault, { recursive: true });
+        fs.mkdirSync(outside, { recursive: true });
+        const palee = path.join(vault, '.palee');
+        fs.symlinkSync(outside, palee, LINK_TYPE);
+        const marker = path.join(outside, 'active-session.md');
+        fs.writeFileSync(marker, '# Active Session\n', 'utf8');
+
+        await assert.rejects(
+          () => writeActiveSession(vault, {
+            session_id: 'S-20261027T000000-aaaa',
+            topic_id: 'T-544',
+            started_at: '2026-10-27T00:00:00.000Z',
+          }),
+          (err: unknown) => {
+            const e = err as { code?: string };
+            assert.strictEqual(e.code, 'ECONTAINMENT', 'the sibling writer must refuse the same planted link');
+            return true;
+          }
+        );
+
+        await assert.rejects(
+          () => clearActiveSession(vault),
+          (err: unknown) => {
+            const e = err as { message?: string; code?: string };
+            assert.match(e.message ?? '', /Security error: refusing to write outside the vault/);
+            assert.strictEqual(e.code, 'ECONTAINMENT', 'the clear must carry the same refusal code as the write');
+            return true;
+          }
+        );
+
+        assert.strictEqual(fs.existsSync(marker), true, 'the marker outside the vault must survive the refusal');
+      } finally {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      }
+    });
+
+    test('resolves on a vault with no .palee and no marker', async () => {
+      const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-clear-active-'));
+      try {
+        const vault = path.join(baseDir, 'vault');
+        fs.mkdirSync(vault, { recursive: true });
+        await assert.doesNotReject(() => clearActiveSession(vault));
+        // The routing creates the `.palee` tree like every sibling writer — pin
+        // the layout so the side effect stays intentional. No marker appears in
+        // it (the `.palee/locks` subdir is the lock layer's own).
+        assert.ok(fs.existsSync(path.join(vault, '.palee')), 'the .palee tree is created inside the vault');
+        assert.strictEqual(
+          fs.existsSync(path.join(vault, '.palee', 'active-session.md')),
+          false,
+          'and no marker appears in it'
+        );
+      } finally {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      }
+    });
+
+    test('yields when a live lock holds the marker instead of unlinking under the writer', async () => {
+      const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-clear-active-'));
+      try {
+        const vault = path.join(baseDir, 'vault');
+        const palee = path.join(vault, '.palee');
+        fs.mkdirSync(palee, { recursive: true });
+        const marker = path.join(palee, 'active-session.md');
+        fs.writeFileSync(marker, '# Active Session\n', 'utf8');
+
+        // A concurrent `session start` mid-write holds the marker's target lock
+        // — the exact contention the lockless unlink used to ignore. Yielding
+        // leaves the marker the writer is re-creating; the next `session end`
+        // re-clears it through the already-recorded path.
+        const writer = new Lock(vault, marker);
+        await writer.acquire();
+        try {
+          await assert.doesNotReject(() => clearActiveSession(vault));
+          assert.strictEqual(
+            fs.existsSync(marker),
+            true,
+            'a live writer is re-creating the marker — the clear must yield, not race it'
+          );
+        } finally {
+          writer.release();
+        }
+
+        // With no live writer, the clear goes through.
+        await clearActiveSession(vault);
+        assert.strictEqual(fs.existsSync(marker), false, 'once the writer is done the marker is still cleared');
+      } finally {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      }
     });
   });
 
