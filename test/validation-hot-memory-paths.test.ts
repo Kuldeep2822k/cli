@@ -473,6 +473,11 @@ describe('diagnostic-value helper (#166)', () => {
     assert.strictEqual(result, '[non-serializable]');
   });
 
+  test('formatDiagnosticValue handles functions and symbols without throwing', () => {
+    assert.strictEqual(formatDiagnosticValue(() => undefined), '[non-serializable]');
+    assert.strictEqual(formatDiagnosticValue(Symbol('invalid')), '[non-serializable]');
+  });
+
   test('formatDiagnosticValue handles throwing getters without throwing', () => {
     const value = {};
     Object.defineProperty(value, 'broken', {

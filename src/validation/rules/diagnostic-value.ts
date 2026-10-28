@@ -62,7 +62,7 @@ function isCyclic(value: unknown, chain: Set<unknown> = new Set()): boolean {
 function safeStringify(value: unknown): string {
   try {
     if (isCyclic(value)) return '[circular]';
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? '[non-serializable]';
   } catch {
     return '[non-serializable]';
   }
