@@ -198,6 +198,8 @@ describe('valid-review-fields rule (#38)', () => {
     assert.strictEqual(issues.length, 1);
     assert.strictEqual(issues[0]?.field, 'lapses');
     assert.strictEqual(issues[0]?.message.includes('[non-serializable]'), true);
+    assert.doesNotThrow(() => JSON.stringify(issues));
+    assert.strictEqual(JSON.stringify(issues).includes('[non-serializable]'), true);
   });
 
   test('non-integer interval_days reports an error', () => {

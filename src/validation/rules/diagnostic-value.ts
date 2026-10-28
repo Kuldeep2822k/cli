@@ -102,3 +102,20 @@ export function formatDiagnosticValue(value: unknown): string {
   }
   return safeStringify(value); // {"a":1} | [1,2] | [circular] | [non-serializable]
 }
+
+/**
+ * Preserves JSON-safe scalar values while converting unsafe values to strings
+ * before they enter machine-readable validation payloads.
+ */
+export function toJsonSafeValue(value: unknown): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') {
+    return displayValue(value);
+  }
+  try {
+    if (isCyclic(value)) return '[circular]';
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? '[non-serializable]' : JSON.parse(serialized);
+  } catch {
+    return '[non-serializable]';
+  }
+}

@@ -33,7 +33,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { displayValue, formatDiagnosticValue } from './diagnostic-value';
+import { formatDiagnosticValue, toJsonSafeValue } from './diagnostic-value';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
@@ -136,7 +136,7 @@ export const validReviewFieldsRule: ValidationRule = {
             file: topic.path,
             topicId: topic.palee_id,
             field,
-            details: { actual: displayValue(value) },
+            details: { actual: toJsonSafeValue(value) },
           });
         }
       }
@@ -154,7 +154,7 @@ export const validReviewFieldsRule: ValidationRule = {
           file: topic.path,
           topicId: topic.palee_id,
           field: 'last_quality',
-          details: { actual: displayValue(quality) },
+          details: { actual: toJsonSafeValue(quality) },
         });
       }
     }
