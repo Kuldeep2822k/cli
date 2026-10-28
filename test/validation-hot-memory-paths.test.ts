@@ -19,7 +19,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { validHotMemoryRule } from '../src/validation/rules/valid-hot-memory';
 import { safeVaultPathsRule } from '../src/validation/rules/safe-vault-paths';
-import { displayValue } from '../src/validation/rules/diagnostic-value';
+import { displayValue, formatDiagnosticValue } from '../src/validation/rules/diagnostic-value';
 import type { ValidationContext } from '../src/validation/types';
 import type { LoadedTopic } from '../src/storage/loader';
 import type { LoadedSession } from '../src/storage/sessions';
@@ -430,6 +430,47 @@ describe('diagnostic-value helper (#166)', () => {
     assert.strictEqual(JSON.stringify(NaN), 'null');
     assert.strictEqual(JSON.stringify(displayValue(NaN)), '"NaN"');
     assert.strictEqual(JSON.stringify(displayValue(Infinity)), '"Infinity"');
+  });
+
+  test('formatDiagnosticValue renders non-finite numbers as bare spellings', () => {
+    // Qodo finding: JSON.stringify(displayValue(NaN)) produced "NaN"
+    // (quoted). formatDiagnosticValue renders them bare so the
+    // diagnostic reads the actual spelling, not an opaque JSON token.
+    assert.strictEqual(formatDiagnosticValue(NaN), 'NaN');
+    assert.strictEqual(formatDiagnosticValue(Infinity), 'Infinity');
+    assert.strictEqual(formatDiagnosticValue(-Infinity), '-Infinity');
+  });
+
+  test('formatDiagnosticValue quotes strings and leaves scalars bare', () => {
+    assert.strictEqual(formatDiagnosticValue('soon'), '"soon"');
+    assert.strictEqual(formatDiagnosticValue(true), 'true');
+    assert.strictEqual(formatDiagnosticValue(false), 'false');
+    assert.strictEqual(formatDiagnosticValue(42), '42');
+    assert.strictEqual(formatDiagnosticValue(-1), '-1');
+    assert.strictEqual(formatDiagnosticValue(2.5), '2.5');
+    assert.strictEqual(formatDiagnosticValue(null), 'null');
+    assert.strictEqual(formatDiagnosticValue(undefined), 'undefined');
+  });
+
+  test('formatDiagnosticValue serializes arrays and objects', () => {
+    assert.strictEqual(formatDiagnosticValue([1, 2]), '[1,2]');
+    assert.strictEqual(formatDiagnosticValue({ a: 1 }), '{"a":1}');
+  });
+
+  test('formatDiagnosticValue handles cyclic values without throwing', () => {
+    // Qodo finding: JSON.stringify throws on cyclic values, silencing the
+    // field-specific error. formatDiagnosticValue must not throw.
+    const cyclic: Record<string, unknown> = { name: 'self' };
+    cyclic.self = cyclic;
+    const result = formatDiagnosticValue(cyclic);
+    assert.strictEqual(result, '[circular]');
+  });
+
+  test('formatDiagnosticValue handles bigint without throwing', () => {
+    // JSON.stringify throws on bigint; formatDiagnosticValue must
+    // return a fallback instead of throwing.
+    const result = formatDiagnosticValue(BigInt(123));
+    assert.strictEqual(result, '[non-serializable]');
   });
 
   test('downstream rules render non-finite values explicitly (integration)', async () => {

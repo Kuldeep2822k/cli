@@ -60,7 +60,7 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 'soon' as unknown as number, repetition: 2 },
         4
       ),
-      { message: 'Invalid interval_days: must be a finite number >= 1, got soon' }
+      { message: 'Invalid interval_days: must be a finite number >= 1, got "soon"' }
     );
   });
 
@@ -94,7 +94,7 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
         4
       ),
-      { message: 'Invalid repetition: must be a non-negative integer, got x' }
+      { message: 'Invalid repetition: must be a non-negative integer, got "x"' }
     );
   });
 
@@ -109,14 +109,14 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
         2
       ),
-      { message: 'Invalid lapses: must be a non-negative integer, got 2' }
+      { message: 'Invalid lapses: must be a non-negative integer, got "2"' }
     );
     assert.throws(
       () => processReview(
         { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
         4
       ),
-      { message: 'Invalid lapses: must be a non-negative integer, got 2' }
+      { message: 'Invalid lapses: must be a non-negative integer, got "2"' }
     );
   });
 
@@ -131,6 +131,18 @@ describe('SM-2 Algorithm', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: -1 }, 2),
       { message: 'Invalid lapses: must be a non-negative integer, got -1' }
+    );
+  });
+
+  test('lapses refuses a cyclic object without throwing', () => {
+    // Qodo finding: JSON.stringify threw on cyclic YAML alias values,
+    // silencing the field-specific error. formatDiagnosticValue must
+    // not throw and must still name the field.
+    const cyclic: Record<string, unknown> = { lapses: 'cycle' };
+    cyclic.self = cyclic;
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: cyclic }, 2),
+      /Invalid lapses/
     );
   });
 

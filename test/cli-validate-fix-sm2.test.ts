@@ -254,7 +254,7 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       );
       // ADR-0021: the refusal names the field *and* the value it refused, so the
       // learner can find the line to fix.
-      assert.match(err, /Invalid interval_days: must be a finite number >= 1, got soon/);
+      assert.match(err, /Invalid interval_days: must be a finite number >= 1, got "soon"/);
       // Exit 5 on its own is a dead end; `src/cli/review.ts` prints this line only
       // when the message carries the `Invalid <field>:` prefix, so a refusal that
       // lost the prefix would leave the learner with no repair path.
@@ -289,7 +289,7 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       );
       // ADR-0021: the refusal names the field *and* the value it refused, so the
       // learner can find the line to fix.
-      assert.match(err, /Invalid lapses: must be a non-negative integer, got 2/);
+      assert.match(err, /Invalid lapses: must be a non-negative integer, got "2"/);
       // Same repair path as the other three SM-2 fields: `validate --fix` resets
       // a non-numeric lapses to 0 (valid-review-fields already listed it).
       assert.match(

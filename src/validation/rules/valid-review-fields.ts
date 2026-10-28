@@ -33,14 +33,14 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { displayValue } from './diagnostic-value';
+import { displayValue, formatDiagnosticValue } from './diagnostic-value';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
   { field: 'ease_factor', min: 1.3, max: undefined, integer: false },
   { field: 'interval_days', min: 1, max: undefined, integer: true },
   { field: 'repetition', min: 0, max: Number.MAX_SAFE_INTEGER - 1, integer: true },
-  { field: 'lapses', min: 0, max: Number.MAX_SAFE_INTEGER - 1, integer: true },
+  { field: 'lapses', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true },
 ] as const;
 
 /**
@@ -128,10 +128,11 @@ export const validReviewFieldsRule: ValidationRule = {
         if (value === undefined) continue; // adopt-default policy: missing = default state
 
         if (!isNumericReviewValueValid(value, min, max, integer)) {
+          const formatted = formatDiagnosticValue(value);
           issues.push({
             ruleId: 'valid-review-fields',
             severity: 'error',
-            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}${max !== undefined ? ` and <= ${max}` : ''}, got ${JSON.stringify(displayValue(value))}`,
+            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}${max !== undefined ? ` and <= ${max}` : ''}, got ${formatted}`,
             file: topic.path,
             topicId: topic.palee_id,
             field,
@@ -145,10 +146,11 @@ export const validReviewFieldsRule: ValidationRule = {
       const quality = topic.frontmatter.last_quality;
       if (quality === undefined) continue;
       if (!isLastQualityValid(quality)) {
+        const formatted = formatDiagnosticValue(quality);
         issues.push({
           ruleId: 'valid-review-fields',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${JSON.stringify(displayValue(quality))}`,
+          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${formatted}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'last_quality',

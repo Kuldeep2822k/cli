@@ -161,9 +161,20 @@ describe('valid-review-fields rule (#38)', () => {
     assert.strictEqual(firstIssue.field, 'repetition');
   });
 
-  test('lapses at Number.MAX_SAFE_INTEGER (unsafe boundary) reports an error', () => {
+  test('lapses at Number.MAX_SAFE_INTEGER (engine-accepted ceiling) passes', () => {
+    // The engine accepts lapses at MAX_SAFE_INTEGER on successful reviews
+    // (the upper bound only rejects when incrementing would overflow),
+    // so validate --fix must not reset this valid recorded count.
     const topics = [makeTopic({
       frontmatter: { ...ADOPT_REVIEW_STATE, lapses: Number.MAX_SAFE_INTEGER },
+    })];
+    const issues = validReviewFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 0);
+  });
+
+  test('lapses above Number.MAX_SAFE_INTEGER reports an error', () => {
+    const topics = [makeTopic({
+      frontmatter: { ...ADOPT_REVIEW_STATE, lapses: Number.MAX_SAFE_INTEGER + 1 },
     })];
     const issues = validReviewFieldsRule.run(makeContext(topics));
     assert.strictEqual(issues.length, 1);
