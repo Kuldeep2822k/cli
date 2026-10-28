@@ -150,6 +150,28 @@ describe('valid-review-fields rule (#38)', () => {
     assert.strictEqual(firstIssue.field, 'lapses');
   });
 
+  test('repetition at Number.MAX_SAFE_INTEGER (unsafe boundary) reports an error', () => {
+    const topics = [makeTopic({
+      frontmatter: { ...ADOPT_REVIEW_STATE, repetition: Number.MAX_SAFE_INTEGER },
+    })];
+    const issues = validReviewFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'repetition');
+  });
+
+  test('lapses at Number.MAX_SAFE_INTEGER (unsafe boundary) reports an error', () => {
+    const topics = [makeTopic({
+      frontmatter: { ...ADOPT_REVIEW_STATE, lapses: Number.MAX_SAFE_INTEGER },
+    })];
+    const issues = validReviewFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    const [firstIssue] = issues;
+    assert.ok(firstIssue !== undefined);
+    assert.strictEqual(firstIssue.field, 'lapses');
+  });
+
   test('non-integer interval_days reports an error', () => {
     const topics = [makeTopic({
       frontmatter: { ...ADOPT_REVIEW_STATE, interval_days: 4.5 },
