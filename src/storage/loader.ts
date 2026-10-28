@@ -178,8 +178,11 @@ function parseInteger(val: unknown, fallback: number = 0): number {
     return Math.floor(val);
   }
   if (typeof val === 'string') {
-    const parsed = Number(val.trim());
-    if (Number.isFinite(parsed)) return Math.floor(parsed);
+    const trimmed = val.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return Math.floor(parsed);
+    }
   }
   return fallback;
 }
@@ -210,8 +213,11 @@ function parseOptionalInteger(val: unknown): number | null {
     return Math.floor(val);
   }
   if (typeof val === 'string') {
-    const parsed = Number(val.trim());
-    if (Number.isFinite(parsed)) return Math.floor(parsed);
+    const trimmed = val.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return Math.floor(parsed);
+    }
   }
   return null;
 }
@@ -238,8 +244,11 @@ function parseNumber(val: unknown, fallback: number = 0): number {
     return val;
   }
   if (typeof val === 'string') {
-    const parsed = Number(val.trim());
-    if (Number.isFinite(parsed)) return parsed;
+    const trimmed = val.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return parsed;
+    }
   }
   return fallback;
 }
