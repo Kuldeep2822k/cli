@@ -473,6 +473,17 @@ describe('diagnostic-value helper (#166)', () => {
     assert.strictEqual(result, '[non-serializable]');
   });
 
+  test('formatDiagnosticValue handles throwing getters without throwing', () => {
+    const value = {};
+    Object.defineProperty(value, 'broken', {
+      enumerable: true,
+      get() {
+        throw new Error('getter failed');
+      },
+    });
+    assert.strictEqual(formatDiagnosticValue(value), '[non-serializable]');
+  });
+
   test('downstream rules render non-finite values explicitly (integration)', async () => {
     // A non-finite assessed_at must NOT read "got null" — the same
     // vault shape the #166 report reproduced.

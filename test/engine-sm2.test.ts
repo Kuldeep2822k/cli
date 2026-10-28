@@ -173,6 +173,16 @@ describe('SM-2 Algorithm', () => {
     assert.strictEqual(result.lapses, 4);
   });
 
+  test('lapses above the safe-integer ceiling are rejected before a successful review', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER + 1 },
+        4
+      ),
+      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740991, got 9007199254740992' }
+    );
+  });
+
   test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),

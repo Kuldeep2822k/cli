@@ -125,14 +125,14 @@ function processReview(
   if (typeof repetition !== 'number' || !Number.isInteger(repetition) || repetition < 0) {
     throw new Error(`Invalid repetition: must be a non-negative integer, got ${formatDiagnosticValue(repetition)}`);
   }
-  // Lapses is an incrementing count. A non-integer, negative, or non-finite
-  // value is invalid outright. The upper-bound check is deferred to the lapse
-  // branch (below): a count at the safe-integer ceiling is accepted on a
-  // successful review (which does not increment lapses) but rejected only when
-  // a lapse would push it past `Number.MAX_SAFE_INTEGER`, where the increment
-  // would silently no-op ((MAX_SAFE_INTEGER + 1) === (MAX_SAFE_INTEGER + 2)).
+  // Lapses is an incrementing count. A non-integer or negative value is
+  // invalid outright. The exact safe-integer ceiling remains valid on a
+  // successful review, which does not increment lapses.
   if (typeof lapses !== 'number' || !Number.isInteger(lapses) || lapses < 0) {
     throw new Error(`Invalid lapses: must be a non-negative integer, got ${formatDiagnosticValue(lapses)}`);
+  }
+  if (lapses > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`Invalid lapses: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER}, got ${formatDiagnosticValue(lapses)}`);
   }
   // `repetition` is incremented unconditionally on a successful review, so its
   // ceiling must be enforced upfront (same rationale as before #547).

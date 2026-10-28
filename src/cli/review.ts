@@ -130,7 +130,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
     console.error(`Error: ${err.message}`);
     // Corrupted on-disk SM-2 state is user-recoverable: point at the
     // repair path instead of leaving exit 5 as a dead end (BUG-003).
-    if (/^Invalid (ease_factor|interval_days|repetition|lapses):/.test(err.message)) {
+    if (/^Invalid (ease_factor|interval_days|repetition|lapses): (?!computed non-finite value)/.test(err.message)) {
       console.error(`Hint: this note's SM-2 review state is invalid. Run "${programName()} validate --fix" to repair it.`);
     }
     process.exitCode = exitCodeFor(e);

@@ -183,6 +183,23 @@ describe('valid-review-fields rule (#38)', () => {
     assert.strictEqual(firstIssue.field, 'lapses');
   });
 
+  test('throwing review-field getters still produce a validation finding', () => {
+    const lapses = {};
+    Object.defineProperty(lapses, 'broken', {
+      enumerable: true,
+      get() {
+        throw new Error('getter failed');
+      },
+    });
+    const topics = [makeTopic({
+      frontmatter: { ...ADOPT_REVIEW_STATE, lapses },
+    })];
+    const issues = validReviewFieldsRule.run(makeContext(topics));
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0]?.field, 'lapses');
+    assert.strictEqual(issues[0]?.message.includes('[non-serializable]'), true);
+  });
+
   test('non-integer interval_days reports an error', () => {
     const topics = [makeTopic({
       frontmatter: { ...ADOPT_REVIEW_STATE, interval_days: 4.5 },

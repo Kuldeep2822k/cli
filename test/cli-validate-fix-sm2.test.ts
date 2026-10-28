@@ -299,4 +299,24 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not concatenate into the note');
     });
   });
+
+  test('computed overflow does not suggest validate --fix', async () => {
+    await runInTempVault(async (vaultPath) => {
+      const filePath = createTopicNote(vaultPath, 'overflow.md', {
+        palee_id: 'T-overflow',
+        ease_factor: 2.5,
+        interval_days: 1e308,
+        repetition: 3,
+        lapses: 0,
+        due_at: '2026-09-25',
+      });
+      const before = fs.readFileSync(filePath);
+
+      const { err } = await captureOutput(() => reviewCommand('T-overflow', '4'));
+      assert.strictEqual(process.exitCode, 5);
+      assert.match(err, /Invalid interval_days: computed non-finite value, got Infinity/);
+      assert.doesNotMatch(err, /validate --fix/);
+      assert.deepStrictEqual(fs.readFileSync(filePath), before, 'review must not write an overflowing interval');
+    });
+  });
 });
