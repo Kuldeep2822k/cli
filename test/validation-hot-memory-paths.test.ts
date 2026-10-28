@@ -498,6 +498,18 @@ describe('diagnostic-value helper (#166)', () => {
     assert.strictEqual(toJsonSafeValue(Symbol('invalid')), '[non-serializable]');
   });
 
+  test('toJsonSafeValue preserves nested non-finite numbers through JSON', () => {
+    const actual = toJsonSafeValue({
+      values: [NaN, Infinity, -Infinity],
+      nested: { value: NaN },
+    });
+    const roundTripped = JSON.parse(JSON.stringify(actual));
+    assert.deepStrictEqual(roundTripped, {
+      values: ['NaN', 'Infinity', '-Infinity'],
+      nested: { value: 'NaN' },
+    });
+  });
+
   test('downstream rules render non-finite values explicitly (integration)', async () => {
     // A non-finite assessed_at must NOT read "got null" — the same
     // vault shape the #166 report reproduced.

@@ -113,7 +113,7 @@ export function toJsonSafeValue(value: unknown): unknown {
   }
   try {
     if (isCyclic(value)) return '[circular]';
-    const serialized = JSON.stringify(value);
+    const serialized = JSON.stringify(value, (_key, nestedValue) => displayValue(nestedValue));
     return serialized === undefined ? '[non-serializable]' : JSON.parse(serialized);
   } catch {
     return '[non-serializable]';
