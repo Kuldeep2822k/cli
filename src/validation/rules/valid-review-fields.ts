@@ -113,6 +113,10 @@ export const validReviewFieldsRule: ValidationRule = {
     'Review state must match SM-2 bounds: ease_factor >= 1.3, interval_days >= 1, counters >= 0, last_quality null or integer 0-5',
   severity: 'error',
   fixable: 'manual', // kept per #38 metadata contract; `validate --fix` still offers a best-effort reset to adopt defaults (BUG-003)
+  /**
+   * Runs the validation rule against all topics, reporting review-state fields
+   * that violate the SM-2 engine contract.
+   */
   run(context) {
     const issues: ValidationIssue[] = [];
 
