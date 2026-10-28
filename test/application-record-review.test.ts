@@ -71,7 +71,7 @@ describe('buildReviewUpdate', () => {
         2,
         reviewedAt
       ),
-      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2' }
+      { message: 'Invalid lapses: must be a non-negative integer, got 2' }
     );
   });
 });

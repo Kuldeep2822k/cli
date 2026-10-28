@@ -94,7 +94,7 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
         4
       ),
-      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got x' }
+      { message: 'Invalid repetition: must be a non-negative integer, got x' }
     );
   });
 
@@ -109,34 +109,41 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
         2
       ),
-      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2' }
+      { message: 'Invalid lapses: must be a non-negative integer, got 2' }
     );
     assert.throws(
       () => processReview(
         { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
         4
       ),
-      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2' }
+      { message: 'Invalid lapses: must be a non-negative integer, got 2' }
     );
   });
 
   test('lapses refuses a fractional count, which `x < 0` cannot catch', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: 2.5 }, 2),
-      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2.5' }
+      { message: 'Invalid lapses: must be a non-negative integer, got 2.5' }
     );
   });
 
   test('lapses refuses a negative count, naming the field and the value', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: -1 }, 2),
-      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got -1' }
+      { message: 'Invalid lapses: must be a non-negative integer, got -1' }
     );
   });
 
-  test('lapses refuses a count at the safe-integer ceiling, which cannot advance exactly', () => {
-    // Same ceiling as `repetition`: `MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`,
-    // so the lapse increment would silently no-op.
+  test('lapses refuses a count at the safe-integer ceiling only when a lapse would increment it', () => {
+    // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, so incrementing the
+    // ceiling value would silently no-op. The engine still accepts the ceiling
+    // on successful reviews — the check is deferred to the lapse branch.
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER },
+      4
+    );
+    assert.strictEqual(result.lapses, Number.MAX_SAFE_INTEGER);
+
     assert.throws(
       () => processReview(
         { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER },
@@ -157,7 +164,7 @@ describe('SM-2 Algorithm', () => {
   test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),
-      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 2.5' }
+      { message: 'Invalid repetition: must be a non-negative integer, got 2.5' }
     );
   });
 

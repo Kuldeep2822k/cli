@@ -289,7 +289,7 @@ describe('BUG-003: validate --fix repairs corrupted SM-2 review fields', () => {
       );
       // ADR-0021: the refusal names the field *and* the value it refused, so the
       // learner can find the line to fix.
-      assert.match(err, /Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 2/);
+      assert.match(err, /Invalid lapses: must be a non-negative integer, got 2/);
       // Same repair path as the other three SM-2 fields: `validate --fix` resets
       // a non-numeric lapses to 0 (valid-review-fields already listed it).
       assert.match(

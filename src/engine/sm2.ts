@@ -121,14 +121,22 @@ function processReview(
   if (typeof interval_days !== 'number' || !Number.isFinite(interval_days) || interval_days < 1) {
     throw new Error(`Invalid interval_days: must be a finite number >= 1, got ${interval_days}`);
   }
-  // A count at or above `Number.MAX_SAFE_INTEGER` cannot be advanced safely:
-  // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and `(2 ** 53) + 1`
-  // stays `2 ** 53`, so the success branch would return the count unchanged.
-  if (typeof repetition !== 'number' || !Number.isInteger(repetition) || repetition < 0 || repetition > Number.MAX_SAFE_INTEGER - 1) {
-    throw new Error(`Invalid repetition: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${repetition}`);
+  if (typeof repetition !== 'number' || !Number.isInteger(repetition) || repetition < 0) {
+    throw new Error(`Invalid repetition: must be a non-negative integer, got ${repetition}`);
   }
-  if (typeof lapses !== 'number' || !Number.isInteger(lapses) || lapses < 0 || lapses > Number.MAX_SAFE_INTEGER - 1) {
-    throw new Error(`Invalid lapses: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${lapses}`);
+  // Lapses is an incrementing count. A non-integer, negative, or non-finite
+  // value is invalid outright. The upper-bound check is deferred to the lapse
+  // branch (below): a count at the safe-integer ceiling is accepted on a
+  // successful review (which does not increment lapses) but rejected only when
+  // a lapse would push it past `Number.MAX_SAFE_INTEGER`, where the increment
+  // would silently no-op ((MAX_SAFE_INTEGER + 1) === (MAX_SAFE_INTEGER + 2)).
+  if (typeof lapses !== 'number' || !Number.isInteger(lapses) || lapses < 0) {
+    throw new Error(`Invalid lapses: must be a non-negative integer, got ${lapses}`);
+  }
+  // `repetition` is incremented unconditionally on a successful review, so its
+  // ceiling must be enforced upfront (same rationale as before #547).
+  if (repetition > Number.MAX_SAFE_INTEGER - 1) {
+    throw new Error(`Invalid repetition: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${repetition}`);
   }
 
   let newRepetition: number;
@@ -140,6 +148,12 @@ function processReview(
   if (quality < 3) {
     // Lapse only if this was a previously learned topic
     if (repetition > 0) {
+      // The lapse increment must not overflow the safe-integer ceiling:
+      // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and one more
+      // step stays `2 ** 53`, so the increment would silently no-op.
+      if (lapses >= Number.MAX_SAFE_INTEGER) {
+        throw new Error(`Invalid lapses: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${lapses}`);
+      }
       newLapses += 1;
     }
     newRepetition = 0;
