@@ -1,5 +1,5 @@
 ---
-description: "The v0.6.0 audit round audited the tests, not just the code, and found a class of defect the code audits could not: guards that could not fail. Five..."
+description: "The v0.6.0 audit round audited the tests, not just the code, and found a class of defect the code audits could not: guards that could not fail. Five chain-planner guards were proven dead by neutralizing each one's deciding predicate and watching the suite stay green."
 ---
 
 

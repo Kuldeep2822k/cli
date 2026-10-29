@@ -1,5 +1,5 @@
 ---
-description: "Reporting commands provide deep visibility into the educational health of your Obsidian vault. They scan topic frontmatter to calculate global mastery..."
+description: "Reporting commands scan topic frontmatter to calculate global mastery metrics, report difficulty distributions, track spaced repetition statistics, and detect structural integrity violations across the prerequisite graph."
 ---
 
 

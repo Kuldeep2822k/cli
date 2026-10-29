@@ -109,7 +109,7 @@ flowchart TD
     CheckRep -- "Rep 2+" --> RepN["Repetition += 1<br/>Interval = round(Prev &times; EF)"]
     
     %% Convergence & EF Update
-    LapseInc --> UpdateEF["Update Ease Factor<br/>(formula below)<br/>EF = max(1.30, round(EF+&Delta;EF,4))"]
+    LapseInc --> UpdateEF["Update Ease Factor<br/>(formula above)<br/>EF = max(1.30, round(EF+&Delta;EF,4))"]
     LapseNoInc --> UpdateEF
     Rep1 --> UpdateEF
     Rep2 --> UpdateEF

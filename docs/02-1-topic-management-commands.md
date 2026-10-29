@@ -1,5 +1,5 @@
 ---
-description: "Topic management commands handle the ingestion, configuration, and structural lifecycle of learning material within an Obsidian vault. These commands allow..."
+description: "Topic management commands handle the ingestion, configuration, and structural lifecycle of learning material within an Obsidian vault. These commands adopt existing Markdown notes, batch-import structured curricula via YAML roadmaps, and verify metadata schema consistency."
 ---
 
 

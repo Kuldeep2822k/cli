@@ -1,5 +1,5 @@
 ---
-description: "palee adopt --auto-chain used to chain every note in scan order, and filesystem order was treated as prerequisite order. A 10-repository burn-in of 9,713..."
+description: "palee adopt --auto-chain used to chain every note in scan order, treating filesystem order as prerequisite order. A 10-repository burn-in of 9,713 real Markdown notes showed the default produced 98.2% semantically false edges, locking learners behind nonsense prerequisites."
 ---
 
 

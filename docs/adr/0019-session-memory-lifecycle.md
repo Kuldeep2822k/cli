@@ -1,5 +1,5 @@
 ---
-description: ".palee/hot.md is derived working memory and .palee/sessions/ is canonical history (ADR-0007 owns the read-side contract; ADR-0006 the write side). The v1.0.0..."
+description: ".palee/hot.md is derived working memory and .palee/sessions/ is canonical history. The v1.0.0 round hardened the lifecycle between them: draft handling at session end, recovered timestamp bounds, and rebuild behavior for unreadable sessions."
 ---
 
 

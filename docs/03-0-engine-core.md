@@ -1,5 +1,5 @@
 ---
-description: "The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition..."
+description: "The Engine Core is a pure-function, side-effect-free layer responsible for the mathematical and logical algorithms that power PALEE's spaced repetition scheduling, pedagogical mastery evaluation, and curriculum dependency sequencing."
 ---
 
 

@@ -1,5 +1,5 @@
 ---
-description: "The palee CLI implements a robust file locking mechanism to prevent race conditions during concurrent vault access. It utilizes atomic directory creation..."
+description: "The palee CLI implements a robust file locking mechanism to prevent race conditions during concurrent vault access. It uses atomic directory creation and heartbeats so only one process can modify a resource at a time, with recovery for crashed processes."
 ---
 
 

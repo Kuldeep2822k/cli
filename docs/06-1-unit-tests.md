@@ -1,5 +1,5 @@
 ---
-description: "The PALEE unit test suite ensures the mathematical correctness of core algorithms, defensive file-safety protocols in the storage layer, and strict domain..."
+description: "The PALEE unit test suite ensures the mathematical correctness of core algorithms, defensive file-safety protocols in the storage layer, and strict domain model typing."
 ---
 
 

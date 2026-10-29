@@ -1,5 +1,5 @@
 ---
-description: "The storage subsystem relies on efficient discovery of Markdown files and a robust caching mechanism to ensure performance during large-scale vault..."
+description: "The storage subsystem relies on efficient discovery of Markdown files and a robust caching mechanism to ensure performance during large-scale vault operations."
 ---
 
 

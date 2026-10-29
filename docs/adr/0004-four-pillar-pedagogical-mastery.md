@@ -1,5 +1,5 @@
 ---
-description: "Traditional flashcard spaced repetition models measure recall as a 1-dimensional score. However, real-world engineering and technical mastery requires..."
+description: "Traditional spaced repetition measures recall as a 1-dimensional score, but engineering mastery requires theoretical comprehension, practical application, debugging, and communication ability."
 ---
 
 

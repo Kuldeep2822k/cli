@@ -1,5 +1,5 @@
 ---
-description: "This page details the technical implementation of the PALEE configuration system and the TypeScript interfaces governing CLI command options. The..."
+description: "This page details the technical implementation of the PALEE configuration system and the TypeScript interfaces governing CLI command options. It covers persistent vault and AI settings plus the type-safe option types shared with the engine core."
 ---
 
 

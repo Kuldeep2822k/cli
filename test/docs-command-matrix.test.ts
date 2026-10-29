@@ -32,16 +32,38 @@ interface ExitRow {
   behavior: string;
 }
 
-const exitRows: ExitRow[] = [
-  ...exitSection.matchAll(/^\|\s*`palee ([a-z-]+)`\s*\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*$/gm),
-]
-  .map((match) => ({
-    command: match[1] ?? '',
-    exit: Number(match[2]),
-    behavior: (match[3] ?? '').trim(),
-  }))
-  .filter((row) => row.command.length > 0);
+function parseExitRows(section: string): ExitRow[] {
+  const lines = section.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => line === '| Command | Exit | Behavior |');
+  assert.notStrictEqual(headerIndex, -1, 'the per-command matrix has the long-form header');
+  assert.match(
+    lines[headerIndex + 1] ?? '',
+    /^\| :--- \| :---: \| :--- \|$/,
+    'the per-command matrix has a separator row'
+  );
 
+  const rows: ExitRow[] = [];
+  for (let index = headerIndex + 2; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    if (!line.startsWith('|')) break;
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    assert.strictEqual(cells.length, 3, `malformed exit row (expected 3 cells): ${line}`);
+    const commandMatch = /^`palee ([a-z-]+)`$/.exec(cells[0] ?? '');
+    assert.ok(commandMatch, `malformed command cell: ${line}`);
+    const command = commandMatch[1];
+    assert.ok(command, `malformed command cell: ${line}`);
+    const exitText = cells[1] ?? '';
+    assert.match(exitText, /^\d+$/, `palee ${command} has a non-integer exit: ${exitText}`);
+    const behavior = cells[2] ?? '';
+    assert.ok(behavior.length > 0, `palee ${command} exit ${exitText} has no behavior text`);
+    rows.push({ command, exit: Number(exitText), behavior });
+  }
+
+  assert.ok(rows.length > 0, 'the per-command matrix has at least one row');
+  return rows;
+}
+
+const exitRows = parseExitRows(exitSection);
 const documented = [...new Set(exitRows.map((row) => row.command))];
 
 /**
@@ -150,6 +172,19 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.match(scheduling, /## \d+\. Four-Pillar Assessment \(`palee assess`\)/);
     assert.match(scheduling, /palee assess <topic> \[--conceptual N\]/);
     assert.match(scheduling, /\| `palee assess` \|/);
+  });
+
+  test('a malformed exit row fails instead of disappearing from the matrix', () => {
+    const malformed = exitSection.replace(
+      '| `palee update` | 5 |',
+      '| `palee update` | -1 |'
+    );
+    assert.notStrictEqual(malformed, exitSection, 'the fixture contains the row to mutate');
+    assert.throws(
+      () => parseExitRows(malformed),
+      /palee update has a non-integer exit: -1/,
+      'a negative exit must fail instead of being filtered out'
+    );
   });
 
   test('the exit-code numbers and rows match the documented contract', () => {

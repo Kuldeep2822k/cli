@@ -1,5 +1,5 @@
 ---
-description: "This page outlines the planned evolution of PALEE (Personal Active Learning & Evaluation Engine) beyond its core deterministic features. It details the AI..."
+description: "This page outlines the planned evolution of PALEE (Personal Active Learning & Evaluation Engine) beyond its core deterministic features. It details the AI tutoring architecture, guided learning flows, and architectural gaps identified during Phase 1."
 ---
 
 

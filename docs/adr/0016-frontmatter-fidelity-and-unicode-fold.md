@@ -1,5 +1,5 @@
 ---
-description: "Two independent defects, one theme: a comparison or a rewrite that half-applied a rule the rest of the pipeline applied fully. Both produced silent..."
+description: "Two independent defects, one theme: a comparison or rewrite that half-applied a rule the rest of the pipeline applied fully. Both produced silent, permanent divergence — the failure direction this codebase treats as unacceptable."
 ---
 
 

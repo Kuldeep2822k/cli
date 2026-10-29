@@ -1,5 +1,5 @@
 ---
-description: "palee adopt writes palee_id and the SM-2/assessment frontmatter into the learner's own notes, and it is documented as strictly non-destructive. The..."
+description: "palee adopt writes palee_id and the SM-2/assessment frontmatter into the learner's own notes, and it is documented as strictly non-destructive. The v0.6.0–v1.0.0 rounds found three ways it was not, one way it could not be undone, and one way its filters lied about what they did."
 ---
 
 

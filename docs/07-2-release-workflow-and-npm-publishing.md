@@ -1,5 +1,5 @@
 ---
-description: "The PALEE release pipeline is a highly automated, multi-stage workflow designed to ensure that every version published to the NPM registry is verified,..."
+description: "The PALEE release pipeline is a highly automated, multi-stage workflow designed to ensure that every version published to the NPM registry is verified, consistent, and functional across platforms."
 ---
 
 
@@ -133,9 +133,9 @@ Sources: [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blo
 
 ## Distribution Configuration
 
-The package contents are defined by the `files` allowlist in `package.json`; there is no `.npmignore`. Only the compiled output and changelog are published:
+The package contents are defined by the `files` allowlist in `package.json`; there is no `.npmignore`. The allowlist publishes the compiled output and changelog, and npm always includes `package.json`, `README.md`, and `LICENSE`:
 
-- `package.json`: Defines the entry points for the compiled code. The `bin` field maps the `palee` command to `dist/bin/palee.js` [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
+- `package.json`: Always included by npm. It defines the entry points for the compiled code, and the `bin` field maps the `palee` command to `dist/bin/palee.js` [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)
 - `files` allowlist: Publishes `dist/src`, `dist/bin`, `dist/package.json`, and `CHANGELOG.md` [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json). Source, tests, and planning documents are excluded by omission rather than by an ignore file.
 
 Sources: [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json)

@@ -1,5 +1,5 @@
 ---
-description: "palee validate began as three hardcoded checks (duplicate topic IDs, missing dependencies, dependency cycles) inside the CLI handler, with a narrow..."
+description: "palee validate began as three hardcoded checks inside the CLI handler, with no warning/error distinction or machine-readable output. This ADR records the validation rule framework and the four product decisions that shaped it."
 ---
 
 

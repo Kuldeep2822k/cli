@@ -1,5 +1,5 @@
 ---
-description: "--auto-chain originally saw every markdown file in the scanned scope as a potential lesson. #205's census showed what that costs: microsoft/AI-For-Beginners..."
+description: "--auto-chain originally treated every Markdown file in the scanned scope as a potential lesson. #205's census showed translations and repo-meta files becoming first-class topics that gated real lessons, which led to Tier-0 hygiene classification."
 ---
 
 

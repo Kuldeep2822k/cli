@@ -1,5 +1,5 @@
 ---
-description: "This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types..."
+description: "This section serves as a technical reference for the TypeScript interfaces and type definitions that form the backbone of the PALEE system. All core types are defined in src/types.ts."
 ---
 
 

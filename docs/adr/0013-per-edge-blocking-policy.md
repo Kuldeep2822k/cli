@@ -1,5 +1,5 @@
 ---
-description: "ADR-0009's gating model is correct for the v0.6.x writer: one depends_on_source label per note, advisory or gating for the whole list. #224 identifies the..."
+description: "ADR-0009's gating model is correct for the v0.6.x writer: one depends_on_source label per note, advisory or gating for the whole list. #224 identifies why that breaks once sources mix and specifies per-edge blocking policies and OR-groups."
 ---
 
 

@@ -1,5 +1,5 @@
 ---
-description: "This page defines the codebase-specific terms, abbreviations, and domain concepts used throughout the PALEE system. It serves as a technical reference for..."
+description: "This page defines the codebase-specific terms, abbreviations, and domain concepts used throughout the PALEE system. It serves as a technical reference for engineers mapping terminology to implementation details."
 ---
 
 

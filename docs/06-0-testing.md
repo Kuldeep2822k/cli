@@ -1,5 +1,5 @@
 ---
-description: "PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (node:test) and assertion library..."
+description: "PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (node:test) and assertion library (node:assert), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies."
 ---
 
 

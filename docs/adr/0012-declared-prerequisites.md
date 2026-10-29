@@ -1,5 +1,5 @@
 ---
-description: "ADR-0009's gating rule has three gates: the learner's own frontmatter, the numbered tree, and the note's own declaration. The first two existed from the..."
+description: "ADR-0009's gating rule has three gates: the learner's own frontmatter, the numbered tree, and the note's own declaration. The first two existed from the start; this ADR records the third and the feature that was built and deliberately removed on the way there."
 ---
 
 

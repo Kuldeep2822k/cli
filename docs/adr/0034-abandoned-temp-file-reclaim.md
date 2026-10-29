@@ -1,5 +1,5 @@
 ---
-description: "atomicWrite creates .tmp. . in the destination's own directory and unlinks it from the catch of a handled error. A process killed by a signal between the..."
+description: "atomicWrite creates a temporary file in the destination's own directory and unlinks it from the catch of a handled error. A process killed by a signal between the write and the rename leaves the temp file behind, so this ADR scopes reclamation to the target it belongs to."
 ---
 
 

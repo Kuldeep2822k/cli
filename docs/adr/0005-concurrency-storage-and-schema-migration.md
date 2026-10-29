@@ -1,5 +1,5 @@
 ---
-description: "As PALEE vaults grow in complexity, notes may be created outside the CLI (by Obsidian plugins, manual text editing, or external sync engines) without the..."
+description: "As PALEE vaults grow in complexity, notes may be created outside the CLI without the canonical palee_schema: 1 version attribute. This ADR records the concurrency-hardened storage and automated schema migration decisions."
 ---
 
 

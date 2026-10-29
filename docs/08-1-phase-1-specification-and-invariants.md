@@ -1,5 +1,5 @@
 ---
-description: "This page summarizes the foundational specifications, architectural requirements, and safety invariants established for Phase 1 of the PALEE (Personal..."
+description: "This page summarizes the foundational specifications, architectural requirements, and safety invariants established for Phase 1 of the PALEE (Personal Active Learning & Evaluation Engine) CLI."
 ---
 
 

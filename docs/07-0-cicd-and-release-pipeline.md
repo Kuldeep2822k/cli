@@ -1,5 +1,5 @@
 ---
-description: "This section provides a high-level overview of the automated workflows that govern the PALEE codebase. The project utilizes GitHub Actions to enforce code..."
+description: "This section provides a high-level overview of the automated workflows that govern the PALEE codebase. It covers GitHub Actions for code quality, repository organization, security invariants, and multi-platform npm releases."
 ---
 
 

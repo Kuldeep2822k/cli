@@ -1,5 +1,5 @@
 ---
-description: "The Session Memory Storage system manages the persistence of learning sessions, working memory, and draft recovery within the .palee/ directory of an..."
+description: "The Session Memory Storage system manages the persistence of learning sessions, working memory, and draft recovery within the .palee/ directory of an Obsidian vault."
 ---
 
 

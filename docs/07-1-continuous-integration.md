@@ -1,5 +1,5 @@
 ---
-description: "The PALEE Continuous Integration (CI) infrastructure ensures code quality, cross-platform compatibility, and security through automated workflows. The..."
+description: "PALEE's CI pipeline validates every commit and pull request with linting, type checks, unit tests, and smoke tests across Linux, Windows, and macOS."
 ---
 
 

@@ -1,5 +1,5 @@
 ---
-description: "planning/memory_design.md defines .palee/hot.md as a derived working-memory view that must be tolerant of external edits (Obsidian, sync daemons, manual text..."
+description: "planning/memory_design.md defines .palee/hot.md as a derived working-memory view that must be tolerant of external edits from Obsidian, sync daemons, and manual text editing."
 ---
 
 

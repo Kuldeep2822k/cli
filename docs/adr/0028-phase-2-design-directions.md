@@ -1,5 +1,5 @@
 ---
-description: "Four Phase-2 designs are fully specified in the issue tracker and recorded nowhere durable. Each one is a decision about what the AI may and may not do, made..."
+description: "Four Phase-2 designs are fully specified in the issue tracker and recorded nowhere durable. Each is a decision about what the AI may and may not do, made while the deterministic core was being hardened, so a future implementer starts from the specification rather than rediscovering it."
 ---
 
 

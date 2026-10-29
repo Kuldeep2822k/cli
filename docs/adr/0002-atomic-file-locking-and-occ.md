@@ -1,5 +1,5 @@
 ---
-description: "Obsidian vaults are local directories modified by users, sync services (Obsidian Sync, iCloud, Dropbox, OneDrive), and automated CLI tools concurrently. We..."
+description: "Obsidian vaults are modified concurrently by users, sync services, and CLI tools. The storage layer must prevent data loss, partial writes, and lost updates without corrupting notes or locking users out."
 ---
 
 

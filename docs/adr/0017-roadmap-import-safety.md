@@ -1,5 +1,5 @@
 ---
-description: "palee roadmap --from rewrites depends_on across the whole vault, and it is the one command whose blast radius is the entire graph rather than a single note..."
+description: "palee roadmap --from rewrites depends_on across the whole vault, and it is the one command whose blast radius is the entire graph rather than a single note. The v0.6.0 audit found five ways it could leave the vault in a state its own validation pass had just cleared."
 ---
 
 

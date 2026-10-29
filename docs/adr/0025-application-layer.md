@@ -1,5 +1,5 @@
 ---
-description: "Command handlers combined argument handling, configuration loading, vault/storage access, domain logic, output formatting, and process/exit handling in one..."
+description: "Command handlers combined argument handling, configuration loading, vault/storage access, domain logic, output formatting, and process/exit handling in one module. This ADR records the application layer that separates those concerns from the CLI boundary."
 ---
 
 

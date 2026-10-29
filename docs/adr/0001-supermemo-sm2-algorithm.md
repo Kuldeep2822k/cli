@@ -1,5 +1,5 @@
 ---
-description: "PALEE is designed to guide learners through complex topic graphs while maximizing retention. Without an automated review schedule, learners suffer from the..."
+description: "PALEE is designed to guide learners through complex topic graphs while maximizing retention. Without an automated review schedule, learners suffer from the Ebbinghaus forgetting curve."
 ---
 
 

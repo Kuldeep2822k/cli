@@ -1,5 +1,5 @@
 ---
-description: "The palee CLI is the primary developer interface for interacting with the PALEE learning engine. It provides a comprehensive suite of terminal commands for..."
+description: "The palee CLI is the primary developer interface for interacting with the PALEE learning engine. It provides terminal commands for topic management, spaced repetition reviews, analytics, roadmap ingestion, and focused study sessions."
 ---
 
 

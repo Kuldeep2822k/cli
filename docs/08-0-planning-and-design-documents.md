@@ -1,5 +1,5 @@
 ---
-description: "This section serves as a central index for the planning/ directory, containing the foundational specifications, design proposals, and roadmaps that guide..."
+description: "This section serves as a central index for the planning/ directory, containing the foundational specifications, design proposals, and roadmaps that guide the PALEE codebase."
 ---
 
 

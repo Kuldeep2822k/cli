@@ -1,5 +1,5 @@
 ---
-description: "The palee session command suite manages the real-time learning lifecycle, active focus tracking, and persistence of study session records. It maintains a..."
+description: "The palee session command suite manages the real-time learning lifecycle, active focus tracking, and persistence of study session records. It maintains a short-term working memory file, a chronological session index, and durable session notes under .palee/."
 ---
 
 

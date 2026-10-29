@@ -1,5 +1,5 @@
 ---
-description: "ADR-0009 established that only three things may gate: the learner's own list, the numbered tree, and the note's own declaration (ADR-0012). This ADR records..."
+description: "ADR-0009 established that only three things may gate: the learner's own list, the numbered tree, and the note's own declaration. This ADR records how the numbered tree and the repository's own enumeration combine into a chain, and why the default tier produces the fewest edges."
 ---
 
 

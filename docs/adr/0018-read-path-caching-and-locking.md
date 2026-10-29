@@ -1,5 +1,5 @@
 ---
-description: "loadTopics is the boundary every command reads the vault through, and the v1.0.0 audit round hardened four things about it: what it accepts, what it..."
+description: "loadTopics is the boundary every command reads the vault through, and the v1.0.0 audit round hardened four things about it: what it accepts, what it remembers, what it refuses to read, and how long a lock may outlive its owner."
 ---
 
 
