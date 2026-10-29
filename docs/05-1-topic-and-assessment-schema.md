@@ -31,6 +31,7 @@ The `Topic` interface is the central entity in the system, representing a single
 - `status`: Tracks the learning lifecycle (`not_started`, `learning`, `paused`, `archived`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - `difficulty`: A normalized categorization of the topic's complexity [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - `dependencies`: An array of `palee_id` strings representing prerequisite topics [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `depends_on_source`: Records which tier authored `depends_on` — `numbered` from the note's own numeric prefix, `declared` from links in its `## Prerequisites` section, `toc` from a listing document's enumeration order, or `tie` from a filename collation between two notes at the same rank. It is the field that decides gating: `toc` and `tie` are advisory (they still rank the topic and take part in cycle detection, but never hold it off the ready list), while any other label — including an absent or unrecognized one — gates fail-closed [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ### Topic Data Flow
 
@@ -166,3 +167,5 @@ const paleeData: Record<string, unknown> = {
 ```
 
 Sources:[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)[examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)
+
+`depends_on_source` is deliberately absent from that initial record: adoption writes no provenance label, so an adopted note's edges gate until a chaining tier stamps one. `adopt --auto-chain` and `roadmap --auto-chain` add the key, and `migrate --relabel-ties` rewrites a `numbered` label to `tie` without touching `depends_on`. A note carrying no label at all is the fail-closed spelling, which is why `migrate --relabel-ties` treats it as a separate population behind `--include-unlabeled-ties`.
