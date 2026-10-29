@@ -31,3 +31,91 @@ export function displayValue(value: unknown): unknown {
   }
   return value;
 }
+
+/**
+ * True when a value contains itself, through an array or an object.
+ *
+ * @param value - The value to probe
+ * @param chain - The objects on the current path (internal)
+ * @returns `true` for a self-referential structure
+ */
+function isCyclic(value: unknown, chain: Set<unknown> = new Set()): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (chain.has(value)) return true;
+  chain.add(value);
+  const children = Array.isArray(value) ? value : Object.values(value);
+  for (const child of children) {
+    if (isCyclic(child, chain)) return true;
+  }
+  chain.delete(value);
+  return false;
+}
+
+/**
+ * Safely serializes a value to a JSON string, returning a fallback marker
+ * when the value contains a cycle or a non-JSON-encodable type such as
+ * `bigint`.
+ *
+ * @param value - The value to serialize
+ * @returns A valid JSON string, or `"[circular]"` / `"[non-serializable]"`
+ */
+function safeStringify(value: unknown): string {
+  try {
+    if (isCyclic(value)) return '[circular]';
+    return JSON.stringify(value) ?? '[non-serializable]';
+  } catch {
+    return '[non-serializable]';
+  }
+}
+
+/**
+ * Formats a raw frontmatter value for a human-readable diagnostic message.
+ *
+ * @remarks
+ * Unlike `JSON.stringify(displayValue(...))`, this renders non-finite numbers
+ * as bare spellings (`NaN`, `Infinity`, `-Infinity`) — not as quoted strings —
+ * so the diagnostic reads the actual numeric spelling rather than an opaque
+ * JSON-string token. Strings, booleans, and finite numbers follow JSON
+ * conventions: strings are quoted, booleans and numbers are bare. Composite
+ * values (objects, arrays) are serialized with safe guards that catch cycles
+ * and non-JSON scalars (e.g. `bigint`) before they can throw, returning a
+ * readable fallback marker instead.
+ *
+ * @param value - Raw stored value — untrusted frontmatter
+ * @returns A human-readable, safe-to-interpolate string representation
+ */
+export function formatDiagnosticValue(value: unknown): string {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return String(value); // NaN | Infinity | -Infinity
+  }
+  if (typeof value === 'string') {
+    return safeStringify(value); // "soon"
+  }
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return String(value); // true | false | 42 | -1
+  }
+  if (value === null) {
+    return 'null';
+  }
+  if (value === undefined) {
+    return 'undefined';
+  }
+  return safeStringify(value); // {"a":1} | [1,2] | [circular] | [non-serializable]
+}
+
+/**
+ * Preserves JSON-safe scalar values while converting unsafe values to strings
+ * before they enter machine-readable validation payloads.
+ */
+export function toJsonSafeValue(value: unknown): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') {
+    return displayValue(value);
+  }
+  try {
+    if (isCyclic(value)) return '[circular]';
+    const serialized = JSON.stringify(value, (_key, nestedValue) => displayValue(nestedValue));
+    return serialized === undefined ? '[non-serializable]' : JSON.parse(serialized);
+  } catch {
+    return '[non-serializable]';
+  }
+}

@@ -68,18 +68,21 @@ export function buildReviewUpdate(
   reviewedAt: Date,
 ): ReviewOutcome {
   // Explicit null/undefined checks; a literal 0 is preserved, not defaulted.
+  // The values are forwarded as-is and stay untyped: frontmatter is untrusted,
+  // and `processReview`'s precondition block — not a cast — is what refuses
+  // garbage (ADR-0021), naming the field and value it rejected.
   const currentState = {
     ease_factor: frontmatter.ease_factor !== undefined && frontmatter.ease_factor !== null
-      ? (frontmatter.ease_factor as number)
+      ? frontmatter.ease_factor
       : 2.5,
     interval_days: frontmatter.interval_days !== undefined && frontmatter.interval_days !== null
-      ? (frontmatter.interval_days as number)
+      ? frontmatter.interval_days
       : 1,
     repetition: frontmatter.repetition !== undefined && frontmatter.repetition !== null
-      ? (frontmatter.repetition as number)
+      ? frontmatter.repetition
       : 0,
     lapses: frontmatter.lapses !== undefined && frontmatter.lapses !== null
-      ? (frontmatter.lapses as number)
+      ? frontmatter.lapses
       : 0,
   };
 
