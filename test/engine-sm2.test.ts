@@ -50,9 +50,9 @@ describe('SM-2 Algorithm', () => {
   // `got <value>` — are therefore asserted here, not just one of them.
   //
   // The `as unknown as number` casts are the shape the engine really receives:
-  // `src/application/record-review.ts` passes raw frontmatter through as
-  // `frontmatter.interval_days as number`, so a corrupt note arrives mistyped and
-  // type-corrected, never sanitized.
+  // `src/application/record-review.ts` forwards raw frontmatter values without
+  // sanitizing them (#547 removed its casts), so a corrupt note arrives mistyped
+  // and type-corrected, never pre-cleaned.
 
   test('interval_days refuses a stored string, naming the field and the value', () => {
     assert.throws(
@@ -60,7 +60,7 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 'soon' as unknown as number, repetition: 2 },
         4
       ),
-      { message: 'Invalid interval_days: must be a finite number >= 1, got soon' }
+      { message: 'Invalid interval_days: must be a finite number >= 1, got "soon"' }
     );
   });
 
@@ -94,14 +94,99 @@ describe('SM-2 Algorithm', () => {
         { ease_factor: 2.5, interval_days: 6, repetition: 'x' as unknown as number },
         4
       ),
-      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got x' }
+      { message: 'Invalid repetition: must be a non-negative integer, got "x"' }
+    );
+  });
+
+  // #547: `lapses` was the one stored field outside the precondition block, so
+  // a truthy string passed `current.lapses || 0` and `lapses += 1` concatenated.
+  // These pin the same contract as the repetition matrix above.
+  test('lapses refuses a stored string, naming the field and the value', () => {
+    // Quality 2 is the lapse branch, quality 4 the success branch — the guard
+    // sits in the precondition block, ahead of both.
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
+        2
+      ),
+      { message: 'Invalid lapses: must be a non-negative integer, got "2"' }
+    );
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: '2' as unknown as number },
+        4
+      ),
+      { message: 'Invalid lapses: must be a non-negative integer, got "2"' }
+    );
+  });
+
+  test('lapses refuses a fractional count, which `x < 0` cannot catch', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: 2.5 }, 2),
+      { message: 'Invalid lapses: must be a non-negative integer, got 2.5' }
+    );
+  });
+
+  test('lapses refuses a negative count, naming the field and the value', () => {
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: -1 }, 2),
+      { message: 'Invalid lapses: must be a non-negative integer, got -1' }
+    );
+  });
+
+  test('lapses refuses a cyclic object without throwing', () => {
+    // Qodo finding: JSON.stringify threw on cyclic YAML alias values,
+    // silencing the field-specific error. formatDiagnosticValue must
+    // not throw and must still name the field.
+    const cyclic: Record<string, unknown> = { lapses: 'cycle' };
+    cyclic.self = cyclic;
+    assert.throws(
+      () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: cyclic }, 2),
+      /Invalid lapses/
+    );
+  });
+
+  test('lapses refuses a count at the safe-integer ceiling only when a lapse would increment it', () => {
+    // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, so incrementing the
+    // ceiling value would silently no-op. The engine still accepts the ceiling
+    // on successful reviews — the check is deferred to the lapse branch.
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER },
+      4
+    );
+    assert.strictEqual(result.lapses, Number.MAX_SAFE_INTEGER);
+
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER },
+        2
+      ),
+      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740990, got 9007199254740991' }
+    );
+  });
+
+  test('lapses pass through a successful review unchanged', () => {
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: 4 },
+      4
+    );
+    assert.strictEqual(result.lapses, 4);
+  });
+
+  test('lapses above the safe-integer ceiling are rejected before a successful review', () => {
+    assert.throws(
+      () => processReview(
+        { ease_factor: 2.5, interval_days: 6, repetition: 2, lapses: Number.MAX_SAFE_INTEGER + 1 },
+        4
+      ),
+      { message: 'Invalid lapses: must be an integer >= 0 and <= 9007199254740991, got 9007199254740992' }
     );
   });
 
   test('repetition refuses a fractional count, which `x < 0` cannot catch', () => {
     assert.throws(
       () => processReview({ ease_factor: 2.5, interval_days: 6, repetition: 2.5 }, 4),
-      { message: 'Invalid repetition: must be an integer >= 0 and <= 9007199254740990, got 2.5' }
+      { message: 'Invalid repetition: must be a non-negative integer, got 2.5' }
     );
   });
 

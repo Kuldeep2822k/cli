@@ -12,7 +12,7 @@ import { runRules } from '../validation/run-rules';
 import { formatHuman, formatJson } from '../validation/format';
 import { VALIDATION_RULES } from '../validation';
 import { repairReviewFields } from '../validation/rules/valid-review-fields';
-import { displayValue } from '../validation/rules/diagnostic-value';
+import { toJsonSafeValue } from '../validation/rules/diagnostic-value';
 import type { ValidationContext, ValidationIssue, ValidationRule } from '../validation/types';
 import {
   updateFrontmatter,
@@ -221,7 +221,7 @@ async function applyReviewFieldRepairs(
           topic_id: topic.palee_id,
           file: topic.path,
           field,
-          from: displayValue(topic.frontmatter[field]),
+          from: toJsonSafeValue(topic.frontmatter[field]),
           to,
         });
       }
@@ -300,7 +300,7 @@ async function applyMasteryRepairs(
         topic_id: topic.palee_id,
         file: topic.path,
         field: 'topic_mastery',
-        from: displayValue(stored ?? null),
+        from: toJsonSafeValue(stored ?? null),
         to: expected,
       });
     } catch (e: unknown) {

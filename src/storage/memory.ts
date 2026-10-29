@@ -482,13 +482,48 @@ async function writeActiveSession(
   return statePath;
 }
 
-/** Removes the canonical in-progress marker after the session is recorded. */
+/**
+ * Removes the canonical in-progress marker after the session is recorded.
+ *
+ * @remarks
+ * The unlink runs under the marker's target lock — the same one
+ * `writeActiveSession`'s `atomicWrite` takes. A lock held by a live writer is
+ * not an error here: the clear is skipped and a later `session end` re-clears
+ * through the already-recorded path.
+ */
 async function clearActiveSession(vaultPath: string): Promise<void> {
-  const statePath = path.join(vaultPath, '.palee', 'active-session.md');
+  // `getPaleeDir`, not a bare `path.join` (#544): with `.palee` planted as a
+  // junction the unguarded `unlinkSync` deleted the marker outside the vault.
+  // The containment assertion runs before the `mkdirSync` and before the `Lock`
+  // is constructed, so a planted link is refused without creating anything.
+  const paleeDir = getPaleeDir(vaultPath);
+  const statePath = path.join(paleeDir, 'active-session.md');
+
+  // The marker is an `atomicWrite` target, so the unlink takes the same target
+  // lock (#544): lockless it raced a concurrent `session start` mid-rename —
+  // resurrecting the marker after `end` reported success, or surfacing
+  // EPERM/EBUSY on Windows. Contentions yield like `resetHotMemory`: a live
+  // writer is re-creating the marker, which is exactly when clearing it would
+  // be wrong.
+  const lock = new Lock(vaultPath, statePath);
+  let lockAcquired = false;
   try {
-    fs.unlinkSync(statePath);
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    try {
+      await lock.acquire();
+      lockAcquired = true;
+    } catch (err: unknown) {
+      if (isConflictError(err)) return;
+      throw err;
+    }
+    try {
+      fs.unlinkSync(statePath);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  } finally {
+    if (lockAcquired) {
+      lock.release();
+    }
   }
 }
 

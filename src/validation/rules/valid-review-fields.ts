@@ -33,24 +33,25 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { displayValue } from './diagnostic-value';
+import { formatDiagnosticValue, toJsonSafeValue } from './diagnostic-value';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
-  { field: 'ease_factor', min: 1.3, integer: false },
-  { field: 'interval_days', min: 1, integer: true },
-  { field: 'repetition', min: 0, integer: true },
-  { field: 'lapses', min: 0, integer: true },
+  { field: 'ease_factor', min: 1.3, max: undefined, integer: false },
+  { field: 'interval_days', min: 1, max: undefined, integer: true },
+  { field: 'repetition', min: 0, max: Number.MAX_SAFE_INTEGER - 1, integer: true },
+  { field: 'lapses', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true },
 ] as const;
 
 /**
  * SM-2 bounds check for one numeric review field (engine contract).
  */
-function isNumericReviewValueValid(value: unknown, min: number, integer: boolean): boolean {
+function isNumericReviewValueValid(value: unknown, min: number, max: number | undefined, integer: boolean): boolean {
   return (
     typeof value === 'number' &&
     Number.isFinite(value) &&
     value >= min &&
+    (max === undefined || value <= max) &&
     (!integer || Number.isInteger(value))
   );
 }
@@ -89,10 +90,10 @@ const SM2_REVIEW_DEFAULTS: Record<string, unknown> = {
  */
 function repairReviewFields(frontmatter: Record<string, unknown>): Record<string, unknown> | null {
   const fixes: Record<string, unknown> = {};
-  for (const { field, min, integer } of NUMERIC_FIELDS) {
+  for (const { field, min, max, integer } of NUMERIC_FIELDS) {
     const value = frontmatter[field];
     if (value === undefined) continue;
-    if (!isNumericReviewValueValid(value, min, integer)) {
+    if (!isNumericReviewValueValid(value, min, max, integer)) {
       fixes[field] = SM2_REVIEW_DEFAULTS[field];
     }
   }
@@ -112,25 +113,30 @@ export const validReviewFieldsRule: ValidationRule = {
     'Review state must match SM-2 bounds: ease_factor >= 1.3, interval_days >= 1, counters >= 0, last_quality null or integer 0-5',
   severity: 'error',
   fixable: 'manual', // kept per #38 metadata contract; `validate --fix` still offers a best-effort reset to adopt defaults (BUG-003)
+  /**
+   * Runs the validation rule against all topics, reporting review-state fields
+   * that violate the SM-2 engine contract.
+   */
   run(context) {
     const issues: ValidationIssue[] = [];
 
     for (const topic of context.topics) {
       // Deterministic per-topic report order: the four numeric fields in
       // declaration order, then last_quality.
-      for (const { field, min, integer } of NUMERIC_FIELDS) {
+      for (const { field, min, max, integer } of NUMERIC_FIELDS) {
         const value = topic.frontmatter[field];
         if (value === undefined) continue; // adopt-default policy: missing = default state
 
-        if (!isNumericReviewValueValid(value, min, integer)) {
+        if (!isNumericReviewValueValid(value, min, max, integer)) {
+          const formatted = formatDiagnosticValue(value);
           issues.push({
             ruleId: 'valid-review-fields',
             severity: 'error',
-            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}, got ${JSON.stringify(displayValue(value))}`,
+            message: `Topic ${topic.palee_id}: review field ${field} must be ${integer ? 'an integer' : 'a number'} >= ${min}${max !== undefined ? ` and <= ${max}` : ''}, got ${formatted}`,
             file: topic.path,
             topicId: topic.palee_id,
             field,
-            details: { actual: displayValue(value) },
+            details: { actual: toJsonSafeValue(value) },
           });
         }
       }
@@ -140,14 +146,15 @@ export const validReviewFieldsRule: ValidationRule = {
       const quality = topic.frontmatter.last_quality;
       if (quality === undefined) continue;
       if (!isLastQualityValid(quality)) {
+        const formatted = formatDiagnosticValue(quality);
         issues.push({
           ruleId: 'valid-review-fields',
           severity: 'error',
-          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${JSON.stringify(displayValue(quality))}`,
+          message: `Topic ${topic.palee_id}: review field last_quality must be null or an integer 0-5, got ${formatted}`,
           file: topic.path,
           topicId: topic.palee_id,
           field: 'last_quality',
-          details: { actual: displayValue(quality) },
+          details: { actual: toJsonSafeValue(quality) },
         });
       }
     }

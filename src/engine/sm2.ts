@@ -9,6 +9,7 @@
  */
 
 import { Review } from '../types';
+import { formatDiagnosticValue } from '../validation/rules/diagnostic-value';
 
 /**
  * Calculates the delta adjustment to the ease factor based on review quality.
@@ -76,7 +77,9 @@ function roundHalfUp(value: number, decimals: number): number {
  *   - `interval_days` becomes 1 for rep 1, 6 for rep 2, or `round(interval * ease_factor)` for rep > 2
  * - `ease_factor` updates by `calculateEaseFactorDelta(quality)`, clamped to a minimum of 1.3
  *
- * @param current - Current review state (ease_factor, interval_days, repetition, lapses)
+ * @param current - Stored review state (ease_factor, interval_days, repetition,
+ * lapses). The field values are untrusted — raw frontmatter reaches this
+ * untyped — and the precondition block below refuses garbage by name (ADR-0021).
  * @param quality - Review quality rating integer (0 - 5)
  * @returns Updated Partial review state with new intervals, ease factor, and counters
  * @throws {Error} If quality is out of bounds or current state fields are invalid
@@ -87,44 +90,72 @@ function roundHalfUp(value: number, decimals: number): number {
  * // returns { ease_factor: 2.6, interval_days: 1, repetition: 1, lapses: 0, last_quality: 5 }
  * ```
  */
-function processReview(current: Partial<Review>, quality: number): Partial<Review> {
+function processReview(
+  current: Omit<Partial<Review>, 'ease_factor' | 'interval_days' | 'repetition' | 'lapses'> & {
+    ease_factor?: unknown;
+    interval_days?: unknown;
+    repetition?: unknown;
+    lapses?: unknown;
+  },
+  quality: number,
+): Partial<Review> {
   // Validate quality
   if (!Number.isInteger(quality) || quality < 0 || quality > 5) {
-    throw new Error(`Invalid quality: must be integer 0-5, got ${quality}`);
+    throw new Error(`Invalid quality: must be an integer 0-5, got ${formatDiagnosticValue(quality)}`);
   }
 
   const {
     ease_factor = 2.5,
     interval_days = 1,
     repetition = 0,
+    lapses = 0,
   } = current;
 
-  // Validate current state. The range tests alone do not refuse a stored scalar
-  // that is not a number: `"soon" < 1` and `true < 1` are both false, so the
-  // value would reach the schedule and store a NaN interval (INV-17).
-  if (!Number.isFinite(ease_factor) || ease_factor < 1.3) {
-    throw new Error(`Invalid ease_factor: must be a finite number >= 1.3, got ${ease_factor}`);
+  // Validate current state. The values arrive untyped from raw frontmatter, so
+  // each guard leads with a `typeof` check: the range tests alone do not refuse
+  // a stored scalar that is not a number — `"soon" < 1` and `true < 1` are both
+  // false — and the value would reach the schedule and store a NaN interval
+  // (INV-17).
+  if (typeof ease_factor !== 'number' || !Number.isFinite(ease_factor) || ease_factor < 1.3) {
+    throw new Error(`Invalid ease_factor: must be a finite number >= 1.3, got ${formatDiagnosticValue(ease_factor)}`);
   }
-  if (!Number.isFinite(interval_days) || interval_days < 1) {
-    throw new Error(`Invalid interval_days: must be a finite number >= 1, got ${interval_days}`);
+  if (typeof interval_days !== 'number' || !Number.isFinite(interval_days) || interval_days < 1) {
+    throw new Error(`Invalid interval_days: must be a finite number >= 1, got ${formatDiagnosticValue(interval_days)}`);
   }
-  // A count at or above `Number.MAX_SAFE_INTEGER` cannot be advanced safely:
-  // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and `(2 ** 53) + 1`
-  // stays `2 ** 53`, so the success branch would return the count unchanged.
-  if (!Number.isInteger(repetition) || repetition < 0 || repetition > Number.MAX_SAFE_INTEGER - 1) {
-    throw new Error(`Invalid repetition: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${repetition}`);
+  if (typeof repetition !== 'number' || !Number.isInteger(repetition) || repetition < 0) {
+    throw new Error(`Invalid repetition: must be a non-negative integer, got ${formatDiagnosticValue(repetition)}`);
+  }
+  // Lapses is an incrementing count. A non-integer or negative value is
+  // invalid outright. The exact safe-integer ceiling remains valid on a
+  // successful review, which does not increment lapses.
+  if (typeof lapses !== 'number' || !Number.isInteger(lapses) || lapses < 0) {
+    throw new Error(`Invalid lapses: must be a non-negative integer, got ${formatDiagnosticValue(lapses)}`);
+  }
+  if (lapses > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`Invalid lapses: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER}, got ${formatDiagnosticValue(lapses)}`);
+  }
+  // `repetition` is incremented unconditionally on a successful review, so its
+  // ceiling must be enforced upfront (same rationale as before #547).
+  if (repetition > Number.MAX_SAFE_INTEGER - 1) {
+    throw new Error(`Invalid repetition: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${formatDiagnosticValue(repetition)}`);
   }
 
   let newRepetition: number;
   let newInterval: number;
   let newEaseFactor: number;
-  let lapses = current.lapses || 0;
+  let newLapses = lapses;
 
   // Quality < 3: reset
   if (quality < 3) {
     // Lapse only if this was a previously learned topic
     if (repetition > 0) {
-      lapses += 1;
+      // The lapse increment must not overflow the safe-integer ceiling:
+      // `Number.MAX_SAFE_INTEGER + 1` is exactly `2 ** 53`, and one more
+      // step stays `2 ** 53`, so the increment would silently no-op.
+      if (lapses >= Number.MAX_SAFE_INTEGER) {
+        throw new Error(`Invalid lapses: must be an integer >= 0 and <= ${Number.MAX_SAFE_INTEGER - 1}, got ${formatDiagnosticValue(lapses)}`);
+      }
+      newLapses += 1;
     }
     newRepetition = 0;
     newInterval = 1;
@@ -157,17 +188,17 @@ function processReview(current: Partial<Review>, quality: number): Partial<Revie
   // same way as a non-finite input — ADR-0021 names the field rather than
   // clamping, and the value must never reach the note as `Infinity`.
   if (!Number.isFinite(newInterval)) {
-    throw new Error(`Invalid interval_days: computed non-finite value, got ${newInterval}`);
+    throw new Error(`Invalid interval_days: computed non-finite value, got ${formatDiagnosticValue(newInterval)}`);
   }
   if (!Number.isFinite(newEaseFactor)) {
-    throw new Error(`Invalid ease_factor: computed non-finite value, got ${newEaseFactor}`);
+    throw new Error(`Invalid ease_factor: computed non-finite value, got ${formatDiagnosticValue(newEaseFactor)}`);
   }
 
   return {
     ease_factor: newEaseFactor,
     interval_days: newInterval,
     repetition: newRepetition,
-    lapses,
+    lapses: newLapses,
     last_quality: quality,
   };
 }
