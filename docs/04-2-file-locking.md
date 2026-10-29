@@ -48,16 +48,16 @@ sequenceDiagram
         P->>LD: writeFileSync(sessionID.json, LockData)
         Note over P: Lock Acquired (Heartbeat Active)
     else Collision / EEXIST (Contended)
-        P->>LD: readdirSync() &rarr; check stale mtime
-        alt Lock is Stale (Windows &gt;60s / POSIX &gt;120s)
+        P->>LD: readdirSync() → check stale mtime
+        alt Lock is Stale (Windows >60s / POSIX >120s)
             P->>LD: renameSync(file, file.quarantine)
             alt Heartbeat Refreshed Mid-Rename
                 P->>LD: renameSync(quarantine, file)
-                Note over P: Restored &rarr; Retry
+                Note over P: Restored → Retry
             else Still Stale
                 P->>LD: unlinkSync(quarantine)
                 P->>FS: rmdirSync(lockDir)
-                Note over P: Stale Reclaimed &rarr; Retry
+                Note over P: Stale Reclaimed → Retry
             end
         else Lock is Active
             Note over P: Throw ECONFLICT

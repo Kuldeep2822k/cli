@@ -124,7 +124,7 @@ flowchart TD
     InProcTest -->|invoke handler| Handler
     Handler -->|structured json| ConsoleLog
     Handler -->|error payload| ConsoleErr
-    Handler -->|set exit code (0-5)| ExitCode
+    Handler -->|"set exit code (0-5)"| ExitCode
     ConsoleLog -->|parse JSON| InProcTest
     ExitCode -->|assert code| InProcTest
 ```

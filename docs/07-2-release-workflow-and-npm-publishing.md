@@ -126,7 +126,7 @@ sequenceDiagram
     Runner->>CLI: palee --help
     CLI-->>Runner: Display Help
     Runner->>CLI: palee next --json (isolated temp vault)
-    CLI-->>Runner: exit 0; empty-vault JSON contract
+    CLI-->>Runner: exit 0, empty-vault JSON contract
 ```
 
 Sources: [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)

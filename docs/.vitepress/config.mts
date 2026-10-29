@@ -57,6 +57,16 @@ const config = withMermaid(
       math: true
     },
 
+    vite: {
+      optimizeDeps: {
+        // lazyMermaid() below creates the dynamic import after Vite's dependency
+        // scanner has run, so Mermaid is never discovered on its own. Pre-bundle
+        // it explicitly: its CommonJS dependency fastdom has no ESM default
+        // export, and serving it raw leaves every diagram stuck on "Loading...".
+        include: ['mermaid']
+      }
+    },
+
     transformHtml(code) {
       // The async Mermaid component is only resolved on pages that contain a
       // diagram; drop Vite's eager preload so other pages never download it.
