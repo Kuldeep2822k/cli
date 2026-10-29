@@ -199,7 +199,7 @@ All session metadata is isolated within the `.palee/` directory at the vault roo
 | Exit | Behavior |
 | :---: | :--- |
 | 0 | Session action (`start`, `draft`, `end`, `list`) completed successfully. |
-| 1 | `session end` recorded the session note but a follow-up write partially failed: a draft checkpoint could not be deleted, or `hot.md`'s active-session marker could not be cleared (an OCC conflict on that clear is reported as exit 4). Human mode prints the reason as a warning; under `--json` nothing is printed and the reason is in `warnings[]` with the count in `draft_cleanup_failures`. |
+| 1 | `session end` recorded the session note but a follow-up write partially failed: a draft checkpoint could not be deleted, or `hot.md`'s active-session marker could not be cleared (an OCC conflict on that clear is reported as exit 4). Human mode prints the reason as a warning; under `--json` stdout still carries the `status: "recorded"` document, with the reason in `warnings[]` and the count in `draft_cleanup_failures`. |
 | 2 | Vault path not configured, a `--topic` that resolves to no topic or to several (every candidate is listed), missing `--topic` for `draft`/`end` when no active topic exists, unconfirmed drafts blocking non-interactive `session start`, or unknown action specified. |
 | 4 | OCC conflict during session note write or `hot.md` update (`isConflictError`). |
 | 5 | Unexpected runtime exception or storage boundary violation error. |

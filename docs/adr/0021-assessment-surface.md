@@ -1,5 +1,5 @@
 ---
-description: "topic_mastery is the only thing that opens a prerequisite gate — areDependenciesSatisfied blocks a topic until every prerequisite reaches 0.70 — and until v0.6.0 no command could raise it."
+description: "topic_mastery is the only thing that opens a prerequisite gate — areDependenciesSatisfied blocks a topic until every gating prerequisite reaches 0.70, while advisory toc/tie edges never gate — and until v0.6.0 no command could raise it."
 ---
 
 

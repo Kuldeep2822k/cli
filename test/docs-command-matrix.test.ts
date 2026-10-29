@@ -45,8 +45,16 @@ function parseExitRows(section: string): ExitRow[] {
   const rows: ExitRow[] = [];
   for (let index = headerIndex + 2; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
-    if (!line.startsWith('|')) break;
-    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    const trimmed = line.trim();
+    // GFM rows may omit the leading pipe. A row is any pipe-bearing line up to
+    // the blank line that ends the table; breaking on the first non-pipe line
+    // would let a malformed row render while the test skipped it.
+    if (trimmed === '' || !trimmed.includes('|')) break;
+    const cells = trimmed
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map((cell) => cell.trim());
     assert.strictEqual(cells.length, 3, `malformed exit row (expected 3 cells): ${line}`);
     const commandMatch = /^`palee ([a-z-]+)`$/.exec(cells[0] ?? '');
     assert.ok(commandMatch, `malformed command cell: ${line}`);
@@ -184,6 +192,19 @@ describe('Exit-code contract covers every registered command (#268)', () => {
       () => parseExitRows(malformed),
       /palee update has a non-integer exit: -1/,
       'a negative exit must fail instead of being filtered out'
+    );
+  });
+
+  test('a row without a leading pipe is still validated', () => {
+    const malformed = exitSection.replace(
+      '| `palee update` | 5 |',
+      '`palee update` | -1 |'
+    );
+    assert.notStrictEqual(malformed, exitSection, 'the fixture contains the row to mutate');
+    assert.throws(
+      () => parseExitRows(malformed),
+      /palee update has a non-integer exit: -1/,
+      'a pipe-delimited row without a leading pipe must not be skipped'
     );
   });
 

@@ -1,5 +1,5 @@
 ---
-description: "The Personal Active Learning & Evaluation Engine (PALEE) is a smart, AI-powered study tracker designed to optimize learning through a deterministic core of spaced repetition and dependency-aware recommendations."
+description: "The Personal Active Learning & Evaluation Engine (PALEE) is a deterministic study tracker for Obsidian vaults, pairing spaced repetition with dependency-aware recommendations; AI tutoring is planned for Phase 2."
 ---
 
 
