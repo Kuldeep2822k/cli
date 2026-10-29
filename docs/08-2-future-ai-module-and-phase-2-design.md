@@ -27,23 +27,6 @@ The system employs a tool-calling loop where the LLM can request context but can
 #### AI Interaction Diagram
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'background': '#000000',
-    'primaryColor': '#000000',
-    'primaryTextColor': '#e0e0e0',
-    'primaryBorderColor': '#2d3139',
-    'lineColor': '#5a606b',
-    'secondaryColor': '#000000',
-    'tertiaryColor': '#000000',
-    'clusterBkg': '#0a0b0d',
-    'clusterBorder': '#1e2128',
-    'titleColor': '#8b949e',
-    'edgeLabelBackground': '#000000',
-    'fontFamily': 'Inter, system-ui, sans-serif'
-  }
-}}%%
 sequenceDiagram
     autonumber
     actor User as Learner
@@ -130,23 +113,6 @@ The AI-generated roadmap must adhere to the `roadmap_proposal` schema, including
 #### Roadmap Data Flow
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'background': '#000000',
-    'primaryColor': '#000000',
-    'primaryTextColor': '#e0e0e0',
-    'primaryBorderColor': '#2d3139',
-    'lineColor': '#5a606b',
-    'secondaryColor': '#000000',
-    'tertiaryColor': '#000000',
-    'clusterBkg': '#0a0b0d',
-    'clusterBorder': '#1e2128',
-    'titleColor': '#8b949e',
-    'edgeLabelBackground': '#000000',
-    'fontFamily': 'Inter, system-ui, sans-serif'
-  }
-}}%%
 flowchart TD
     UserExec["palee roadmap (interactive)"]
     Interview["6-Question Guided Interview"]
@@ -163,14 +129,6 @@ flowchart TD
     DAGVal -->|"Invalid (Cycles / Dangling)"| ErrorAbort
     UserPrompt -->|"Approved"| Materialize
     UserPrompt -->|"Declined"| ErrorAbort
-
-    style UserExec fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style Interview fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style LLMGen fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style DAGVal fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style UserPrompt fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style Materialize fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style ErrorAbort fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
 ```
 
 Sources:[planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)[src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)

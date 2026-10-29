@@ -101,19 +101,22 @@ const config = withMermaid(
     ],
 
     mermaid: {
-      theme: 'base',
+      // GitHub's markdown-preview palette: transparent canvas, subtle gray
+      // nodes and borders. The site is force-dark, so Mermaid's own theme is
+      // `dark`; these variables replace its near-black nodes and white borders.
+      theme: 'dark',
       themeVariables: {
-        background: '#000000',
-        primaryColor: '#000000',
-        primaryTextColor: '#e0e0e0',
-        primaryBorderColor: '#2d3139',
-        lineColor: '#5a606b',
-        secondaryColor: '#000000',
-        tertiaryColor: '#000000',
-        clusterBkg: '#0a0b0d',
-        clusterBorder: '#1e2128',
+        background: 'transparent',
+        primaryColor: '#21262d',
+        primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#30363d',
+        lineColor: '#8b949e',
+        secondaryColor: '#161b22',
+        tertiaryColor: '#161b22',
+        clusterBkg: '#161b22',
+        clusterBorder: '#30363d',
+        edgeLabelBackground: '#090a0f',
         titleColor: '#8b949e',
-        edgeLabelBackground: '#000000',
         fontSize: '14px',
         fontFamily: 'Inter, system-ui, sans-serif'
       }

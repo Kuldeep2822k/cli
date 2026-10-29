@@ -65,23 +65,6 @@ The following diagram maps high-level planning concepts to the specific TypeScri
 #### Planning to Entity Mapping
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'background': '#000000',
-    'primaryColor': '#000000',
-    'primaryTextColor': '#e0e0e0',
-    'primaryBorderColor': '#2d3139',
-    'lineColor': '#5a606b',
-    'secondaryColor': '#000000',
-    'tertiaryColor': '#000000',
-    'clusterBkg': '#0a0b0d',
-    'clusterBorder': '#1e2128',
-    'titleColor': '#8b949e',
-    'edgeLabelBackground': '#000000',
-    'fontFamily': 'Inter, system-ui, sans-serif'
-  }
-}}%%
 flowchart TD
     subgraph PlanSpace ["Planning Specifications (planning/)"]
         P_Inv["invariants.md (SM-2 & OCC Rules)"]
@@ -118,26 +101,6 @@ flowchart TD
     C_Mem --> V_Hot
     C_Mem --> V_Sess
     C_DAG --> V_Note
-
-    style PlanSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-    style CodeSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-    style VaultSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-
-    style P_Inv fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style P_Stor fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style P_Mem fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style P_Road fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-
-    style C_SM2 fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style C_Atom fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style C_Lock fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style C_Mem fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style C_DAG fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-
-    style V_Note fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style V_Lock fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style V_Hot fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style V_Sess fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
 ```
 
 Sources:[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)[src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)

@@ -56,23 +56,6 @@ The following diagram illustrates how Natural Language concepts map to specific 
 #### Entity Relationship Diagram: Logic to Code Mapping
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'background': '#000000',
-    'primaryColor': '#000000',
-    'primaryTextColor': '#e0e0e0',
-    'primaryBorderColor': '#2d3139',
-    'lineColor': '#5a606b',
-    'secondaryColor': '#000000',
-    'tertiaryColor': '#000000',
-    'clusterBkg': '#0a0b0d',
-    'clusterBorder': '#1e2128',
-    'titleColor': '#8b949e',
-    'edgeLabelBackground': '#000000',
-    'fontFamily': 'Inter, system-ui, sans-serif'
-  }
-}}%%
 flowchart TD
     subgraph NLSpace ["Natural Language Space"]
         direction LR
@@ -106,20 +89,6 @@ flowchart TD
     RI --> MF
     SRI --> Hot
     SRI --> Sessions
-
-    style NLSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-    style CodeSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-    style StorageSpace fill:#08090b,stroke:#1e2128,stroke-width:1px,color:#8b949e
-
-    style LT fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style RS fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style SS fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style TI fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style RI fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style SRI fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style MF fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style Hot fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
-    style Sessions fill:#000000,stroke:#2d3139,stroke-width:1px,color:#ffffff
 ```
 
 Sources: [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)[README.md](https://github.com/Kuldeep2822k/cli/blob/main/README.md?plain=1)[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
@@ -148,23 +117,6 @@ The system's behavior is governed by specific modules:
 #### Data Flow: Command to Storage
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'background': '#000000',
-    'primaryColor': '#000000',
-    'primaryTextColor': '#e0e0e0',
-    'primaryBorderColor': '#2d3139',
-    'lineColor': '#5a606b',
-    'secondaryColor': '#000000',
-    'tertiaryColor': '#000000',
-    'clusterBkg': '#0a0b0d',
-    'clusterBorder': '#1e2128',
-    'titleColor': '#8b949e',
-    'edgeLabelBackground': '#000000',
-    'fontFamily': 'Inter, system-ui, sans-serif'
-  }
-}}%%
 sequenceDiagram
     autonumber
     actor User as Learner

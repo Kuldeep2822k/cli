@@ -27,9 +27,9 @@
 [data-mermaid],
 .vp-mermaid {
   position: relative;
-  background: var(--vp-c-bg-soft) !important;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
   margin: 20px 0;
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -44,14 +44,14 @@
 .mermaid-viewport {
   position: relative;
   width: 100%;
-  min-height: 240px;
+  min-height: 0;
   overflow: hidden;
   touch-action: none;
   cursor: grab;
   display: flex;
   align-items: center;
   justify-content: safe center;
-  padding: 30px 20px;
+  padding: 32px 0 16px;
 }
 
 .mermaid-viewport.is-dragging {
@@ -159,16 +159,16 @@
 .dark .mermaid,
 .dark [data-mermaid],
 .dark .vp-mermaid {
-  background: #0d1117 !important;
-  border: 1px solid #30363d;
+  background: transparent !important;
+  border: none;
 }
 
 .dark .mermaid-diagram-card:hover,
 .dark .mermaid:hover,
 .dark [data-mermaid]:hover,
 .dark .vp-mermaid:hover {
-  border-color: #58a6ff;
-  box-shadow: 0 4px 20px rgba(56, 139, 253, 0.12);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .dark .github-diagram-toolbar {
