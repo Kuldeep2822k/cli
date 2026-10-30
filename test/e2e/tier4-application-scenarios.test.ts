@@ -54,7 +54,9 @@ topics:
     assert.strictEqual(readyIds.includes('T-adv-dp'), false, 'DP should be locked');
 
     // Phase C: Active Study Session Start & Intermediate Checkpoint
-    const sStart = env.run(['session', 'start']);
+    // (#546: the start names its topic — a topicless start with no active topic
+    // would refuse at exit 2)
+    const sStart = env.run(['session', 'start', '--topic', 'T-ds-foundations']);
     assert.strictEqual(sStart.status, 0);
 
     const sDraft = env.run(['session', 'draft', '--topic', 'T-ds-foundations']);

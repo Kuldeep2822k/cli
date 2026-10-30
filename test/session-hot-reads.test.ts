@@ -193,12 +193,15 @@ describe('Session hot.md read characterization', () => {
     test('empty-fence frontmatter (--- \\n ---) does not trigger corrupt rebuild', async () => {
       // ---\n--- empty fence: parseFrontmatter returns frontmatter null WITHOUT error.
       // start's rebuild condition is state corrupt/schema-invalid — no-frontmatter
-      // takes the tolerant no-rebuild path (prints with (none) fields).
+      // takes the tolerant no-rebuild path (#130 behavior matrix). With no active
+      // topic either, the topicless start then refuses at exit 2 (#546); the pin
+      // here is that the refusal does not crash or rebuild, not that it succeeds.
       const hotPath = path.join(vaultDir, '.palee', 'hot.md');
       fs.writeFileSync(hotPath, '---\n---\nempty fence body\n', 'utf8');
       await sessionCommand('start');
-      assert.notStrictEqual(process.exitCode, 5, 'start must not crash on empty fence');
-      // hot.md is not reset+rebuilt in this path; body content is preserved as-is in output path
+      assert.strictEqual(process.exitCode, 2, 'no active topic → refusal (#546), not a silent start');
+      const after = fs.readFileSync(hotPath, 'utf8');
+      assert.strictEqual(after, '---\n---\nempty fence body\n', 'empty-fence hot.md must NOT be rebuilt by start');
     });
 
     test('fails with exit 5 when hot.md vanishes between existence check and read (TOCTOU)', async () => {
@@ -288,14 +291,15 @@ describe('Session hot.md read characterization', () => {
       }
     });
 
-    test('topicless start tolerates hot.md vanishing after the initial read (pre-existing)', async () => {
-      // Characterization: with no explicit --topic and no active_topic in hot.md,
-      // resolvedTopic is null and start takes the print-only path — it never re-reads
-      // hot.md, so a vanish after the initial read is not detected. This is
-      // byte-identical to the pre-refactor flow (old session.ts:158 read once,
-      // unguarded, then resolveSessionTopic swallowed its own re-read failure and
-      // printed stale success). Pinning so a future re-read-based guard is a
-      // deliberate behavior change, not silent drift.
+    test('topicless start with no resolvable topic refuses at exit 2, even on a late vanish (#546)', async () => {
+      // Was a characterization of the #546 no-op: with no explicit --topic and no
+      // active_topic in hot.md, resolvedTopic was null and start took the print-only
+      // path — it never re-read hot.md successfully, so even a vanish after the
+      // initial read went unnoticed while the banner and exit 0 claimed success.
+      // #546 is a deliberate behavior change: a topicless start that resolves to no
+      // topic refuses at exit 2. The vanish here still goes through the swallowed
+      // re-read (the refusal decides on "no topic", not on the read error), and the
+      // exit is the same 2 a plain no-active-topic start now returns.
       writeHot(['palee_schema: 1']); // no active_topic → topicless start
       const origRead = fs.readFileSync;
       let hotReads = 0;
@@ -304,7 +308,7 @@ describe('Session hot.md read characterization', () => {
           hotReads++;
           if (hotReads > 1) {
             // initial read succeeded; every later hot.md read — resolveSessionTopic's
-            // own re-read here — finds the file gone (swallowed → null → print-only path)
+            // own re-read here — finds the file gone (swallowed → none → refusal)
             const e = new Error(`ENOENT: no such file or directory, open '${p}'`) as NodeJS.ErrnoException;
             e.code = 'ENOENT';
             throw e;
@@ -312,14 +316,18 @@ describe('Session hot.md read characterization', () => {
         }
         return origRead(p, ...rest);
       };
+      const origError = console.error;
+      let logged = '';
+      console.error = (msg?: unknown) => { logged += String(msg ?? ''); };
       try {
         await sessionCommand('start');
-        // Pre-refactor outcome preserved: stale success, exit code unset
-        assert.notStrictEqual(process.exitCode, 5, 'topicless start must not newly fail on late vanish (pre-existing quirk)');
-        assert.strictEqual(process.exitCode, undefined, 'topicless start must preserve stale success on late vanish');
-        assert.strictEqual(hotReads, 2, 'resolution re-read happens (and swallows) on the topicless path');
+        assert.strictEqual(process.exitCode, 2, 'a topicless start with no resolvable topic must refuse (#546)');
+        assert.match(logged, /No topic to start/, 'the refusal must name the condition');
+        assert.notStrictEqual(process.exitCode, 5, 'the swallowed re-read is a refusal, not a crash');
+        assert.strictEqual(hotReads, 2, 'the refusal decided on the resolution re-read, as before');
       } finally {
         (fs as any).readFileSync = origRead;
+        console.error = origError;
       }
     });
   });
