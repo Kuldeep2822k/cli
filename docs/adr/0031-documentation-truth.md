@@ -1,8 +1,15 @@
+---
+description: "A 15-slice audit of every command invocation in the repository (#451) found documentation drift in four classes: numbers, command surfaces, planning docs, and architecture evidence."
+---
+
+
 # ADR-0031: Documentation Truth — Current-State Docs, Labeled History
 
 ## Status
 
-Accepted — applied in Phase 3 of #451
+Accepted
+
+Applied in Phase 3 of #451.
 
 ## Context
 

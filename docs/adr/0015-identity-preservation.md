@@ -1,3 +1,8 @@
+---
+description: "loadTopics requires a non-empty string palee_id by design. A note whose id YAML reads as a number, or whose frontmatter will not parse at all, is therefore absent from its output and invisible to the scan."
+---
+
+
 # ADR-0015: Identity Preservation — An Identity on Disk Is Not a Command's to Invent
 
 ## Status

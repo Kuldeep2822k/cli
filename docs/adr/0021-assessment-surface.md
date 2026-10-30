@@ -1,8 +1,15 @@
+---
+description: "topic_mastery is the only thing that opens a prerequisite gate — areDependenciesSatisfied blocks a topic until every gating prerequisite reaches 0.70, while advisory toc/tie edges never gate — and until v0.6.0 no command could raise it."
+---
+
+
 # ADR-0021: The Assessment Surface
 
 ## Status
 
-Accepted — extended for #269 by the section "A lowering is named, not blocked". The v0.6.0 decisions above it stand unchanged; that section also corrects two claims made about this surface elsewhere.
+Accepted
+
+Extended for #269 by the section "A lowering is named, not blocked". The v0.6.0 decisions above it stand unchanged; that section also corrects two claims made about this surface elsewhere.
 
 ## Context
 

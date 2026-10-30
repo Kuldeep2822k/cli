@@ -1,3 +1,8 @@
+---
+description: "atomicWrite is the single write primitive every vault mutation goes through. ADR-0002 established its lock, fingerprint OCC, and temp-file rename shape; this ADR records what the v1.0.0 audit round changed about durability and containment."
+---
+
+
 # ADR-0014: Atomic-Write Durability and Vault Containment
 
 ## Status

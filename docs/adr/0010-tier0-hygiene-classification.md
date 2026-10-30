@@ -1,3 +1,8 @@
+---
+description: "--auto-chain originally treated every Markdown file in the scanned scope as a potential lesson. #205's census showed translations and repo-meta files becoming first-class topics that gated real lessons, which led to Tier-0 hygiene classification."
+---
+
+
 # ADR-0010: Tier-0 Hygiene Classification for Batch Adoption
 
 ## Status

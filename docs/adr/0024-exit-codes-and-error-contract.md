@@ -1,3 +1,8 @@
+---
+description: "The exit codes are documented as a contract — 0 success, 1 partial, 2 usage, 3 validation, 4 conflict, 5 unexpected — and the code broke the contract at every layer. This ADR records the unified classifier and flush policy that fixed it."
+---
+
+
 # ADR-0024: Exit Codes and the Machine-Readable Error Contract
 
 ## Status

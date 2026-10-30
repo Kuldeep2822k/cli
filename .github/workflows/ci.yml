@@ -48,6 +48,29 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+  docs-check:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        # The docs workspace supplies VitePress, Mermaid, and the math plugin.
+        run: npm ci --ignore-scripts
+
+      - name: Build documentation
+        run: npm run docs:build
+
   test-matrix:
     name: Test on ${{ matrix.os }} (Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
@@ -224,7 +247,7 @@ jobs:
 
   ci-success:
     if: always()
-    needs: [quality-check, test-matrix, smoke-install, engines-floor-smoke]
+    needs: [quality-check, docs-check, test-matrix, smoke-install, engines-floor-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -283,10 +283,13 @@ describe('Tier 1: Feature Coverage (11 Features)', () => {
   // =========================================================================
   describe('F4: Session Start & Draft Timestamping', () => {
     test('F4.1: session start initializes hot.md working memory', () => {
+      // #546: on a vault with no topics there is nothing to start a session for,
+      // so the topicless start refuses at exit 2 — but the working-memory rebuild
+      // it runs first still initializes hot.md, which is what this test pins.
       const res = env.run(['session', 'start']);
-      assert.strictEqual(res.status, 0);
-      assert.match(res.stdout, /PALEE Session Started/);
-      assert.match(res.stdout, /Working Memory/);
+      assert.strictEqual(res.status, 2);
+      assert.ok(!res.stdout.includes('PALEE Session Started'), 'a refused start prints no success banner');
+      assert.match(res.stderr, /No topic to start/);
 
       const hot = env.readHotMemory();
       assert.ok(hot, 'hot.md must be created');

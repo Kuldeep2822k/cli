@@ -1,7 +1,11 @@
+---
+description: "Reporting commands scan topic frontmatter to calculate global mastery metrics, report difficulty distributions, track spaced repetition statistics, and detect structural integrity violations across the prerequisite graph."
+---
+
+
 # Reporting Commands
 
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/dashboard.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts)
 - [src/cli/progress.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts)
@@ -12,7 +16,7 @@
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
 - [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
 
-</details>
+:::
 
 Reporting commands provide deep visibility into the educational health of your Obsidian vault. They scan topic frontmatter to calculate global mastery metrics, report difficulty distributions, track spaced repetition statistics, and detect structural integrity violations across the prerequisite graph.
 
@@ -22,7 +26,7 @@ Reporting commands provide deep visibility into the educational health of your O
 
 The `palee dashboard` command provides a high-level executive summary of your vault's learning state. It aggregates overall topic mastery percentages, tallies review queues, breaks down progress by difficulty tiers, and surfaces the single most urgent upcoming review.
 
-### Syntax & Options
+### Dashboard Syntax & Options
 
 ```bash
 palee dashboard [flags]
@@ -36,7 +40,7 @@ palee dashboard [flags]
 
 ### Data Aggregation & Metric Calculations
 
-`dashboardCommand` scans all topic files in the vault and classifies notes using the 4-pillar mastery threshold ($M = 0.70$) [src/cli/dashboard.ts#88-114](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts#L88-L114):
+`dashboardCommand` scans all topic files in the vault and classifies notes using the 4-pillar mastery threshold ($M = 0.70$) [src/cli/dashboard.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/dashboard.ts):
 
 - **Mastered**: Topics with `topic_mastery >= 0.70`.
 - **Learning**: Topics actively in progress (`0.0 < topic_mastery < 0.70`).
@@ -95,7 +99,7 @@ Run "palee plan" to see today's learning plan
 
 The `palee progress` command offers granular analytics into learning retention, current repetition totals, lapse counts, and topic-specific mastery scores.
 
-### Syntax & Options
+### Progress Syntax & Options
 
 ```bash
 palee progress [flags]
@@ -111,7 +115,7 @@ palee progress [flags]
 ### Vault-Wide vs Topic-Specific Modes
 
 #### 1. Vault-Wide Mode (Default)
-Aggregates all active topics across the vault [src/cli/progress.ts#140-233](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts#L140-L233):
+Aggregates all active topics across the vault [src/cli/progress.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/progress.ts):
 - **Archived Topic Exclusion**: Notes with `status: archived` in frontmatter are tracked separately and excluded from `global_mastery` and `active_topic_count`.
 - **Global Average Mastery**: Calculates the true mathematical mean of mastery across all active topics:
 
@@ -172,7 +176,7 @@ Last Reviewed: 2026-08-25
 
 The `palee validate` command performs static analysis on the entire Obsidian vault to verify data model integrity and prerequisite graph acyclicity.
 
-### Syntax & Options
+### Validate Syntax & Options
 
 ```bash
 palee validate [flags]
@@ -180,9 +184,13 @@ palee validate [flags]
 
 | Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `--fix` | `boolean` | `false` | Repair corrupted SM-2 review fields (`valid-review-fields` findings) by resetting each invalid field to its adopt default: `ease_factor` 2.5, `interval_days` 1, `repetition` 0, `lapses` 0, `last_quality` null. Other findings remain diagnostic only (general fix engine deferred per ADR-0008). Reports repaired fields (additive `repairs`/`repair_conflicts` keys in `--json`) and re-validates before choosing the exit code. | `palee validate --fix` |
+| `--fix` | `boolean` | `false` | Applies the three shipped repairs: rebuild `.palee/hot.md` and `.palee/index.md` from canonical sessions (`valid-session-index`, `valid-hot-memory`); recompute `topic_mastery` for topics with all four pillars present (`valid-topic-mastery`, ADR-0035); and reset invalid SM-2 fields to adopt defaults (`valid-review-fields`). Reports repairs through additive `repairs`/`repair_conflicts` keys in `--json`, then re-validates before choosing the exit code. | `palee validate --fix` |
 | `--json` | `boolean` | `false` | Output validation diagnostics as structured JSON (`PALEE_JSON=1` also works). | `palee validate --json` |
 | `--strict` | `boolean` | `false` | Escalate warnings to a non-zero exit code: a warnings-only vault exits `3` like an errors vault (default: warnings never gate the exit code). | `palee validate --strict` |
+
+::: warning `--fix` writes to your vault
+`palee validate --fix` can rewrite topic frontmatter and regenerate `.palee/hot.md` and `.palee/index.md`. Run a read-only validation first and review the reported repairs before applying them.
+:::
 
 ---
 
@@ -411,8 +419,17 @@ When an error occurs (such as an unconfigured vault or a missing topic query in 
 
 ## 5. Exit Codes for Reporting Commands
 
-| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee dashboard` | Successfully displayed dashboard metrics or empty vault onboarding. | N/A | Vault path not configured or directory does not exist. | N/A | N/A | Unexpected runtime exception or calculation failure. |
-| `palee progress` | Successfully displayed vault progress summary, topic detail (`--topic`), or empty vault state. | N/A | Vault path unconfigured, or topic query not found for `--topic`. | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee validate` | Vault validation passed with 0 structural errors (warnings exit 0 by default). | N/A | Vault path not configured or invalid directory. | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, cycle, or assessment-field shape); warnings (such as missing dependencies) exit 0 by default and only exit 3 under `--strict`. | N/A | Unexpected runtime exception or directory walk failure. |
+Only exits a command can produce are listed; codes it never returns are omitted.
+
+| Command | Exit | Behavior |
+| :--- | :---: | :--- |
+| `palee dashboard` | 0 | Successfully displayed dashboard metrics or empty vault onboarding. |
+| `palee dashboard` | 2 | Vault path not configured or directory does not exist. |
+| `palee dashboard` | 5 | Unexpected runtime exception or calculation failure. |
+| `palee progress` | 0 | Successfully displayed vault progress summary, topic detail (`--topic`), or empty vault state. |
+| `palee progress` | 2 | Vault path unconfigured, or topic query not found for `--topic`. |
+| `palee progress` | 5 | Unexpected runtime exception or file read failure. |
+| `palee validate` | 0 | Vault validation passed with 0 structural errors (warnings exit 0 by default). |
+| `palee validate` | 2 | Vault path not configured or invalid directory. |
+| `palee validate` | 3 | Any validation error (malformed schema, topic ID, status, duplicate `palee_id`, cycle, or assessment-field shape); warnings (such as missing dependencies) exit 0 by default and only exit 3 under `--strict`. |
+| `palee validate` | 5 | Unexpected runtime exception or directory walk failure. |

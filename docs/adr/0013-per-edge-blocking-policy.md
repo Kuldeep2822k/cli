@@ -1,8 +1,15 @@
+---
+description: "ADR-0009's gating model is correct for the v0.6.x writer: one depends_on_source label per note, advisory or gating for the whole list. #224 identifies why that breaks once sources mix and specifies per-edge blocking policies and OR-groups."
+---
+
+
 # ADR-0013: Per-Edge Blocking Policy and OR-Groups
 
 ## Status
 
-Proposed — specified in #224, not implemented
+Proposed
+
+Specified in #224; not implemented.
 
 ## Context
 

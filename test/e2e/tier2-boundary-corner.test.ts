@@ -239,8 +239,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
 
       // 'i' (ignore) answers the recovery menu; the JSON arm used to return
       // drafts_pending before --interactive was ever read, so this input had
-      // no menu to answer.
-      const res = env.run(['session', 'start', '--interactive', '--json'], { input: 'i\n' });
+      // no menu to answer. #546: the start names its topic, since a topicless
+      // start with no active topic would refuse once the menu resolved.
+      const res = env.run(['session', 'start', '--interactive', '--json', '--topic', 'T-json-interactive'], { input: 'i\n' });
       assert.strictEqual(res.status, 0, `${res.stdout}${res.stderr}`);
 
       // The menu is conversation: it must not sit above the document.
@@ -273,7 +274,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(draftsBefore.length, 1);
 
       // Invoke session start --interactive with 'i\n' to directly test ignore action
-      const startRes = env.run(['session', 'start', '--interactive'], { input: 'i\n' });
+      // (#546: the start names its topic so the post-menu start still succeeds)
+      const startRes = env.run(['session', 'start', '--interactive', '--topic', 'T-ignore-test'], { input: 'i\n' });
       assert.strictEqual(startRes.status, 0);
       assert.match(startRes.stdout, /PALEE Session Started/);
 
@@ -288,12 +290,13 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(parsed.total_confirmed, 0);
     });
 
-    test('B4.5: draft recovery resume via interactive menu keeps draft and leaves hot memory untouched', () => {
-      // Materialize hot.md before the draft exists so the resume arm has a baseline to leave alone
+    test('B4.5: draft recovery resume via interactive menu keeps the draft and converts nothing', () => {
+      // Materialize hot.md before the draft exists so the resume arm has a baseline to leave alone.
+      // #546: the topicless baseline start now refuses at exit 2 (no active topic on a
+      // fresh vault) — the working-memory rebuild it runs first still materializes hot.md.
       const baselineRes = env.run(['session', 'start']);
-      assert.strictEqual(baselineRes.status, 0);
-      const hotBefore = env.readHotMemory();
-      assert.ok(hotBefore, 'hot.md should exist after the baseline start');
+      assert.strictEqual(baselineRes.status, 2);
+      assert.ok(env.readHotMemory(), 'hot.md should exist after the refused baseline start');
 
       env.createTopics(['T-resume-test']);
       env.run(['session', 'draft', '--topic', 'T-resume-test']);
@@ -304,8 +307,10 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const draftSnapshot = env.readTopic(path.join('.palee', 'sessions', draftBeforeName)).raw;
       assert.strictEqual(env.listSessions().confirmed.length, 0);
 
-      // Invoke session start --interactive with 'r\n' to directly test the resume action
-      const startRes = env.run(['session', 'start', '--interactive'], { input: 'r\n' });
+      // Invoke session start --interactive with 'r\n' to directly test the resume action.
+      // #546: the start names its topic, since a topicless start with no active
+      // topic would refuse once the menu resolved.
+      const startRes = env.run(['session', 'start', '--interactive', '--topic', 'T-resume-test'], { input: 'r\n' });
       assert.strictEqual(startRes.status, 0);
       assert.match(startRes.stdout, /\[R\]esume\s+\[S\]ave as session\s+\[D\]iscard\s+\[I\]gnore/);
       // The banner is only reached once every draft has been answered, so it proves 'r' resolved the menu
@@ -322,11 +327,13 @@ describe('Tier 2: Boundary & Corner Cases', () => {
         'Resume must leave the draft file byte-identical'
       );
 
-      // resume is a no-op in recoverDraft, so the derived working memory is byte-identical
+      // resume is a no-op in recoverDraft — the byte-identical draft above is the
+      // proof. The start itself re-adopts the topic it was given, so hot.md now
+      // carries it: the old whole-file hot.md byte-compare here rode on the #546
+      // no-op start (which wrote nothing) and no longer holds.
       const hotAfter = env.readHotMemory();
-      assert.strictEqual(hotAfter?.raw, hotBefore?.raw, 'hot.md must be unchanged by resume');
       assert.strictEqual(hotAfter?.frontmatter?.last_session, null);
-      assert.strictEqual(hotAfter?.frontmatter?.active_topic, null);
+      assert.strictEqual(hotAfter?.frontmatter?.active_topic, 'T-resume-test');
     });
 
     test('B4.6: draft recovery save via interactive menu converts draft to session inheriting started_at', () => {
@@ -343,8 +350,10 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       env.updateTopic(draftPath, { started_at: backdatedAt });
       assert.strictEqual(env.readTopic(draftPath).frontmatter?.started_at, backdatedAt);
 
-      // Invoke session start --interactive with 's\n' to directly test the save action
-      const startRes = env.run(['session', 'start', '--interactive'], { input: 's\n' });
+      // Invoke session start --interactive with 's\n' to directly test the save action.
+      // #546: the start names its topic, since a topicless start with no active
+      // topic would refuse once the menu resolved.
+      const startRes = env.run(['session', 'start', '--interactive', '--topic', 'T-save-test'], { input: 's\n' });
       assert.strictEqual(startRes.status, 0);
       assert.match(startRes.stdout, /\[R\]esume\s+\[S\]ave as session\s+\[D\]iscard\s+\[I\]gnore/);
       assert.match(startRes.stdout, /PALEE Session Started/);
@@ -404,7 +413,9 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       // from "prompt never answered", which would let this test pass when only
       // the first input line was ever consumed.
       const startRes = await env.runInteractive(
-        ['session', 'start', '--interactive'],
+        // #546: the start names its topic, since a topicless start with no active
+        // topic would refuse once the menu resolved.
+        ['session', 'start', '--interactive', '--topic', 'T-mixed-first'],
         [
           { waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 's\n' },
           { waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 'r\n' },
@@ -551,11 +562,14 @@ describe('Tier 2: Boundary & Corner Cases', () => {
   // =========================================================================
   describe('Corrupt YAML & File Damage Handling', () => {
     test('B5.1: corrupted hot.md is automatically rebuilt on session start', () => {
+      env.createTopics(['T-rebuild-on-start']);
       const paleeDir = path.join(env.vaultDir, '.palee');
       fs.mkdirSync(paleeDir, { recursive: true });
       fs.writeFileSync(path.join(paleeDir, 'hot.md'), '---\nbroken: [ { invalid yaml\n---\n# Corrupt\n', 'utf8');
 
-      const res = env.run(['session', 'start']);
+      // #546: the start names its topic — a topicless start on this vault would
+      // still rebuild hot.md, but then refuse at exit 2 with no active topic.
+      const res = env.run(['session', 'start', '--topic', 'T-rebuild-on-start']);
       assert.strictEqual(res.status, 0);
       assert.match(res.stdout, /PALEE Session Started/);
 

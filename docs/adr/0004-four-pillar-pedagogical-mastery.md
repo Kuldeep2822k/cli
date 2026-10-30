@@ -1,3 +1,8 @@
+---
+description: "Traditional spaced repetition measures recall as a 1-dimensional score, but engineering mastery requires theoretical comprehension, practical application, debugging, and communication ability."
+---
+
+
 # ADR-0004: Four-Pillar Pedagogical Assessment Model
 
 ## Status

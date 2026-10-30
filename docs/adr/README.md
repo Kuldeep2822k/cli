@@ -1,6 +1,25 @@
+---
+description: "This directory records significant architectural and design decisions for PALEE."
+---
+
+
 # Architectural Decision Records (ADRs)
 
 This directory records significant architectural and design decisions for PALEE.
+
+## Status vocabulary
+
+Use one of `Proposed`, `Accepted`, or `Superseded by ADR-nnnn`. If a later ADR changes part of a decision without replacing the whole record, add an `Amended by ADR-nnnn` line and a short note at the affected decision.
+
+```markdown
+## Status
+
+Accepted (YYYY-MM-DD)
+
+Amended by ADR-nnnn: one-line scope of the change.
+```
+
+Page titles and content headings use Title Case. ADR titles follow the same convention; ADR section headings use the standard template headings (`Status`, `Context`, `Decision`, `Consequences`). Keep one convention within a page rather than mixing them.
 
 ## Index
 
@@ -38,6 +57,5 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0032: Direct Spawn Bounding — What ADR-0029 Claimed, and the Check That Pins It](./0032-direct-spawn-bounding.md)
 - [ADR-0033: The Update Command and Its npm Child Process](./0033-update-command-and-npm-child-process-boundary.md)
 - [ADR-0034: Reclaiming a Killed Writer's Temporary File](./0034-abandoned-temp-file-reclaim.md)
-- [ADR-0035: `--fix` mastery repair skips topics with partial pillar data](./0035-validate-fix-partial-pillar-eligibility.md)
+- [ADR-0035: `--fix` Mastery Repair and Partial Pillar Eligibility](./0035-validate-fix-partial-pillar-eligibility.md)
 - [ADR-0036: Bounded Lock Acquisition — A Non-Empty Lockdir Is Not a Retry Signal](./0036-bounded-lock-acquisition.md)
-

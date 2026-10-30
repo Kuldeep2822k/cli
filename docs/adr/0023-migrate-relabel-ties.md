@@ -1,3 +1,8 @@
+---
+description: "ADR-0009 split gating by provenance, and #234 stopped the engine from writing depends_on_source: numbered on a filename tie. That fix was forward-only: vaults adopted before #234 stayed locked because adopt never rewrites an adopted note, and nothing raises topic_mastery on its own."
+---
+
+
 # ADR-0023: `migrate --relabel-ties` as the Migration Surface
 
 ## Status
