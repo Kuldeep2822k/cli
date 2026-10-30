@@ -888,6 +888,275 @@ describe('File Locking', () => {
     }
   });
 
+  test('a stale record beside an unremovable entry still reports the residue, not an incoming process (#539)', { timeout: 10000 }, async () => {
+    // The shape the issue actually reports: a lock directory holding a stale record
+    // *and* something un-unlinkable. The first round unlinks the record, which stamps
+    // the directory's mtime; a second round reading that stamp used to conclude an
+    // incoming process just created the directory and abandon the residue one retry
+    // in — blaming a rival that does not exist, and never reaching the budget.
+    const mixedVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-mixed-'));
+    const mixedFile = path.join(mixedVault, 'mixed-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(mixedFile, '# Mixed Target', 'utf8');
+
+    const mixedLockDir = new Lock(mixedVault, mixedFile).lockPath;
+    fs.mkdirSync(mixedLockDir);
+
+    // A record from another host, so the liveness probe cannot help and the aged
+    // mtime is the only staleness signal — deterministic on every platform.
+    const staleId = 'L-20260101T000000-deadbeef';
+    const staleRecord = {
+      lock_id: staleId,
+      target: mixedFile,
+      pid: 999999,
+      hostname: 'not-this-host',
+      created_at: new Date(0).toISOString()
+    };
+    const staleRecordPath = path.join(mixedLockDir, `${staleId}.json`);
+    fs.writeFileSync(staleRecordPath, JSON.stringify(staleRecord, null, 2), 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(staleRecordPath, longAgo, longAgo);
+
+    const heldEntry = path.join(mixedLockDir, 'held-open.txt');
+    fs.writeFileSync(heldEntry, 'held', 'utf8');
+    fs.utimesSync(mixedLockDir, longAgo, longAgo);
+
+    const RETRY_BUDGET = 5; // mirrors ENOTEMPTY_RETRY_ATTEMPTS in src/storage/lock.ts
+
+    const sleeps = spyAtomicsWait();
+    const originalUnlinkSync = fs.unlinkSync;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function refusingUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === heldEntry) {
+        const refused = new Error(`EPERM: operation not permitted, unlink '${heldEntry}'`) as NodeError;
+        refused.code = 'EPERM';
+        throw refused;
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function countingRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === mixedLockDir) rmdirCalls += 1;
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(mixedVault, mixedFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(err.code, 'ECONFLICT', `expected a lock conflict, got ${String(err.code)}: ${err.message}`);
+          assert.match(err.message, /would not empty/, 'the residue budget must be what reports this');
+          assert.match(err.message, /held-open\.txt/, 'and it must name the entry that survived');
+          return true;
+        }
+      );
+      assert.strictEqual(rmdirCalls, RETRY_BUDGET + 1, 'the budget must be spent, not short-circuited');
+      assert.strictEqual(sleeps.calls.length, RETRY_BUDGET, 'one park per retry, none of them a spin');
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      try { fs.rmSync(mixedVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('a held entry that clears mid-budget lets the acquisition succeed (#539)', { timeout: 10000 }, async () => {
+    // The other half of a retry policy: it has to recover, not only give up. A file
+    // another process releases while we are parking must stop being an obstacle, and
+    // the acquisition must land without exhausting the budget.
+    const clearVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-clears-'));
+    const clearFile = path.join(clearVault, 'clear-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(clearFile, '# Clear Target', 'utf8');
+
+    const clearLockDir = new Lock(clearVault, clearFile).lockPath;
+    fs.mkdirSync(clearLockDir);
+    const clearsEntry = path.join(clearLockDir, 'released-soon.txt');
+    fs.writeFileSync(clearsEntry, 'held', 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(clearLockDir, longAgo, longAgo);
+
+    const FAILURES = 2;
+    const sleeps = spyAtomicsWait();
+    const originalUnlinkSync = fs.unlinkSync;
+    let unlinkCalls = 0;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function eventualUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === clearsEntry) {
+        unlinkCalls += 1;
+        if (unlinkCalls <= FAILURES) {
+          const refused = new Error(`EPERM: operation not permitted, unlink '${clearsEntry}'`) as NodeError;
+          refused.code = 'EPERM';
+          throw refused;
+        }
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    const cleatLock = new Lock(clearVault, clearFile);
+    try {
+      await cleatLock.acquire();
+      assert.ok(getLockData(cleatLock.lockPath), 'the lock must be held once the entry clears');
+      assert.strictEqual(unlinkCalls, FAILURES + 1, 'the unlink is retried until it takes');
+      assert.strictEqual(sleeps.calls.length, FAILURES, 'and it parks exactly once per failed attempt');
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      cleatLock.release();
+      try { fs.rmSync(clearVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('an ENOTEMPTY reached through the Windows retry loop spends the same budget (#539)', { timeout: 10000 }, async () => {
+    // A transient directory handle clears during the retry park, and the next attempt
+    // then answers ENOTEMPTY because a file inside survived the sweep. That path used
+    // to treat ENOTEMPTY as free progress, so the budget was unreachable and the loop
+    // cap reported churn for a stuck entry instead of naming the residue.
+    if (process.platform !== 'win32') return;
+
+    const RETRY_BUDGET = 5; // mirrors ENOTEMPTY_RETRY_ATTEMPTS in src/storage/lock.ts
+
+    const escVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-escalate-'));
+    const escFile = path.join(escVault, 'escalate-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(escFile, '# Escalate Target', 'utf8');
+
+    const escLockDir = new Lock(escVault, escFile).lockPath;
+    fs.mkdirSync(escLockDir);
+    const escEntry = path.join(escLockDir, 'stuck-entry.txt');
+    fs.writeFileSync(escEntry, 'stuck', 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(escLockDir, longAgo, longAgo);
+
+    const sleeps = spyAtomicsWait();
+    const originalUnlinkSync = fs.unlinkSync;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function refusingUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === escEntry) {
+        const refused = new Error(`EPERM: operation not permitted, unlink '${escEntry}'`) as NodeError;
+        refused.code = 'EPERM';
+        throw refused;
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    // First removal attempt meets the transient handle; every later one meets the
+    // residue, which is the escalation under test.
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function escalatingRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === escLockDir) {
+        rmdirCalls += 1;
+        if (rmdirCalls === 1) {
+          const busy = new Error(`EPERM: operation not permitted, rmdir '${escLockDir}'`) as NodeError;
+          busy.code = 'EPERM';
+          throw busy;
+        }
+      }
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(escVault, escFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(err.code, 'ECONFLICT', `expected a lock conflict, got ${String(err.code)}: ${err.message}`);
+          assert.match(err.message, /would not empty/, 'the budget must own this, not the loop cap');
+          assert.match(err.message, /stuck-entry\.txt/, 'and it must name the residue');
+          return true;
+        }
+      );
+      // One attempt answered EPERM, the inner retry answered ENOTEMPTY, and the
+      // budget then spent its remaining five rounds before giving up.
+      assert.strictEqual(rmdirCalls, RETRY_BUDGET + 2, 'the retry loop must not re-enter ENOTEMPTY for free');
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      try { fs.rmSync(escVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('a lock-dir entry name with control characters is escaped in the conflict (#539)', { timeout: 10000 }, async () => {
+    // Conflict messages print entry names straight to stderr and to captured logs.
+    // POSIX permits a newline or an ANSI escape in a filename, so an unescaped name
+    // could forge or recolor the lines around the error it appears in. The crafted
+    // name is injected through `readdirSync` rather than created on disk, because
+    // Windows refuses such a name outright — which would make this test unrunnable on
+    // the platform whose logs it protects.
+    const evilVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-evil-'));
+    const evilFile = path.join(evilVault, 'evil-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(evilFile, '# Evil Target', 'utf8');
+
+    const evilLockDir = new Lock(evilVault, evilFile).lockPath;
+    fs.mkdirSync(evilLockDir);
+    // A real entry keeps `rmdirSync` answering ENOTEMPTY; the crafted name is what
+    // the sweep and the residue message see.
+    fs.writeFileSync(path.join(evilLockDir, 'placeholder.txt'), 'placeholder', 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(evilLockDir, longAgo, longAgo);
+
+    const evilName = 'evil\x1b[31mred';
+    const evilEntryPath = path.join(evilLockDir, evilName);
+
+    const sleeps = spyAtomicsWait();
+    const originalReaddirSync = fs.readdirSync;
+    (fs as unknown as { readdirSync: unknown }).readdirSync = function craftedReaddirSync(
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): string[] {
+      if (typeof p === 'string' && p === evilLockDir) return [evilName];
+      return (originalReaddirSync as unknown as (...a: unknown[]) => string[]).call(this, p as fs.PathLike, ...rest);
+    };
+
+    const originalUnlinkSync = fs.unlinkSync;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function refusingUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === evilEntryPath) {
+        const refused = new Error('EPERM: operation not permitted') as NodeError;
+        refused.code = 'EPERM';
+        throw refused;
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(evilVault, evilFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(err.code, 'ECONFLICT', `expected a lock conflict, got ${String(err.code)}`);
+          assert.ok(
+            !err.message.includes('\x1b'),
+            `the conflict must not carry a raw escape sequence: ${JSON.stringify(err.message)}`
+          );
+          assert.match(err.message, /evil\\x1b\[31mred/, 'the entry must still be identifiable');
+          return true;
+        }
+      );
+      assert.strictEqual(sleeps.calls.length, 5, 'precondition: the residue path owns this conflict');
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { readdirSync: unknown }).readdirSync = originalReaddirSync;
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      try { fs.rmSync(evilVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
   test('validates Windows specific stale lock timing behavior', async () => {
     // Only run this test logic if on Windows, but the test passes universally by skipping on non-Windows
     if (process.platform !== 'win32') {

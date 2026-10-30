@@ -36,6 +36,18 @@ The distinction is whether waiting can help. Nothing in this module writes a dir
 
 `createLock`'s loop runs at most `MAX_ACQUISITION_ITERATIONS` (20) rounds. This is a backstop, not a contention policy: the budget above bounds the only branch that cannot observe a state change, and this cap makes termination a property of the code rather than an argument about which branch may `continue`. Reaching it means another process keeps deleting the directory we are about to create — contention, not corruption — so it exits `4` like every other conflict. The cap must stay greater than the budget plus one, or it would pre-empt the budget's own conflict and blame churn for an entry that never cleared.
 
+### One budget covers both paths that can reach it
+
+The Windows `EPERM`/`EBUSY` retry loop can also answer `ENOTEMPTY`: a transient directory handle clears during the park, and the next attempt finds a file that survived the sweep. That answer used to be free forward progress, so the budget was unreachable there and the loop cap eventually reported churn for what was a stuck entry. Both sites now call one `spendEnotemptyBudget`, which is what keeps the counter, the park and the message from diverging.
+
+### The 5-second heuristic only asks its question once
+
+`incomingConflict` answers "a rival just created this directory and has not written its record yet". It cannot answer that after our own sweep has unlinked a record from the directory: the unlink stamps the directory's mtime, so the next round would read our own progress as an incoming process and abandon a real residue one retry in. The heuristic is therefore gated on the budget being untouched, which restores its original meaning instead of widening it.
+
+### Residue names are escaped before they reach a terminal
+
+Conflict messages carry entry names into stderr and into captured logs, and POSIX permits a newline or an ANSI escape sequence inside a filename. `printableEntryName` spells every C0 control character and DEL as `\xNN`, so the residue stays identifiable while an unescaped name cannot forge, hide or recolor the lines around the error it appears in. Windows refuses those names outright, so the escaping costs nothing where the risk does not exist.
+
 ### Every contention path throws through one builder
 
 `lockConflict()` now builds all four: a fresh lock, an incoming lock, an unclearable directory, and the loop cap. The `Lock conflict:` prefix is how `isConflictError` recognises the error by text as well as by code, so a new path cannot invent a wording that exits `5` by accident.

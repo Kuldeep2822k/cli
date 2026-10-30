@@ -119,11 +119,13 @@ CLI. Three rules cover it:
 - **A directory entry fails fast.** Nothing in this module writes a directory into a
   lockdir, so one found there is foreign residue that `rmdirSync` will never get past.
   It is named and refused immediately rather than spending the budget first.
-- **`ENOENT` is the only unbudgeted `continue`.** It reports that the directory is
-  already gone, so the next `mkdirSync` is a real acquisition attempt. The acquisition
-  loop itself is capped at `MAX_ACQUISITION_ITERATIONS` (20) as a backstop; reaching it
-  means another process keeps deleting the directory, and it exits `4` like any other
-  contention.
+- **`ENOENT` is the only unbudgeted *forward-progress signal*.** It reports that the
+  directory is already gone, so the next `mkdirSync` is a real acquisition attempt.
+  The loop's other non-parking `continue`s (a vanished record at write time, a
+  successfully removed stale directory) each make one syscall of progress, and the
+  acquisition loop is capped at `MAX_ACQUISITION_ITERATIONS` (20) so their repetition
+  is bounded too; reaching the cap means another process keeps deleting the directory,
+  and it exits `4` like any other contention.
 
 Recorded in ADR-0036.
 

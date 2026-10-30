@@ -77,8 +77,9 @@ const WINDOWS_RETRY_MAX_DELAY = 300; // ms
  * round sees its fresh record and throws the precise "locked by PID" conflict
  * instead of this one.
  *
- * Module-private: consumed by {@link createLock} and by the storage-lock tests. Not
- * re-exported on the public storage barrel per the #131 census.
+ * Module-private: consumed by {@link createLock}, and mirrored numerically by the
+ * storage-lock tests the way they already mirror `WINDOWS_RETRY_ATTEMPTS`. Not
+ * exported on the public storage barrel per the #131 census.
  */
 const ENOTEMPTY_RETRY_ATTEMPTS = 5;
 
@@ -293,6 +294,74 @@ function isDirectoryEntry(entryPath: string): boolean {
 }
 
 /**
+ * Renders a lock directory entry name with its control characters escaped.
+ *
+ * @param name - A directory entry name read from the lock directory
+ * @returns The name with every C0 control character and DEL spelled as `\xNN`
+ *
+ * @remarks
+ * Entry names reach human-readable errors and captured logs verbatim, and POSIX
+ * allows a newline or an ANSI escape sequence inside a filename — so an unescaped
+ * name could forge, hide or recolor the lines around the conflict it appears in.
+ * Escaping keeps the residue identifiable while making the text safe to print.
+ * Windows refuses these names outright, so this only ever matters on POSIX and
+ * costs nothing where it does not.
+ */
+function printableEntryName(name: string): string {
+  let rendered = '';
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    rendered += code < 0x20 || code === 0x7f
+      ? `\\x${code.toString(16).padStart(2, '0')}`
+      : ch;
+  }
+  return rendered;
+}
+
+/**
+ * Spends one unit of the `ENOTEMPTY` budget, parking before the next attempt.
+ *
+ * @param attempts - Attempts already spent before this one
+ * @param targetPath - The note whose lock could not be taken
+ * @param residual - Entries the round observed and could not remove
+ * @returns The number of attempts now spent
+ * @throws {NodeError} `ECONFLICT` once the budget is spent
+ *
+ * @remarks
+ * Shared by the direct `rmdirSync` branch and by the Windows retry loop so the
+ * counter and the park cannot diverge. The retry loop used to treat `ENOTEMPTY` as
+ * free forward progress, which left the budget unreachable on that path and let the
+ * loop cap report churn for what was really a stuck entry. Every call parks, so the
+ * caller never re-runs an identical sweep at full CPU.
+ */
+function spendEnotemptyBudget(attempts: number, targetPath: string, residual: string[]): number {
+  const spent = attempts + 1;
+  if (spent > ENOTEMPTY_RETRY_ATTEMPTS) {
+    const still = residual.length > 0
+      ? residual.map(entry => printableEntryName(entry)).join(', ')
+      : 'nothing listable';
+    throw lockConflict(
+      `${targetPath} has a lock directory that would not empty after `
+      + `${ENOTEMPTY_RETRY_ATTEMPTS} retries; still present: ${still}`
+    );
+  }
+  // Same ±25% jitter and 300 ms ceiling the module already uses, so two processes
+  // clearing one directory do not wake in lockstep.
+  const baseDelay = WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, spent - 1);
+  const jitterAmount = baseDelay * WINDOWS_RETRY_JITTER;
+  SyncWait.sleepMs(
+    Math.max(
+      0,
+      Math.min(
+        WINDOWS_RETRY_MAX_DELAY,
+        baseDelay + (Math.random() * 2 - 1) * jitterAmount
+      )
+    )
+  );
+  return spent;
+}
+
+/**
  * Attempts atomic creation of the lock directory and writes the session lock data.
  *
  * @param lockDir - Target lock directory path
@@ -380,7 +449,12 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw lockConflict(`${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
       }
 
-      if (activeFiles.length === 0) {
+      // The 5s heuristic answers "a rival just created this directory and has not
+      // written its record yet". It cannot answer that once our own sweep has
+      // unlinked a record from it: the unlink stamps the directory's mtime, so the
+      // next round would read our own progress as an incoming process and abandon a
+      // real residue. Only the first inspection of a round is allowed to ask.
+      if (enotemptyAttempts === 0 && activeFiles.length === 0) {
         let incomingConflict = false;
         try {
           const dirStat = fs.statSync(lockDir);
@@ -409,7 +483,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
             // refuse now instead of spending the retry budget first (#539).
             if (isDirectoryEntry(filePath)) {
               throw lockConflict(
-                `${targetPath} has a lock directory holding an unremovable entry: ${filePath}`
+                `${targetPath} has a lock directory holding an unremovable entry: ${printableEntryName(file)}`
               );
             }
           }
@@ -455,30 +529,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
         // conflict; a persistent entry is surfaced after the budget as the same
         // retryable conflict class the EPERM/EBUSY path below belongs to.
         if (rmCode === 'ENOTEMPTY') {
-          enotemptyAttempts += 1;
-          if (enotemptyAttempts > ENOTEMPTY_RETRY_ATTEMPTS) {
-            // `files` was read at the top of this very round and our own sweep is
-            // the only mutation since, so it already names what would not clear.
-            const residual = files.length > 0 ? files.join(', ') : 'nothing listable';
-            throw lockConflict(
-              `${targetPath} has a lock directory that would not empty after `
-              + `${ENOTEMPTY_RETRY_ATTEMPTS} retries; still present: ${residual}`
-            );
-          }
-          // Same ±25% jitter and 300 ms ceiling the module already uses, so two
-          // processes clearing one directory do not wake in lockstep.
-          const baseDelay =
-            WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, enotemptyAttempts - 1);
-          const jitterAmount = baseDelay * WINDOWS_RETRY_JITTER;
-          SyncWait.sleepMs(
-            Math.max(
-              0,
-              Math.min(
-                WINDOWS_RETRY_MAX_DELAY,
-                baseDelay + (Math.random() * 2 - 1) * jitterAmount
-              )
-            )
-          );
+          enotemptyAttempts = spendEnotemptyBudget(enotemptyAttempts, targetPath, files);
           continue;
         }
         // Windows EPERM/EBUSY: AV/indexer/another process briefly holds a
@@ -514,8 +565,16 @@ function createLock(lockDir: string, targetPath: string): LockData {
               break;
             } catch (retryErr: unknown) {
               const retryCode = (retryErr as NodeError).code;
-              if (retryCode === 'ENOTEMPTY' || retryCode === 'ENOENT') {
+              if (retryCode === 'ENOENT') {
                 // Forward-progress condition; let the outer loop handle it.
+                exhausted = false;
+                break;
+              }
+              if (retryCode === 'ENOTEMPTY') {
+                // The same residue the direct branch reports. Spending the shared
+                // budget here is what keeps this path from reaching ENOTEMPTY for
+                // free on every round and letting the loop cap blame churn (#539).
+                enotemptyAttempts = spendEnotemptyBudget(enotemptyAttempts, targetPath, files);
                 exhausted = false;
                 break;
               }
@@ -526,7 +585,9 @@ function createLock(lockDir: string, targetPath: string): LockData {
           if (exhausted) {
             // Budget exhausted: rethrow the original EPERM/EBUSY so a
             // persistent handle surfaces to the caller as a real error
-            // rather than a hang.
+            // rather than a hang. This exits 5, not the 4 INV-09 promises for a
+            // persistent lock; closing that gap moves an assertion the storage
+            // tests pin on purpose, so it is tracked separately (ADR-0036).
             throw rmErr;
           }
           continue;
