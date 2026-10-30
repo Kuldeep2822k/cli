@@ -675,16 +675,15 @@ describe('config file mode (#82)', () => {
     });
   }
 
-  test('a written config grants access to nobody but the owner', () => {
-    if (process.platform === 'win32') return; // NTFS resolves access through the directory ACL
+  test('a written config grants access to nobody but the owner', { skip: process.platform === 'win32' }, () => {
+    // NTFS resolves access through the directory ACL, so POSIX mode bits say nothing there.
     const configDir = fs.mkdtempSync(path.join(tempDir, 'cfg-'));
     runConfig(['set-api-key', '--from-env', 'PALEE_TEST_KEY'], configDir);
     const mode = fs.statSync(path.join(configDir, 'config.json')).mode;
     assert.strictEqual(mode & 0o077, 0, `group and other bits must be clear, got 0o${(mode & 0o777).toString(8)}`);
   });
 
-  test('re-saving tightens a config file that predates the credential field', () => {
-    if (process.platform === 'win32') return;
+  test('re-saving tightens a config file that predates the credential field', { skip: process.platform === 'win32' }, () => {
     const configDir = fs.mkdtempSync(path.join(tempDir, 'cfg-'));
     runConfig(['set-vault', configDir], configDir);
     const file = path.join(configDir, 'config.json');
@@ -736,8 +735,8 @@ describe('config dir guard (#316)', () => {
     assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alice\\palee', []), false);
   });
 
-  test('set-api-key refuses a config dir outside the profile on Windows', () => {
-    if (process.platform !== 'win32') return; // the live refusal only fires on win32
+  test('set-api-key refuses a config dir outside the profile on Windows', { skip: process.platform !== 'win32' }, () => {
+    // The live refusal only fires on win32.
     const outside = 'C:\\Users\\Public\\palee-fixture-316';
     let status = 0;
     let stderr = '';
@@ -762,8 +761,8 @@ describe('config dir guard (#316)', () => {
     assert.ok(!stderr.includes('testkey-win-acl-check'), 'the refusal must not echo the key');
   });
 
-  test('an 8.3 short-name path inside the profile is reconciled, not falsely refused', () => {
-    if (process.platform !== 'win32') return; // 8.3 reconciliation is a Windows-only concern
+  test('an 8.3 short-name path inside the profile is reconciled, not falsely refused', { skip: process.platform !== 'win32' }, () => {
+    // 8.3 reconciliation is a Windows-only concern.
     const profile = process.env.USERPROFILE;
     if (!profile) return;
     // A real dir inside the profile; its long name is obviously storable. The CI

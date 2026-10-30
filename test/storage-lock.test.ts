@@ -3,7 +3,9 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT } from '../src/storage/lock';
+import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT, isTransientHandleCode } from '../src/storage/lock';
+import { isConflictError } from '../src/storage/atomic-write';
+import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
 import { NodeError } from '../src/types';
 
 function getLockData(lockDir: string) {
@@ -148,6 +150,9 @@ const PARK_BANDS: ReadonlyArray<readonly [min: number, max: number]> = [
 
 /** An `fs` method the fault patches below replace. */
 type PatchableFsMethod = 'readdirSync' | 'rmdirSync' | 'unlinkSync';
+
+/** An `fs` method whose call order is recorded without altering it. */
+type RecordableFsMethod = 'mkdirSync' | 'renameSync';
 
 /** One test's lock directory, its fault patches, and the teardown that undoes them. */
 interface ResidueVault {
@@ -356,6 +361,38 @@ function watchParks(fx: ResidueVault, onPark?: () => void): { calls: number[] } 
 }
 
 /**
+ * Records the order of calls to one `fs` method, without changing what any of them do.
+ *
+ * @param log     Shared event log, so calls to different methods stay ordered against
+ *                each other — the whole point of a quarantine-ordering assertion.
+ * @param when    Whether this call is the scenario's traffic (other paths are ignored).
+ * @param label   What to push for a matching call.
+ *
+ * @remarks
+ * `patchFsOnPath` decides between "answer this call" and "let the real one run" by
+ * whether the handler returned a value, so it cannot express "log and delegate" for a
+ * void method like `mkdirSync` — the delegating branch would invoke the real method a
+ * second time. This always delegates, exactly once.
+ */
+function recordCalls(
+  fx: ResidueVault,
+  method: RecordableFsMethod,
+  log: string[],
+  when: (args: unknown[]) => boolean,
+  label: (args: unknown[]) => string
+): void {
+  const slot = fs as unknown as Record<RecordableFsMethod, (...a: unknown[]) => unknown>;
+  const original = slot[method];
+  slot[method] = (...args: unknown[]): unknown => {
+    if (when(args)) log.push(label(args));
+    return original(...args);
+  };
+  fx.onRestore(() => {
+    slot[method] = original;
+  });
+}
+
+/**
  * Asserts the error is the retryable-conflict class every contention path reports.
  *
  * @param expected The wording that tells this path apart from the others.
@@ -399,7 +436,14 @@ function assertParkedSchedule(calls: number[], bandFor: readonly number[], label
   for (const [index, ms] of calls.entries()) {
     const bandIndex = bandFor[index];
     const band = bandIndex === undefined ? undefined : PARK_BANDS[bandIndex];
-    assert.ok(band, `${label}: park #${index + 1} (${ms}ms) is past the end of the documented schedule`);
+    // Not an assertion. The length check above already bounds both indexes, so no
+    // shipped mutant can reach this line; it exists to narrow
+    // `noUncheckedIndexedAccess`, and fails loudly rather than silently skipping if
+    // that reasoning ever stops holding (ADR-0026: a check that cannot fail is not a
+    // test, so it must not be dressed as one).
+    if (band === undefined) {
+      throw new Error(`${label}: park #${index + 1} has no documented band`);
+    }
     assert.ok(ms >= band[0], `${label}: park #${index + 1} must ask for at least ${band[0]}ms of backoff, asked ${ms}ms`);
     assert.ok(ms <= band[1], `${label}: park #${index + 1} must stay within the ${band[1]}ms ceiling, asked ${ms}ms`);
   }
@@ -845,14 +889,14 @@ describe('File Locking', () => {
     void isWindows;
   });
 
-  test('stale-lock recovery succeeds when the final retry attempt clears the handle', { timeout: 10000 }, async () => {
+  test('stale-lock recovery succeeds when the final retry attempt clears the handle', { timeout: 10000, skip: process.platform !== 'win32' }, async () => {
     // Regression pin for the off-by-one Greptile/Kilo flagged on the first
     // cut of the retry budget: when the last permitted attempt's rmdirSync
     // succeeds, the loop must fall through to re-acquisition — deriving the
     // outcome from the attempt count alone made the 5th attempt's success
-    // rethrow the original EPERM anyway. Windows-only: the retry budget is
-    // gated on process.platform.
-    if (process.platform !== 'win32') return;
+    // rethrow the original EPERM anyway. Skipped visibly off Windows: the retry
+    // budget is reached through `isTransientHandleCode`, which only answers true
+    // on win32. A bare `return` here would report PASS while asserting nothing.
 
     const RETRY_BUDGET = 5; // mirrors WINDOWS_RETRY_ATTEMPTS in src/storage/lock.ts
 
@@ -1267,12 +1311,130 @@ describe('File Locking', () => {
     }
   });
 
-  test('validates Windows specific stale lock timing behavior', async () => {
-    // Only run this test logic if on Windows, but the test passes universally by skipping on non-Windows
-    if (process.platform !== 'win32') {
-      return; 
-    }
+  test('createLock has exactly one parking primitive and never waits on a timer (#539)', () => {
+    // The "must never park" assertions in this file spy `Atomics.wait`, which is only
+    // sound while that stays the module's sole way to wait: a future `await sleep` on a
+    // timer would never touch the spy, and those absence checks would pass without
+    // noticing the path now waits. Forbidding the alternative is what keeps them from
+    // being vacuous (ADR-0026). Counted with the call parenthesis so prose about the
+    // primitive in a doc comment does not register as a use of it.
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'storage', 'lock.ts'), 'utf8');
+    const occurrences = (needle: string): number => source.split(needle).length - 1;
 
+    assert.strictEqual(occurrences('Atomics.wait('), 1, 'the module must park in exactly one place');
+    for (const timer of ['setTimeout(', 'setImmediate(', 'waitAsync(']) {
+      assert.strictEqual(occurrences(timer), 0, `${timer} must not become a parking primitive`);
+    }
+    // `setInterval` is the heartbeat, which runs while a lock is *held*, not while one
+    // is being acquired — so a count of one is the bound, not a tolerance.
+    assert.strictEqual(occurrences('setInterval('), 1, 'setInterval belongs to the heartbeat alone');
+  });
+
+  test('only Windows treats EPERM/EBUSY as a transient handle (INV-09)', () => {
+    // The retry arm is only reachable on Windows, so a platform-independent pin of the
+    // rule is what keeps the decision covered on Linux and macOS. On POSIX the same
+    // codes are a permission or mount problem, and spending ~950ms of budget on one
+    // would delay the real error for a condition no wait can fix.
+    assert.strictEqual(isTransientHandleCode('EPERM', 'win32'), true);
+    assert.strictEqual(isTransientHandleCode('EBUSY', 'win32'), true);
+
+    for (const other of ['EACCES', 'ENOTEMPTY', 'ENOENT', 'EISDIR', 'ELOOP', undefined]) {
+      assert.strictEqual(
+        isTransientHandleCode(other, 'win32'),
+        false,
+        `${String(other)} is not a transient handle on win32`
+      );
+    }
+    for (const platform of ['linux', 'darwin', 'freebsd', 'aix'] as const) {
+      for (const code of ['EPERM', 'EBUSY'] as const) {
+        assert.strictEqual(
+          isTransientHandleCode(code, platform),
+          false,
+          `${code} on ${platform} is permanent, not transient`
+        );
+      }
+    }
+  });
+
+  test('the conflict createLock throws is classified as exit 4 (INV-04)', { timeout: 10000 }, async () => {
+    // `test/cli-exit-codes.test.ts` pins the classifier against a synthetic
+    // `{ code: 'ECONFLICT' }`, which proves the mapping but not that a real conflict
+    // reaches it. This closes the last link in the chain a script depends on: the
+    // object this module actually throws, through `isConflictError`, to exit 4.
+    const fx = residueVault('exit4', lockDir => {
+      fs.writeFileSync(path.join(lockDir, 'held.txt'), 'held', 'utf8');
+    });
+    refuseUnlink(fx, fx.entry('held.txt'));
+    watchParks(fx); // spied, so the budget costs no wall clock here.
+    const acquirer = fx.hold(fx.newLock());
+
+    try {
+      const thrown = await acquirer.acquire().then(
+        () => {
+          throw new Error('acquisition must have been refused');
+        },
+        (err: unknown) => err
+      );
+      assert.strictEqual(isConflictError(thrown), true, 'isConflictError must recognise the real error');
+      assert.strictEqual(exitCodeFor(thrown), ExitCode.Conflict, 'and the classifier must land on exit 4');
+    } finally {
+      fx.dispose();
+    }
+  });
+
+  test('stale recovery quarantines the old record before creating the new lock (INV-06)', { timeout: 10000 }, async () => {
+    // INV-06 says a takeover quarantines before it creates. Prose is not a proof: this
+    // records the order the syscalls actually ran in, so a recovery that deleted first
+    // and created second would fail here even though the end state looks identical.
+    const staleId = 'L-20260101T000000-cafebabe';
+    const fx = residueVault('quarantine', (lockDir, target) => {
+      const record = {
+        lock_id: staleId,
+        target,
+        pid: 999999,
+        hostname: 'not-this-host',
+        created_at: new Date(0).toISOString()
+      };
+      fs.writeFileSync(path.join(lockDir, `${staleId}.json`), JSON.stringify(record, null, 2), 'utf8');
+    });
+    agePastStale(fx.entry(`${staleId}.json`));
+
+    const events: string[] = [];
+    recordCalls(fx, 'mkdirSync', events, args => args[0] === fx.lockDir, () => 'mkdir');
+    recordCalls(
+      fx,
+      'renameSync',
+      events,
+      args => args[0] === fx.entry(`${staleId}.json`),
+      args => `rename→${path.basename(String(args[1]))}`
+    );
+
+    const acquirer = fx.hold(fx.newLock());
+    try {
+      await acquirer.acquire();
+
+      const quarantinedAt = events.findIndex(event => event.endsWith('.quarantine'));
+      const createdAfterAt = events.lastIndexOf('mkdir');
+      assert.notStrictEqual(
+        quarantinedAt,
+        -1,
+        `recovery must quarantine the stale record; saw ${events.join(' → ')}`
+      );
+      assert.notStrictEqual(createdAfterAt, -1, `recovery must re-create the directory; saw ${events.join(' → ')}`);
+      assert.ok(
+        quarantinedAt < createdAfterAt,
+        `the record must be quarantined before the new lock directory exists; saw ${events.join(' → ')}`
+      );
+
+      const records = fs.readdirSync(fx.lockDir).filter(name => name.endsWith('.json'));
+      assert.strictEqual(records.length, 1, `the takeover must leave exactly one record, saw ${records.join(', ')}`);
+      assert.notStrictEqual(records[0], `${staleId}.json`, 'and it must be the new holder’s, not the stale one');
+    } finally {
+      fx.dispose();
+    }
+  });
+
+  test('validates Windows specific stale lock timing behavior', { skip: process.platform !== 'win32' }, async () => {
     const lock1 = new Lock(testVaultPath, testFilePath);
     await lock1.acquire();
     const lock2 = new Lock(testVaultPath, testFilePath);

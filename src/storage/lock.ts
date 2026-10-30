@@ -362,6 +362,32 @@ function spendEnotemptyBudget(attempts: number, targetPath: string, residual: st
 }
 
 /**
+ * Whether a `rmdirSync` failure is a handle another process is holding, as opposed to
+ * a condition no retry can clear.
+ *
+ * @param code - The errno code `rmdirSync` reported
+ * @param platform - Platform to judge against; defaults to this process's
+ * @returns `true` only on Windows, for `EPERM` and `EBUSY`
+ *
+ * @remarks
+ * Windows reports a briefly-held directory handle as `EPERM`/`EBUSY` — an antivirus
+ * scan or an indexer walking the vault — and those clear on their own. On POSIX the
+ * same codes mean a permission or mount problem that no amount of waiting fixes, so
+ * the retry budget must not be spent on them.
+ *
+ * The platform is a parameter rather than a read of `process.platform` so the rule is
+ * testable on every OS: the integration below still only reaches this arm on Windows,
+ * but the decision itself is not Windows-only. Exported for the storage-lock tests
+ * only; the storage barrel re-exports `Lock` alone, so this stays off the public API.
+ */
+function isTransientHandleCode(
+  code: string | undefined,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  return platform === 'win32' && (code === 'EPERM' || code === 'EBUSY');
+}
+
+/**
  * Attempts atomic creation of the lock directory and writes the session lock data.
  *
  * @param lockDir - Target lock directory path
@@ -543,7 +569,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
         // persistent handle surfaces to the caller rather than spinning the
         // CLI at 100% CPU in a busy loop. createLock is synchronous, so we
         // busy-wait on a wall clock instead of yielding the event loop.
-        if (process.platform === 'win32' && (rmCode === 'EPERM' || rmCode === 'EBUSY')) {
+        if (isTransientHandleCode(rmCode)) {
           // `exhausted` stays true only when every attempt hit a transient
           // EPERM/EBUSY. Success and forward-progress outcomes (ENOTEMPTY/
           // ENOENT) must fall through to re-acquisition even on the final
@@ -846,4 +872,5 @@ export {
   Lock,
   HEARTBEAT_INTERVAL,
   STALE_TIMEOUT,
+  isTransientHandleCode,
 };
