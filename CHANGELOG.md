@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A lock directory that cannot be emptied no longer spins the CLI at 100% CPU** ([#539](https://github.com/Kuldeep2822k/cli/issues/539)): stale recovery's `ENOTEMPTY` path was an unconditional `continue` with no sleep and no bound, so a leftover subdirectory — or a file another process held open — hung `palee` indefinitely. Removal now retries with exponential backoff and then throws a `Lock conflict` naming the entries still inside, exit `4` as INV-09 promises; a directory entry, which no wait can clear, is refused immediately; and the acquisition loop is capped. The Windows `EPERM`/`EBUSY` path is unchanged. Recorded as ADR-0036.
+
 ## [1.1.0] - 2026-10-23
 
 ### Added

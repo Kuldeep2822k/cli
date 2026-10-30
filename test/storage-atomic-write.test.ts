@@ -259,8 +259,8 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
     return fs.statSync(file).mode & 0o777;
   }
 
-  test('a rewrite preserves a 0600 destination mode (#318, POSIX)', async () => {
-    if (process.platform === 'win32') return; // NTFS resolves access through the directory ACL
+  test('a rewrite preserves a 0600 destination mode (#318, POSIX)', { skip: process.platform === 'win32' }, async () => {
+    // NTFS resolves access through the directory ACL, so POSIX mode bits say nothing there.
     const file = path.join(vaultPath, 'mode-600.md');
     fs.writeFileSync(file, '# v1', 'utf8');
     fs.chmodSync(file, 0o600);
@@ -273,8 +273,7 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
     assert.strictEqual(mode, 0o600, `rewrite widened the mode to 0o${mode.toString(8)}`);
   });
 
-  test('a rewrite preserves a 0644 destination mode without tightening it (#318, POSIX)', async () => {
-    if (process.platform === 'win32') return;
+  test('a rewrite preserves a 0644 destination mode without tightening it (#318, POSIX)', { skip: process.platform === 'win32' }, async () => {
     const file = path.join(vaultPath, 'mode-644.md');
     fs.writeFileSync(file, '# v1', 'utf8');
     fs.chmodSync(file, 0o644);
@@ -286,8 +285,7 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
     assert.strictEqual(modeOf(file), 0o644);
   });
 
-  test('a rewrite preserves a 0640 destination mode (#318, POSIX)', async () => {
-    if (process.platform === 'win32') return;
+  test('a rewrite preserves a 0640 destination mode (#318, POSIX)', { skip: process.platform === 'win32' }, async () => {
     const file = path.join(vaultPath, 'mode-640.md');
     fs.writeFileSync(file, '# v1', 'utf8');
     fs.chmodSync(file, 0o640);
@@ -298,8 +296,7 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
     assert.strictEqual(modeOf(file), 0o640);
   });
 
-  test('a write to a fresh destination keeps the default umask mode (#318, POSIX)', async () => {
-    if (process.platform === 'win32') return;
+  test('a write to a fresh destination keeps the default umask mode (#318, POSIX)', { skip: process.platform === 'win32' }, async () => {
     const file = path.join(vaultPath, 'mode-new.md');
     const control = path.join(vaultPath, 'mode-new-control.md');
     fs.writeFileSync(control, 'x', 'utf8'); // baseline: plain open with no explicit mode

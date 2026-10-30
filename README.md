@@ -291,7 +291,7 @@ PALEE_JSON=1 palee next | jq -r '.next.path'
 ## Windows Notes
 
 - **Path Normalization**: PALEE natively handles both forward slashes (`/`) and backslashes (`\`) for vault configuration and file references.
-- **Lock Timeouts**: On Windows, file locks become stale after 60 seconds (vs 120s on Unix) to accommodate aggressive process termination without `finally` blocks executing.
+- **Lock Timeouts**: On Windows, file locks become stale after 60 seconds (vs 120s on Unix) to accommodate aggressive process termination without `finally` blocks executing. If a lock directory still holds an entry that cannot be deleted — a leftover subdirectory, or a file another process holds open — acquisition refuses a subdirectory immediately, and gives up on a file another process holds open only after a bounded retry — exiting `4` with a `Lock conflict` message naming what is still inside, rather than retrying forever.
 - **Config Storage**: The config file on Windows is stored in `%LOCALAPPDATA%\palee\config.json`.
 - **API key privacy**: Because Windows ignores the POSIX `0600` file mode and resolves access through the
   directory's inherited ACL, `palee config set-api-key` refuses to write the key when the config directory

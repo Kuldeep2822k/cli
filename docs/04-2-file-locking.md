@@ -102,10 +102,79 @@ When a process encounters an existing lock directory, it attempts to recover it 
 
 | Step | Action | Failure Handling |
 | --- | --- | --- |
-| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
-| 2 | Filter `activeFiles` | If no JSON files but directory is < 5s old, throw `ECONFLICT` (incoming process) [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
-| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
-| 4 | `rmdirSync(lockDir)` | If `ENOTEMPTY`, a new process won the lock; retry loop [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop (`createLock`) |
+| 2 | Filter `activeFiles` | If the directory is under 5s old *and* is either empty or holds an in-flight `.json.quarantine`, throw `ECONFLICT` (incoming process). The quarantine term does not depend on how many `.json` records sit beside it — a stale record of our own is not permission to sweep someone else's recovery. A directory holding only foreign residue is never treated as incoming (`createLock`) |
+| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue (`createLock`) |
+| 4 | `rmdirSync(lockDir)` | `ENOENT` → another process removed it, retry the loop. `ENOTEMPTY` → bounded retry, then `ECONFLICT` naming what is still inside. Windows `EPERM`/`EBUSY` → bounded retry, then the raw error surfaces (`createLock`) |
+
+### Bounded Acquisition
+
+Every branch that cannot make progress is bounded, so no vault write can spin the
+CLI. The decision flow, including the branch that is not a conflict:
+
+```mermaid
+flowchart TD
+  R[Round] --> RC{Rounds left?}
+  RC -->|No| F[Lock conflict, exit 4]
+  RC -->|Yes| MK[Try to create the lock directory]
+  MK --> MKC{Created?}
+  MKC -->|Yes| WR[Write the holder record and return]
+  MKC -->|No| IN[Inspect the directory]
+  IN --> LIVE{Live record, or a young directory that is empty or holds a quarantine?}
+  LIVE -->|Yes| F
+  LIVE -->|No| SW[Sweep: quarantine records, unlink residue]
+  SW --> DIR{Unremovable directory entry?}
+  DIR -->|Yes| F
+  DIR -->|No| REST{Quarantined record still live?}
+  REST -->|Yes| RS{Restore succeeded?}
+  RS -->|No| F
+  RS -->|Yes| RM[Try directory removal]
+  REST -->|No| RM
+  RM --> RMR{Removal outcome?}
+  RMR -->|Removed or ENOENT| R
+  RMR -->|ENOTEMPTY| BUD{Budget left?}
+  RMR -->|Other error| EXIT5[Surface the raw error, exit 5]
+  RMR -->|EPERM or EBUSY on Windows| RETRY[Retry five times with backoff]
+  RETRY -->|Cleared or ENOENT| R
+  RETRY -->|ENOTEMPTY| BUD
+  RETRY -->|Still held or other error| EXIT5
+  BUD -->|No| F
+  BUD -->|Yes| PARK[Park with backoff]
+  PARK --> R
+```
+
+Four rules cover it:
+
+- **`ENOTEMPTY` is a budget, not a retry signal.** The sweep above deletes the entries
+  it observed; `rmdirSync` answering `ENOTEMPTY` afterwards means one survived — a file
+  another process holds open, or a subdirectory this module never creates. The removal
+  is retried `ENOTEMPTY_RETRY_ATTEMPTS` times (5, i.e. one attempt plus five retries,
+  50 ms doubling to a 300 ms ceiling with ±25% jitter — ~950 ms of *parked* time) and
+  then throws `Lock conflict: … would not empty after 5 retries; still present: <entries>`
+  with `code = 'ECONFLICT'`, exit `4` (INV-04, INV-09). Waiting is a thread park
+  (`SyncWait`), never a spin.
+- **A directory entry fails fast.** Nothing in this module writes a directory into a
+  lockdir, so one found there is foreign residue that `rmdirSync` will never get past.
+  It is named and refused immediately rather than spending the budget first.
+- **A quarantine in flight is left alone.** The sweep renames a record to
+  `.json.quarantine` before deciding to delete or restore it. In that window the
+  directory holds no `.json` record for that holder, so a second acquirer that read the
+  quarantine as residue would delete the record a live holder is about to be given back
+  — and the restore would then fail. A fresh directory holding a quarantine is therefore
+  another recovery, and is refused; once its mtime ages past 5s it is treated as
+  abandoned and cleaned up. The check is independent of any other `.json` records in the
+  directory, because a stale record of ours says nothing about the safety of sweeping
+  someone else's. A restore that cannot put a live record back is a conflict, never a
+  silent swallow: the holder would otherwise keep writing with no record on disk.
+- **`ENOENT` is the only unbudgeted *forward-progress signal*.** It reports that the
+  directory is already gone, so the next `mkdirSync` is a real acquisition attempt.
+  The loop's other non-parking `continue`s (a vanished record at write time, a
+  successfully removed stale directory) each make one syscall of progress, and the
+  acquisition loop is capped at `MAX_ACQUISITION_ITERATIONS` (20) so their repetition
+  is bounded too; reaching the cap means another process keeps deleting the directory,
+  and it exits `4` like any other contention.
+
+Recorded in ADR-0036.
 
 ---
 
