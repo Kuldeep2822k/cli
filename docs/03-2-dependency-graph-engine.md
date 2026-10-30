@@ -202,7 +202,7 @@ The adopt plan spans every note in the scanned scope — the notes being adopted
 | Invariant | Implementation Guarantee |
 |---|---|
 | **Acyclicity** | Curriculum must form a strict Directed Acyclic Graph (DAG). `detectCycle` returns `null`. |
-| **Prerequisite Gating** | Downstream topics are locked until all direct prerequisites achieve $\ge 0.70$ mastery. |
+| **Prerequisite Gating** | Downstream topics are locked until all direct *gating* prerequisites achieve $\ge 0.70$ mastery. A `depends_on_source` of `toc` or `tie` makes the whole edge list advisory: it still ranks the topic and takes part in cycle detection, and it never locks. |
 | **Canonical Dependencies** | Legacy `dependencies` aliases are unioned and deduplicated into `depends_on` once at the storage boundary (`normalizeDependencies`); the engine consumes canonical `depends_on` only. |
 | **Deterministic Traversal** | Iterative Tarjan SCC runs in $O(V + E)$; the bounded `detectCycle` wrapper is $O(V \cdot (V + E))$ and never recurses. Both visit nodes in sorted order. |
 | **Auto-Chain Ordering (INV-46/47)** | Tiered ordering for `adopt --auto-chain` and `roadmap --auto-chain`. See [Auto-Chain Ordering](#auto-chain-ordering-inv-4647). |

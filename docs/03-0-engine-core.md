@@ -141,7 +141,7 @@ Rather than reducing topic comprehension to a single 1-dimensional recall score,
 The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts.
 
 - **SCC Cycle Detection**: `computeSccs` runs an iterative Tarjan pass over the prerequisite edge map. Multi-node components are cyclic, as are single-node components with a self-edge. `detectCycle` returns the lexicographically smallest canonical cycle; `detectCycles` uses Johnson enumeration when every distinct loop is needed.
-- **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in the canonical `depends_on` array exist in the vault and possess `topic_mastery >= 0.70`.
+- **Prerequisite Readiness**: `areDependenciesSatisfied(topic, topics, threshold = 0.70)` verifies that all prerequisites referenced in the canonical `depends_on` array exist in the vault and possess `topic_mastery >= 0.70` — but only for a gating note. A topic whose `depends_on_source` is `toc` or `tie` returns satisfied outright, before the loop runs: its edges rank it and take part in cycle detection, and never hold it off the ready list. Any other label, including an absent or unrecognized one, gates fail-closed.
 - **Ready Topic Queuing**: `getReadyTopics` scans the vault, filtering for unmastered topics (`topic_mastery < 0.70`) whose prerequisites are fully satisfied.
 - **Topological Integrity Validation**: `validateDependencyGraph` inspects the entire graph, detecting dangling prerequisites (`missing_dependency`) and circular loops (`cycle`).
 
@@ -201,7 +201,7 @@ The engine enforces strict mathematical and architectural invariants across all 
 | **SM-2** | Half-Up Rounding | EF and intervals rounded half-up with epsilon `+ 1e-10` to avoid floating-point drift |
 | **Mastery** | Score Clamping | All pillar scores clamped to $[0.0, 1.0]$ via `normalizeScore` |
 | **Mastery** | 4-Decimal Precision | Mastery calculations rounded via `Math.round(raw * 10000) / 10000` |
-| **Mastery** | Mastery Threshold | Prerequisite satisfaction requires `topic_mastery` $\ge 0.70$ |
+| **Mastery** | Mastery Threshold | Prerequisite satisfaction requires `topic_mastery` $\ge 0.70$ for every gating edge; `toc`/`tie` provenance is advisory and never blocks |
 | **Mastery** | Archive Exclusion | Archived topics (`status === 'archived'`) excluded from active averages and ready queues |
 | **Dependency** | Directed Acyclic Graph | Vault prerequisite graph must be acyclic (`detectCycle === null`) |
 | **Dependency** | Canonical Dependencies | Legacy `dependencies` aliases are unioned into `depends_on` once at the storage boundary (`normalizeDependencies`, `src/storage/dependencies.ts`); the engine reads `depends_on` only |

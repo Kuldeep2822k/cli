@@ -31,6 +31,7 @@ The `Topic` interface is the central entity in the system, representing a single
 - `status`: Tracks the learning lifecycle (`not_started`, `learning`, `paused`, `archived`) [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - `difficulty`: A normalized categorization of the topic's complexity [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - `dependencies`: An array of `palee_id` strings representing prerequisite topics [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
+- `depends_on_source`: Records which tier authored `depends_on`, and is the field that decides gating. `numbered` is the hygiene chain's own order — a numeric prefix, and also structural rank such as a directory's README leading or `deep-dive` → `lab` → `exam` → remaining docs before homework. `tie` is that same tier's filename collation at equal rank, `toc` is a listing document's enumeration order, and `declared` is a list the learner wrote — preserved frontmatter `depends_on` or links under a `## Prerequisites` heading. `toc` and `tie` are advisory: they still rank the topic and take part in cycle detection but never hold it off the ready list, while `numbered`, `declared`, an absent label, and any unrecognized label all gate fail-closed [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 ### Topic Data Flow
 
@@ -166,3 +167,5 @@ const paleeData: Record<string, unknown> = {
 ```
 
 Sources:[src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)[examples/Docker Fundamentals.md](https://github.com/Kuldeep2822k/cli/blob/main/examples/Docker%20Fundamentals.md?plain=1)
+
+`depends_on_source` is absent from that initial record because adoption stamps a label only when it has an author to name: an adoption that keeps prerequisites the note already declared — frontmatter in single-note mode, or either source in batch mode — writes `declared`, while `adopt --auto-chain` writes the tier that placed the note (`numbered`, `tie`, `toc`, or `declared` when the note's own list replaced the inferred edge). `roadmap` import is the exception: it writes no label, and an entry that declares `depends_on` removes any existing one so the imported list gates, whereas an entry that omits it leaves the note's label untouched. `migrate --relabel-ties` rewrites a `numbered` label to `tie` without touching `depends_on`. A note carrying no label at all is the fail-closed spelling, which is why `--relabel-ties` treats it as a separate population behind `--include-unlabeled-ties`.

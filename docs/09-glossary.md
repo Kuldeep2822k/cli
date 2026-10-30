@@ -47,6 +47,7 @@ A Directed Acyclic Graph (DAG) where nodes are Topics and edges are `depends_on`
 
 - Ready Topic: A topic that has not yet been mastered but whose dependencies all meet the mastery threshold [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
 - Cycle Detection: An SCC-based check (iterative Tarjan plus optional Johnson enumeration) to ensure no circular dependencies exist, which would prevent a topic from ever becoming "ready" [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
+- Edge Provenance (`depends_on_source`): The label recording who authored a note's `depends_on` list — `numbered` from the hygiene chain's order (numeric prefixes, and structural rank such as a directory's leading README or `deep-dive` → `lab` → `exam`), `tie` from a filename collation at equal rank, `toc` from a listing document's enumeration order, or `declared` from a list the learner wrote, whether preserved frontmatter or `## Prerequisites` links. `toc` and `tie` are advisory: they rank the topic and take part in cycle detection but never gate it; `numbered`, `declared`, and an absent or unrecognized label all gate fail-closed [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 
 Entity Mapping: Natural Language to Code
 
@@ -166,6 +167,7 @@ classDiagram
         +number topic_mastery
         +string[] depends_on
         +string[] dependencies
+        +string depends_on_source
     }
     note for Topic "dependencies aliases into<br/>depends_on at the storage boundary"
     HotMemoryData --> SessionRecord

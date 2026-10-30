@@ -379,7 +379,7 @@ Raising or lowering one note's mastery changes which of its dependents are ready
   2 topic(s) newly offered by palee plan: T-trees, T-graphs
 ```
 
-Lowering a score prints `N topic(s) are no longer offered by palee plan.`; when nothing crosses the boundary the line is `No topic changes availability; a dependent may gate on something else.`
+Lowering a score prints `N topic(s) are no longer offered by palee plan: <ids>`; when nothing crosses the boundary the line is `No topic changes availability; a dependent may gate on something else.`
 
 ### Seeing a Lowering Before You Commit to It
 
