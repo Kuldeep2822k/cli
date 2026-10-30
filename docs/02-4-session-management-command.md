@@ -33,7 +33,7 @@ When running commands that require an active study target (`start`, `draft`, `en
 1. **CLI Flag Resolution**: An explicit `--topic <query>` is resolved against the vault through the shared `resolveTopicQuery` resolver that `review` and `assess` use — an exact `palee_id` wins outright, otherwise a partial ID or case-insensitive title substring must match exactly one topic, and only if nothing matched at all is the query compared to the note's exact vault path (the identifier `next` and `plan` print, #313). The session is then recorded against that topic's canonical `palee_id`, never the raw argument (#302).
 2. **Sentinel**: A `--topic` of `(none)` (whitespace tolerated) means "no topic" and is not looked up.
 3. **Working Memory Inspection**: With no flag, the target is the `active_topic` frontmatter property of `.palee/hot.md`. That value is not re-resolved: `hot.md` is canonical, and refusing to end a session because its note was renamed or deleted since the session started would discard recorded work.
-4. **Refusal**: A `--topic` that matches no topic, or matches several, terminates with exit code `2` and lists the candidates (the same refusal `review` gives for the identical string). A `draft`/`end` with neither a flag nor an active topic terminates with exit code `2` as before.
+4. **Refusal**: A `--topic` that matches no topic, or matches several, terminates with exit code `2` and lists the candidates (the same refusal `review` gives for the identical string). A `start`/`draft`/`end` with neither a flag nor an active topic terminates with exit code `2`; a refused `start` creates no new active session and prints no success banner (#546).
 
 ---
 
@@ -51,12 +51,12 @@ If an unexpected interruption occurs (such as terminal closure or system reboot)
 
 When `palee session start` is executed:
 - **Non-Interactive Mode**: Alerts the user that unconfirmed drafts exist and suggests running `palee session start --interactive` (exiting with code `2` or emitting `status: 'drafts_pending'` in JSON mode).
-- **Interactive Mode (`-i, --interactive`)**: Prompts the user with four recovery options for each orphaned draft [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts):
+- **Interactive Mode (`-i, --interactive`)**: Prompts the user with four recovery options for each orphaned draft [src/cli/session.ts#96-112](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L96-L112):
   - `[R]esume`: Continues the previous session, retaining the draft.
   - `[S]ave`: Immediately finalizes and converts the draft into a confirmed session note (`S-*.md`), calculating true elapsed duration from its `started_at` timestamp, and unlinks the draft.
   - `[D]iscard`: Safely unlinks the orphaned draft checkpoint via `deleteSessionNote()`.
   - `[I]gnore`: Leaves the draft file untouched on disk.
-- **Interactive Recovery in JSON Mode**: with `--json` (or `PALEE_JSON=1`) the recovery banner and menu are written to `stderr`, so `stdout` still carries exactly one document. `drafts_pending` is only the non-interactive arm; an interactive run that resolves its drafts finishes with `started`.
+- **Interactive Recovery in JSON Mode**: with `--json` (or `PALEE_JSON=1`) the recovery banner and menu are written to `stderr`, so `stdout` still carries exactly one document. `drafts_pending` is only the non-interactive arm; an interactive run that resolves its drafts then resolves its topic like any other start — it finishes with `started`, or refuses with one `{error}` document at exit `2` when no topic resolves (#546).
 - **Interactive Mode at End of Input**: If stdin closes before every draft has been answered (a piped or scripted run, or `Ctrl+D` at the prompt), the menu ends instead of re-prompting a dead stream. Unanswered checkpoints stay on disk byte-identical, no session starts, and the run exits with code `2` naming them — the same refusal the non-interactive mode already applies.
 
 ```mermaid
@@ -89,6 +89,7 @@ The `palee session` command accepts four distinct action arguments:
 Initializes the study environment:
 - Scans `.palee/sessions/` for unconfirmed draft checkpoints.
 - Rebuilds `hot.md` if missing or corrupted using `resetHotMemory()` and `rebuildHotAndIndex()`.
+- Resolves the study topic (via `--topic`, or the active topic from `hot.md`) and exits `2` when neither names one — no success banner is printed and no session is written (#546).
 - Records the current timestamp as `started_at` in `.palee/hot.md` for the resolved topic.
 - Prints the active topic ID, last session timestamp, and the working memory body excerpt from `hot.md`.
 
@@ -97,7 +98,8 @@ Initializes the study environment:
 palee session start --interactive
 
 # Query session start status as structured JSON
-# (emits drafts_pending on unconfirmed checkpoints, otherwise status: started)
+# (emits drafts_pending on unconfirmed checkpoints, otherwise status: started;
+# a start with no resolvable topic emits one {error} document on stderr at exit 2)
 palee session start --json
 ```
 
@@ -156,7 +158,7 @@ palee session list --json
 
 ## 3. Options Reference for `palee session`
 
-The following table lists all supported arguments and options for `palee session` [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts):
+The following table lists all supported arguments and options for `palee session` [src/types.ts#464-474](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts#L464-L474):
 
 | Parameter / Flag | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
@@ -200,6 +202,6 @@ All session metadata is isolated within the `.palee/` directory at the vault roo
 | :---: | :--- |
 | 0 | Session action (`start`, `draft`, `end`, `list`) completed successfully. |
 | 1 | `session end` recorded the session note but a follow-up write partially failed: a draft checkpoint could not be deleted, or `hot.md`'s active-session marker could not be cleared (an OCC conflict on that clear is reported as exit 4). Human mode prints the reason as a warning; under `--json` stdout still carries the `status: "recorded"` document, with the reason in `warnings[]` and the count in `draft_cleanup_failures`. |
-| 2 | Vault path not configured, a `--topic` that resolves to no topic or to several (every candidate is listed), missing `--topic` for `draft`/`end` when no active topic exists, unconfirmed drafts blocking non-interactive `session start`, or unknown action specified. |
+| 2 | Vault path not configured, a `--topic` that resolves to no topic or to several (every candidate is listed), missing `--topic` for `start`/`draft`/`end` when no active topic exists (a refused `start` creates no new active session and prints no banner, so a following `end` still reports no active session — #546), unconfirmed drafts blocking non-interactive `session start`, or unknown action specified. |
 | 4 | OCC conflict during session note write or `hot.md` update (`isConflictError`). |
 | 5 | Unexpected runtime exception or storage boundary violation error. |

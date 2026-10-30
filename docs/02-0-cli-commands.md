@@ -130,13 +130,13 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee migrate` | 5 | Unexpected runtime exception or YAML parse failure. |
 | `palee session` | 0 | Session lifecycle action (`start`, `draft`, `end`, `list`) completed successfully. |
 | `palee session` | 1 | Partial failure at `session end` after the session note is on disk: one or more draft checkpoints could not be deleted (`⚠ Warning: Failed to clean up N draft(s)`), or `hot.md`'s active-session marker could not be cleared — that last case exits `4` instead when the failure is an OCC conflict. Under `--json` stdout still carries the `status: "recorded"` document: the text is in `warnings[]` and the count in `draft_cleanup_failures`. |
-| `palee session` | 2 | Unconfigured vault, a `draft`/`end` with no `--topic` and no active topic, `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. |
+| `palee session` | 2 | Unconfigured vault, a `start`/`draft`/`end` with no `--topic` and no active topic to continue (a refused `start` creates no new active session and prints no banner, so a following `end` still reports no active session — #546), `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. |
 | `palee session` | 4 | OCC conflict during session note write or `hot.md` update (`isConflictError`). |
 | `palee session` | 5 | Unexpected runtime exception or storage directory error. |
 | `palee dashboard` | 0 | Successfully rendered high-level dashboard metrics or empty vault onboarding. |
 | `palee dashboard` | 2 | Unconfigured or non-existent vault path. |
 | `palee dashboard` | 5 | Unexpected runtime exception or calculation failure. |
-| `palee update` | 0 | Already on the latest published version, `--dry-run` reported the update status, or `npm install -g @kuldeep2822k/palee@latest` exited 0. |
+| `palee update` | 0 | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. |
 | `palee update` | 2 | Commander's own usage path: an unknown option or an unexpected positional argument. |
 | `palee update` | 5 | npm could not be found on PATH or run, the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
 

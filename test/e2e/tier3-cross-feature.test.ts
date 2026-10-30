@@ -32,8 +32,9 @@ topics:
     const rRes = env.run(['roadmap', '--from', roadmapFile, '--yes']);
     assert.strictEqual(rRes.status, 0);
 
-    // 2. Session Start
-    const sStart = env.run(['session', 'start']);
+    // 2. Session Start (#546: names its topic — a topicless start with no active
+    // topic would refuse at exit 2)
+    const sStart = env.run(['session', 'start', '--topic', 'T-cycle-1']);
     assert.strictEqual(sStart.status, 0);
 
     // 3. Session Draft
@@ -392,9 +393,11 @@ topics:
   // X11: Empty Vault -> Session Start (onboarding) -> Adopt -> Next -> Review -> Dashboard Box & Mastery Validation
   // -------------------------------------------------------------------------
   test('X11: Progressive Vault Onboarding and UI Formatting Validation', () => {
-    // 1. Session start on empty vault
+    // 1. Session start on empty vault — #546: with no topics there is nothing to
+    // start a session for, so the topicless start refuses at exit 2 instead of
+    // printing a success banner. The onboarding scenario continues below.
     const sStart = env.run(['session', 'start']);
-    assert.strictEqual(sStart.status, 0);
+    assert.strictEqual(sStart.status, 2);
 
     // 2. Create note and adopt
     const noteFile = path.join(env.vaultDir, 'onboarding.md');

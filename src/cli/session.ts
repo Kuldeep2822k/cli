@@ -430,6 +430,16 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           : null
         : resolveSessionTopic(vaultPath, options.topic);
 
+      // #546: with no --topic and no active topic in hot.md there is nothing to open
+      // a session for. The old flow fell through to the success banner and exit 0
+      // while the write gate below skipped everything, so the follow-up `end` found
+      // no session. Refuse instead — a start that writes nothing is not a start.
+      if (!resolvedTopic) {
+        emitError('No topic to start. Specify --topic <topic-id>.', options);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       // #442 (UX): a second `session start` silently re-adopted the active session
       // context — both runs printed "Session Started" and exited 0, so an in-progress
       // session was easy to clobber. Warn, and name which: the same topic is continued,
@@ -438,7 +448,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       if (
         existingActive.length > 0 && existingActive.toLowerCase() !== '(none)' && existingStarted.length > 0
       ) {
-        const sameTopic = resolvedTopic === null || resolvedTopic === existingActive;
+        const sameTopic = resolvedTopic === existingActive;
         warn(
           `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
             (sameTopic
