@@ -58,7 +58,7 @@ Conflict messages carry entry names into stderr and into captured logs, and POSI
 
 ### Every contention path throws through one builder
 
-`lockConflict()` now builds all four: a fresh lock, an incoming lock, an unclearable directory, and the loop cap. The `Lock conflict:` prefix is how `isConflictError` recognises the error by text as well as by code, so a new path cannot invent a wording that exits `5` by accident.
+`lockConflict()` now covers five cases: a fresh lock, an incoming lock, an unclearable directory (the fail-fast on a directory entry and the spent `ENOTEMPTY` budget are the same hazard), a failed restore, and the loop cap. The `Lock conflict:` prefix is how `isConflictError` recognises the error by text as well as by code, so a new path cannot invent a wording that exits `5` by accident.
 
 ## Consequences
 

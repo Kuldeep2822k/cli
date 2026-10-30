@@ -106,7 +106,39 @@ When a process encounters an existing lock directory, it attempts to recover it 
 ### Bounded Acquisition
 
 Every branch that cannot make progress is bounded, so no vault write can spin the
-CLI. Three rules cover it:
+CLI. The decision flow, including the branch that is not a conflict:
+
+```mermaid
+flowchart TD
+  R[Round] --> RC{Rounds left?}
+  RC -->|No| F[Lock conflict, exit 4]
+  RC -->|Yes| MK[Try to create the lock directory]
+  MK --> MKC{Created?}
+  MKC -->|Yes| WR[Write the holder record and return]
+  MKC -->|No| IN[Inspect the directory]
+  IN --> LIVE{Live record, or a young directory that is empty or holds a quarantine?}
+  LIVE -->|Yes| F
+  LIVE -->|No| SW[Sweep: quarantine records, unlink residue]
+  SW --> DIR{Unremovable directory entry?}
+  DIR -->|Yes| F
+  DIR -->|No| REST{Quarantined record still live?}
+  REST -->|Yes| RS{Restore succeeded?}
+  RS -->|No| F
+  RS -->|Yes| RM[Try directory removal]
+  REST -->|No| RM
+  RM --> BUSY{EPERM or EBUSY on Windows?}
+  BUSY -->|Yes| RETRY[Retry five times with backoff]
+  RETRY -->|Cleared| R
+  RETRY -->|Still held| EXIT5[Surface the raw error, exit 5]
+  BUSY -->|No| EMP{Still non-empty?}
+  EMP -->|No| R
+  EMP -->|Yes| BUD{Budget left?}
+  BUD -->|No| F
+  BUD -->|Yes| PARK[Park with backoff]
+  PARK --> R
+```
+
+Four rules cover it:
 
 - **`ENOTEMPTY` is a budget, not a retry signal.** The sweep above deletes the entries
   it observed; `rmdirSync` answering `ENOTEMPTY` afterwards means one survived — a file
