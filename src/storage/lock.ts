@@ -449,12 +449,16 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw lockConflict(`${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
       }
 
-      // The 5s heuristic answers "a rival just created this directory and has not
-      // written its record yet". It cannot answer that once our own sweep has
-      // unlinked a record from it: the unlink stamps the directory's mtime, so the
-      // next round would read our own progress as an incoming process and abandon a
-      // real residue. Only the first inspection of a round is allowed to ask.
-      if (enotemptyAttempts === 0 && activeFiles.length === 0) {
+      // The 5s heuristic answers one question: is this directory young and *empty*,
+      // meaning a rival created it and has not written its record yet? Emptiness is
+      // the load-bearing half — it is also the only state in which the `rmdirSync`
+      // below would succeed and take a rival's directory out from under it, letting
+      // both writers end up holding.
+      //
+      // A directory holding anything therefore never counts as an incoming process:
+      // the residue this module is trying to clear is not a rival, and our own sweep
+      // stamps the directory mtime this check would otherwise read.
+      if (files.length === 0) {
         let incomingConflict = false;
         try {
           const dirStat = fs.statSync(lockDir);

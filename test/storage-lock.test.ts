@@ -73,7 +73,7 @@ function spyUtimesSync(): { calls: UtimesCall[]; restore: () => void } {
  *
  * @returns The live record list plus the function that puts `Atomics` back.
  */
-function spyAtomicsWait(): { calls: number[]; restore: () => void } {
+function spyAtomicsWait(onPark?: () => void): { calls: number[]; restore: () => void } {
   const calls: number[] = [];
   const originalWait = Atomics.wait;
   // Typed as `unknown` on the slot rather than `typeof Atomics.wait`: the real member
@@ -85,6 +85,9 @@ function spyAtomicsWait(): { calls: number[]; restore: () => void } {
     timeout?: number
   ): 'ok' | 'not-equal' | 'timed-out' {
     calls.push(typeof timeout === 'number' ? timeout : -1);
+    // A park is the moment a concurrent actor gets to move, so the hook runs here to
+    // stage a rival's progress deterministically instead of racing a real timer.
+    onPark?.();
     // Return immediately: the assertion is on the schedule the code asked for, so a
     // test must never pay for the park it is measuring.
     return 'timed-out';
@@ -1154,6 +1157,73 @@ describe('File Locking', () => {
       (fs as unknown as { readdirSync: unknown }).readdirSync = originalReaddirSync;
       (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
       try { fs.rmSync(evilVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('a rival that replaced the lock directory mid-budget is not swept away (#539)', { timeout: 10000 }, async () => {
+    // The mutual-exclusion property the budget must not break. A directory holding the
+    // residue this process is clearing is not a rival; a directory that is young and
+    // *empty* is one — a process that created it and has not written its record yet.
+    // Suppressing the incoming-process check for the rest of the budget would let this
+    // side `rmdir` that replacement and recreate it, and both writers would then hold.
+    const rivalVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-rival-'));
+    const rivalFile = path.join(rivalVault, 'rival-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(rivalFile, '# Rival Target', 'utf8');
+
+    const rivalLockDir = new Lock(rivalVault, rivalFile).lockPath;
+    fs.mkdirSync(rivalLockDir);
+    const residueEntry = path.join(rivalLockDir, 'residue.txt');
+    fs.writeFileSync(residueEntry, 'residue', 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(rivalLockDir, longAgo, longAgo);
+
+    const originalUnlinkSync = fs.unlinkSync;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function refusingUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === residueEntry) {
+        const refused = new Error(`EPERM: operation not permitted, unlink '${residueEntry}'`) as NodeError;
+        refused.code = 'EPERM';
+        throw refused;
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    // On the first park — while this side waits out the residue — a rival removes the
+    // directory and recreates it empty, then stalls before writing its record.
+    let replaced = false;
+    const sleeps = spyAtomicsWait(() => {
+      if (replaced) return;
+      replaced = true;
+      fs.rmSync(rivalLockDir, { recursive: true, force: true });
+      fs.mkdirSync(rivalLockDir);
+    });
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(rivalVault, rivalFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(err.code, 'ECONFLICT', `expected a lock conflict, got ${String(err.code)}: ${err.message}`);
+          assert.match(
+            err.message,
+            /incoming process/,
+            'a young empty replacement must be read as a rival, not cleared'
+          );
+          return true;
+        }
+      );
+      assert.strictEqual(replaced, true, 'precondition: the replacement happened during the park');
+      assert.ok(fs.existsSync(rivalLockDir), "the rival's directory must survive");
+      assert.deepStrictEqual(
+        fs.readdirSync(rivalLockDir),
+        [] as string[],
+        "and nothing may have been written into it"
+      );
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      try { fs.rmSync(rivalVault, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   });
 

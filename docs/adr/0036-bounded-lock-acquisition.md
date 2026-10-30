@@ -40,9 +40,11 @@ The distinction is whether waiting can help. Nothing in this module writes a dir
 
 The Windows `EPERM`/`EBUSY` retry loop can also answer `ENOTEMPTY`: a transient directory handle clears during the park, and the next attempt finds a file that survived the sweep. That answer used to be free forward progress, so the budget was unreachable there and the loop cap eventually reported churn for what was a stuck entry. Both sites now call one `spendEnotemptyBudget`, which is what keeps the counter, the park and the message from diverging.
 
-### The 5-second heuristic only asks its question once
+### The heuristic asks about emptiness, not about the budget
 
-`incomingConflict` answers "a rival just created this directory and has not written its record yet". It cannot answer that after our own sweep has unlinked a record from the directory: the unlink stamps the directory's mtime, so the next round would read our own progress as an incoming process and abandon a real residue one retry in. The heuristic is therefore gated on the budget being untouched, which restores its original meaning instead of widening it.
+`incomingConflict` answers "a rival just created this directory and has not written its record yet". It used to ask that of any directory with no `.json` record, which misfired on the residue this module is trying to clear: our own sweep stamps the directory mtime the check reads, so the next round concluded a rival had just arrived and abandoned a real residue. Gating the check on the retry budget would have fixed the message and broken mutual exclusion — a rival that replaces the lock directory mid-budget leaves it young *and empty*, and suppressing the check for the rest of the budget would let this process `rmdir` that directory and recreate it, with both writers then holding.
+
+The condition is therefore emptiness, not budget state: a directory holding anything is never an incoming process, and one holding nothing is — which is also the only state in which the removal below could take a rival's directory away.
 
 ### Residue names are escaped before they reach a terminal
 
