@@ -1,7 +1,11 @@
+---
+description: "The palee CLI is the primary developer interface for interacting with the PALEE learning engine. It provides terminal commands for topic management, spaced repetition reviews, analytics, roadmap ingestion, and focused study sessions."
+---
+
+
 # CLI Commands
 
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [bin/palee.ts](https://github.com/Kuldeep2822k/cli/blob/main/bin/palee.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
@@ -22,7 +26,7 @@
 - [test/cli-exit-codes.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-exit-codes.test.ts)
 - [test/cli-json-output.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-json-output.test.ts)
 
-</details>
+:::
 
 The `palee` CLI is the primary developer interface for interacting with the PALEE learning engine. It provides a comprehensive suite of terminal commands for managing learning topics, scheduling spaced repetition reviews via SuperMemo SM-2, tracking mastery and difficulty analytics, ingesting curriculum roadmaps, and executing focused study sessions with working memory synchronization.
 
@@ -34,14 +38,14 @@ All commands are registered and dispatched through the central CLI entry point a
 
 The CLI is implemented on top of the `commander` framework. Every command follows a deterministic, four-stage lifecycle:
 
-1. **Configuration Resolution**: Commands load persistent configuration (`PaleeConfig`) from the OS-specific config directory via `loadConfig()` [src/cli/config.ts#38-49](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts#L38-L49).
-2. **Vault Preflight Validation**: Commands verify that the configured vault path exists, is a readable directory, and contains accessible Markdown files using `validateVaultPath()` [src/cli/onboarding.ts#26-67](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L26-L67).
+1. **Configuration Resolution**: Commands load persistent configuration (`PaleeConfig`) from the OS-specific config directory via `loadConfig()` [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts).
+2. **Vault Preflight Validation**: Commands verify that the configured vault path exists, is a readable directory, and contains accessible Markdown files using `validateVaultPath()` [src/cli/onboarding.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts).
 3. **Domain Engine Delegation**: Core domain logic is dispatched to dedicated command handlers (e.g., `adoptCommand`, `reviewCommand`, `planCommand`, `sessionCommand`), which interface directly with storage layers, the SM-2 engine, and the DAG dependency solver.
 4. **Format & Channel Resolution**: Output is rendered to the terminal in human-readable styled text, or emitted as structured JSON when `--json` is specified or `PALEE_JSON=1` is set [src/cli/onboarding.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts).
 
 ```mermaid
 flowchart TD
-    User["Terminal Invocation:<br/>palee &lt;command&gt; [args] [flags]"] --> Entry["bin/palee.ts (Commander Entrypoint)"]
+    User["Terminal<br/>palee &lt;command&gt; ..."] --> Entry["bin/palee.ts<br/>(Commander)"]
     Entry --> LoadCfg["src/cli/config.ts: loadConfig()"]
     LoadCfg --> ValidVault{"src/cli/onboarding.ts:<br/>validateVaultPath()"}
     
@@ -75,31 +79,72 @@ PALEE adheres to a strict, standardized exit code contract across all 13 command
 | **4** | **OCC Concurrency Conflict** | Optimistic Concurrency Control detected a mid-air collision (`ECONFLICT` / `isConflictError`). A note's SHA-256 fingerprint changed between reading and writing, or an active file lock is held. | Concurrent edits by Obsidian or external scripts during `review` (TOCTOU pre-write verification), `adopt`, `roadmap`, or `session`. |
 | **5** | **Unexpected Runtime / I/O Error** | An unhandled exception occurred, such as file system permission denial, an unreadable config directory, or hardware I/O error. | Missing OS environment variables (`LOCALAPPDATA` on Windows), disk full during atomic write rollback. A syntactically corrupt `config.json` is **not** an exit-5 trigger: `loadConfig` catches the `SyntaxError`, warns, and continues with default configuration, so the command exits `0` (#326). |
 
-### Per-Command Exit Code Matrix
+### Per-Command Exit Code Reference
 
-The following matrix documents the exact behavior of every command under each exit code:
+The following table documents the exact behavior of every command under each exit code:
 
-| Command | Exit Code 0 | Exit Code 1 | Exit Code 2 | Exit Code 3 | Exit Code 4 | Exit Code 5 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `palee config` | Successfully printed or updated configuration; a declined interactive `set-base-url` origin confirmation (nothing written); `test-connection` reached the provider and printed its reply; a syntactically corrupt `config.json` (see the Exit Code 5 cell). | N/A | Missing value for `set-*`, unknown action, non-existent vault directory, a `set-base-url` value that is unparseable, non-HTTP(S), HTTP to a non-loopback host, or carries a query/fragment/userinfo, `set-api-key` given its key as an argument, a `set-base-url` origin change while a stored key is configured in a non-interactive or `--json` run without `--keep-key`, a confirmed interactive `set-base-url` whose stored `apiKey` or `baseUrl` changed while the confirmation prompt was open (nothing is written), `test-connection` with no usable endpoint configured, or `test-connection` rejected by the provider with `401`/`403` (the credential, not the connection, failed). | A provider reply that failed the output contract (INV-38) during `test-connection`. | N/A | Missing `LOCALAPPDATA` on Windows, or `test-connection` failing to reach the provider (timeout, refused redirect, `5xx`, or an otherwise unreachable host). A corrupt `config.json` is not an exit-5 condition (#326): `loadConfig` catches the `SyntaxError`, prints `Warning: Corrupted configuration at <path>. Falling back to default configuration.`, and the command runs on defaults and exits `0` — a script cannot detect a broken config from the exit code. |
-| `palee adopt` | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). | N/A | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, a single file that batch mode cannot take (a non-markdown name, or any file passed with `--all`), or non-interactive stdin without `-y`. | `--auto-chain` planned dependency graph contains a cycle (reported with the exact cycle path); no notes adopted. | OCC conflict during atomic note write (`isConflictError`). | Uncaught file system exception or atomic batch rollback failure. |
-| `palee next` | Successfully displayed next due topic, all due topics (`--all`), or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee plan` | Successfully rendered topological daily study plan or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or graph calculation failure. |
-| `palee progress` | Successfully displayed vault progress metrics, topic detail (`--topic`), or empty vault state. | N/A | Unconfigured vault, a topic ID/title query not found for `--topic`, or an ambiguous one (every match is listed; an exact `palee_id` wins outright). | N/A | N/A | Unexpected runtime exception or file read failure. |
-| `palee review` | Successfully updated SM-2 interval, ease factor, repetition count, and `due_at`. | N/A | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query (multiple matches). | N/A | Target note modified concurrently between prompt and write submission (`isConflictError`). | Atomic write failure or unexpected file system error. |
-| `palee assess` | Assessment recorded, `topic_mastery` recomputed, and the change in what `palee plan` offers reported; a lowering that re-hides dependents also prints a warning naming them unless `--force` is given, and `--dry-run` reports the same change while writing nothing (#269). | N/A | No pillar score given, a score outside `0..1`, a stored pillar score that cannot be read, topic not found, or ambiguous query (every match is listed). | N/A | The note was modified, moved or deleted between its read and its write (`isConflictError`); re-run to retry. `--dry-run` performs the same re-read and compare, so it can raise this without writing anything. | Unexpected runtime exception. |
-| `palee validate` | Vault validation passed with 0 structural errors. | N/A | Unconfigured or non-existent vault path. | Validation errors found (duplicate `palee_id`, missing `depends_on` target, or dependency cycle). | N/A | Unexpected runtime exception or directory walk failure. |
-| `palee roadmap` | Curriculum parsed, validated, and all topics created/updated on disk. | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). | Missing `--from` argument, roadmap file not found, a `--from` path that is not a regular file (e.g. a directory), malformed structure (missing `topics`), or non-interactive stdin without `-y`. | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected). | OCC conflict during atomic note write (`isConflictError`). | Unexpected runtime / I/O exception. |
-| `palee migrate` | All notes verified to be on current schema (`palee_schema: 1`). | N/A | Unconfigured or non-existent vault path. | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). | OCC mid-air collision or active file lock hit while writing a note during `migrate --fix`; remaining notes are still processed. | Unexpected runtime exception or YAML parse failure. |
-| `palee session` | Session lifecycle action (`start`, `draft`, `end`, `list`) completed successfully. | Partial failure at `session end` after the session note is on disk: one or more draft checkpoints could not be deleted (`⚠ Warning: Failed to clean up N draft(s)`), or `hot.md`'s active-session marker could not be cleared — that last case exits `4` instead when the failure is an OCC conflict. Under `--json` nothing is printed: the text is in `warnings[]` and the count in `draft_cleanup_failures`. | Unconfigured vault, a `start`/`draft`/`end` with no `--topic` and no active topic to continue (a refused `start` creates no new active session and prints no banner, so a following `end` still reports no active session — #546), `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. | N/A | OCC conflict during session note write or `hot.md` update (`isConflictError`). | Unexpected runtime exception or storage directory error. |
-| `palee dashboard` | Successfully rendered high-level dashboard metrics or empty vault onboarding. | N/A | Unconfigured or non-existent vault path. | N/A | N/A | Unexpected runtime exception or calculation failure. |
-| `palee update` | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. | N/A | Commander's own usage path: an unknown option or an unexpected positional argument. | N/A | N/A | npm could not be found on PATH or run, the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
+Only exits a command can produce are listed; codes it never returns are omitted.
+
+| Command | Exit | Behavior |
+| :--- | :---: | :--- |
+| `palee config` | 0 | Successfully printed or updated configuration; a declined interactive `set-base-url` origin confirmation (nothing written); `test-connection` reached the provider and printed its reply; a syntactically corrupt `config.json` (see the exit 5 row). |
+| `palee config` | 2 | Missing value for `set-*`, unknown action, non-existent vault directory, a `set-base-url` value that is unparseable, non-HTTP(S), HTTP to a non-loopback host, or carries a query/fragment/userinfo, `set-api-key` given its key as an argument, a `set-base-url` origin change while a stored key is configured in a non-interactive or `--json` run without `--keep-key`, a confirmed interactive `set-base-url` whose stored `apiKey` or `baseUrl` changed while the confirmation prompt was open (nothing is written), `test-connection` with no usable endpoint configured, or `test-connection` rejected by the provider with `401`/`403` (the credential, not the connection, failed). |
+| `palee config` | 3 | A provider reply that failed the output contract (INV-38) during `test-connection`. |
+| `palee config` | 5 | Missing `LOCALAPPDATA` on Windows, or `test-connection` failing to reach the provider (timeout, refused redirect, `5xx`, or an otherwise unreachable host). A corrupt `config.json` is not an exit-5 condition (#326): `loadConfig` catches the `SyntaxError`, prints `Warning: Corrupted configuration at <path>. Falling back to default configuration.`, and the command runs on defaults and exits `0` — a script cannot detect a broken config from the exit code. |
+| `palee adopt` | 0 | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). |
+| `palee adopt` | 2 | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, a single file that batch mode cannot take (a non-markdown name, or any file passed with `--all`), or non-interactive stdin without `-y`. |
+| `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (reported with the exact cycle path); no notes adopted. |
+| `palee adopt` | 4 | OCC conflict during atomic note write (`isConflictError`). |
+| `palee adopt` | 5 | Uncaught file system exception or atomic batch rollback failure. |
+| `palee next` | 0 | Successfully displayed next due topic, all due topics (`--all`), or empty vault onboarding. |
+| `palee next` | 2 | Unconfigured or non-existent vault path. |
+| `palee next` | 5 | Unexpected runtime exception or file read failure. |
+| `palee plan` | 0 | Successfully rendered topological daily study plan or empty vault onboarding. |
+| `palee plan` | 2 | Unconfigured or non-existent vault path. |
+| `palee plan` | 5 | Unexpected runtime exception or graph calculation failure. |
+| `palee progress` | 0 | Successfully displayed vault progress metrics, topic detail (`--topic`), or empty vault state. |
+| `palee progress` | 2 | Unconfigured vault, a topic ID/title query not found for `--topic`, or an ambiguous one (every match is listed; an exact `palee_id` wins outright). |
+| `palee progress` | 5 | Unexpected runtime exception or file read failure. |
+| `palee review` | 0 | Successfully updated SM-2 interval, ease factor, repetition count, and `due_at`. |
+| `palee review` | 2 | Quality rating not an integer `0..5`, unconfigured vault, topic not found, or ambiguous query (multiple matches). |
+| `palee review` | 4 | Target note modified concurrently between prompt and write submission (`isConflictError`). |
+| `palee review` | 5 | Atomic write failure or unexpected file system error. |
+| `palee assess` | 0 | Assessment recorded, `topic_mastery` recomputed, and the change in what `palee plan` offers reported; a lowering that re-hides dependents also prints a warning naming them unless `--force` is given, and `--dry-run` reports the same change while writing nothing (#269). |
+| `palee assess` | 2 | No pillar score given, a score outside `0..1`, a stored pillar score that cannot be read, topic not found, or ambiguous query (every match is listed). |
+| `palee assess` | 4 | The note was modified, moved or deleted between its read and its write (`isConflictError`); re-run to retry. `--dry-run` performs the same re-read and compare, so it can raise this without writing anything. |
+| `palee assess` | 5 | Unexpected runtime exception. |
+| `palee validate` | 0 | Vault validation passed with 0 structural errors. |
+| `palee validate` | 2 | Unconfigured or non-existent vault path. |
+| `palee validate` | 3 | Validation errors found (duplicate `palee_id`, missing `depends_on` target, or dependency cycle). |
+| `palee validate` | 5 | Unexpected runtime exception or directory walk failure. |
+| `palee roadmap` | 0 | Curriculum parsed, validated, and all topics created/updated on disk. |
+| `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
+| `palee roadmap` | 2 | Missing `--from` argument, roadmap file not found, a `--from` path that is not a regular file (e.g. a directory), malformed structure (missing `topics`), or non-interactive stdin without `-y`. |
+| `palee roadmap` | 3 | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected). |
+| `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
+| `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
+| `palee migrate` | 0 | All notes verified to be on current schema (`palee_schema: 1`). |
+| `palee migrate` | 2 | Unconfigured or non-existent vault path. |
+| `palee migrate` | 3 | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). |
+| `palee migrate` | 4 | OCC mid-air collision or active file lock hit while writing a note during `migrate --fix`; remaining notes are still processed. |
+| `palee migrate` | 5 | Unexpected runtime exception or YAML parse failure. |
+| `palee session` | 0 | Session lifecycle action (`start`, `draft`, `end`, `list`) completed successfully. |
+| `palee session` | 1 | Partial failure at `session end` after the session note is on disk: one or more draft checkpoints could not be deleted (`⚠ Warning: Failed to clean up N draft(s)`), or `hot.md`'s active-session marker could not be cleared — that last case exits `4` instead when the failure is an OCC conflict. Under `--json` stdout still carries the `status: "recorded"` document: the text is in `warnings[]` and the count in `draft_cleanup_failures`. |
+| `palee session` | 2 | Unconfigured vault, a `start`/`draft`/`end` with no `--topic` and no active topic to continue (a refused `start` creates no new active session and prints no banner, so a following `end` still reports no active session — #546), `session end` with no active session (a preceding `start` or a topic draft is required; a bare/repeat `end` refuses rather than minting a phantom), unconfirmed drafts blocking non-interactive `session start`, an interactive draft menu that reaches end of input before every draft is answered, or unknown action. |
+| `palee session` | 4 | OCC conflict during session note write or `hot.md` update (`isConflictError`). |
+| `palee session` | 5 | Unexpected runtime exception or storage directory error. |
+| `palee dashboard` | 0 | Successfully rendered high-level dashboard metrics or empty vault onboarding. |
+| `palee dashboard` | 2 | Unconfigured or non-existent vault path. |
+| `palee dashboard` | 5 | Unexpected runtime exception or calculation failure. |
+| `palee update` | 0 | Already on the latest published version, `--dry-run` reported current and latest, or `npm install -g @kuldeep2822k/palee@latest` exited 0. |
+| `palee update` | 2 | Commander's own usage path: an unknown option or an unexpected positional argument. |
+| `palee update` | 5 | npm could not be found on PATH or run, the version query timed out or exited non-zero, its answer was not a version, or `npm install -g` exited non-zero (e.g. an unwritable global prefix, or an offline registry). |
 
 ---
 
 ## Machine-Readable Output
 
-PALEE is built for seamless integration into developer pipelines, shell scripts, cron jobs, and editor extensions. JSON output is an explicit opt-in via `isJsonOutput()` [src/cli/onboarding.ts#17-19](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts#L17-L19):
+PALEE is built for seamless integration into developer pipelines, shell scripts, cron jobs, and editor extensions. JSON output is an explicit opt-in via `isJsonOutput()` [src/cli/onboarding.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/onboarding.ts):
 
 ```typescript
 export function isJsonOutput(options?: { json?: boolean }): boolean {
@@ -154,7 +199,8 @@ palee dashboard
 # 2. Inspect today's structured learning plan
 palee plan
 
-# 3. (Optional) Pipe the plan into jq to extract only ready-to-learn topics (opt in with --json or PALEE_JSON=1)
+# 3. (Optional) Pipe the plan into jq to extract only ready-to-learn topics
+#    (opt in with --json or PALEE_JSON=1)
 palee plan --json | jq '.ready_to_learn[] | {id: .id, title: .title, difficulty: .difficulty}'
 
 # 4. Extract total count of reviews due today for terminal prompt/status bar
@@ -234,7 +280,7 @@ palee validate
 
 ## Command Groups Overview
 
-The PALEE CLI is divided into four focused command domains:
+The PALEE CLI is divided into five focused command domains:
 
 ### 1. Topic Management Commands
 Handles the ingestion, metadata injection, curriculum parsing, and schema migration for Markdown notes in the vault.
@@ -243,7 +289,7 @@ Handles the ingestion, metadata injection, curriculum parsing, and schema migrat
 
 ### 2. Review and Scheduling Commands
 Drives the active recall and spaced repetition loops, utilizing the SM-2 algorithm and DAG dependency engine to calculate intervals and prerequisites.
-- Commands: `palee review`, `palee next`, `palee plan`
+- Commands: `palee review`, `palee next`, `palee plan`, `palee assess`
 - See [Review and Scheduling Commands](./02-2-review-and-scheduling-commands.md) for SM-2 interval formulas, readiness rules, and argument constraints.
 
 ### 3. Reporting and Validation Commands
@@ -255,3 +301,33 @@ Provides comprehensive analytics, difficulty breakdowns, mastery metrics, and st
 Manages the lifecycle of focused study sessions, synchronizing working memory (`hot.md`) and session history (`.palee/sessions/`).
 - Commands: `palee session start`, `palee session draft`, `palee session end`, `palee session list`
 - See [Session Management Command](./02-4-session-management-command.md) for draft recovery protocols and working memory truncation rules.
+
+### 5. Maintenance Commands
+Handles machine-level configuration and upgrades of the global install.
+- Commands: `palee config`, `palee update`
+- `palee config` is covered in [Configuration and CLI Option Types](./05-2-configuration-and-cli-option-types.md); `palee update` is below.
+
+---
+
+## Update Command
+
+`palee update` upgrades the global install by delegating to your own npm. It does not load the vault configuration, so it works on a fresh install with no vault configured.
+
+```bash
+palee update
+palee update --dry-run
+```
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | `false` | Check for a newer version; if one exists, report it and print the exact npm command that would run. Installs nothing. |
+
+The command:
+
+1. Queries your configured npm registry for the latest published `@kuldeep2822k/palee` version.
+2. If a newer version exists, runs `npm install -g @kuldeep2822k/palee@latest` with inherited stdio. npm uses the registry, proxy, and authentication from your own `.npmrc`; PALEE never reads those settings and opens no network connection itself (ADR-0033).
+3. Rewrites the update-check cache as up to date so the version you just left does not keep announcing an update. Start a new shell to pick up the new binary.
+
+Exit codes: `0` when already current, a dry run reported, or the install succeeded; `2` for a usage error (unknown option or unexpected positional argument); `5` when npm is missing or fails, the version query times out or exits non-zero, or the registry returns an unparseable version.
+
+There is no `--json` mode: during a real install npm owns stdout, so a machine document could not be honored (ADR-0033). Set `PALEE_NO_UPDATE_CHECK=1` to suppress the background "new version available" notice printed by other commands; otherwise it checks at most once per 24 hours and announces at most once per published version on stderr.

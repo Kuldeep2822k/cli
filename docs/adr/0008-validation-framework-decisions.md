@@ -1,8 +1,17 @@
+---
+description: "palee validate began as three hardcoded checks inside the CLI handler, with no warning/error distinction or machine-readable output. This ADR records the validation rule framework and the four product decisions that shaped it."
+---
+
+
 # ADR-0008: Validation Rule Framework — Architecture and Product Decisions
 
 ## Status
 
-Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided. Decision 5 (backlog-to-catalog reconciliation) was added 2026-09-15.
+Accepted (2026-09-13)
+
+Amended by ADR-0035: the `--fix` deferral is superseded; three conservative repairs now ship (`rebuild_derived_views`, `recompute_topic_mastery`, `reset_review_fields`).
+
+Decisions 1-4 were originally resolved in the Phase-1 planning document `planning/VALIDATION_FRAMEWORK_VERDICT.md` (2026-08-14) and delivered across PRs #158, #159, #162, #163, #165, #168, and #169 under umbrella issue #25; that planning document was removed as obsolete once delivery completed, and this ADR is the permanent record of what was decided. Decision 5 (backlog-to-catalog reconciliation) was added 2026-09-15.
 
 ## Context
 
@@ -22,7 +31,7 @@ Accepted (2026-09-13). Decisions 1–4 were originally resolved in the Phase-1 p
 - **Raw-frontmatter reads.** Rules read pre-normalization values, because the loader coerces and clamps during normalization — validation is where hand-authored corruption becomes visible instead of being silently blessed.
 - **Deterministic output.** Rules run in registration order; findings sort deterministically; scans visit files in sorted order — output is stable across platforms.
 - **One bad topic note = one finding.** Malformed YAML frontmatter on a walked note is a warning per file (`parse-frontmatter`) and never aborts the scan (the `planning/invariants.md` resilience rule). Session notes carry a stricter contract by design: a malformed session note is an `error` from `valid-session-schema` (the rebuild paths key on its shape), and a parseable session with several defects can produce several findings.
-- **Fixability modeled, `--fix` deferred.** Every rule declares `fixable: false | 'safe' | 'manual'`; the fix engine itself is intentionally deferred until read-only validation is stable (the ESLint serial non-overlapping fixer is the reference design).
+- **Fixability modeled, repair shipped in stages.** Every rule declares `fixable: false | 'safe' | 'manual'`; the first repair engine shipped once read-only validation stabilized, limited to derived-view rebuilds, mastery recomputation, and review-field resets, with the ESLint serial non-overlapping fixer as the reference design. ADR-0035 records the partial-pillar eligibility rule for mastery repair.
 
 ### Decision 1: Missing dependencies are `warning` in vault scans (issue #34)
 
@@ -72,7 +81,7 @@ No rule is silently missing: every other backlog item (#27–#31, #33–#39, #41
 ### Negative / Tradeoffs
 
 - Rules must duplicate shape checks the loader also performs (raw reads) — accepted cost for exposing pre-normalization corruption.
-- `--fix` remains a stub; the `fixable` metadata is forward-modeling only.
+- `--fix` covers three conservative repairs; broader `fixable` values remain forward-looking.
 - Warning-vs-error boundaries occasionally need jurisdiction rules to avoid double-reporting (e.g. #42 skips sessions #41 already reported) — handled per-rule with shared helpers.
 
 ## Alternatives Considered

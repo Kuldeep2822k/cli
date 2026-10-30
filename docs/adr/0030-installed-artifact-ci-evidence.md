@@ -1,3 +1,8 @@
+---
+description: "Two workflows install the real package and check it: ci.yml's smoke-install job packs the tarball, runs scripts/verify-tarball.js, installs it globally, and checks palee --version and --help; release.yml's post-publish smoke test repeats those checks on the published package."
+---
+
+
 # ADR-0030: Installed-Artifact CI Evidence
 
 ## Status

@@ -1,6 +1,10 @@
+---
+description: "Integration and smoke tests in PALEE ensure that the CLI commands, storage layer, engine algorithms, and process contracts function seamlessly as an integrated system."
+---
+
+
 # Integration and Smoke Tests
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/adopt.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/adopt.ts)
 - [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
@@ -20,7 +24,7 @@
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/smoke.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/smoke.test.ts)
 
-</details>
+:::
 
 Integration and smoke tests in PALEE ensure that the CLI commands, storage layer, engine algorithms, and process contracts function seamlessly as an integrated system. The suite is partitioned into **Subprocess Integration Tests** (executing the compiled or `tsx`-bootstrapped binary against isolated vault fixtures), **In-Process Stream Mocking Tests** (verifying exit codes and JSON contracts under intercepted standard I/O), and **Package Smoke Tests** (verifying distribution bundle exports).
 
@@ -56,7 +60,7 @@ flowchart TD
     subgraph Subprocess ["Subprocess Integration Flow"]
         TestFile["test/cli-commands.test.ts<br/>test/cli-adopt-batch.test.ts"]
         Helper["runCLI() Helper"]
-        ChildProc["Child Process<br/>dist/bin/palee.js in normal runs<br/>bin/palee.ts via --import tsx under coverage"]
+        ChildProc["Child Process<br/>dist/bin/palee.js normally<br/>bin/palee.ts via tsx in coverage"]
         TempVault["Isolated Temp Vault (PALEE_CONFIG_DIR)"]
         Frontmatter["YAML Frontmatter on Disk"]
     end
@@ -108,7 +112,7 @@ Tests in `test/session-cli.test.ts` exercise the active session command layer:
 ```mermaid
 flowchart TD
     subgraph InProcess ["In-Process Stream & Exit Code Interception"]
-        InProcTest["test/cli-exit-codes.test.ts<br/>test/cli-json-output.test.ts<br/>test/session-cli.test.ts"]
+        InProcTest["cli-exit-codes.test.ts<br/>cli-json-output.test.ts<br/>session-cli.test.ts"]
         ConsoleLog["console.log Interceptor"]
         ConsoleErr["console.error Interceptor"]
         ExitCode["process.exitCode Tracker"]
@@ -120,7 +124,7 @@ flowchart TD
     InProcTest -->|invoke handler| Handler
     Handler -->|structured json| ConsoleLog
     Handler -->|error payload| ConsoleErr
-    Handler -->|set exit code (0-5)| ExitCode
+    Handler -->|"set exit code (0-5)"| ExitCode
     ConsoleLog -->|parse JSON| InProcTest
     ExitCode -->|assert code| InProcTest
 ```

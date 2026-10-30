@@ -1,3 +1,8 @@
+---
+description: "palee next and palee plan answer the same question — \"what should I work on now?\" — and for most of v0.6.0 they answered it differently, both exiting 0. plan computed the dependency gate correctly; get-next-topics contained no dependency logic at all."
+---
+
+
 # ADR-0020: Readiness and Scheduling Contracts
 
 ## Status

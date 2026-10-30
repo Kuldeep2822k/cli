@@ -1,3 +1,8 @@
+---
+description: "Issue #253 asked for two things: a palee update command, so upgrading does not require typing npm install -g @kuldeep2822k/palee@latest by hand, and a notice when a new version has been released, because nothing ever told a learner one exists."
+---
+
+
 # ADR-0033: The Update Command and Its npm Child Process
 
 ## Status

@@ -1,6 +1,10 @@
+---
+description: "The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts."
+---
+
+
 # Dependency Graph Engine
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/cli/validate.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/validate.ts)
 - [src/engine/dependency.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/dependency.ts)
@@ -9,9 +13,9 @@
 - [src/types.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/types.ts)
 - [test/engine-dependency.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/engine-dependency.test.ts)
 
-</details>
+:::
 
-The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts. It provides cycle detection using a formal 3-color Depth-First Search (DFS), prerequisite satisfaction evaluation against the `0.70` mastery threshold, and graph integrity validation.
+The Dependency Graph Engine models curriculum relationships as a Directed Acyclic Graph (DAG), ensuring learners tackle foundational prerequisites before advanced concepts. It provides cycle detection built on iterative Tarjan strongly connected components (with Johnson enumeration for full diagnostics), prerequisite satisfaction evaluation against the `0.70` mastery threshold, and graph integrity validation.
 
 ---
 
@@ -47,7 +51,9 @@ Roadmap import additionally deletes the legacy `dependencies` key from topic-not
 
 PALEE enforces a standard threshold (`MASTERY_THRESHOLD = 0.70` or 70%) to evaluate whether prerequisites are satisfied. A topic is considered ready for immediate study only when every prerequisite topic in its dependency chain meets or exceeds this threshold.
 
-### `areDependenciesSatisfied(topic, topics, threshold = 0.70)`
+### Dependency Satisfaction
+
+Signature: `areDependenciesSatisfied(topic, topics, threshold = 0.70)`
 
 Evaluates whether all prerequisite dependencies for a given topic are satisfied:
 
@@ -55,9 +61,11 @@ Evaluates whether all prerequisite dependencies for a given topic are satisfied:
 2. **Advisory Short-Circuit**: If the topic's `depends_on_source` is `toc` or `tie`, the list came from an enumeration or from an equal-rank filename tie rather than from an order anyone claimed, so the topic is satisfied regardless of those prerequisites' mastery (a target missing from the vault is still reported by `palee validate`).
 3. **Missing Prerequisite Check**: If any referenced `depId` does not exist in `topics`, returns `false`.
 4. **Mastery Threshold Verification**: For each prerequisite `depTopic`, if `depTopic.topic_mastery < threshold`, returns `false`.
-4. Returns `true` if and only if all prerequisites exist and have `topic_mastery >= threshold`.
+5. Returns `true` if and only if all prerequisites exist and have `topic_mastery >= threshold`.
 
-### `getReadyTopics(topics, threshold = 0.70)`
+### Ready Topic Selection
+
+Signature: `getReadyTopics(topics, threshold = 0.70)`
 
 Determines the queue of unmastered topics whose prerequisites are fully satisfied:
 
@@ -101,106 +109,57 @@ flowchart TD
 
 ---
 
-## 3-Color DFS Cycle Detection Algorithm
+## Cycle Detection: Tarjan SCC + Johnson Enumeration
 
-A learning curriculum cannot be sequenced if circular dependencies exist (e.g., $A \to B \to C \to A$). PALEE detects circular dependencies using a formal **3-color Depth-First Search (DFS)** algorithm:
+A curriculum can only be sequenced if its prerequisite graph is acyclic. PALEE does not use a recursive three-colour DFS; cycle detection is built on strongly connected components, with an optional bounded enumeration for diagnostics.
 
-### 3-Color Visiting States
+### Stage 1: Strongly Connected Components
+
+`computeSccs()` runs an iterative Tarjan pass over the prerequisite edge map (`buildEdgeMap`). A component with more than one node is cyclic by definition: every node in it can reach every other node. A single-node component is cyclic only when that node has a self-edge, because SCC structure alone cannot observe a self-loop.
+
+Iterative traversal avoids call-stack limits on deep curricula, and nodes are processed in sorted order so the decomposition is deterministic.
+
+### Stage 2: Cycle Selection and Enumeration
+
+Three APIs serve different consumers:
+
+- `detectCycle()` returns only the lexicographically smallest canonical cycle. It is the bounded first-cycle helper for engine callers that need a single answer; it finds that path by direct search in $O(V \cdot (V + E))$ worst case and never enumerates the full cycle set.
+- `detectCycles()` returns every distinct canonical cycle without a limit. `validateDependencyGraph()` uses it when the caller needs a complete audit.
+- `detectCyclesBounded()` is the same enumeration capped at `maxCycles` (default 1000). It sets `truncated` when the cap is reached; `no-dependency-cycle`, `palee roadmap`, `adopt --auto-chain`, and interactive `plan` use it so pathological graphs produce bounded output with an explicit truncation signal.
+
+Inside a multi-node SCC, `enumerateSccCycles()` adapts Johnson's algorithm to report each elementary cycle exactly once; canonicalization rotates a cycle to start at its smallest node and deduplication removes rotations of the same loop.
+
+`detectCycle()` returns a path that repeats its first node (for example `['T-react', 'T-hooks', 'T-react']`), and `null` means the graph is acyclic. The enumeration APIs return arrays of such paths; `detectCyclesBounded()` adds the `truncated` flag.
 
 ```mermaid
 flowchart TD
-    Start(["Start Node Traversal"]) --> White["White (Unvisited)"]
-    White -->|"visit(id)<br/>visiting.add(id)<br/>pathStack.push(id)"| Gray["Gray (Active on Recursion Stack)"]
-    
-    Gray --> CheckEdge{"Inspect Prerequisite<br/>Dependencies"}
-    CheckEdge -- "Referenced node is Gray<br/>(In visiting Set)" --> Cycle["Cycle Detected<br/>Extract pathStack loop slice"]
-    CheckEdge -- "All children explored<br/>(No cycles found)" --> Pop["pathStack.pop()<br/>visiting.delete(id)<br/>visited.add(id)"]
-    
-    Pop --> Black["Black (Fully Settled / Acyclic)"]
-    Black --> Done(["Subtree Pruned in O(1)"])
+    A["buildEdgeMap(topics)"] --> B["computeSccs(edges)<br/>iterative Tarjan"]
+    B --> C{"multi-node SCC<br/>or self-edge?"}
+    C -- "no" --> D["acyclic<br/>detectCycle() returns null"]
+    C -- "yes" --> E["cyclic nodes"]
+    E --> F["detectCycle()<br/>lexicographically smallest cycle"]
+    E --> G["detectCycles()<br/>unbounded Johnson enumeration"]
+    E --> H["detectCyclesBounded()<br/>capped enumeration + truncated flag"]
+    G --> I["canonicalize + deduplicate"]
+    H --> I
 ```
 
-1. **White (Unvisited)**:
-   - The node has not yet been encountered during traversal.
-   - Identified by: `!visiting.has(id) && !visited.has(id)`.
-2. **Gray (Visiting / Active Recursion Stack)**:
-   - The node is currently on the active DFS recursion stack. Its descendant prerequisite subtrees are actively being explored.
-   - Maintained in: `visiting = new Set<string>()` and `pathStack = string[]`.
-   - **Cycle Invariant**: If DFS encounters an edge pointing to a node already in `visiting`, a **cyclic back-edge** is discovered.
-3. **Black (Visited / Settled)**:
-   - The node and all of its prerequisite descendant subtrees have been fully explored with no cyclic back-edges.
-   - Maintained in: `visited = new Set<string>()`.
-   - The node is popped from `pathStack` and deleted from `visiting`.
-   - Any subsequent traversal reaching a Black node returns `null` immediately, pruning redundant work in $O(1)$ time.
-
-### Cyclic Back-Edge Extraction via `pathStack`
-
-When a back-edge to an active Gray node is detected, `detectCycle` extracts the exact loop path slice from `pathStack`:
-
-```typescript
-// src/engine/dependency.ts
-function detectCycle(topics: Map<string, TopicNode>): string[] | null {
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const pathStack: string[] = [];
-
-  function visit(id: string): string[] | null {
-    if (visiting.has(id)) {
-      // Found back-edge to active ancestor (Gray node)
-      const cycleStart = pathStack.indexOf(id);
-      return pathStack.slice(cycleStart).concat(id);
-    }
-    if (visited.has(id)) return null;
-
-    const topic = topics.get(id);
-    if (!topic) return null;
-
-    visiting.add(id);
-    pathStack.push(id);
-
-    const deps = getTopicDependencies(topic);
-    for (const depId of deps) {
-      const cycle = visit(depId);
-      if (cycle) return cycle;
-    }
-
-    pathStack.pop();
-    visiting.delete(id);
-    visited.add(id);
-    return null;
-  }
-
-  for (const id of topics.keys()) {
-    const cycle = visit(id);
-    if (cycle) return cycle;
-  }
-
-  return null;
-}
-```
-
-For example, if `pathStack` contains `['T-intro', 'T-react', 'T-hooks']` and `T-hooks` depends on `T-react`, `cycleStart = pathStack.indexOf('T-react')` (index 1), producing the exact cycle array:
-`['T-react', 'T-hooks', 'T-react']`.
+The split is deliberate: `validateDependencyGraph()` can take the unbounded enumeration when completeness matters, while CLI surfaces use the bounded form and report truncation instead of waiting indefinitely.
 
 ---
 
 ## Graph Integrity Validation
 
-The `validateDependencyGraph` function is the primary entry point for curriculum integrity audits (`palee validate`).
+The `validateDependencyGraph` function is the engine's standalone curriculum-integrity audit. The CLI `palee validate` command runs the validation rule registry instead; its `no-dependency-cycle` rule uses `detectCyclesBounded()` and reports a truncation finding when the 1000-cycle cap is reached.
 
 ### Validation Pipeline Diagram
 
 ```mermaid
 flowchart TD
-    subgraph CLI ["CLI Layer (src/cli/validate.ts)"]
-        VC["validateCommand()"]
-        Load["loadTopics(vaultPath) &rarr; Map&lt;string, TopicNode&gt;"]
-    end
-
     subgraph Engine ["Engine Layer (src/engine/dependency.ts)"]
         VDG["validateDependencyGraph(topics)"]
         CheckDangling["1. Prerequisite Existence Check<br/>(Find dangling depends_on)"]
-        RunDFS["2. detectCycle(topics)<br/>(3-Color DFS Traversal)"]
+        RunCycles["2. detectCycles(topics)<br/>(Tarjan SCC + full enumeration)"]
         CollectErrors["Aggregate ValidationError[]<br/>- missing_dependency<br/>- cycle"]
     end
 
@@ -208,13 +167,10 @@ flowchart TD
         VResult["ValidationResult:<br/>{ valid: boolean, errors: ValidationError[] }"]
     end
 
-    VC --> Load
-    Load --> VDG
     VDG --> CheckDangling
-    CheckDangling --> RunDFS
-    RunDFS --> CollectErrors
+    CheckDangling --> RunCycles
+    RunCycles --> CollectErrors
     CollectErrors --> VResult
-    VResult --> VC
 ```
 
 ### Validation Error Catalog
@@ -222,19 +178,34 @@ flowchart TD
 | Error Type | Fields | Trigger Condition | Exit Code | Example Error Message |
 |---|---|---|:---:|---|
 | `missing_dependency` | `topic`, `missing` | A prerequisite ID listed in `depends_on` does not exist in the vault. | `3` | `Topic T-react depends on missing topic T-html` |
-| `cycle` | `path` | Circular prerequisite reference detected by 3-color DFS. | `3` | `Circular dependency detected: T-a -> T-b -> T-c -> T-a` |
+| `cycle` | `path` | Circular prerequisite reference detected by SCC analysis. | `3` | `Circular dependency detected: T-a -> T-b -> T-c -> T-a` |
 
 ---
+
+### Auto-Chain Ordering (INV-46/47)
+
+`adopt --auto-chain` is a batch-only boolean. `--chain-tier strict|full` selects how much of the vault is chained (default `strict`); an unknown tier, or `--chain-tier` without the flag, exits `2`.
+
+The strict tier chains from Tier-0 hygiene over the numbered tree. Inside the hygiene planner, a directory leads with its README-class document, then numeric lessons, then `deep-dive`, `lab`, and `exam`, then remaining documents; homework (`assignment`, `quiz`, `solution`) comes last. An alphabetical transition between unnumbered sibling directories never gates: each directory opens its own chain. The public `compareLessonOrder` is unchanged. Numbered modules and, by owner ruling PAL-205-G2, the vault-root README bridge into the first numbered module at any depth, so `MODULES/01-foundations/…` qualifies the same way `01-foundations/…` does. The root README is the only root exception; a root note pointing into a directory that states no lesson number at any level still refuses to chain.
+
+The `full` tier additionally chains what numbering does not cover, using the repository's own `README`/`SUMMARY` markdown-link enumeration. Resolution is fail-closed, fenced examples are excluded, balanced parentheses are retained, and same-directory resorting mirrors the hygiene ranks including the phase index. Acyclicity of the merged plan is asserted in code, and numbering dominance means numbered-tree endpoints always follow numeric order. An ordinary leaf may be a TOC predecessor because the enumeration states that order; excluded notes, phase subtrees, and translation demotions never are.
+
+Each edge records who authored it in the additive `depends_on_source` field (`numbered`, `toc`, `declared`, `tie`). `toc` and `tie` edges are advisory: they rank a topic and participate in cycle detection, but never hold it off the ready list. With no numbered layout, no resolved TOC link, and zero planned edges, the CLI reports `0 edges (no numbered layout, no chainable order signal) — consider palee roadmap` and exits `0` instead of chaining alphabetically.
+
+`roadmap --auto-chain` instead orders by `order`: unordered topics keep file order and are appended last. An edge that would close a cycle against an authored dependency is skipped with a warning rather than failing the import, and the summary counts only edges actually synthesized. A numeric prefix counts only when a separator or the end of the name follows it and it spans at most three digits, so `3d-printing.md` and `2024-recap.md` are ordinary unnumbered notes, not lessons 3 and 2024.
+
+The adopt plan spans every note in the scanned scope — the notes being adopted plus those already adopted there — so a chain bridges onto an already-adopted note instead of restarting at the first new one. That note supplies its existing `palee_id` as the predecessor and is never rewritten, and `--dry-run` previews exactly the edges the commit would write. Notes filtered out by `--include`, `--exclude`, or `--tag` join no plan and are stepped over as predecessors too, so an excluded note is never made a `depends_on` entry. Both commands validate the planned graph for cycles before any write, reporting cycles by vault-relative path and labeling edges the flag synthesized. An explicit non-empty `depends_on` always wins.
+
 
 ## Invariants and Guarantees
 
 | Invariant | Implementation Guarantee |
 |---|---|
 | **Acyclicity** | Curriculum must form a strict Directed Acyclic Graph (DAG). `detectCycle` returns `null`. |
-| **Prerequisite Gating** | Downstream topics are locked until all direct prerequisites achieve $\ge 0.70$ mastery. |
+| **Prerequisite Gating** | Downstream topics are locked until all direct *gating* prerequisites achieve $\ge 0.70$ mastery. A `depends_on_source` of `toc` or `tie` makes the whole edge list advisory: it still ranks the topic and takes part in cycle detection, and it never locks. |
 | **Canonical Dependencies** | Legacy `dependencies` aliases are unioned and deduplicated into `depends_on` once at the storage boundary (`normalizeDependencies`); the engine consumes canonical `depends_on` only. |
-| **Deterministic Traversal** | 3-color DFS guarantees linear time $O(V + E)$ cycle detection without infinite recursion. |
-| **Auto-Chain Ordering (INV-46/47)** | `adopt --auto-chain` (batch-only boolean) with `--chain-tier strict\|full` (default `strict`; an unknown value, or `--chain-tier` without the flag, exits `2`) chains from Tier-0 hygiene over the numbered tree — inside the hygiene planner a directory leads with its README-class doc, then numeric lessons, then `deep-dive → lab → exam`, then remaining docs, with homework (`assignment/quiz/solution`) last, and an alphabetical transition between unnumbered sibling directories never gates (each such directory opens its own chain; the public `compareLessonOrder` shipped by Work Order A is unchanged) — bridging numbered modules and, by owner ruling PAL-205-G2, the vault-root README into the first numbered module at any depth, so `MODULES/01-foundations/…` qualifies as `01-foundations/…` does (the only root exception; a root note into a directory stating no lesson number at any level still refuses); the `full` tier additionally chain what the numbering does not cover from the repo's own `README`/`SUMMARY` markdown-link enumeration (fail-closed resolution, fenced examples excluded, balanced parentheses retained, same-dir resort mirroring the hygiene ranks including the phase index, acyclicity of the merged plan asserted in code), with numbering dominance meaning numbered-tree endpoints always follow numeric order; an ordinary leaf may be a TOC predecessor, since the enumeration states that order, while excluded notes and phase-subtree and translation demotions never are; edges record who authored them in the additive `depends_on_source` field (`numbered`, `toc`, `declared`, `tie`) and that `toc`/`tie` are advisory - they rank a topic and take part in cycle detection but never hold it off the ready list; with no numbered layout, no resolved TOC link and zero planned edges the CLI reports `0 edges (no numbered layout, no chainable order signal) — consider palee roadmap` and exits 0 instead of chaining alphabetically; `roadmap --auto-chain` orders by `order` (unordered keep file order, appended last, and an edge that would close a cycle against an authored dependency is skipped with a warning rather than failing the import, the summary counting only edges actually synthesized). A numeric prefix counts only when a separator or the end of the name follows it and spans at most three digits, so `3d-printing.md` and `2024-recap.md` are ordinary unnumbered notes rather than lessons 3 and 2024. The adopt plan spans every note in the scanned scope — the notes being adopted *plus* those already adopted there — so a chain bridges onto an already-adopted note instead of restarting at the first new one: that note supplies its existing `palee_id` as the predecessor and is never rewritten, and `--dry-run` previews exactly the edges the commit writes. Notes filtered out by `--include`/`--exclude`/`--tag` join no plan and are stepped over — as predecessors too, so an excluded note is never made a `depends_on` entry. Both commands validate the planned graph for cycles before any write, reporting cycles by vault-relative path and labeling edges the flag synthesized; explicit non-empty `depends_on` always wins. |
+| **Deterministic Traversal** | Iterative Tarjan SCC runs in $O(V + E)$; the bounded `detectCycle` wrapper is $O(V \cdot (V + E))$ and never recurses. Both visit nodes in sorted order. |
+| **Auto-Chain Ordering (INV-46/47)** | Tiered ordering for `adopt --auto-chain` and `roadmap --auto-chain`. See [Auto-Chain Ordering](#auto-chain-ordering-inv-4647). |
 | **Fail-Closed Wikilinks (INV-48)** | Wikilink roadmap resolution strips anchors, resolves exact paths then unique basenames, and errors (exit 3, zero writes) on ambiguous, unresolvable, or duplicated targets. |
 
 Sources:

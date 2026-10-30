@@ -1,6 +1,10 @@
+---
+description: "The Session Memory Storage system manages the persistence of learning sessions, working memory, and draft recovery within the .palee/ directory of an Obsidian vault."
+---
+
+
 # Session Memory Storage
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
 - [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)
@@ -9,7 +13,7 @@
 - [test/session-cli.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/session-cli.test.ts)
 - [test/storage-memory.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-memory.test.ts)
 
-</details>
+:::
 
 The Session Memory Storage system manages the persistence of learning sessions, working memory, and draft recovery within the `.palee/` directory of an Obsidian vault. It ensures learning continuity by providing the AI with a concise "hot" context while maintaining a durable, human-readable history of all sessions.
 
@@ -27,18 +31,18 @@ All session-related data is stored in a hidden `.palee/` directory at the vault 
 
 The system uses unique, immutable identifiers for sessions and drafts to prevent collisions and ensure stable references.
 
-- **Session ID (`S-*)**: Generated using `generateSessionId`with the format`S-YYYYMMDDTHHMMSS-xxxx`(where`xxxx` is a 2-byte hex random suffix) [src/storage/memory.ts#31-36](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L31-L36)
-- **Draft ID (`DRAFT-S-*)**: Generated using `generateDraftId`with the format`DRAFT-S-xxxxxxxx`(where`xxxxxxxx` is a 4-byte hex random suffix) [src/storage/memory.ts#38-41](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L38-L41)
+- **Session ID (`S-*)**: Generated using `generateSessionId`with the format`S-YYYYMMDDTHHMMSS-xxxx`(where`xxxx` is a 2-byte hex random suffix) [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
+- **Draft ID (`DRAFT-S-*)**: Generated using `generateDraftId`with the format`DRAFT-S-xxxxxxxx`(where`xxxxxxxx` is a 4-byte hex random suffix) [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 
 ### Hot Memory Contract & Duration Tracking
 
-`hot.md` acts as a singleton (`H-active`) that summarizes the current state of learning [planning/memory_design.md#32-38](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1#L32-L38):
+`hot.md` acts as a singleton (`H-active`) that summarizes the current state of learning [planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1):
 
-- **Word Cap**: The human-readable body is strictly capped at 250 words via `truncateWords` to keep AI prompts efficient [src/storage/memory.ts#22-24](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L22-L24).
-- **Frontmatter**: Includes `palee_schema: 1`, `memory_id: "H-active"`, `active_topic`, `started_at` (ISO timestamp of active study initiation), `last_session`, and `updated_at` (date only: `YYYY-MM-DD`) [src/storage/memory.ts#194-210](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L194-L210).
-- **Safe Reset (`resetHotMemory`)**: Safely unlinks `hot.md` during reinitialization or corrupt state recovery [src/storage/memory.ts#228-239](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L228-L239).
+- **Word Cap**: The human-readable body is strictly capped at 250 words via `truncateWords` to keep AI prompts efficient [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts).
+- **Frontmatter**: Includes `palee_schema: 1`, `memory_id: "H-active"`, `active_topic`, `started_at` (ISO timestamp of active study initiation), `last_session`, and `updated_at` (date only: `YYYY-MM-DD`) [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts).
+- **Safe Reset (`resetHotMemory`)**: Safely unlinks `hot.md` during reinitialization or corrupt state recovery [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts).
 
-Sources: [src/storage/memory.ts#1-239](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L1-L239)[planning/memory_design.md#9-64](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1#L9-L64)
+Sources: [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)
 
 ---
 
@@ -76,7 +80,7 @@ flowchart TD
     UH --> HOT_FILE
 ```
 
-Sources: [src/cli/session.ts#60-275](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L60-L275)[src/storage/memory.ts#72-557](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L72-L557)
+Sources: [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)[src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)
 
 ---
 
@@ -139,4 +143,4 @@ flowchart LR
     T3 --> E3
 ```
 
-Sources: [src/cli/session.ts#23-53](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts#L23-L53)[src/storage/memory.ts#72-328](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts#L72-L328)
+Sources: [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)[src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts)

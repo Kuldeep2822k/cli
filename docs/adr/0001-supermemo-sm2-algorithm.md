@@ -1,3 +1,8 @@
+---
+description: "PALEE is designed to guide learners through complex topic graphs while maximizing retention. Without an automated review schedule, learners suffer from the Ebbinghaus forgetting curve."
+---
+
+
 # ADR-0001: SuperMemo SM-2 Spaced Repetition Scheduling Algorithm
 
 ## Status

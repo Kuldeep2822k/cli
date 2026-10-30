@@ -1,3 +1,8 @@
+---
+description: ".palee/hot.md is derived working memory and .palee/sessions/ is canonical history. The v1.0.0 round hardened the lifecycle between them: draft handling at session end, recovered timestamp bounds, and rebuild behavior for unreadable sessions."
+---
+
+
 # ADR-0019: Session-Memory Lifecycle and Staleness Clamps
 
 ## Status

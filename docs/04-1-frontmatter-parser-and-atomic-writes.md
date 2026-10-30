@@ -1,6 +1,10 @@
+---
+description: "PALEE treats Obsidian Markdown files as the source of truth; this page documents frontmatter parsing, atomic writes, and optimistic concurrency control."
+---
+
+
 # Frontmatter Parser and Atomic Writes
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
 - [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)
@@ -10,34 +14,34 @@
 - [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
 - [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)
 
-</details>
+:::
 
-The Storage Layer of PALEE is designed with a "Source of Truth" philosophy where the Obsidian Markdown files are canonical [planning/storage_design.md#3-5](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L3-L5) This page details the technical implementation of how PALEE reads, modifies, and writes these files while ensuring data integrity, preserving user formatting, and handling concurrent access.
+The Storage Layer of PALEE is designed with a "Source of Truth" philosophy where the Obsidian Markdown files are canonical [planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1) This page details the technical implementation of how PALEE reads, modifies, and writes these files while ensuring data integrity, preserving user formatting, and handling concurrent access.
 
 ## Frontmatter Parser
 
-The frontmatter parser in `src/storage/frontmatter.ts` is responsible for extracting and updating YAML metadata located at the top of Markdown files. Unlike standard YAML parsers that convert data into plain JavaScript objects (losing comments and formatting), PALEE uses a Concrete Syntax Tree (CST) preserving approach [src/storage/frontmatter.ts#5-8](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L5-L8)
+The frontmatter parser in `src/storage/frontmatter.ts` is responsible for extracting and updating YAML metadata located at the top of Markdown files. Unlike standard YAML parsers that convert data into plain JavaScript objects (losing comments and formatting), PALEE uses a Concrete Syntax Tree (CST) preserving approach [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
 
 ### Parsing Logic
 
-The `parseFrontmatter` function uses a regular expression to separate the YAML block from the Markdown body [src/storage/frontmatter.ts#10-18](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L18) It then utilizes the `yaml` library's `parseDocument` to generate a document object that maintains the original file's structure [src/storage/frontmatter.ts#21-26](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L21-L26)
+The `parseFrontmatter` function uses a regular expression to separate the YAML block from the Markdown body [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts) It then utilizes the `yaml` library's `parseDocument` to generate a document object that maintains the original file's structure [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
 
 ### Preservation-Aware Updates
 
-The `updateFrontmatter` function ensures that only PALEE-owned keys are modified while leaving user-defined keys (like `tags` or `cssclasses`) and comments untouched [src/storage/frontmatter.ts#33-57](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L33-L57)
+The `updateFrontmatter` function ensures that only PALEE-owned keys are modified while leaving user-defined keys (like `tags` or `cssclasses`) and comments untouched [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
 
 | Feature | Implementation Detail | Source |
 | --- | --- | --- |
-| Body Integrity | The Markdown body is preserved byte-for-byte during updates. | [src/storage/frontmatter.ts#56](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L56-L56)[test/storage-frontmatter.test.ts#45-56](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts#L45-L56) |
-| Key Preservation | Unknown keys and reordering are prevented by mutating the CST `doc` directly. | [src/storage/frontmatter.ts#50-53](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L50-L53)[test/storage-frontmatter.test.ts#58-74](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts#L58-L74) |
-| Comment Safety | YAML comments are retained in the raw output. | [test/storage-frontmatter.test.ts#76-90](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts#L76-L90) |
-| Validation | Rejects malformed frontmatter to prevent note corruption. | [src/storage/frontmatter.ts#35-37](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L35-L37) |
+| Body Integrity | The Markdown body is preserved byte-for-byte during updates. | [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)[test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts) |
+| Key Preservation | Unknown keys and reordering are prevented by mutating the CST `doc` directly. | [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)[test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts) |
+| Comment Safety | YAML comments are retained in the raw output. | [test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts) |
+| Validation | Rejects malformed frontmatter to prevent note corruption. | [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts) |
 
 ### Fingerprinting
 
-To support Optimistic Concurrency Control (OCC), PALEE generates a SHA-256 fingerprint of the entire file content using the `computeFingerprint` utility [src/storage/frontmatter.ts#59-61](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L59-L61)
+To support Optimistic Concurrency Control (OCC), PALEE generates a SHA-256 fingerprint of the entire file content using the `computeFingerprint` utility [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)
 
-Sources: [src/storage/frontmatter.ts#1-67](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L1-L67)[test/storage-frontmatter.test.ts#1-151](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts#L1-L151)[planning/storage_design.md#7-36](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L7-L36)
+Sources: [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)[test/storage-frontmatter.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-frontmatter.test.ts)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
 
 ---
 
@@ -99,7 +103,7 @@ sequenceDiagram
         AW-->>CLI: throw Error (code: 'ECONFLICT')
         Note over CLI: isConflictError(e) === true → process.exitCode = 4
     else Clean State (Fingerprint Matches)
-        Note over AW,FS: Reclaim this target abandoned temps first: exact spelling, owner process gone, older than 30 s (ADR-0034)
+        Note over AW,FS: Reclaim abandoned temps first: exact spelling, owner gone, >30 s (ADR-0034)
         AW->>FS: openSync(target.tmp.pid.entropy, 'w')
         AW->>FS: writeSync(fd, newContent)
         AW->>FS: fsyncSync(fd)
@@ -110,7 +114,7 @@ sequenceDiagram
     end
 ```
 
-Sources: [src/storage/atomic-write.ts#47-159](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L47-L159)[test/storage-atomic-write.test.ts#1-164](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts#L1-L164)[planning/storage_design.md#37-74](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1#L37-L74)
+Sources: [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)[test/storage-atomic-write.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-atomic-write.test.ts)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)
 
 ---
 
@@ -147,18 +151,18 @@ flowchart LR
     D --> D1
 ```
 
-Sources: [src/storage/frontmatter.ts#10-61](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L10-L61)[src/storage/atomic-write.ts#47-159](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L47-L159)[src/storage/lock.ts#8-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L8-L50)
+Sources: [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)[src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)[src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
 
 ### Atomic Write Logic Association
 
 | System Name | Code Identifier | Role |
 | --- | --- | --- |
-| OCC Protocol | `expectedFingerprint` | Validates file state matches caller expectation before writing [src/storage/atomic-write.ts#81-117](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L81-L117) |
-| Conflict Detection | `ECONFLICT` | Error code thrown on fingerprint mismatch or missing file [src/storage/atomic-write.ts#94-115](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L94-L115) |
-| Exit Code 4 Mapping | `isConflictError(e)` | Identifies OCC/Lock conflict errors to set `process.exitCode = 4` [src/storage/atomic-write.ts#47-55](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L47-L55) |
-| CST Parser | `parseDocument` | YAML parser that maintains node positions and comments [src/storage/frontmatter.ts#21](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L21-L21) |
-| Safe Temp Path | `tempPath` | Constructed using `process.pid` to avoid collisions [src/storage/atomic-write.ts#119](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L119-L119) |
-| Backoff Strategy | `WINDOWS_RETRY_MULTIPLIER` | Factor for exponential delay between Windows retries [src/storage/atomic-write.ts#21](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L21-L21) |
-| Integrity Hash | `computeFingerprint()` | SHA-256 digest used for fingerprints and lock verification [src/storage/frontmatter.ts#59-61](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L59-L61) |
+| OCC Protocol | `expectedFingerprint` | Validates file state matches caller expectation before writing [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts) |
+| Conflict Detection | `ECONFLICT` | Error code thrown on fingerprint mismatch or missing file [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts) |
+| Exit Code 4 Mapping | `isConflictError(e)` | Identifies OCC/Lock conflict errors to set `process.exitCode = 4` [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts) |
+| CST Parser | `parseDocument` | YAML parser that maintains node positions and comments [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts) |
+| Safe Temp Path | `tempPath` | Constructed using `process.pid` to avoid collisions [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts) |
+| Backoff Strategy | `WINDOWS_RETRY_MULTIPLIER` | Factor for exponential delay between Windows retries [src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts) |
+| Integrity Hash | `computeFingerprint()` | SHA-256 digest used for fingerprints and lock verification [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts) |
 
-Sources: [src/storage/frontmatter.ts#1-67](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts#L1-L67)[src/storage/atomic-write.ts#1-163](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts#L1-L163)
+Sources: [src/storage/frontmatter.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/frontmatter.ts)[src/storage/atomic-write.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/atomic-write.ts)

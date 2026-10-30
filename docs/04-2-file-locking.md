@@ -1,11 +1,15 @@
+---
+description: "The palee CLI implements a robust file locking mechanism to prevent race conditions during concurrent vault access. It uses atomic directory creation and heartbeats so only one process can modify a resource at a time, with recovery for crashed processes."
+---
+
+
 # File Locking
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
 - [test/storage-lock.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-lock.test.ts)
 
-</details>
+:::
 
 The `palee` CLI implements a robust file locking mechanism to prevent race conditions during concurrent vault access. It utilizes atomic directory creation and a heartbeat system to ensure that only one process can modify a specific resource at a time, while providing mechanisms to recover from crashed processes.
 
@@ -17,21 +21,21 @@ Locking is handled by the `Lock` class in `src/storage/lock.ts`. It manages the 
 
 Locks are not stored alongside the target files but in a centralized directory: `.palee/locks/`. To ensure that the same file always maps to the same lock directory regardless of relative pathing or symlinks, the system:
 
-1. Resolves the absolute path of the target file using `fs.realpathSync` [src/storage/lock.ts#32-47](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L32-L47).
-2. Calculates a SHA-256 hash of the path relative to the vault root [src/storage/lock.ts#49-50](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L49-L50).
-3. Creates a lock directory named `{hash}.lockdir` [src/storage/lock.ts#53](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L53-L53).
+1. Resolves the absolute path of the target file using `fs.realpathSync` [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
+2. Calculates a SHA-256 hash of the path relative to the vault root [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
+3. Creates a lock directory named `{hash}.lockdir` [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ---
 
 ## Lock Acquisition Protocol
 
-Acquisition uses `fs.mkdirSync` as an atomic primitive. Because directory creation is atomic at the OS level, it serves as a "test-and-set" operation [src/storage/lock.ts#92-128](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L92-L128).
+Acquisition uses `fs.mkdirSync` as an atomic primitive. Because directory creation is atomic at the OS level, it serves as a "test-and-set" operation [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ### Acquisition Flow
 
 1. **Directory Creation**: Attempt to create `{hash}.lockdir`.
-2. **Success**: Write a session-specific JSON file (e.g., `L-20231027T103000-abcd1234.json`) containing the PID, hostname, and timestamp [src/storage/lock.ts#99-125](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L99-L125).
-3. **Failure (EEXIST)**: If the directory exists, the process inspects the contents for stale locks [src/storage/lock.ts#126-179](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L126-L179).
+2. **Success**: Write a session-specific JSON file (e.g., `L-20231027T103000-abcd1234.json`) containing the PID, hostname, and timestamp [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
+3. **Failure (EEXIST)**: If the directory exists, the process inspects the contents for stale locks [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ```mermaid
 sequenceDiagram
@@ -44,16 +48,16 @@ sequenceDiagram
         P->>LD: writeFileSync(sessionID.json, LockData)
         Note over P: Lock Acquired (Heartbeat Active)
     else Collision / EEXIST (Contended)
-        P->>LD: readdirSync() &rarr; check stale mtime
-        alt Lock is Stale (Windows &gt;60s / POSIX &gt;120s)
+        P->>LD: readdirSync() → check stale mtime
+        alt Lock is Stale (Windows >60s / POSIX >120s)
             P->>LD: renameSync(file, file.quarantine)
             alt Heartbeat Refreshed Mid-Rename
                 P->>LD: renameSync(quarantine, file)
-                Note over P: Restored &rarr; Retry
+                Note over P: Restored → Retry
             else Still Stale
                 P->>LD: unlinkSync(quarantine)
                 P->>FS: rmdirSync(lockDir)
-                Note over P: Stale Reclaimed &rarr; Retry
+                Note over P: Stale Reclaimed → Retry
             end
         else Lock is Active
             Note over P: Throw ECONFLICT
@@ -71,16 +75,16 @@ To prevent a process from holding a lock indefinitely after a crash, the owner m
 
 ### Heartbeat Mechanism
 
-Once a lock is acquired, the `Lock` class starts a timer that calls `updateHeartbeat` every 15 seconds (`HEARTBEAT_INTERVAL`) [src/storage/lock.ts#13](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L13-L13). This function uses `fs.utimesSync` to update the access and modification times of the session JSON file without rewriting the content [src/storage/lock.ts#187-197](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L187-L197).
+Once a lock is acquired, the `Lock` class starts a timer that calls `updateHeartbeat` every 15 seconds (`HEARTBEAT_INTERVAL`) [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts). This function uses `fs.utimesSync` to update the access and modification times of the session JSON file without rewriting the content [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ### Platform-Specific Stale Timeouts
 
 The system accounts for different filesystem latencies and clock skews by varying the stale threshold:
 
-- Windows: 60 seconds [src/storage/lock.ts#14](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L14-L14)
-- Other (POSIX): 120 seconds [src/storage/lock.ts#15](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L15-L15)
+- Windows: 60 seconds [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
+- Other (POSIX): 120 seconds [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts)
 
-A lock is considered stale if `Date.now() - mtime > STALE_TIMEOUT` [src/storage/lock.ts#80-89](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L80-L89).
+A lock is considered stale if `Date.now() - mtime > STALE_TIMEOUT` [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ---
 
@@ -90,18 +94,18 @@ When a process encounters an existing lock directory, it attempts to recover it 
 
 ### The Quarantine Pattern
 
-1. **Rename**: The process renames the stale `.json` file to `.json.quarantine`. This acts as an atomic test-and-set [src/storage/lock.ts#190-194](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L190-L194).
-2. **Verify**: It checks the `mtime` of the quarantined file. If the `mtime` was updated just before the rename, it means the original owner is actually still alive; the process restores the file and aborts recovery [src/storage/lock.ts#196-201](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L196-L201).
-3. **Cleanup**: If verified stale, the quarantined file is unlinked, and the process attempts to `rmdirSync` the lock directory [src/storage/lock.ts#197-206](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L197-L206).
+1. **Rename**: The process renames the stale `.json` file to `.json.quarantine`. This acts as an atomic test-and-set [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
+2. **Verify**: It checks the `mtime` of the quarantined file. If the `mtime` was updated just before the rename, it means the original owner is actually still alive; the process restores the file and aborts recovery [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
+3. **Cleanup**: If verified stale, the quarantined file is unlinked, and the process attempts to `rmdirSync` the lock directory [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts).
 
 ### Stale Recovery Logic
 
 | Step | Action | Failure Handling |
 | --- | --- | --- |
-| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop [src/storage/lock.ts#135](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L135-L135) |
-| 2 | Filter `activeFiles` | If no JSON files but directory is < 5s old, throw `ECONFLICT` (incoming process) [src/storage/lock.ts#165-179](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L165-L179) |
-| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue [src/storage/lock.ts#194](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L194-L194) |
-| 4 | `rmdirSync(lockDir)` | If `ENOTEMPTY`, a new process won the lock; retry loop [src/storage/lock.ts#208-212](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L208-L212) |
+| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| 2 | Filter `activeFiles` | If no JSON files but directory is < 5s old, throw `ECONFLICT` (incoming process) [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| 4 | `rmdirSync(lockDir)` | If `ENOTEMPTY`, a new process won the lock; retry loop [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
 
 ---
 
@@ -127,7 +131,7 @@ interface LockData {
 
 | Function | Role | Key Logic |
 | --- | --- | --- |
-| `getLockDir` | Path resolution | Resolves `realpathSync` to handle symlinks and computes SHA-256 hash [src/storage/lock.ts#32-54](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L32-L54) |
-| `createLock` | Atomic acquisition | The main loop using `mkdirSync` and stale recovery logic [src/storage/lock.ts#99-220](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L99-L220) |
-| `updateHeartbeat` | Liveness | Uses `fs.utimesSync` to touch the session file [src/storage/lock.ts#187-197](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L187-L197) |
-| `releaseLock` | Cleanup | Deletes the session file and attempts to remove the directory [src/storage/lock.ts#282-315](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L282-L315) |
+| `getLockDir` | Path resolution | Resolves `realpathSync` to handle symlinks and computes SHA-256 hash [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| `createLock` | Atomic acquisition | The main loop using `mkdirSync` and stale recovery logic [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| `updateHeartbeat` | Liveness | Uses `fs.utimesSync` to touch the session file [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |
+| `releaseLock` | Cleanup | Deletes the session file and attempts to remove the directory [src/storage/lock.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts) |

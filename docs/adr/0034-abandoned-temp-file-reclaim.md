@@ -1,8 +1,15 @@
+---
+description: "atomicWrite creates a temporary file in the destination's own directory and unlinks it from the catch of a handled error. A process killed by a signal between the write and the rename leaves the temp file behind, so this ADR scopes reclamation to the target it belongs to."
+---
+
+
 # ADR-0034: Reclaiming a Killed Writer's Temporary File, Bounded to the Target It Belongs To
 
 ## Status
 
-Accepted — amends ADR-0005 §1 (*Entropy-Augmented Collision-Proof Temporary Files*), whose cleanup clause covers only a handled exception. Fixes [#481](https://github.com/Kuldeep2822k/cli/issues/481).
+Accepted
+
+Amends ADR-0005 §1 (*Entropy-Augmented Collision-Proof Temporary Files*), whose cleanup clause covers only a handled exception. Fixes [#481](https://github.com/Kuldeep2822k/cli/issues/481).
 
 ## Context
 

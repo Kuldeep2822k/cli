@@ -1,3 +1,8 @@
+---
+description: "Phase 1 is deterministic and offline: palee next, plan, review, validate, adopt, roadmap --from, and migrate open no sockets. Phase 2 needs a provider, and this ADR records the network boundary and credential rules for the first shipped network call."
+---
+
+
 # ADR-0027: The AI Provider Adapter and Its Network Boundary
 
 ## Status

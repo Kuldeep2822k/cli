@@ -1,3 +1,8 @@
+---
+description: "Phase 1 concurrency work closed storage-boundary leaks, review TOCTOU windows, session timing gaps, and all-or-nothing roadmap ingestion."
+---
+
+
 # ADR-0006: Phase 1 Concurrency Resilience, Storage Layer Isolation & Session Duration Tracking
 
 ## Status

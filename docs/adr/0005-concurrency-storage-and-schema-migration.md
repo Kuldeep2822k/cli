@@ -1,7 +1,14 @@
+---
+description: "As PALEE vaults grow in complexity, notes may be created outside the CLI without the canonical palee_schema: 1 version attribute. This ADR records the concurrency-hardened storage and automated schema migration decisions."
+---
+
+
 # ADR-0005: Concurrency-Hardened Storage and Automated Schema Migration
 
 ## Status
 Accepted
+
+Amended by ADR-0034: abandoned temporary files left by a killed writer are reclaimed under a bounded policy.
 
 ## Context
 As PALEE vaults grow in complexity, notes may be created outside the CLI (by Obsidian plugins, manual text editing, or external sync engines) without the canonical `palee_schema: 1` version attribute. Simultaneously, multi-process CLI operations, background automated tasks, and async command pipelines create high-frequency write contention where intra-process temporary file collisions and unhandled exception traces could degrade reliability.

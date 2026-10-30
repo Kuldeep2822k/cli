@@ -1,19 +1,99 @@
 import { createRequire } from 'node:module'
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+import type { Plugin } from 'vite'
 
 const require = createRequire(import.meta.url)
 const pkg = require('../../package.json')
 
-export default withMermaid(
+/**
+ * The Mermaid plugin registers its renderer synchronously, which pulls every
+ * diagram parser into the entry chunk and preloads ~1 MB on pages with no
+ * diagrams. Replace the registration with an async component so Rollup emits
+ * Mermaid as a separate chunk that loads only when a page renders one.
+ */
+function lazyMermaid(): Plugin {
+  return {
+    name: 'docs-lazy-mermaid',
+    enforce: 'post',
+    transform(code, id) {
+      if (!id.includes('vitepress/dist/client/app/index.js')) return
+
+      const hadDefineAsyncComponent = /\bdefineAsyncComponent\b/.test(code)
+      let out = code
+        .replace(/^import Mermaid from 'vitepress-plugin-mermaid\/Mermaid\.vue';\r?\n/m, '')
+        .replace(
+          /app\.component\("Mermaid", Mermaid\);/,
+          'app.component("Mermaid", defineAsyncComponent(() => import("vitepress-plugin-mermaid/Mermaid.vue")));'
+        )
+
+      if (out === code) return
+      if (!hadDefineAsyncComponent) {
+        out = `import { defineAsyncComponent } from 'vue';\n${out}`
+      }
+      return { code: out, map: null }
+    }
+  }
+}
+
+const config = withMermaid(
   defineConfig({
     base: '/cli/',
     title: 'PALEE CLI',
     description: 'Personal Active Learning & Evaluation Engine — Smart, AI-powered study tracker for Obsidian vaults.',
     lastUpdated: true,
     cleanUrls: true,
+    appearance: 'force-dark',
+    sitemap: {
+      hostname: 'https://kuldeep2822k.github.io',
+      transformItems(items) {
+        return items.map((item) => ({
+          ...item,
+          url: item.url === '' ? '/cli/' : `/cli/${item.url.replace(/^\//, '')}`
+        }))
+      }
+    },
     markdown: {
       math: true
+    },
+
+    vite: {
+      optimizeDeps: {
+        // lazyMermaid() below creates the dynamic import after Vite's dependency
+        // scanner has run, so Mermaid is never discovered on its own. Pre-bundle
+        // it explicitly: its CommonJS dependency fastdom has no ESM default
+        // export, and serving it raw leaves every diagram stuck on "Loading...".
+        include: ['mermaid']
+      }
+    },
+
+    transformHtml(code) {
+      // The async Mermaid component is only resolved on pages that contain a
+      // diagram; drop Vite's eager preload so other pages never download it.
+      return code.replace(/<link rel="modulepreload" href="[^"]*\/Mermaid\.[^"]*\.js"[^>]*>\s*/g, '')
+    },
+
+    transformHead({ pageData }) {
+      const url =
+        pageData.relativePath === 'index.md'
+          ? 'https://kuldeep2822k.github.io/cli/'
+          : `https://kuldeep2822k.github.io/cli/${pageData.relativePath.replace(/\.md$/, '').replace(/\/index$/, '/')}`
+      const title = pageData.title ? `${pageData.title} | PALEE CLI` : 'PALEE CLI'
+      const description = pageData.description || 'Personal Active Learning & Evaluation Engine for Obsidian vaults.'
+      const image = 'https://kuldeep2822k.github.io/cli/palee-logo.png'
+      return [
+        ['link', { rel: 'canonical', href: url }],
+        ['meta', { property: 'og:type', content: 'website' }],
+        ['meta', { property: 'og:site_name', content: 'PALEE CLI' }],
+        ['meta', { property: 'og:title', content: title }],
+        ['meta', { property: 'og:description', content: description }],
+        ['meta', { property: 'og:url', content: url }],
+        ['meta', { property: 'og:image', content: image }],
+        ['meta', { name: 'twitter:card', content: 'summary' }],
+        ['meta', { name: 'twitter:title', content: title }],
+        ['meta', { name: 'twitter:description', content: description }],
+        ['meta', { name: 'twitter:image', content: image }]
+      ]
     },
 
     head: [
@@ -21,19 +101,22 @@ export default withMermaid(
     ],
 
     mermaid: {
-      theme: 'base',
+      // GitHub's markdown-preview palette: transparent canvas, subtle gray
+      // nodes and borders. The site is force-dark, so Mermaid's own theme is
+      // `dark`; these variables replace its near-black nodes and white borders.
+      theme: 'dark',
       themeVariables: {
-        background: '#000000',
-        primaryColor: '#000000',
-        primaryTextColor: '#e0e0e0',
-        primaryBorderColor: '#2d3139',
-        lineColor: '#5a606b',
-        secondaryColor: '#000000',
-        tertiaryColor: '#000000',
-        clusterBkg: '#0a0b0d',
-        clusterBorder: '#1e2128',
+        background: 'transparent',
+        primaryColor: '#21262d',
+        primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#30363d',
+        lineColor: '#8b949e',
+        secondaryColor: '#161b22',
+        tertiaryColor: '#161b22',
+        clusterBkg: '#161b22',
+        clusterBorder: '#30363d',
+        edgeLabelBackground: '#090a0f',
         titleColor: '#8b949e',
-        edgeLabelBackground: '#000000',
         fontSize: '14px',
         fontFamily: 'Inter, system-ui, sans-serif'
       }
@@ -131,42 +214,7 @@ export default withMermaid(
         },
         {
           text: 'Architectural Decision Records',
-          link: '/adr/README',
-          items: [
-            { text: 'ADR-0001: SM-2 Spaced Repetition', link: '/adr/0001-supermemo-sm2-algorithm' },
-            { text: 'ADR-0002: Atomic File Locking & OCC', link: '/adr/0002-atomic-file-locking-and-occ' },
-            { text: 'ADR-0003: Frontmatter via YAML Document API', link: '/adr/0003-concrete-syntax-tree-yaml-frontmatter' },
-            { text: 'ADR-0004: Four-Pillar Pedagogical Model', link: '/adr/0004-four-pillar-pedagogical-mastery' },
-            { text: 'ADR-0005: Concurrency Storage & Schema Migration', link: '/adr/0005-concurrency-storage-and-schema-migration' },
-            { text: 'ADR-0006: Concurrency Resilience & Storage Isolation', link: '/adr/0006-phase-1-concurrency-resilience-and-storage-isolation' },
-            { text: 'ADR-0007: Hot-Memory Read-State Contract', link: '/adr/0007-hot-memory-read-state-contract' },
-            { text: 'ADR-0008: Validation Rule Framework Decisions', link: '/adr/0008-validation-framework-decisions' },
-            { text: 'ADR-0009: The Gating Model', link: '/adr/0009-gating-model-depends-on-source' },
-            { text: 'ADR-0010: Tier-0 Hygiene Classification', link: '/adr/0010-tier0-hygiene-classification' },
-            { text: 'ADR-0011: Tiered Auto-Chain', link: '/adr/0011-tiered-auto-chain' },
-            { text: 'ADR-0012: Declared Prerequisites', link: '/adr/0012-declared-prerequisites' },
-            { text: 'ADR-0013: Per-Edge Blocking Policy', link: '/adr/0013-per-edge-blocking-policy' },
-            { text: 'ADR-0014: Atomic-Write Durability & Containment', link: '/adr/0014-atomic-write-durability-and-containment' },
-            { text: 'ADR-0015: Identity Preservation', link: '/adr/0015-identity-preservation' },
-            { text: 'ADR-0016: Frontmatter Fidelity & Unicode Fold', link: '/adr/0016-frontmatter-fidelity-and-unicode-fold' },
-            { text: 'ADR-0017: Roadmap Import Safety', link: '/adr/0017-roadmap-import-safety' },
-            { text: 'ADR-0018: Read Path, Caching & Locking', link: '/adr/0018-read-path-caching-and-locking' },
-            { text: 'ADR-0019: Session-Memory Lifecycle', link: '/adr/0019-session-memory-lifecycle' },
-            { text: 'ADR-0020: Readiness & Scheduling Contracts', link: '/adr/0020-readiness-and-scheduling-contracts' },
-            { text: 'ADR-0021: The Assessment Surface', link: '/adr/0021-assessment-surface' },
-            { text: 'ADR-0022: Adoption Contracts', link: '/adr/0022-adoption-contracts' },
-            { text: 'ADR-0023: migrate --relabel-ties', link: '/adr/0023-migrate-relabel-ties' },
-            { text: 'ADR-0024: Exit Codes & Error Contract', link: '/adr/0024-exit-codes-and-error-contract' },
-            { text: 'ADR-0025: The Application Layer', link: '/adr/0025-application-layer' },
-            { text: 'ADR-0026: Test Discipline', link: '/adr/0026-test-discipline' },
-            { text: 'ADR-0027: AI Provider & Network Boundary', link: '/adr/0027-ai-provider-boundary' },
-            { text: 'ADR-0028: Phase-2 Design Directions', link: '/adr/0028-phase-2-design-directions' },
-            { text: 'ADR-0029: Test-Time CLI Launch Policy', link: '/adr/0029-test-cli-launch-policy' },
-            { text: 'ADR-0030: Installed-Artifact CI Evidence', link: '/adr/0030-installed-artifact-ci-evidence' },
-            { text: 'ADR-0031: Documentation Truth', link: '/adr/0031-documentation-truth' },
-            { text: 'ADR-0032: Direct Spawn Bounding', link: '/adr/0032-direct-spawn-bounding' },
-            { text: 'ADR-0033: Update Command & npm Child Process', link: '/adr/0033-update-command-and-npm-child-process-boundary' }
-          ]
+          link: '/adr/README'
         },
         {
           text: 'Glossary',
@@ -183,6 +231,11 @@ export default withMermaid(
         { icon: 'npm', link: 'https://www.npmjs.com/package/@kuldeep2822k/palee' }
       ],
 
+      editLink: {
+        pattern: 'https://github.com/Kuldeep2822k/cli/edit/main/docs/:path',
+        text: 'Edit this page'
+      },
+
       footer: {
         message: 'Released under the MIT License.',
         copyright: 'Copyright © 2026 Kuldeep Kumar. Powered by VitePress.'
@@ -190,3 +243,9 @@ export default withMermaid(
     }
   })
 )
+
+config.vite ??= {}
+config.vite.plugins ??= []
+config.vite.plugins.push(lazyMermaid())
+
+export default config

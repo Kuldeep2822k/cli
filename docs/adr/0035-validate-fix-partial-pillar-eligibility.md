@@ -1,4 +1,13 @@
-# ADR-0035: `--fix` mastery repair skips topics with partial pillar data
+---
+description: "Mastery repair skips topics with missing assessment pillars. Only topics with all four valid pillar scores are checked and repaired."
+---
+
+
+# ADR-0035: `--fix` Mastery Repair and Partial Pillar Eligibility
+
+## Status
+
+Accepted (2026-10-22)
 
 ## Context
 

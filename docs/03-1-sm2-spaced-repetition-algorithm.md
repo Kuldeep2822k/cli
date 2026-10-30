@@ -1,6 +1,10 @@
+---
+description: "PALEE combines two complementary learning engines to power personalized, adaptive knowledge acquisition:"
+---
+
+
 # SM-2 Spaced Repetition and 4-Pillar Mastery Engine
-<details>
-<summary><b>Relevant Source Files</b></summary>
+::: details Relevant Source Files
 
 - [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts)
 - [src/engine/sm2.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/sm2.ts)
@@ -11,7 +15,7 @@
 - [docs/adr/0001-supermemo-sm2-algorithm.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0001-supermemo-sm2-algorithm.md)
 - [docs/adr/0004-four-pillar-pedagogical-mastery.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0004-four-pillar-pedagogical-mastery.md)
 
-</details>
+:::
 
 PALEE combines two complementary learning engines to power personalized, adaptive knowledge acquisition:
 
@@ -91,7 +95,7 @@ Scheduling advances review dates using local calendar arithmetic (`due.setDate(d
 
 ```mermaid
 flowchart TD
-    Start(["Review Input:<br/>Topic Review State, Quality: 0-5"]) --> CheckQ{"Quality &ge; 3?<br/>(Successful Recall)"}
+    Start(["Review Input<br/>State, Quality 0-5"]) --> CheckQ{"Quality &ge; 3?<br/>(Successful Recall)"}
     
     %% Failure Branch
     CheckQ -- "No (q &lt; 3: Failure)" --> CheckLapse{"Repetition &gt; 0?<br/>(Previously Learned)"}
@@ -105,7 +109,7 @@ flowchart TD
     CheckRep -- "Rep 2+" --> RepN["Repetition += 1<br/>Interval = round(Prev &times; EF)"]
     
     %% Convergence & EF Update
-    LapseInc --> UpdateEF["Update Ease Factor:<br/>&Delta;EF = 0.1 - (5-q)&times;(0.08 + (5-q)&times;0.02)<br/>EF = max(1.30, round(EF + &Delta;EF, 4))"]
+    LapseInc --> UpdateEF["Update Ease Factor<br/>(formula above)<br/>EF = max(1.30, round(EF+&Delta;EF,4))"]
     LapseNoInc --> UpdateEF
     Rep1 --> UpdateEF
     Rep2 --> UpdateEF

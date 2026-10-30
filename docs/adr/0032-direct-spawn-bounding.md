@@ -1,8 +1,15 @@
+---
+description: "ADR-0029's universal \"every spawn is bounded\" claim was false: 24 of 25 direct-spawn test files carried no timeout at that commit."
+---
+
+
 # ADR-0032: Direct Spawn Bounding — What ADR-0029 Claimed, and the Check That Pins It
 
 ## Status
 
-Accepted — amends ADR-0029 in part (the section "Every spawn is bounded, and a timeout names the command"). ADR-0029's other decisions stand unchanged. Supersedes the "by design" line in #460.
+Accepted
+
+Amends ADR-0029 in part (the section "Every spawn is bounded, and a timeout names the command"). ADR-0029's other decisions stand unchanged. Supersedes the "by design" line in #460.
 
 ## Context
 
