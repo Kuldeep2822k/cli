@@ -149,7 +149,7 @@ const PARK_BANDS: ReadonlyArray<readonly [min: number, max: number]> = [
 ];
 
 /** An `fs` method the fault patches below replace. */
-type PatchableFsMethod = 'readdirSync' | 'rmdirSync' | 'unlinkSync';
+type PatchableFsMethod = 'readdirSync' | 'renameSync' | 'rmdirSync' | 'statSync' | 'unlinkSync';
 
 /** An `fs` method whose call order is recorded without altering it. */
 type RecordableFsMethod = 'mkdirSync' | 'renameSync';
@@ -1228,7 +1228,7 @@ describe('File Locking', () => {
     // name is injected through `readdirSync` rather than created on disk, because
     // Windows refuses such a name outright — which would make this test unrunnable on
     // the platform whose logs it protects.
-    const evilName = 'evil\x1b[31mred';
+    const evilName = 'evil\x1b\x9b31mred';
     const fx = residueVault('evil', lockDir => {
       // This real file is what keeps `rmdirSync` answering ENOTEMPTY and so spends the
       // budget; the crafted name below is virtual, which is what lets the scenario run
@@ -1243,15 +1243,18 @@ describe('File Locking', () => {
       await assert.rejects(
         () => fx.newLock().acquire(),
         (err: Error) => {
-          assertConflict(err, /evil\\x1b\[31mred/);
+          assertConflict(err, /evil\\x1b\\x9b31mred/);
           // Kept separate from the match above: the pair holds today, but if the
-          // escaping format ever changes the raw sequence is still what must not
-          // reach a terminal.
-          assert.strictEqual(
-            err.message.includes('\x1b'),
-            false,
-            'the conflict must not carry a raw escape sequence'
-          );
+          // escaping format ever changes, a raw control character is still what must
+          // not reach a terminal. C1 counts as well as C0 — U+009B is a CSI introducer
+          // to some terminals, which is the same forgery by another route.
+          for (const raw of ['\x1b', '\x9b']) {
+            assert.strictEqual(
+              err.message.includes(raw),
+              false,
+              `the conflict must not carry the raw control character ${JSON.stringify(raw)}`
+            );
+          }
           return true;
         }
       );
@@ -1429,6 +1432,109 @@ describe('File Locking', () => {
       const records = fs.readdirSync(fx.lockDir).filter(name => name.endsWith('.json'));
       assert.strictEqual(records.length, 1, `the takeover must leave exactly one record, saw ${records.join(', ')}`);
       assert.notStrictEqual(records[0], `${staleId}.json`, 'and it must be the new holder’s, not the stale one');
+    } finally {
+      fx.dispose();
+    }
+  });
+
+  test('an in-flight quarantine is not swept away by a second acquirer (INV-06, #539)', { timeout: 10000 }, async () => {
+    // A recovery renames the record it is inspecting to `.json.quarantine` and only then
+    // decides whether to delete or restore it. In that window the directory holds no
+    // `.json`, so a second acquirer must not read it as free residue: deleting the
+    // quarantine destroys the record a live holder is about to be given back, and the
+    // restore then fails — leaving that holder writing while the second one holds.
+    const staleId = 'L-20260101T000000-feedface';
+    const fx = residueVault('inflight', (lockDir, target) => {
+      const record = {
+        lock_id: staleId,
+        target,
+        pid: 999999,
+        hostname: 'not-this-host',
+        created_at: new Date(0).toISOString()
+      };
+      fs.writeFileSync(path.join(lockDir, `${staleId}.json`), JSON.stringify(record, null, 2), 'utf8');
+    });
+    const recordPath = fx.entry(`${staleId}.json`);
+    const quarantinePath = `${recordPath}.quarantine`;
+    agePastStale(recordPath);
+
+    const rivalAttempts: Array<Promise<NodeError | null>> = [];
+    let quarantineSurvived = false;
+
+    // The rival is a real second acquisition, driven from inside the rename that makes
+    // the quarantine visible — the exact window the finding describes, staged
+    // deterministically instead of raced.
+    patchFsOnPath(fx, 'renameSync', recordPath, (_call, original, args) => {
+      original(...args);
+      if (rivalAttempts.length === 0) {
+        const contender = fx.hold(fx.newLock());
+        rivalAttempts.push(contender.acquire().then(() => null, (e: unknown) => e as NodeError));
+        quarantineSurvived = fs.existsSync(quarantinePath);
+      }
+      // The rename already happened; a defined return keeps the seam from calling it twice.
+      return null;
+    });
+
+    const acquirer = fx.hold(fx.newLock());
+    try {
+      const recovery = await acquirer.acquire().then(() => null, (e: unknown) => e as NodeError);
+      if (recovery !== null) {
+        assert.fail(`the recovery must complete, got ${String(recovery.code)}: ${recovery.message}`);
+      }
+
+      const captured = rivalAttempts[0];
+      if (captured === undefined) {
+        throw new Error('precondition: the rival acquisition never ran inside the quarantine window');
+      }
+      const rivalErr = await captured;
+      if (rivalErr === null) {
+        throw new Error('the rival must be refused, not handed the directory');
+      }
+      assert.strictEqual(rivalErr.code, 'ECONFLICT', `expected a conflict, got ${String(rivalErr.code)}`);
+      assert.match(rivalErr.message, /incoming process/, 'a quarantine in flight is another recovery, not residue');
+      assert.strictEqual(quarantineSurvived, true, 'the quarantine must still exist when the rival is refused');
+      assert.ok(getLockData(fx.lockDir), 'and the recovery it belongs to must still take the lock');
+    } finally {
+      fx.dispose();
+    }
+  });
+
+  test('a restore that cannot put a live record back is refused, not swallowed (#539)', { timeout: 10000 }, async () => {
+    // The other half of the quarantine contract. When the holder refreshed after this
+    // side read the record as stale, the sweep must put it back. A silent failure there
+    // leaves a holder that still believes it owns the target with no record on disk, so
+    // the next acquirer would take the directory and both would write.
+    const staleId = 'L-20260101T000000-c0ffee00';
+    const fx = residueVault('restore', (lockDir, target) => {
+      const record = {
+        lock_id: staleId,
+        target,
+        pid: 999999,
+        hostname: 'not-this-host',
+        created_at: new Date(0).toISOString()
+      };
+      fs.writeFileSync(path.join(lockDir, `${staleId}.json`), JSON.stringify(record, null, 2), 'utf8');
+    });
+    const recordPath = fx.entry(`${staleId}.json`);
+    const quarantinePath = `${recordPath}.quarantine`;
+    agePastStale(recordPath);
+
+    // Staged as "the holder refreshed mid-recovery": the quarantined copy reports a
+    // fresh mtime, so the sweep decides to restore rather than delete.
+    patchFsOnPath(fx, 'statSync', quarantinePath, () => ({ mtimeMs: Date.now() }));
+    // ...and the put-back itself is refused, which is the case under test.
+    patchFsOnPath(fx, 'renameSync', quarantinePath, () => {
+      throw fsErrorWith('ENOENT', 'ENOENT: a rival removed the quarantined record');
+    });
+
+    try {
+      await assert.rejects(
+        () => fx.newLock().acquire(),
+        (err: Error) => {
+          assertConflict(err, /could not restore a lock record/);
+          return true;
+        }
+      );
     } finally {
       fx.dispose();
     }

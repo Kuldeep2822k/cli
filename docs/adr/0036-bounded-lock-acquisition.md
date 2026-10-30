@@ -40,15 +40,21 @@ The distinction is whether waiting can help. Nothing in this module writes a dir
 
 The Windows `EPERM`/`EBUSY` retry loop can also answer `ENOTEMPTY`: a transient directory handle clears during the park, and the next attempt finds a file that survived the sweep. That answer used to be free forward progress, so the budget was unreachable there and the loop cap eventually reported churn for what was a stuck entry. Both sites now call one `spendEnotemptyBudget`, which is what keeps the counter, the park and the message from diverging.
 
-### The heuristic asks about emptiness, not about the budget
+### The heuristic asks about other people's work, not about the budget
 
-`incomingConflict` answers "a rival just created this directory and has not written its record yet". It used to ask that of any directory with no `.json` record, which misfired on the residue this module is trying to clear: our own sweep stamps the directory mtime the check reads, so the next round concluded a rival had just arrived and abandoned a real residue. Gating the check on the retry budget would have fixed the message and broken mutual exclusion — a rival that replaces the lock directory mid-budget leaves it young *and empty*, and suppressing the check for the rest of the budget would let this process `rmdir` that directory and recreate it, with both writers then holding.
+`incomingConflict` answers "could this directory's freshness belong to someone else?". Two states say yes: the directory is empty (a rival created it and has not written its record yet), or it holds a `.json.quarantine` (another recovery is between its rename and its restore). Those are also the only states in which the sweep could undo a rival's work — `rmdirSync` on an empty directory takes it away, and unlinking a quarantine destroys the record a live holder is about to be given back, after which that holder keeps writing while the next acquirer holds.
 
-The condition is therefore emptiness, not budget state: a directory holding anything is never an incoming process, and one holding nothing is — which is also the only state in which the removal below could take a rival's directory away.
+It used to ask that question of any directory with no `.json` record, which misfired on the residue this module is trying to clear: our own sweep stamps the directory mtime the check reads, so the next round concluded a rival had just arrived and abandoned a real residue. Gating the check on the retry budget instead would have fixed the message and broken mutual exclusion in a different way — a rival that replaces the lock directory mid-budget leaves it young *and empty*.
+
+A directory holding only foreign residue is therefore never an incoming process, and the two states above always are. A quarantine older than the 5 s window counts as abandoned rather than live, so a crashed recovery still self-heals.
+
+### A failed restore is a conflict, not a swallow
+
+The sweep quarantines a record by rename, re-checks staleness, then either deletes the copy or puts it back. A failed put-back used to disappear into a bare `catch`: that holder still believes it owns the target while its record is gone, so the next acquirer takes the directory and both write. It is now a `Lock conflict` — retryable, and honest about which hazard it avoided.
 
 ### Residue names are escaped before they reach a terminal
 
-Conflict messages carry entry names into stderr and into captured logs, and POSIX permits a newline or an ANSI escape sequence inside a filename. `printableEntryName` spells every C0 control character and DEL as `\xNN`, so the residue stays identifiable while an unescaped name cannot forge, hide or recolor the lines around the error it appears in. Windows refuses those names outright, so the escaping costs nothing where the risk does not exist.
+Conflict messages carry entry names into stderr and into captured logs, and POSIX permits a newline or an ANSI escape sequence inside a filename. `printableEntryName` spells every C0 control character, DEL, and the C1 range (U+0080–U+009F) as `\xNN`, so the residue stays identifiable while an unescaped name cannot forge, hide or recolor the lines around the error it appears in. C1 is included because Node decodes it from valid UTF-8 and some terminals treat U+009B as a CSI introducer — the same forgery by another route. Windows refuses those names outright, so the escaping costs nothing where the risk does not exist.
 
 ### Every contention path throws through one builder
 

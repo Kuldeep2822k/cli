@@ -297,21 +297,24 @@ function isDirectoryEntry(entryPath: string): boolean {
  * Renders a lock directory entry name with its control characters escaped.
  *
  * @param name - A directory entry name read from the lock directory
- * @returns The name with every C0 control character and DEL spelled as `\xNN`
+ * @returns The name with every C0 control character, DEL, and the C1 range
+ * (U+0080–U+009F) spelled as `\xNN`
  *
  * @remarks
  * Entry names reach human-readable errors and captured logs verbatim, and POSIX
  * allows a newline or an ANSI escape sequence inside a filename — so an unescaped
  * name could forge, hide or recolor the lines around the conflict it appears in.
- * Escaping keeps the residue identifiable while making the text safe to print.
- * Windows refuses these names outright, so this only ever matters on POSIX and
- * costs nothing where it does not.
+ * C1 counts: Node decodes U+0080–U+009F from valid UTF-8, and some terminals treat
+ * U+009B as a CSI introducer, which is the same forgery by another route. Escaping
+ * keeps the residue identifiable while making the text safe to print. Windows
+ * refuses these names outright, so this only ever matters on POSIX and costs
+ * nothing where it does not.
  */
 function printableEntryName(name: string): string {
   let rendered = '';
   for (const ch of name) {
     const code = ch.codePointAt(0) ?? 0;
-    rendered += code < 0x20 || code === 0x7f
+    rendered += code < 0x20 || (code >= 0x7f && code <= 0x9f)
       ? `\\x${code.toString(16).padStart(2, '0')}`
       : ch;
   }
@@ -475,16 +478,19 @@ function createLock(lockDir: string, targetPath: string): LockData {
         throw lockConflict(`${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
       }
 
-      // The 5s heuristic answers one question: is this directory young and *empty*,
-      // meaning a rival created it and has not written its record yet? Emptiness is
-      // the load-bearing half — it is also the only state in which the `rmdirSync`
-      // below would succeed and take a rival's directory out from under it, letting
-      // both writers end up holding.
+      // The 5s heuristic answers one question: could this directory's freshness belong
+      // to someone else? Two states say yes — it is empty (a rival created it and has not
+      // written its record yet), or it holds a `.json.quarantine`, which means another
+      // recovery is between its rename and its restore. Both are also the only states in
+      // which the sweep below can undo a rival's work: `rmdirSync` on an empty directory
+      // takes it away, and unlinking a quarantine destroys the record a live holder is
+      // about to be given back.
       //
-      // A directory holding anything therefore never counts as an incoming process:
-      // the residue this module is trying to clear is not a rival, and our own sweep
-      // stamps the directory mtime this check would otherwise read.
-      if (files.length === 0) {
+      // A directory holding only foreign residue is therefore never treated as an
+      // incoming process: our own sweep stamps the directory mtime this check reads, and
+      // refusing there would blame a rival for our own progress.
+      const recoveryInFlight = files.some(name => name.endsWith('.quarantine'));
+      if (activeFiles.length === 0 && (files.length === 0 || recoveryInFlight)) {
         let incomingConflict = false;
         try {
           const dirStat = fs.statSync(lockDir);
@@ -520,10 +526,12 @@ function createLock(lockDir: string, targetPath: string): LockData {
           continue;
         }
         const quarantinePath = filePath + '.quarantine';
+        let heldInQuarantine = false;
         try {
           // Rename acts as an atomic test-and-set to prevent Process B from renewing
           // a lock we are about to delete.
           fs.renameSync(filePath, quarantinePath);
+          heldInQuarantine = true;
           const stats = fs.statSync(quarantinePath);
           // Re-confirm staleness on the quarantined copy using the SAME combined
           // predicate as the conflict gate above: a dead same-host PID (ESRCH)
@@ -533,11 +541,28 @@ function createLock(lockDir: string, targetPath: string): LockData {
           const parsed = parsedLocks.find(l => l.filename === file);
           if (isLockStale({ filename: file, data: parsed?.data ?? null, mtime: stats.mtimeMs })) {
             fs.unlinkSync(quarantinePath);
-          } else {
-            // It was refreshed (or its holder is alive) before we renamed it! Restore it.
-            fs.renameSync(quarantinePath, filePath);
+            heldInQuarantine = false;
           }
-        } catch {}
+        } catch {
+          // Lost the rename race, or the record vanished mid-inspection. Nothing of
+          // ours is left in flight when the rename never happened, so the round
+          // proceeds as it did before.
+        }
+        if (heldInQuarantine) {
+          // The record was live after all, so it has to go back. A failed restore is
+          // NOT the harmless case the swallow above covers: that holder still believes
+          // it owns the target while its record is gone, so the next acquirer would
+          // take the directory and both would write. Refusing is retryable; continuing
+          // is corruption.
+          try {
+            fs.renameSync(quarantinePath, filePath);
+          } catch {
+            throw lockConflict(
+              `${targetPath} could not restore a lock record that turned out to be live; `
+              + 'another process is recovering the same lock directory'
+            );
+          }
+        }
       }
 
       try {
