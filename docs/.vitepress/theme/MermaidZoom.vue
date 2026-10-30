@@ -166,7 +166,8 @@ function attach(block: HTMLElement) {
     if (!canvas) return
     if (rafId) cancelAnimationFrame(rafId)
     rafId = requestAnimationFrame(() => {
-      canvas!.style.transform = `translate(${x}px, ${y}px) scale(${scale})`
+      if (!canvas) return
+      canvas.style.transform = `translate(${x}px, ${y}px) scale(${scale})`
     })
   }
 
@@ -211,6 +212,17 @@ function attach(block: HTMLElement) {
 
   function closeModal() {
     if (!modal) return
+    if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = 0
+    }
+    pointers.clear()
+    isDragging = false
+    lastX = 0
+    lastY = 0
+    pinchStart = 0
+    pinchScale = 1
+    stage?.classList.remove('is-dragging')
     modalListeners?.abort()
     modalListeners = null
 
