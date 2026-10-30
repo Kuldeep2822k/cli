@@ -38,4 +38,6 @@ This directory records significant architectural and design decisions for PALEE.
 - [ADR-0032: Direct Spawn Bounding — What ADR-0029 Claimed, and the Check That Pins It](./0032-direct-spawn-bounding.md)
 - [ADR-0033: The Update Command and Its npm Child Process](./0033-update-command-and-npm-child-process-boundary.md)
 - [ADR-0034: Reclaiming a Killed Writer's Temporary File](./0034-abandoned-temp-file-reclaim.md)
+- [ADR-0035: `--fix` mastery repair skips topics with partial pillar data](./0035-validate-fix-partial-pillar-eligibility.md)
+- [ADR-0036: Bounded Lock Acquisition — A Non-Empty Lockdir Is Not a Retry Signal](./0036-bounded-lock-acquisition.md)
 

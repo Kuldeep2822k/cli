@@ -48,12 +48,54 @@ const STALE_TIMEOUT = process.platform === 'win32' ? STALE_TIMEOUT_WINDOWS : STA
  * Bounded retry parameters for Windows EPERM/EBUSY transient handle-holders on
  * the lock directory. Mirrors `src/storage/atomic-write.ts:20-24` so a persistent
  * handle surfaces to the caller rather than hanging the CLI in a busy spin.
+ *
+ * @remarks
+ * Only `WINDOWS_RETRY_ATTEMPTS` is Windows-specific. The four delay parameters are
+ * the module's one backoff policy and are shared with the `ENOTEMPTY` budget below,
+ * so a lock directory cannot be retried on two different schedules.
  */
 const WINDOWS_RETRY_ATTEMPTS = 5;
 const WINDOWS_RETRY_INITIAL_DELAY = 50; // ms
 const WINDOWS_RETRY_MULTIPLIER = 2;
 const WINDOWS_RETRY_JITTER = 0.25; // ±25%
 const WINDOWS_RETRY_MAX_DELAY = 300; // ms
+
+/**
+ * Retry budget for the `ENOTEMPTY` answer from `fs.rmdirSync` on a stale lock
+ * directory.
+ *
+ * @remarks
+ * `ENOTEMPTY` after the sweep means an entry survived it — a file another process
+ * still holds open, or a subdirectory this module never creates — so the directory
+ * cannot become empty on its own. Before #539 this case shared the unconditional
+ * `continue` with `ENOENT`, which is why one un-removable entry spun the acquisition
+ * loop at 100% CPU for as long as the entry lived.
+ *
+ * Five retries are made *after* the first attempt, so one removal costs at most six
+ * `rmdirSync` calls and ~950 ms of parked time. Deliberately not one: when a rival
+ * merely won the directory between our `readdirSync` and our `rmdirSync`, the next
+ * round sees its fresh record and throws the precise "locked by PID" conflict
+ * instead of this one.
+ *
+ * Module-private: consumed by {@link createLock} and by the storage-lock tests. Not
+ * re-exported on the public storage barrel per the #131 census.
+ */
+const ENOTEMPTY_RETRY_ATTEMPTS = 5;
+
+/**
+ * Hard bound on the rounds {@link createLock}'s acquisition loop may run.
+ *
+ * @remarks
+ * A backstop, not a contention policy. The budget above bounds the only branch that
+ * cannot observe a state change; this cap makes termination a property of the code
+ * rather than an argument about which branch may `continue`. A legitimate
+ * acquisition needs one round (uncontended), one (a live holder, which throws), or
+ * two (quarantine, then reclaim), so twenty is an order of magnitude of headroom.
+ *
+ * Must stay greater than {@link ENOTEMPTY_RETRY_ATTEMPTS} + 1, or the outer bound
+ * pre-empts the budget and blames churn for an entry that never cleared.
+ */
+const MAX_ACQUISITION_ITERATIONS = 20;
 
 /**
  * Synchronous non-spinning sleep primitive used by the lock acquisition retry loop.
@@ -210,6 +252,47 @@ function isLockStale(lockInfo: ParsedLock): boolean {
 }
 
 /**
+ * Builds the retryable conflict error every lock-contention path throws.
+ *
+ * @param detail - What the conflict is, after the `Lock conflict: ` prefix
+ * @returns The error to throw, carrying `code = 'ECONFLICT'`
+ *
+ * @remarks
+ * The prefix is how {@link isConflictError} recognises the error by text as well as
+ * by code, and `exitCodeFor` maps the code to exit 4 (INV-04). One builder so a new
+ * contention path cannot invent a wording that exits 5 by accident.
+ */
+function lockConflict(detail: string): NodeError {
+  const conflictErr = new Error(`Lock conflict: ${detail}`) as NodeError;
+  conflictErr.code = 'ECONFLICT';
+  return conflictErr;
+}
+
+/**
+ * Whether a lock directory entry that `fs.unlinkSync` refused is a directory.
+ *
+ * @param entryPath - The entry that could not be unlinked
+ * @returns `true` when it is a directory, `false` when it is a file or could not be
+ * inspected
+ *
+ * @remarks
+ * The distinction decides whether waiting can help: a file another process holds
+ * open clears on its own, a directory inside a lockdir never does. `unlink` reports
+ * `EISDIR` on POSIX and `EPERM` on Windows, which collides with the *transient*
+ * `EPERM` of a held-open file — one `lstat` on this failure path separates them. The
+ * probe is best-effort: an `lstatSync` that itself fails reports "not a directory",
+ * so a vanished or unreadable entry falls back to the bounded retry rather than
+ * being misdiagnosed as permanent.
+ */
+function isDirectoryEntry(entryPath: string): boolean {
+  try {
+    return fs.lstatSync(entryPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Attempts atomic creation of the lock directory and writes the session lock data.
  *
  * @param lockDir - Target lock directory path
@@ -238,7 +321,10 @@ function createLock(lockDir: string, targetPath: string): LockData {
 
   const lockFile = path.join(lockDir, `${lockId}.json`);
 
-  while (true) {
+  // Bounds the one `continue` below that cannot observe a state change (#539).
+  let enotemptyAttempts = 0;
+
+  for (let iteration = 0; iteration < MAX_ACQUISITION_ITERATIONS; iteration++) {
     try {
       fs.mkdirSync(lockDir);
       // We won the lock directory! Write our session file.
@@ -291,9 +377,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
         // the type honest without a non-null assertion.
         const first = freshLocks[0];
         const active = first?.data;
-        const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by PID ${active?.pid || 'unknown'}`) as NodeError;
-        conflictErr.code = 'ECONFLICT';
-        throw conflictErr;
+        throw lockConflict(`${targetPath} is locked by PID ${active?.pid || 'unknown'}`);
       }
 
       if (activeFiles.length === 0) {
@@ -306,9 +390,7 @@ function createLock(lockDir: string, targetPath: string): LockData {
         } catch {}
         
         if (incomingConflict) {
-          const conflictErr = new Error(`Lock conflict: ${targetPath} is locked by an incoming process`) as NodeError;
-          conflictErr.code = 'ECONFLICT';
-          throw conflictErr;
+          throw lockConflict(`${targetPath} is locked by an incoming process`);
         }
       }
 
@@ -318,7 +400,19 @@ function createLock(lockDir: string, targetPath: string): LockData {
       for (const file of files) {
         const filePath = path.join(lockDir, file);
         if (!file.endsWith('.json')) {
-          try { fs.unlinkSync(filePath); } catch {}
+          try {
+            fs.unlinkSync(filePath);
+          } catch {
+            // A directory is permanent: this module only ever writes files into a
+            // lockdir, so one here is foreign residue and `rmdirSync` will answer
+            // ENOTEMPTY for it forever. Parking cannot change that, so name it and
+            // refuse now instead of spending the retry budget first (#539).
+            if (isDirectoryEntry(filePath)) {
+              throw lockConflict(
+                `${targetPath} has a lock directory holding an unremovable entry: ${filePath}`
+              );
+            }
+          }
           continue;
         }
         const quarantinePath = filePath + '.quarantine';
@@ -346,12 +440,45 @@ function createLock(lockDir: string, targetPath: string): LockData {
         fs.rmdirSync(lockDir);
       } catch (rmErr: unknown) {
         const rmCode = (rmErr as NodeError).code;
-        // ENOTEMPTY: A new file was written (someone else won the lock).
-        // ENOENT: Someone else already removed the directory.
-        // Both are legitimate forward-progress signals on every platform and
-        // warrant an unconditional `continue` (this was the pre-existing
-        // behaviour and is not under review).
-        if (rmCode === 'ENOTEMPTY' || rmCode === 'ENOENT') {
+        // ENOENT: someone else already removed the directory. The one remaining
+        // unconditional `continue` — it reports that the state changed, and the next
+        // `mkdirSync` either wins the directory or answers EEXIST with a fresh
+        // record to throw on.
+        if (rmCode === 'ENOENT') {
+          continue;
+        }
+        // ENOTEMPTY: something survived the sweep above, and re-running the same
+        // removals immediately reproduces the same result — at 100% CPU, forever,
+        // which is the hang this branch used to cause (#539). A rival that merely
+        // won the directory between our readdir and this rmdir resolves on the next
+        // round, because its fresh record throws the precise "locked by PID"
+        // conflict; a persistent entry is surfaced after the budget as the same
+        // retryable conflict class the EPERM/EBUSY path below belongs to.
+        if (rmCode === 'ENOTEMPTY') {
+          enotemptyAttempts += 1;
+          if (enotemptyAttempts > ENOTEMPTY_RETRY_ATTEMPTS) {
+            // `files` was read at the top of this very round and our own sweep is
+            // the only mutation since, so it already names what would not clear.
+            const residual = files.length > 0 ? files.join(', ') : 'nothing listable';
+            throw lockConflict(
+              `${targetPath} has a lock directory that would not empty after `
+              + `${ENOTEMPTY_RETRY_ATTEMPTS} retries; still present: ${residual}`
+            );
+          }
+          // Same ±25% jitter and 300 ms ceiling the module already uses, so two
+          // processes clearing one directory do not wake in lockstep.
+          const baseDelay =
+            WINDOWS_RETRY_INITIAL_DELAY * Math.pow(WINDOWS_RETRY_MULTIPLIER, enotemptyAttempts - 1);
+          const jitterAmount = baseDelay * WINDOWS_RETRY_JITTER;
+          SyncWait.sleepMs(
+            Math.max(
+              0,
+              Math.min(
+                WINDOWS_RETRY_MAX_DELAY,
+                baseDelay + (Math.random() * 2 - 1) * jitterAmount
+              )
+            )
+          );
           continue;
         }
         // Windows EPERM/EBUSY: AV/indexer/another process briefly holds a
@@ -412,6 +539,15 @@ function createLock(lockDir: string, targetPath: string): LockData {
       continue;
     }
   }
+
+  // Every round either took the lock, threw, or made forward progress the next
+  // round could act on. Only a process that keeps deleting the directory we are
+  // about to create reaches this — contention, not corruption, so it is the same
+  // retryable conflict class as every other (#539).
+  throw lockConflict(
+    `${targetPath} did not settle after ${MAX_ACQUISITION_ITERATIONS} acquisition attempts; `
+    + 'another process keeps changing its lock directory'
+  );
 }
 
 /**

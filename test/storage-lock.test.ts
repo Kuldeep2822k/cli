@@ -61,6 +61,42 @@ function spyUtimesSync(): { calls: UtimesCall[]; restore: () => void } {
   };
 }
 
+/**
+ * Records every `SyncWait` park without performing it.
+ *
+ * @remarks
+ * `SyncWait.sleepMs` is the lock module's only parking primitive, so wrapping
+ * `Atomics.wait` is what makes "did this path back off?" observable without paying
+ * the wall clock for it — the same seam `spyUtimesSync` uses for the heartbeat. An
+ * elapsed-milliseconds assertion would be a timing guard, and those flake on a
+ * loaded runner (ADR-0026).
+ *
+ * @returns The live record list plus the function that puts `Atomics` back.
+ */
+function spyAtomicsWait(): { calls: number[]; restore: () => void } {
+  const calls: number[] = [];
+  const originalWait = Atomics.wait;
+  // Typed as `unknown` on the slot rather than `typeof Atomics.wait`: the real member
+  // is overloaded, and a single Int32Array-shaped recorder is not assignable to it.
+  (Atomics as unknown as { wait: unknown }).wait = function recordingWait(
+    _typedArray: Int32Array,
+    _index: number,
+    _value: number,
+    timeout?: number
+  ): 'ok' | 'not-equal' | 'timed-out' {
+    calls.push(typeof timeout === 'number' ? timeout : -1);
+    // Return immediately: the assertion is on the schedule the code asked for, so a
+    // test must never pay for the park it is measuring.
+    return 'timed-out';
+  };
+  return {
+    calls,
+    restore: () => {
+      (Atomics as unknown as { wait: unknown }).wait = originalWait;
+    },
+  };
+}
+
 /** Path of the holder's session file, asserting the lock dir holds exactly one. */
 function singleSessionFile(lockDir: string): string {
   const files = fs.readdirSync(lockDir).filter(f => f.endsWith('.json'));
@@ -581,6 +617,274 @@ describe('File Locking', () => {
       (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
       seedLock.release();
       try { fs.rmSync(faultVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('a lock directory holding an unremovable subdirectory is a conflict, not a spin (#539)', { timeout: 10000 }, async () => {
+    // The reported hang, reduced to one entry: stale recovery finds no readable
+    // `.json` owner, unlinks what it can, and then cannot `rmdirSync` a directory it
+    // never created. While that ENOTEMPTY shared an unconditional `continue` with
+    // ENOENT, the loop re-read the same entry at 100% CPU for as long as it lived.
+    // A directory cannot clear on its own, so it must be named and refused instead
+    // of waited out.
+    const hangVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-subdir-'));
+    const hangFile = path.join(hangVault, 'subdir-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(hangFile, '# Subdir Target', 'utf8');
+
+    const hangLockDir = new Lock(hangVault, hangFile).lockPath;
+    fs.mkdirSync(hangLockDir);
+    fs.mkdirSync(path.join(hangLockDir, 'leftover-subdir'));
+    // Order is load-bearing: planting the entry stamps the directory's mtime, and a
+    // lockdir younger than 5s holding no `.json` is answered by the "incoming
+    // process" heuristic before the sweep is ever reached. A test written the other
+    // way round would pass on the unfixed code and prove nothing (ADR-0026).
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(hangLockDir, longAgo, longAgo);
+
+    const sleeps = spyAtomicsWait();
+    // A synchronous spin owns the event loop, so neither the per-test timeout nor any
+    // timer can interrupt it. The tripwire inside the patch is what turns a
+    // regression into a named failure instead of a hung suite.
+    const SPIN_TRIPWIRE = 40;
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function guardedRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === hangLockDir) {
+        rmdirCalls += 1;
+        if (rmdirCalls > SPIN_TRIPWIRE) {
+          const spin = new Error(
+            `${SPIN_TRIPWIRE} rmdirSync calls on one un-removable lock directory — the ENOTEMPTY path is unbounded`
+          ) as NodeError;
+          spin.code = 'ELOOP';
+          throw spin;
+        }
+      }
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(hangVault, hangFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(
+            err.code,
+            'ECONFLICT',
+            `expected a lock conflict, got ${String(err.code)}: ${err.message}`
+          );
+          assert.match(err.message, /^Lock conflict: /);
+          assert.match(err.message, /leftover-subdir/, 'the conflict must name the entry that will not clear');
+          return true;
+        }
+      );
+      assert.deepStrictEqual(
+        sleeps.calls,
+        [] as number[],
+        'a permanent condition must be refused, never waited out'
+      );
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      try { fs.rmSync(hangVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('an un-unlinkable lock directory entry is retried with backoff and then reported as a conflict (#539)', { timeout: 10000 }, async () => {
+    // The other shape of the reported hang: a *file* inside the lockdir that
+    // `fs.unlinkSync` cannot remove because another process holds it open with no
+    // sharing. Unlike a directory this can clear on its own, so it is waited out —
+    // but only for the budget, and every retry parks instead of spinning.
+    const heldVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-held-open-'));
+    const heldFile = path.join(heldVault, 'held-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(heldFile, '# Held Target', 'utf8');
+
+    const heldLockDir = new Lock(heldVault, heldFile).lockPath;
+    fs.mkdirSync(heldLockDir);
+    const heldEntry = path.join(heldLockDir, 'held-open.txt');
+    fs.writeFileSync(heldEntry, 'held', 'utf8');
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(heldLockDir, longAgo, longAgo);
+
+    const RETRY_BUDGET = 5; // mirrors ENOTEMPTY_RETRY_ATTEMPTS in src/storage/lock.ts
+
+    const sleeps = spyAtomicsWait();
+    const originalUnlinkSync = fs.unlinkSync;
+    let unlinkCalls = 0;
+    (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = function refusingUnlinkSync(
+      this: unknown,
+      p: fs.PathLike
+    ): void {
+      if (typeof p === 'string' && p === heldEntry) {
+        unlinkCalls += 1;
+        // The Windows shape of "another process holds this file open with no
+        // sharing": the entry exists, the name will not go away.
+        const refused = new Error(`EPERM: operation not permitted, unlink '${heldEntry}'`) as NodeError;
+        refused.code = 'EPERM';
+        throw refused;
+      }
+      return (originalUnlinkSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike);
+    };
+
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function countingRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === heldLockDir) rmdirCalls += 1;
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(heldVault, heldFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(
+            err.code,
+            'ECONFLICT',
+            `expected a lock conflict, got ${String(err.code)}: ${err.message}`
+          );
+          assert.match(err.message, /held-open\.txt/, 'the conflict must name what is still inside');
+          return true;
+        }
+      );
+      assert.strictEqual(unlinkCalls, RETRY_BUDGET + 1, 'the entry is retried, not abandoned after one refusal');
+      assert.strictEqual(rmdirCalls, RETRY_BUDGET + 1, 'one attempt plus the retry budget, then give up');
+      // Equal work, not elapsed time (ADR-0026): every retry parks exactly once, and
+      // the schedule grows past the first two attempts without breaking the ceiling.
+      assert.strictEqual(sleeps.calls.length, RETRY_BUDGET, 'every retry must park instead of spinning');
+      assert.ok(
+        sleeps.calls.every(d => d > 0 && d <= 300),
+        `every park must stay within the 300ms ceiling: ${sleeps.calls.join(', ')}`
+      );
+      assert.ok(
+        sleeps.calls.some(d => d > 100),
+        `the backoff must grow past the initial delay: ${sleeps.calls.join(', ')}`
+      );
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { unlinkSync: typeof fs.unlinkSync }).unlinkSync = originalUnlinkSync;
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      try { fs.rmSync(heldVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('the acquisition loop is bounded even when the lock directory never settles (#539)', { timeout: 10000 }, async () => {
+    // The backstop behind the ENOTEMPTY budget: every other `continue` reports a state
+    // change, but a filesystem that keeps answering ENOENT for a directory that keeps
+    // existing would still loop forever. The bound makes termination a property of the
+    // code rather than of the filesystem's honesty.
+    const MAX_ACQUISITION_ITERATIONS = 20; // mirrors src/storage/lock.ts
+
+    const boundVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-bound-'));
+    const boundFile = path.join(boundVault, 'bound-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(boundFile, '# Bound Target', 'utf8');
+
+    const boundLockDir = new Lock(boundVault, boundFile).lockPath;
+    fs.mkdirSync(boundLockDir); // present, so every `mkdirSync` answers EEXIST
+
+    const SPIN_TRIPWIRE = MAX_ACQUISITION_ITERATIONS * 3;
+    const originalReaddirSync = fs.readdirSync;
+    let readdirCalls = 0;
+    // `unknown` on the slot rather than `typeof fs.readdirSync`: the real member is
+    // overloaded, and a plain string[] recorder is not assignable to it.
+    (fs as unknown as { readdirSync: unknown }).readdirSync = function vanishingReaddirSync(
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): string[] {
+      if (typeof p === 'string' && p === boundLockDir) {
+        readdirCalls += 1;
+        if (readdirCalls > SPIN_TRIPWIRE) {
+          const spin = new Error(
+            `${SPIN_TRIPWIRE} readdirSync calls on one lock directory — the acquisition loop is unbounded`
+          ) as NodeError;
+          spin.code = 'ELOOP';
+          throw spin;
+        }
+        // "Someone deleted it, retry mkdir" — the forward-progress answer that never
+        // becomes progress, because the directory is still there.
+        const vanished = new Error(`ENOENT: no such file or directory, scandir '${boundLockDir}'`) as NodeError;
+        vanished.code = 'ENOENT';
+        throw vanished;
+      }
+      return (originalReaddirSync as unknown as (...a: unknown[]) => string[]).call(this, p as fs.PathLike, ...rest);
+    };
+
+    try {
+      await assert.rejects(
+        async () => await new Lock(boundVault, boundFile).acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(
+            err.code,
+            'ECONFLICT',
+            `expected the loop bound to surface a conflict, got ${String(err.code)}: ${err.message}`
+          );
+          assert.match(err.message, /^Lock conflict: /);
+          assert.match(err.message, /did not settle/, 'the conflict must attribute the churn');
+          return true;
+        }
+      );
+      assert.strictEqual(
+        readdirCalls,
+        MAX_ACQUISITION_ITERATIONS,
+        'the loop must stop at the iteration bound'
+      );
+    } finally {
+      (fs as unknown as { readdirSync: unknown }).readdirSync = originalReaddirSync;
+      try { fs.rmSync(boundVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  test('a lock directory another process removed first is forward progress, not a conflict (#539)', { timeout: 10000 }, async () => {
+    // The one `continue` that must survive unbudgeted: ENOENT says the directory is
+    // already gone, so the next `mkdirSync` is a real acquisition attempt. Refusing it
+    // here would turn a lost race into a spurious conflict.
+    const raceVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-enoent-'));
+    const raceFile = path.join(raceVault, 'enoent-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(raceFile, '# Enoent Target', 'utf8');
+
+    const raceLockDir = new Lock(raceVault, raceFile).lockPath;
+    fs.mkdirSync(raceLockDir); // empty, so recovery has nothing to quarantine
+    const longAgo = new Date(Date.now() - STALE_TIMEOUT - 5000);
+    fs.utimesSync(raceLockDir, longAgo, longAgo);
+
+    const sleeps = spyAtomicsWait();
+    const originalRmdirSync = fs.rmdirSync;
+    let rmdirCalls = 0;
+    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function racingRmdirSync(
+      this: unknown,
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ): void {
+      if (typeof p === 'string' && p === raceLockDir) {
+        rmdirCalls += 1;
+        if (rmdirCalls === 1) {
+          // A rival removed it between our inspection and our attempt: the removal did
+          // happen, and the error the caller sees is ENOENT.
+          (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+          const gone = new Error(`ENOENT: no such file or directory, rmdir '${raceLockDir}'`) as NodeError;
+          gone.code = 'ENOENT';
+          throw gone;
+        }
+      }
+      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(this, p as fs.PathLike, ...rest);
+    };
+
+    const raceLock = new Lock(raceVault, raceFile);
+    try {
+      await raceLock.acquire();
+      assert.deepStrictEqual(sleeps.calls, [] as number[], 'ENOENT is forward progress and must never park');
+      assert.strictEqual(rmdirCalls, 1, 'the lost race must be handled without a second removal attempt');
+      assert.ok(getLockData(raceLock.lockPath), 'the retry must have acquired the lock');
+    } finally {
+      sleeps.restore();
+      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
+      raceLock.release();
+      try { fs.rmSync(raceVault, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   });
 

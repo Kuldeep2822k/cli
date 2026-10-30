@@ -98,10 +98,34 @@ When a process encounters an existing lock directory, it attempts to recover it 
 
 | Step | Action | Failure Handling |
 | --- | --- | --- |
-| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop [src/storage/lock.ts#135](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L135-L135) |
-| 2 | Filter `activeFiles` | If no JSON files but directory is < 5s old, throw `ECONFLICT` (incoming process) [src/storage/lock.ts#165-179](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L165-L179) |
-| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue [src/storage/lock.ts#194](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L194-L194) |
-| 4 | `rmdirSync(lockDir)` | If `ENOTEMPTY`, a new process won the lock; retry loop [src/storage/lock.ts#208-212](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/lock.ts#L208-L212) |
+| 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop (`createLock`) |
+| 2 | Filter `activeFiles` | If no JSON files but directory is < 5s old, throw `ECONFLICT` (incoming process) (`createLock`) |
+| 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue (`createLock`) |
+| 4 | `rmdirSync(lockDir)` | `ENOENT` → another process removed it, retry the loop. `ENOTEMPTY` → bounded retry, then `ECONFLICT` naming what is still inside. Windows `EPERM`/`EBUSY` → bounded retry, then the raw error surfaces (`createLock`) |
+
+### Bounded Acquisition
+
+Every branch that cannot make progress is bounded, so no vault write can spin the
+CLI. Three rules cover it:
+
+- **`ENOTEMPTY` is a budget, not a retry signal.** The sweep above deletes the entries
+  it observed; `rmdirSync` answering `ENOTEMPTY` afterwards means one survived — a file
+  another process holds open, or a subdirectory this module never creates. The removal
+  is retried `ENOTEMPTY_RETRY_ATTEMPTS` times (5, i.e. one attempt plus five retries,
+  50 ms doubling to a 300 ms ceiling with ±25% jitter — ~950 ms of *parked* time) and
+  then throws `Lock conflict: … would not empty after 5 retries; still present: <entries>`
+  with `code = 'ECONFLICT'`, exit `4` (INV-04, INV-09). Waiting is a thread park
+  (`SyncWait`), never a spin.
+- **A directory entry fails fast.** Nothing in this module writes a directory into a
+  lockdir, so one found there is foreign residue that `rmdirSync` will never get past.
+  It is named and refused immediately rather than spending the budget first.
+- **`ENOENT` is the only unbudgeted `continue`.** It reports that the directory is
+  already gone, so the next `mkdirSync` is a real acquisition attempt. The acquisition
+  loop itself is capped at `MAX_ACQUISITION_ITERATIONS` (20) as a backstop; reaching it
+  means another process keeps deleting the directory, and it exits `4` like any other
+  contention.
+
+Recorded in ADR-0036.
 
 ---
 
