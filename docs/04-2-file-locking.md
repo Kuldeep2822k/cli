@@ -126,13 +126,14 @@ flowchart TD
   RS -->|No| F
   RS -->|Yes| RM[Try directory removal]
   REST -->|No| RM
-  RM --> BUSY{EPERM or EBUSY on Windows?}
-  BUSY -->|Yes| RETRY[Retry five times with backoff]
-  RETRY -->|Cleared| R
-  RETRY -->|Still held| EXIT5[Surface the raw error, exit 5]
-  BUSY -->|No| EMP{Still non-empty?}
-  EMP -->|No| R
-  EMP -->|Yes| BUD{Budget left?}
+  RM --> RMR{Removal outcome?}
+  RMR -->|Removed or ENOENT| R
+  RMR -->|ENOTEMPTY| BUD{Budget left?}
+  RMR -->|Other error| EXIT5[Surface the raw error, exit 5]
+  RMR -->|EPERM or EBUSY on Windows| RETRY[Retry five times with backoff]
+  RETRY -->|Cleared or ENOENT| R
+  RETRY -->|ENOTEMPTY| BUD
+  RETRY -->|Still held or other error| EXIT5
   BUD -->|No| F
   BUD -->|Yes| PARK[Park with backoff]
   PARK --> R

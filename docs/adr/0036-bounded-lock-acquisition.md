@@ -54,7 +54,7 @@ The sweep quarantines a record by rename, re-checks staleness, then either delet
 
 ### Residue names are escaped before they reach a terminal
 
-Conflict messages carry entry names into stderr and into captured logs, and POSIX permits a newline or an ANSI escape sequence inside a filename. `printableEntryName` spells every C0 control character, DEL, and the C1 range (U+0080–U+009F) as `\xNN`, so the residue stays identifiable while an unescaped name cannot forge, hide or recolor the lines around the error it appears in. C1 is included because Node decodes it from valid UTF-8 and some terminals treat U+009B as a CSI introducer — the same forgery by another route. Windows refuses those names outright, so the escaping costs nothing where the risk does not exist.
+Conflict messages carry entry names into stderr and into captured logs, and POSIX permits a newline or an ANSI escape sequence inside a filename. `printableEntryName` spells every C0 control character, DEL, and the C1 range (U+0080–U+009F) as `\xNN`, so the residue stays identifiable while an unescaped name cannot forge, hide or recolor the lines around the error it appears in. C1 is included because Node decodes it from valid UTF-8 and some terminals treat U+009B as a CSI introducer — the same forgery by another route. The escaping runs per character over a short name, so it happens unconditionally rather than relying on a platform refusing the name.
 
 ### Every contention path throws through one builder
 

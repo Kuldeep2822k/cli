@@ -306,9 +306,9 @@ function isDirectoryEntry(entryPath: string): boolean {
  * name could forge, hide or recolor the lines around the conflict it appears in.
  * C1 counts: Node decodes U+0080–U+009F from valid UTF-8, and some terminals treat
  * U+009B as a CSI introducer, which is the same forgery by another route. Escaping
- * keeps the residue identifiable while making the text safe to print. Windows
- * refuses these names outright, so this only ever matters on POSIX and costs
- * nothing where it does not.
+ * keeps the residue identifiable while making the text safe to print. It runs per
+ * character over a short name, so it happens unconditionally rather than relying on
+ * some platform refusing the name.
  */
 function printableEntryName(name: string): string {
   let rendered = '';
