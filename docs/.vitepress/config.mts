@@ -1,43 +1,10 @@
 import { createRequire } from 'node:module'
 import { defineConfig } from 'vitepress'
-import { withMermaid } from 'vitepress-plugin-mermaid'
-import type { Plugin } from 'vite'
 
 const require = createRequire(import.meta.url)
 const pkg = require('../../package.json')
 
-/**
- * The Mermaid plugin registers its renderer synchronously, which pulls every
- * diagram parser into the entry chunk and preloads ~1 MB on pages with no
- * diagrams. Replace the registration with an async component so Rollup emits
- * Mermaid as a separate chunk that loads only when a page renders one.
- */
-function lazyMermaid(): Plugin {
-  return {
-    name: 'docs-lazy-mermaid',
-    enforce: 'post',
-    transform(code, id) {
-      if (!id.includes('vitepress/dist/client/app/index.js')) return
-
-      const hadDefineAsyncComponent = /\bdefineAsyncComponent\b/.test(code)
-      let out = code
-        .replace(/^import Mermaid from 'vitepress-plugin-mermaid\/Mermaid\.vue';\r?\n/m, '')
-        .replace(
-          /app\.component\("Mermaid", Mermaid\);/,
-          'app.component("Mermaid", defineAsyncComponent(() => import("vitepress-plugin-mermaid/Mermaid.vue")));'
-        )
-
-      if (out === code) return
-      if (!hadDefineAsyncComponent) {
-        out = `import { defineAsyncComponent } from 'vue';\n${out}`
-      }
-      return { code: out, map: null }
-    }
-  }
-}
-
-const config = withMermaid(
-  defineConfig({
+const config = defineConfig({
     base: '/cli/',
     title: 'PALEE CLI',
     description: 'Personal Active Learning & Evaluation Engine — Smart, AI-powered study tracker for Obsidian vaults.',
@@ -54,23 +21,21 @@ const config = withMermaid(
       }
     },
     markdown: {
-      math: true
-    },
-
-    vite: {
-      optimizeDeps: {
-        // lazyMermaid() below creates the dynamic import after Vite's dependency
-        // scanner has run, so Mermaid is never discovered on its own. Pre-bundle
-        // it explicitly: its CommonJS dependency fastdom has no ESM default
-        // export, and serving it raw leaves every diagram stuck on "Loading...".
-        include: ['mermaid']
+      math: true,
+      config(md) {
+        const fence = md.renderer.rules.fence
+        if (!fence) return
+        md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+          const token = tokens[idx]
+          if (token.info.trim() === 'mermaid') {
+            // Expose the unmodified diagram source for the copy control;
+            // MermaidZoom renders it into the inner container client-side.
+            const graph = encodeURIComponent(token.content)
+            return `<div class="mermaid-block" data-graph="${graph}"><div class="mermaid"></div></div>\n`
+          }
+          return fence(tokens, idx, options, env, self)
+        }
       }
-    },
-
-    transformHtml(code) {
-      // The async Mermaid component is only resolved on pages that contain a
-      // diagram; drop Vite's eager preload so other pages never download it.
-      return code.replace(/<link rel="modulepreload" href="[^"]*\/Mermaid\.[^"]*\.js"[^>]*>\s*/g, '')
     },
 
     transformHead({ pageData }) {
@@ -99,28 +64,6 @@ const config = withMermaid(
     head: [
       ['link', { rel: 'icon', type: 'image/png', href: '/cli/favicon.png' }]
     ],
-
-    mermaid: {
-      // GitHub's markdown-preview palette: transparent canvas, subtle gray
-      // nodes and borders. The site is force-dark, so Mermaid's own theme is
-      // `dark`; these variables replace its near-black nodes and white borders.
-      theme: 'dark',
-      themeVariables: {
-        background: 'transparent',
-        primaryColor: '#21262d',
-        primaryTextColor: '#e6edf3',
-        primaryBorderColor: '#30363d',
-        lineColor: '#8b949e',
-        secondaryColor: '#161b22',
-        tertiaryColor: '#161b22',
-        clusterBkg: '#161b22',
-        clusterBorder: '#30363d',
-        edgeLabelBackground: '#090a0f',
-        titleColor: '#8b949e',
-        fontSize: '14px',
-        fontFamily: 'Inter, system-ui, sans-serif'
-      }
-    },
 
     themeConfig: {
       logo: '/palee-logo.png',
@@ -241,11 +184,6 @@ const config = withMermaid(
         copyright: 'Copyright © 2026 Kuldeep Kumar. Powered by VitePress.'
       }
     }
-  })
-)
-
-config.vite ??= {}
-config.vite.plugins ??= []
-config.vite.plugins.push(lazyMermaid())
+})
 
 export default config

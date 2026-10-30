@@ -21,177 +21,199 @@
   color: #60a5fa;
 }
 
-/* GitHub-Style Diagram Card & Pan-Zoom Viewport */
-.mermaid-diagram-card,
-.mermaid,
-[data-mermaid],
-.vp-mermaid {
+/* Mermaid diagrams — GitHub-style presentation.
+   Inline diagrams render as static images in the page flow; interaction
+   lives only in the full-screen viewer opened from the hover toolbar. */
+.mermaid-block {
   position: relative;
-  background: transparent !important;
-  border: none;
-  border-radius: 0;
-  margin: 20px 0;
-  overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  user-select: text;
+  margin: 24px 0;
 }
 
-.mermaid-diagram-card.is-focused {
-  border-color: var(--vp-c-brand-1, #3b82f6) !important;
-  box-shadow: 0 0 0 1px var(--vp-c-brand-1, #3b82f6), 0 4px 20px rgba(59, 130, 246, 0.12) !important;
-}
-
-.mermaid-viewport {
-  position: relative;
-  width: 100%;
-  min-height: 0;
-  overflow: hidden;
-  touch-action: none;
-  cursor: grab;
+.mermaid-block .mermaid {
   display: flex;
-  align-items: center;
-  justify-content: safe center;
-  padding: 32px 0 16px;
+  justify-content: center;
+  margin: 0;
 }
 
-.mermaid-viewport.is-dragging {
-  cursor: grabbing !important;
-}
-
-.mermaid-viewport svg {
+.mermaid-block .mermaid svg {
   display: block;
-  margin: auto;
-  max-width: 100% !important;
+  max-width: 100%;
   height: auto;
-  transform-origin: center center;
-  pointer-events: auto;
-  text-rendering: geometricPrecision;
   shape-rendering: geometricPrecision;
 }
 
-/* Sharp text rendering across all Mermaid SVG text nodes & foreignObjects */
-.mermaid-viewport svg text,
-.mermaid-viewport svg .label,
-.mermaid-viewport svg .nodeLabel,
-.mermaid-viewport svg .edgeLabel,
-.mermaid-viewport svg foreignObject,
-.mermaid-viewport svg foreignObject div,
-.mermaid-viewport svg foreignObject span,
-.mermaid-viewport svg foreignObject p {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  -webkit-font-smoothing: antialiased !important;
-  -moz-osx-font-smoothing: grayscale !important;
-  text-rendering: geometricPrecision !important;
+/* Mermaid 12 emits HTML labels as <p> inside foreignObject; VitePress prose
+   margins would otherwise overflow the node boxes. */
+.mermaid-block svg foreignObject p,
+.mermaid-modal svg foreignObject p {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: 1.5;
 }
 
-/* GitHub-Style Diagram Floating Toolbar */
-.github-diagram-toolbar {
+/* Give diagram pages a wider column so diagrams stay readable inline. */
+@media (min-width: 1440px) {
+  .VPDoc.has-aside:has(.mermaid-block) .content-container {
+    max-width: 940px;
+  }
+}
+
+@media (min-width: 1600px) {
+  body:has(.mermaid-block) {
+    --vp-layout-max-width: 1600px;
+  }
+}
+
+.mermaid:empty::before {
+  content: 'Loading diagram…';
+  display: block;
+  padding: 24px 0;
+  color: var(--vp-c-text-3);
+  font-size: 14px;
+  text-align: center;
+}
+
+.mermaid-error .mermaid {
+  padding: 16px;
+  overflow-x: auto;
+  color: var(--vp-c-text-2);
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  border: 1px solid var(--vp-c-border);
+  border-radius: 6px;
+}
+
+.mermaid-toolbar {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.mermaid-tool {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  background: var(--vp-c-bg-elv, #ffffff);
-  border: 1px solid var(--vp-c-divider, #d0d7de);
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #8b949e;
+  background: rgba(33, 38, 45, 0.9);
+  border: 1px solid #30363d;
   border-radius: 6px;
-  padding: 3px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  opacity: 0.85;
-  transition: opacity 0.15s ease;
-  z-index: 20;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.mermaid-diagram-card:hover .github-diagram-toolbar {
+.mermaid-tool:hover {
+  color: #e6edf3;
+  background: #30363d;
+}
+
+.mermaid-tool:focus-visible,
+.mermaid-modal-btn:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.mermaid-tool.is-copied {
+  color: #3fb950;
+}
+
+.mermaid-block:hover .mermaid-toolbar,
+.mermaid-block:focus-within .mermaid-toolbar {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.gh-diag-btn {
+@media (hover: none) {
+  .mermaid-toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Full-screen diagram viewer */
+.mermaid-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--vp-c-bg);
+}
+
+.mermaid-modal-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mermaid-modal-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.mermaid-modal-canvas {
+  width: max-content;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.mermaid-modal-canvas svg {
+  display: block;
+}
+
+.mermaid-modal-toolbar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
   display: flex;
+  gap: 6px;
+}
+
+.mermaid-modal .mermaid-tool {
+  width: 32px;
+  height: 32px;
+}
+
+.mermaid-modal-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mermaid-modal-btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--vp-c-text-2, #656d76);
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.gh-diag-btn:hover {
-  background-color: var(--vp-c-bg-alt, #f6f8fa);
-  color: var(--vp-c-text-1, #1f2328);
-}
-
-.gh-diag-btn:active {
-  background-color: var(--vp-c-divider, #d0d7de);
-}
-
-/* Fullscreen Mode (GitHub-style full page diagram view) */
-.mermaid-diagram-card.is-fullscreen {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 99999 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-  border: none !important;
-  background: var(--vp-c-bg, #ffffff) !important;
-  box-shadow: none !important;
-}
-
-.mermaid-diagram-card.is-fullscreen .mermaid-viewport {
-  width: 100vw;
-  height: 100vh;
-  padding: 40px;
-}
-
-.mermaid-diagram-card.is-fullscreen .mermaid-viewport svg {
-  max-width: none !important;
-  max-height: none !important;
-}
-
-/* Dark Mode Scoping for Diagram Cards & Toolbar */
-.dark .mermaid-diagram-card,
-.dark .mermaid,
-.dark [data-mermaid],
-.dark .vp-mermaid {
-  background: transparent !important;
-  border: none;
-}
-
-.dark .mermaid-diagram-card:hover,
-.dark .mermaid:hover,
-.dark [data-mermaid]:hover,
-.dark .vp-mermaid:hover {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.dark .github-diagram-toolbar {
-  background: #161b22;
-  border-color: #30363d;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-
-.dark .gh-diag-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
   color: #8b949e;
+  background: rgba(33, 38, 45, 0.9);
+  border: 1px solid #30363d;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.dark .gh-diag-btn:hover {
-  background-color: #21262d;
-  color: #f0f6fc;
-}
-
-.dark .gh-diag-btn:active {
-  background-color: #30363d;
-}
-
-.dark .mermaid-diagram-card.is-fullscreen {
-  background: #0d1117 !important;
+.mermaid-modal-btn:hover {
+  color: #e6edf3;
+  background: #30363d;
 }
 
 /* Feature cards base styling */
