@@ -99,7 +99,7 @@ When a process encounters an existing lock directory, it attempts to recover it 
 | Step | Action | Failure Handling |
 | --- | --- | --- |
 | 1 | `readdirSync(lockDir)` | If `ENOENT`, someone else cleaned it; retry loop (`createLock`) |
-| 2 | Filter `activeFiles` | If there is no live record and the directory is under 5s old *and* is either empty or holds an in-flight `.json.quarantine`, throw `ECONFLICT` (incoming process). A directory holding only foreign residue is never treated as incoming (`createLock`) |
+| 2 | Filter `activeFiles` | If the directory is under 5s old *and* is either empty or holds an in-flight `.json.quarantine`, throw `ECONFLICT` (incoming process). The quarantine term does not depend on how many `.json` records sit beside it — a stale record of our own is not permission to sweep someone else's recovery. A directory holding only foreign residue is never treated as incoming (`createLock`) |
 | 3 | `renameSync` to `.quarantine` | If it fails, the file was already moved/deleted; continue (`createLock`) |
 | 4 | `rmdirSync(lockDir)` | `ENOENT` → another process removed it, retry the loop. `ENOTEMPTY` → bounded retry, then `ECONFLICT` naming what is still inside. Windows `EPERM`/`EBUSY` → bounded retry, then the raw error surfaces (`createLock`) |
 
@@ -121,12 +121,14 @@ CLI. Three rules cover it:
   It is named and refused immediately rather than spending the budget first.
 - **A quarantine in flight is left alone.** The sweep renames a record to
   `.json.quarantine` before deciding to delete or restore it. In that window the
-  directory holds no `.json`, so a second acquirer that read it as residue would
-  delete the record a live holder is about to be given back — and the restore would
-  then fail. A fresh directory holding a quarantine is therefore another recovery, and
-  is refused; once its mtime ages past 5s it is treated as abandoned and cleaned up. A
-  restore that cannot put a live record back is a conflict, never a silent swallow: the
-  holder would otherwise keep writing with no record on disk.
+  directory holds no `.json` record for that holder, so a second acquirer that read the
+  quarantine as residue would delete the record a live holder is about to be given back
+  — and the restore would then fail. A fresh directory holding a quarantine is therefore
+  another recovery, and is refused; once its mtime ages past 5s it is treated as
+  abandoned and cleaned up. The check is independent of any other `.json` records in the
+  directory, because a stale record of ours says nothing about the safety of sweeping
+  someone else's. A restore that cannot put a live record back is a conflict, never a
+  silent swallow: the holder would otherwise keep writing with no record on disk.
 - **`ENOENT` is the only unbudgeted *forward-progress signal*.** It reports that the
   directory is already gone, so the next `mkdirSync` is a real acquisition attempt.
   The loop's other non-parking `continue`s (a vanished record at write time, a

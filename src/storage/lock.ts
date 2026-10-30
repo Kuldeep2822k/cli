@@ -486,11 +486,17 @@ function createLock(lockDir: string, targetPath: string): LockData {
       // takes it away, and unlinking a quarantine destroys the record a live holder is
       // about to be given back.
       //
-      // A directory holding only foreign residue is therefore never treated as an
-      // incoming process: our own sweep stamps the directory mtime this check reads, and
-      // refusing there would blame a rival for our own progress.
+      // The quarantine term is deliberately independent of how many `.json` records sit
+      // beside it: a stale record of our own does not make someone else's in-flight
+      // recovery safe to sweep. This invocation cannot leave a quarantine of its own behind
+      // — the sweep below deletes or restores every one it creates inside the same round —
+      // so any quarantine seen here belongs to someone else.
+      //
+      // A directory holding only foreign residue is never treated as an incoming process:
+      // our own sweep stamps the directory mtime this check reads, and refusing there
+      // would blame a rival for our own progress.
       const recoveryInFlight = files.some(name => name.endsWith('.quarantine'));
-      if (activeFiles.length === 0 && (files.length === 0 || recoveryInFlight)) {
+      if (files.length === 0 || recoveryInFlight) {
         let incomingConflict = false;
         try {
           const dirStat = fs.statSync(lockDir);

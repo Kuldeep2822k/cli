@@ -46,7 +46,7 @@ The Windows `EPERM`/`EBUSY` retry loop can also answer `ENOTEMPTY`: a transient 
 
 It used to ask that question of any directory with no `.json` record, which misfired on the residue this module is trying to clear: our own sweep stamps the directory mtime the check reads, so the next round concluded a rival had just arrived and abandoned a real residue. Gating the check on the retry budget instead would have fixed the message and broken mutual exclusion in a different way — a rival that replaces the lock directory mid-budget leaves it young *and empty*.
 
-A directory holding only foreign residue is therefore never an incoming process, and the two states above always are. A quarantine older than the 5 s window counts as abandoned rather than live, so a crashed recovery still self-heals.
+A directory holding only foreign residue is therefore never an incoming process, and the two states above always are. The quarantine term is independent of how many `.json` records sit beside it: a stale record of our own is not permission to sweep someone else's in-flight recovery, and a gate that required "no `.json` at all" missed exactly that pairing. A quarantine older than the 5 s window counts as abandoned rather than live, so a crashed recovery still self-heals.
 
 ### A failed restore is a conflict, not a swallow
 

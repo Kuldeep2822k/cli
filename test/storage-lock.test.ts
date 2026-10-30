@@ -1499,6 +1499,67 @@ describe('File Locking', () => {
     }
   });
 
+  test('a stale record beside another recovery’s live quarantine does not unlock the directory (#539)', { timeout: 10000 }, async () => {
+    // Two recoveries, two artefacts: our own stale record and a rival's quarantined — but
+    // live — one. The `.json` count is non-zero, so a gate that refuses only when the
+    // directory holds no `.json` at all lets the sweep delete the rival's record as
+    // residue and then take the directory. The quarantine has to be recognised whatever
+    // sits beside it.
+    const staleId = 'L-20260101T000000-deaddead';
+    const liveId = 'L-20260101T000001-livefeed';
+    const fx = residueVault('mixed-quarantine', (lockDir, target) => {
+      fs.writeFileSync(
+        path.join(lockDir, `${staleId}.json`),
+        JSON.stringify(
+          { lock_id: staleId, target, pid: 999999, hostname: 'not-this-host', created_at: new Date(0).toISOString() },
+          null,
+          2
+        ),
+        'utf8'
+      );
+      // The rival's record, already quarantined and held by *this* process, so it is
+      // alive: deleting it would leave a holder writing with nothing on disk.
+      fs.writeFileSync(
+        path.join(lockDir, `${liveId}.json.quarantine`),
+        JSON.stringify(
+          { lock_id: liveId, target, pid: process.pid, hostname: os.hostname(), created_at: new Date().toISOString() },
+          null,
+          2
+        ),
+        'utf8'
+      );
+    });
+    const staleRecord = fx.entry(`${staleId}.json`);
+    const liveQuarantine = fx.entry(`${liveId}.json.quarantine`);
+    agePastStale(staleRecord);
+    // A quarantine in flight means a rename that just happened, so the directory is young.
+    // `residueVault` aged it for the stale-recovery scenarios; this one is mid-recovery.
+    const justNow = new Date();
+    fs.utimesSync(fx.lockDir, justNow, justNow);
+
+    try {
+      await assert.rejects(
+        () => fx.newLock().acquire(),
+        (err: Error) => {
+          assertConflict(err, /incoming process/);
+          return true;
+        }
+      );
+      assert.strictEqual(
+        fs.existsSync(liveQuarantine),
+        true,
+        'the rival’s quarantined record must survive a competing acquisition'
+      );
+      assert.strictEqual(
+        fs.existsSync(staleRecord),
+        true,
+        'and nothing may be swept out from under that recovery either'
+      );
+    } finally {
+      fx.dispose();
+    }
+  });
+
   test('a restore that cannot put a live record back is refused, not swallowed (#539)', { timeout: 10000 }, async () => {
     // The other half of the quarantine contract. When the holder refreshed after this
     // side read the record as stale, the sweep must put it back. A silent failure there
