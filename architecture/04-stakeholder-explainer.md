@@ -5,7 +5,7 @@
 **Purpose:** explain the architecture in the order the risks appear, not in the order the folders are named.
 **Verified against:** the code at `d4e02a4` (v0.5.2), 2026-09-22. Companion technical views: [`01-architecture-model.md`](01-architecture-model.md), [`02-dependency-impact.md`](02-dependency-impact.md), [`03-docs-audit-findings.md`](03-docs-audit-findings.md).
 
-The Mermaid blocks here are Markdown-native and render in the existing VitePress site (`vitepress-plugin-mermaid` is already configured), so they can be lifted straight into `docs/`.
+The Mermaid blocks here are Markdown-native and render in the existing VitePress site through a custom fence renderer and client-side Mermaid viewer, so they can be lifted straight into `docs/`.
 
 ---
 
