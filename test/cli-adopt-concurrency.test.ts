@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import adoptCommand from '../src/cli/adopt';
+import adoptCommand, { formatDiagnosticPath } from '../src/cli/adopt';
 import type { AdoptOptions } from '../src/types';
 
 /**
@@ -117,13 +117,18 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
     const priorExit = process.exitCode;
     process.exitCode = 0;
     const realErr = console.error;
+    const realLog = console.log;
     console.error = (...args: unknown[]): void => {
+      logged.push(args.map(String).join(' '));
+    };
+    console.log = (...args: unknown[]): void => {
       logged.push(args.map(String).join(' '));
     };
     try {
       await adoptCommand(undefined, options);
     } finally {
       console.error = realErr;
+      console.log = realLog;
       (fs as any).readFileSync = realRead;
     }
     const exit = process.exitCode;
@@ -164,7 +169,7 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
       logged.join(' | ')
     );
     assert.ok(
-      logged.some((l) => /alpha\.md \(a palee_id is now declared\)/.test(l)),
+      logged.some((l) => /"alpha\.md" \(a palee_id is now declared\)/.test(l)),
       logged.join(' | ')
     );
   });
@@ -181,7 +186,7 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
 
     assert.equal(exit, 4, logged.join(' | '));
     assert.ok(
-      logged.some((l) => /alpha\.md \(a palee_id is now declared\)/.test(l)),
+      logged.some((l) => /"alpha\.md" \(a palee_id is now declared\)/.test(l)),
       logged.join(' | ')
     );
   });
@@ -202,7 +207,7 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
 
     assert.equal(exit, 4, logged.join(' | '));
     assert.ok(
-      logged.some((l) => /alpha\.md \(the frontmatter opener is unclosed\)/.test(l)),
+      logged.some((l) => /"alpha\.md" \(the frontmatter opener is unclosed\)/.test(l)),
       logged.join(' | ')
     );
   });
@@ -221,19 +226,33 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
       logged.some((l) => /OCC conflict: 6 note\(s\) were modified/.test(l)),
       logged.join(' | ')
     );
-    assert.equal(logged.filter((l) => /• n\d\.md \(/.test(l)).length, 5, logged.join(' | '));
+    assert.equal(logged.filter((l) => /• "n\d\.md" \(/.test(l)).length, 5, logged.join(' | '));
     assert.ok(logged.some((l) => /… and 1 more/.test(l)), logged.join(' | '));
   });
 
   test('under --auto-chain, a planned edge is never written against a moved identity', async () => {
+    const preview: string[] = [];
+    await runBatchAgainst(
+      [
+        { name: '01-gamma.md', content: PLAIN },
+        { name: '02-delta.md', content: BETA },
+      ],
+      preview,
+      { all: true, yes: true, autoChain: true, dryRun: true }
+    );
+    assert.ok(
+      preview.some((l) => /02-delta\.md depends on 01-gamma\.md/.test(l)),
+      preview.join(' | ')
+    );
+
     const logged: string[] = [];
     // Distinct paths, and the third read: auto-chain calls loadTopics() before
     // Phase 1, which reads each note one more time (after the scan's read). Read
     // 3 is the pre-write re-read, so the id lands after planning, not during it.
     const exit = await runBatchAgainst(
       [
-        { name: 'gamma.md', content: PLAIN, tampered: concurrentlyAdopted('palee_id: T-other') },
-        { name: 'delta.md', content: BETA },
+        { name: '01-gamma.md', content: PLAIN, tampered: concurrentlyAdopted('palee_id: T-other') },
+        { name: '02-delta.md', content: BETA },
       ],
       logged,
       { all: true, yes: true, autoChain: true },
@@ -242,8 +261,51 @@ describe('palee adopt --all vs a concurrent adoption (#538)', () => {
 
     assert.equal(exit, 4, logged.join(' | '));
     assert.ok(
-      logged.some((l) => /gamma\.md \(a palee_id is now declared\)/.test(l)),
+      logged.some((l) => /"01-gamma\.md" \(a palee_id is now declared\)/.test(l)),
       logged.join(' | ')
     );
+  });
+
+  test('dependency declarations changing after planning abort the batch before any write', async () => {
+    const logged: string[] = [];
+    const exit = await runBatchAgainst(
+      [
+        { name: '01-gamma.md', content: PLAIN },
+        {
+          name: '02-delta.md',
+          content: BETA,
+          tampered: [
+            '---',
+            'depends_on: [T-other]',
+            '---',
+            '',
+            '# Delta',
+            '',
+            '## Prerequisites',
+            '',
+            '- [[01-gamma]]',
+            '',
+            'A second candidate note.',
+            '',
+          ].join('\n'),
+        },
+      ],
+      logged,
+      { all: true, yes: true, autoChain: true },
+      3
+    );
+
+    assert.equal(exit, 4, logged.join(' | '));
+    assert.ok(
+      logged.some((l) => /"02-delta\.md" \(a dependency declaration changed\)/.test(l)),
+      logged.join(' | ')
+    );
+  });
+
+  test('batch-conflict paths escape newlines and terminal control characters', () => {
+    const rendered = formatDiagnosticPath('notes/\nspoof.md\x1b[31m');
+    assert.equal(rendered, '"notes/\\nspoof.md\\u001b[31m"');
+    assert.equal(rendered.includes('\n'), false);
+    assert.equal(rendered.includes('\x1b'), false);
   });
 });

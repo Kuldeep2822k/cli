@@ -45,6 +45,7 @@ import { detectCyclesBounded } from '../engine/dependency';
 import {
   extractDeclaredPrerequisites,
   resolveDeclaredPrerequisites,
+  type DeclaredPrereqRef,
 } from '../engine/prereq-text';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
 
@@ -171,6 +172,11 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
     return false;
   }
   return !lines.slice(1).includes('---');
+}
+
+/** Renders a vault-relative path as a single-line diagnostic value. */
+export function formatDiagnosticPath(relativePath: string): string {
+  return JSON.stringify(relativePath);
 }
 
 /**
@@ -554,6 +560,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      * an `--auto-chain` batch, which is the pass that synthesizes an edge over it.
      */
     const handAuthoredDeps = new Map<string, string[]>();
+    /** Dependency declarations captured during the scan for the Phase-1 drift check. */
+    const scanDependencyDeclarations = new Map<
+      string,
+      { dependsOn: string[]; prerequisites: DeclaredPrereqRef[] }
+    >();
 
     const recordHygieneSkip = (reason: Tier0SkipReason, relPath: string): void => {
       const list = skippedByHygiene.get(reason);
@@ -675,6 +686,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // not contribute an edge to the report either, so the list of surviving
         // candidates is the whole input.
         const ownDeps = normalizeDependencies(frontmatter?.depends_on);
+        scanDependencyDeclarations.set(relPath, {
+          dependsOn: ownDeps,
+          prerequisites: extractDeclaredPrerequisites(content),
+        });
         if (ownDeps.length > 0) {
           handAuthoredDeps.set(relPath, ownDeps);
         }
@@ -1399,6 +1414,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         });
         continue;
       }
+      if (options.autoChain) {
+        const scannedDeclarations = scanDependencyDeclarations.get(note.relativePath);
+        const freshDeclarations = {
+          dependsOn: normalizeDependencies(frontmatter?.depends_on),
+          prerequisites: extractDeclaredPrerequisites(freshContent),
+        };
+        if (
+          scannedDeclarations === undefined ||
+          JSON.stringify(freshDeclarations) !== JSON.stringify(scannedDeclarations)
+        ) {
+          driftedDuringRun.push({
+            relativePath: note.relativePath,
+            reason: 'a dependency declaration changed',
+          });
+          continue;
+        }
+      }
 
       const topicId = note.topicId ?? generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
@@ -1482,7 +1514,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           'planning; nothing was adopted.'
       );
       for (const { relativePath, reason } of driftedDuringRun.slice(0, 5)) {
-        console.error(`  • ${relativePath} (${reason})`);
+        console.error(`  • ${formatDiagnosticPath(relativePath)} (${reason})`);
       }
       if (driftedDuringRun.length > 5) {
         console.error(`  • … and ${driftedDuringRun.length - 5} more`);
