@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A lock directory that cannot be emptied no longer spins the CLI at 100% CPU** ([#539](https://github.com/Kuldeep2822k/cli/issues/539)): stale recovery's `ENOTEMPTY` path was an unconditional `continue` with no sleep and no bound, so a leftover subdirectory — or a file another process held open — hung `palee` indefinitely. Removal now retries with exponential backoff and then throws a `Lock conflict` naming the entries still inside, exit `4` as INV-09 promises; a directory entry, which no wait can clear, is refused immediately; and the acquisition loop is capped. The Windows `EPERM`/`EBUSY` path is unchanged. Recorded as ADR-0036.
+- **Batch `palee adopt --all` no longer overwrites a concurrent adoption's `palee_id`** ([#538](https://github.com/Kuldeep2822k/cli/issues/538)): the scan staged only notes with no identity, but Phase 1 judged the write by a fingerprint computed from the fresh bytes, so an id another `palee adopt` wrote between scan and preflight was replaced by the batch's minted one and every edge naming it was stranded. The pre-write re-read now re-applies the scan's no-existing-identity check to the fresh bytes — any truthy `palee_id`, of any YAML type — and refuses the unclosed-opener shape that hides one from the parser, aborting the whole batch at exit `4` before a single write, matching `adopt --undo`'s drift refusal and ADR-0015.
 
 ## [1.1.0] - 2026-10-23
 

@@ -1369,11 +1369,36 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     }
 
     const preparedBatch: PreparedBatchItem[] = [];
+    /**
+     * Notes whose identity moved after the scan. The scan only stages notes with
+     * no `palee_id` of their own (frontmatter check above), so a truthy id on the
+     * Phase-1 re-read is another process's adoption landing inside the TOCTOU
+     * window. The OCC fingerprint is computed from these same bytes, so the write
+     * would succeed and silently clobber that identity — exactly the scan-keyed
+     * rename ADR-0015 forbids. An unclosed opener is the same loss with the id
+     * hidden from the parser (the shape the scan's own guard refuses), so fresh
+     * bytes in that shape refuse here too.
+     */
+    const driftedDuringRun: Array<{ relativePath: string; reason: string }> = [];
     for (const note of toAdopt) {
       // Re-read fresh content to minimize TOCTOU window
       const freshContent = fs.readFileSync(note.absolutePath, 'utf8');
       const freshFingerprint = computeFingerprint(freshContent);
       const { frontmatter } = parseFrontmatter(freshContent);
+
+      if (frontmatter && frontmatter.palee_id) {
+        // Any truthy id, of any YAML type: the scan's B7 rule treats a
+        // non-string id as identity too, and neither is this command's to overwrite.
+        driftedDuringRun.push({ relativePath: note.relativePath, reason: 'a palee_id is now declared' });
+        continue;
+      }
+      if (hasUnclosedFrontmatterOpener(freshContent)) {
+        driftedDuringRun.push({
+          relativePath: note.relativePath,
+          reason: 'the frontmatter opener is unclosed',
+        });
+        continue;
+      }
 
       const topicId = note.topicId ?? generateTopicId();
       const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
@@ -1445,6 +1470,26 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         fingerprint: freshFingerprint,
         updatedContent,
       });
+    }
+
+    if (driftedDuringRun.length > 0) {
+      // Refused before a single write, mirroring `adopt --undo`'s drift refusal:
+      // the plan was built for notes with no identity, and these were rewritten
+      // under it. Preserving a found id instead would strand every planned
+      // `depends_on` edge that names the id this run had minted for the note.
+      console.error(
+        `Error: OCC conflict: ${driftedDuringRun.length} note(s) were modified while this run was ` +
+          'planning; nothing was adopted.'
+      );
+      for (const { relativePath, reason } of driftedDuringRun.slice(0, 5)) {
+        console.error(`  • ${relativePath} (${reason})`);
+      }
+      if (driftedDuringRun.length > 5) {
+        console.error(`  • … and ${driftedDuringRun.length - 5} more`);
+      }
+      console.error('  Re-run to plan against the current bytes.');
+      process.exitCode = ExitCode.Conflict;
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────────

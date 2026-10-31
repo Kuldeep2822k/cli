@@ -448,7 +448,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee adopt` | 0 | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). |
 | `palee adopt` | 2 | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. |
 | `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. |
-| `palee adopt` | 4 | OCC conflict during atomic write (`isConflictError`). |
+| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it) or left with an unclosed frontmatter opener, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
 | `palee adopt` | 5 | Batch rollback error or unhandled file system exception. |
 | `palee roadmap` | 0 | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. |
 | `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
