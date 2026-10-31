@@ -737,6 +737,21 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
   });
 
+  // The threshold is measured on the Markdown body. Frontmatter is metadata, so a
+  // heavily-tagged navigation page must not clear it on its own words.
+  test('frontmatter words do not make a navigation README lesson-sized (#545)', () => {
+    const metadataWords = Array.from({ length: 220 }, () => 'metadata').join(' ');
+    const { configDir } = freshVault({
+      'README.md': `---\ntitle: Course Index\ndescription: ${metadataWords}\n---\n# Course\n\n- [Lesson 1](guide/01.md)\n`,
+      'guide/01.md': '# Lesson One\n',
+    });
+
+    const dry = runCLI(['adopt', '--all', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Ready to Adopt:\s+1 notes/, 'the navigation README stays out of the batch');
+    assert.match(dry.stdout, /Skipped \(meta\): 1 notes/);
+  });
+
   // #298 moved the hygiene report onto the plain batch too, so a note the learner
   // dropped with `--tag` must still be accounted for by the filter that dropped
   // it. The witness here is a note Tier-0 would adopt: a template as the witness

@@ -600,7 +600,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // pattern could name, and a pattern that reached one of them is not dead.
       scannedPaths.push(relPath);
       const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+      const { frontmatter, body, error: frontmatterError } = parseFrontmatter(content);
 
       // A note whose frontmatter will not parse may still declare a `palee_id`
       // the parser never reached, so adopting it would mint an identity over the
@@ -688,17 +688,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // docs. "Navigation" is decided by the body, not the filename alone: a
       // curriculum whose lesson body *is* the README had every lesson dropped by a
       // name-only rule, so a README carrying a lesson-sized body is adopted here.
-      // The content is already in hand from the read above, so the check costs no
-      // extra I/O. Still deliberately narrower than the classifier: under
-      // --auto-chain a README/SUMMARY is curriculum backbone and is adopted, and an
-      // explicit --include is a deliberate path pick. Repo-meta names are already
-      // excluded by the classifier above.
+      // The body is already parsed from the read above, so the check costs no extra
+      // I/O — and it is the body, not the raw file: frontmatter is metadata, and
+      // counting it let a heavily-tagged navigation page clear the threshold. Still
+      // deliberately narrower than the classifier: under --auto-chain a
+      // README/SUMMARY is curriculum backbone and is adopted, and an explicit
+      // --include is a deliberate path pick. Repo-meta names are already excluded by
+      // the classifier above.
       if (!options.autoChain && !options.include) {
         const stem = stemOf(relPath.slice(relPath.lastIndexOf('/') + 1));
         if (
           stem.length > 0 &&
           README_CLASS_STEMS.includes(stem) &&
-          countWords(content) < README_LESSON_MIN_WORDS
+          countWords(body) < README_LESSON_MIN_WORDS
         ) {
           recordHygieneSkip('repo-meta', relPath);
           continue;
