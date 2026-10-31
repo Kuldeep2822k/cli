@@ -37,10 +37,10 @@ describe('CLI Commands', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  function runCLI(args: string[]): { status: number | null, stdout: string, stderr: string } {
+  function runCLI(args: string[], extraEnv: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string, stderr: string } {
     const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
+      env: { ...process.env, PALEE_CONFIG_DIR: tempDir, ...extraEnv },
       encoding: 'utf8',
       stdio: 'pipe',
     });
@@ -457,6 +457,49 @@ Body content.
   });
 
 
+
+  test('progress --topic renders both dates on the learner local calendar day (#541)', () => {
+    const localDateNotePath = path.join(vaultDir, 'local-date-progress.md');
+    try {
+      fs.writeFileSync(
+        localDateNotePath,
+        `---
+palee_id: T-local-date
+palee_schema: 1
+title: Local Date Topic
+difficulty: beginner
+depends_on: []
+topic_mastery: 0.5
+assessed_at: "2026-08-25T02:00:00.000Z"
+last_reviewed_at: "2026-08-24"
+---
+# Local Date Topic
+`,
+        'utf8'
+      );
+
+      // West of UTC, so the UTC calendar day of the instant and the local one
+      // differ by one: this is the zone where `toISOString().split('T')[0]`
+      // reported yesterday's assessment as today's, and where round-tripping the
+      // date-only field would move the reviewed day back.
+      const result = runCLI(['progress', '--topic', 'T-local-date'], { TZ: 'America/Los_Angeles' });
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(
+        result.stdout,
+        /Last Assessed: 2026-08-24/,
+        'the instant 2026-08-25T02:00Z falls on 2026-08-24 in Los Angeles'
+      );
+      assert.match(
+        result.stdout,
+        /Last Reviewed: 2026-08-24/,
+        'a date-only value is already a calendar day and must not shift west of UTC'
+      );
+    } finally {
+      if (fs.existsSync(localDateNotePath)) {
+        fs.unlinkSync(localDateNotePath);
+      }
+    }
+  });
 
   test('dashboard command outputs formatted stats without NaN on populated vault', () => {
     const result = runCLI(['dashboard']);
