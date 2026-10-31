@@ -8,6 +8,7 @@ import { ExitCode, exitCodeFor } from './exit-codes';
 
 import { loadTopics, type LoadedTopic } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
+import { formatLocalDateOnly } from '../engine/sm2';
 import { summarizeMastery } from '../application/mastery-summary';
 import { Difficulty, ProgressOptions } from '../types';
 import { resolveTopicQuery } from './topic-query';
@@ -41,6 +42,43 @@ function toProgressTopic(t: LoadedTopic): ProgressTopic {
     last_reviewed_at: t.last_reviewed_at ?? null,
     difficulty: t.difficulty ?? 'intermediate',
   };
+}
+
+/**
+ * A calendar-day spelling the vault accepts as a date: `YYYY-MM-DD` with a one- or
+ * two-digit month and day, plus the optional trailing `Z`/`z` the `assessed_at`
+ * validator allows on a date-only form (`2026-9-1Z`).
+ *
+ * @remarks
+ * `isValidAssessedAt` reads the written components as the calendar truth for
+ * exactly these shapes, so display must too: `new Date('2026-9-1Z')` is UTC
+ * midnight, and formatting it in local time reports the previous day west of UTC.
+ */
+const CALENDAR_DAY = /^(\d{4})-(\d{1,2})-(\d{1,2})[Zz]?$/;
+
+/**
+ * Renders a stored date field as the learner's local calendar day.
+ *
+ * @remarks
+ * A value already spelled as a calendar day is returned as one, zero-padded from
+ * its written components and never round-tripped through `Date`: ISO date-only
+ * strings read as UTC midnight, so re-formatting them would move the day back for
+ * every learner west of UTC — the hazard `record-review` documents for the same
+ * field. Only a timestamp shape, which is what `assess` writes into `assessed_at`,
+ * is converted, and then through local getters, so it reports the day the learner
+ * experienced rather than the UTC calendar day (#541). An unparseable value is
+ * echoed unchanged, as it always was.
+ */
+function formatStoredDay(value: string): string {
+  const day = CALENDAR_DAY.exec(value.trim());
+  if (day !== null) {
+    const [, year, month, dayOfMonth] = day;
+    if (year !== undefined && month !== undefined && dayOfMonth !== undefined) {
+      return `${year}-${month.padStart(2, '0')}-${dayOfMonth.padStart(2, '0')}`;
+    }
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : formatLocalDateOnly(parsed);
 }
 
 /**
@@ -153,18 +191,10 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
       console.log(`Repetitions: ${match.repetition}`);
       console.log(`Lapses: ${match.lapses}`);
       if (match.assessed_at != null) {
-        const d = new Date(match.assessed_at);
-        const formatted = !Number.isNaN(d.getTime())
-          ? d.toISOString().split('T')[0]
-          : match.assessed_at;
-        console.log(`Last Assessed: ${formatted}`);
+        console.log(`Last Assessed: ${formatStoredDay(match.assessed_at)}`);
       }
       if (match.last_reviewed_at != null) {
-        const d = new Date(match.last_reviewed_at);
-        const formatted = !Number.isNaN(d.getTime())
-          ? d.toISOString().split('T')[0]
-          : match.last_reviewed_at;
-        console.log(`Last Reviewed: ${formatted}`);
+        console.log(`Last Reviewed: ${formatStoredDay(match.last_reviewed_at)}`);
       }
     } else {
       // Only the aggregate path needs every topic projected; the `--topic` branch
