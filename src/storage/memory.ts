@@ -581,6 +581,43 @@ async function resetHotMemory(vaultPath: string): Promise<string> {
 }
 
 /**
+ * The draft gate both derived views apply: a session file that carries a
+ * `session_id` which is not a `DRAFT-*` placeholder and is not `status: draft`.
+ *
+ * @remarks
+ * Extracted so `regenerateIndex` and `rebuildHotAndIndex` cannot drift apart on
+ * what history is (ADR-0019). A note failing this is not a candidate at all, so
+ * it is never counted as skipped either: an in-progress draft is not a session
+ * the learner lost.
+ */
+function isSessionCandidate(
+  frontmatter: Record<string, unknown> | null
+): frontmatter is Record<string, unknown> {
+  return (
+    frontmatter !== null &&
+    Boolean(frontmatter.session_id) &&
+    !String(frontmatter.session_id).startsWith('DRAFT-') &&
+    frontmatter.status !== 'draft'
+  );
+}
+
+/**
+ * The eligibility predicate both derived views apply to a confirmed session:
+ * {@link isSessionCandidate} plus the strict `palee_schema` gate.
+ *
+ * @remarks
+ * `hot.md` and `index.md` are two views of one rebuild pass, so a session the
+ * index refuses to list must not be the `last_session` hot memory points at
+ * (#542). The schema check mirrors `readHotMemory` (#361): an unknown or missing
+ * `palee_schema` is never coerced to 1.
+ */
+function isConfirmedSession(
+  frontmatter: Record<string, unknown> | null
+): frontmatter is Record<string, unknown> {
+  return isSessionCandidate(frontmatter) && frontmatter.palee_schema === SUPPORTED_SCHEMA_VERSION;
+}
+
+/**
  * Rebuilds `.palee/index.md` listing all confirmed study sessions in reverse chronological order.
  *
  * @param vaultPath - Vault root path
@@ -622,15 +659,10 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
             skippedCount++;
             continue;
           }
-          if (
-            frontmatter &&
-            frontmatter.session_id &&
-            !String(frontmatter.session_id).startsWith('DRAFT-') &&
-            frontmatter.status !== 'draft'
-          ) {
+          if (isSessionCandidate(frontmatter)) {
             // Strict schema gate mirroring readHotMemory (#361): do not coerce
             // an unknown/missing palee_schema to 1. Skip and count instead.
-            if (frontmatter.palee_schema !== SUPPORTED_SCHEMA_VERSION) {
+            if (!isConfirmedSession(frontmatter)) {
               skippedCount++;
               continue;
             }
@@ -743,15 +775,11 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
           }
           const content = fs.readFileSync(filePath, 'utf8');
           const { frontmatter, body } = parseFrontmatter(content);
-          // Match the confirmed-session eligibility predicate from regenerateIndex:
-          // reject DRAFT-* session IDs and sessions with status: draft so that
-          // incomplete sessions are never selected as the "newest" session.
-          if (
-            frontmatter &&
-            frontmatter.session_id &&
-            !String(frontmatter.session_id).startsWith('DRAFT-') &&
-            frontmatter.status !== 'draft'
-          ) {
+          // The same confirmed-session predicate `regenerateIndex` applies, schema
+          // gate included: hot.md is the other view of this one rebuild pass, and
+          // it used to select a session the index had skipped as unsupported, so
+          // the two derived files disagreed about the same vault (#542).
+          if (isConfirmedSession(frontmatter)) {
             // Apply the same NaN protection `regenerateIndex` uses: an
             // unparseable `started_at` (hand-edited or corrupted frontmatter)
             // yields NaN, and `NaN >= newestTime` is always false, which would
