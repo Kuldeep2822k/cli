@@ -311,3 +311,62 @@ describe('agent.md stub claims match the handlers (#486)', () => {
     assert.deepStrictEqual(stale, [], `agent.md calls shipped commands stubs:\n${stale.join('\n')}`);
   });
 });
+
+/**
+ * #565 P1-12: the README is the first page a user reads and it was the one command
+ * table no test read — this file guarded `docs/02-0` and `agent.md` only. Two rows had
+ * drifted from the handlers: `session start` promised an AI tutor the handler never
+ * calls, and `validate --fix` named one of its three repairers. The table is checked
+ * against the same `--help` parse as everything above, so the command list cannot rot
+ * either.
+ */
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readmeCommandsSection = readme.slice(
+  readme.indexOf('## Commands'),
+  readme.indexOf('### Key Options')
+);
+const readmeTableRows = readme.split(/\r?\n/).filter((line) => line.startsWith('| `palee '));
+
+/** The README table row whose command cell starts with `palee <prefix>`. */
+function readmeRow(prefix: string): string {
+  const row = readmeTableRows.find((line) => line.startsWith(`| \`palee ${prefix}`));
+  assert.ok(row, `README has no \`palee ${prefix}\` table row`);
+  return row;
+}
+
+describe('README command table matches the built CLI (#565 P1-12)', () => {
+  test('every command in the README table is one the CLI registers', () => {
+    const named = readmeCommandsSection
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('| `palee '))
+      .map((line) => /^\| `palee ([a-z-]+)/.exec(line)?.[1] ?? '');
+
+    // Floor: a parse that found nothing would pass vacuously, and the table has always
+    // listed every command.
+    assert.ok(named.length >= 10, `expected the README commands table, parsed ${named.length} rows`);
+    assert.deepStrictEqual(
+      named.filter((command) => !registered.includes(command)),
+      [],
+      'the README table documents a command `palee --help` does not register'
+    );
+  });
+
+  test('session start reports the provider instead of promising a tutor', () => {
+    // `src/cli/session.ts` reads `config.aiProvider` and prints
+    // `ai_provider_configured`; the handler contains no provider call at all.
+    const row = readmeRow('session start');
+    assert.doesNotMatch(row, /tutor/i, 'session start runs no tutor — that promise was never true');
+    assert.match(row, /provider is configured/, 'the row has to state what the command actually reports');
+  });
+
+  test('validate --fix names every repairer it dispatches', () => {
+    // `src/cli/validate.ts` maps valid-session-index and valid-hot-memory to
+    // rebuild_derived_views, valid-topic-mastery to recompute_topic_mastery, and
+    // valid-review-fields to reset_review_fields. A row naming only SM-2 hides the two
+    // repairs that rewrite derived state.
+    const row = readmeRow('validate --fix').toLowerCase();
+    for (const subject of ['derived views', 'mastery', 'sm-2']) {
+      assert.ok(row.includes(subject), `the validate --fix row omits ${subject}`);
+    }
+  });
+});
