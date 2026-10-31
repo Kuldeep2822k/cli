@@ -2,7 +2,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { ExitCode } from '../src/cli/exit-codes';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 
 /**
  * #268's first item: `palee assess` was registered in `bin/palee.ts`, showed in
@@ -12,7 +14,6 @@ import { ExitCode } from '../src/cli/exit-codes';
  * behavior fails here instead of quietly making the page wrong.
  */
 const root = path.resolve(__dirname, '..');
-const dispatcher = fs.readFileSync(path.join(root, 'bin/palee.ts'), 'utf8');
 const contract = fs.readFileSync(path.join(root, 'docs/02-0-cli-commands.md'), 'utf8');
 
 // The page carries a second `| Command |` table for machine-readable output, so the
@@ -24,7 +25,21 @@ const exitSection = contract.slice(
   contract.indexOf('\n## ', contract.indexOf('## Exit Code Contract') + 1)
 );
 
-const registered = [...dispatcher.matchAll(/^ {2}\.command\('([a-z-]+)'/gm)].map((m) => m[1]);
+const help = spawnSync(process.execPath, [...PALEE_ARGV, '--help'], {
+  cwd: root,
+  encoding: 'utf8',
+  stdio: 'pipe',
+  timeout: CLI_SPAWN_TIMEOUT_MS,
+});
+assert.ifError(help.error);
+assert.strictEqual(help.status, 0, help.stderr);
+const commandsSection = help.stdout.slice(
+  help.stdout.indexOf('\nCommands:'),
+  help.stdout.indexOf('\n\nEnvironment:')
+);
+const registered = [...commandsSection.matchAll(/^\x20{2}([a-z][a-z-]*)\b/gm)]
+  .map((m) => m[1])
+  .filter((command) => command !== 'help');
 
 interface ExitRow {
   command: string;
@@ -90,7 +105,7 @@ function namedCommands(line: string): string[] {
 }
 
 describe('Exit-code contract covers every registered command (#268)', () => {
-  test('the dispatcher registers a non-empty, duplicate-free command list', () => {
+  test('the built CLI exposes a non-empty, duplicate-free command list', () => {
     assert.ok(registered.length >= 2, `expected top-level commands, got ${registered.join(', ')}`);
     assert.strictEqual(new Set(registered).size, registered.length, 'no command is registered twice');
   });
@@ -103,13 +118,13 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     );
   });
 
-  test('the prose count of commands matches the dispatcher', () => {
+  test('the prose count of commands matches the built CLI', () => {
     const claimed = /across all (\d+) commands/.exec(contract);
     assert.ok(claimed, 'the contract preamble states how many commands it covers');
     assert.strictEqual(
       Number(claimed[1]),
       registered.length,
-      `the page says ${claimed[1]} commands while bin/palee.ts registers ${registered.length}`
+      `the page says ${claimed[1]} commands while the built CLI registers ${registered.length}`
     );
   });
 
@@ -117,7 +132,7 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     // #458 corrected these sentences to the then-true 12, and adding `update` made
     // them wrong again with nothing failing — because the guard above reads only
     // `docs/02-0`. A number stated in a second file is the same kind of fact and
-    // needs the same dispatcher behind it.
+    // needs the same command list behind it.
     const guide = fs.readFileSync(
       path.join(root, 'docs/06-2-integration-and-smoke-tests.md'),
       'utf8'
@@ -128,7 +143,7 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.strictEqual(
       Number(registers[1]),
       registered.length,
-      `docs/06-2 states ${registers[1]} top-level commands while bin/palee.ts registers ${registered.length}`
+      `docs/06-2 states ${registers[1]} top-level commands while the built CLI registers ${registered.length}`
     );
 
     const outside = /(\d+) of the (\d+) registered commands \(([^)]*)\)/.exec(guide);
@@ -136,7 +151,7 @@ describe('Exit-code contract covers every registered command (#268)', () => {
     assert.strictEqual(
       Number(outside[2]),
       registered.length,
-      `docs/06-2 states a total of ${outside[2]} while bin/palee.ts registers ${registered.length}`
+      `docs/06-2 states a total of ${outside[2]} while the built CLI registers ${registered.length}`
     );
     const namedList = outside[3];
     assert.ok(namedList !== undefined, 'the parenthetical list of commands is captured');

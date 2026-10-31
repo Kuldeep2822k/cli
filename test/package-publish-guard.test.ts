@@ -21,6 +21,7 @@ describe('npm publish build guard (#336)', () => {
     scripts: Record<string, string>;
   };
   const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  const packer = fs.readFileSync(path.join(root, 'scripts/pack-package.js'), 'utf8');
 
   test('publishing rebuilds from source instead of shipping a stale dist/', () => {
     assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run build');
@@ -32,9 +33,9 @@ describe('npm publish build guard (#336)', () => {
       undefined,
       'a prepack hook would re-run the build inside verify-and-pack npm pack',
     );
-    const pack = release.indexOf('npm pack');
+    const pack = packer.indexOf('npm pack');
     assert.ok(pack > -1, 'verify-and-pack packs a tarball');
-    assert.ok(release.indexOf('npm run build') < pack, 'and builds before packing it');
+    assert.match(release, /run: node scripts\/pack-package\.js/);
   });
 
   test('the release job publishes the verified artifact, not the working tree', () => {

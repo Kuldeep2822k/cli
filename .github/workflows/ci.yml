@@ -121,7 +121,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Verify Changed-Code Coverage
-        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
+        if: github.event_name == 'pull_request'
         run: |
           npx diff-cover coverage/lcov.info \
             --compare-branch=origin/main \
@@ -161,17 +161,7 @@ jobs:
 
       - name: Build tarball package
         id: pack
-        run: |
-          node -e "
-            const fs = require('fs');
-            const exec = require('child_process').execSync;
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            exec('npm pack');
-            const filename = pkg.name.replace('@', '').replace('/', '-') + '-' + pkg.version + '.tgz';
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\n');
-            console.log('Created tarball:', filename);
-          "
+        run: node scripts/pack-package.js
 
       - name: Dynamic Tarball Assertions
         if: matrix.os == 'ubuntu-latest'

@@ -1,13 +1,15 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
 import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex } from '../src/storage';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 
-describe('Session CLI In-Process Coverage', () => {
+describe('Session CLI Coverage', () => {
   let tempDir: string;
   let vaultDir: string;
   let prevConfigDir: string | undefined;
@@ -102,6 +104,19 @@ describe('Session CLI In-Process Coverage', () => {
       'utf8'
     );
   }
+
+  test('the built CLI launches the session command', () => {
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, 'session', 'list'], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: tempDir, NODE_ENV: 'test' },
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+
+    assert.ifError(result.error);
+    assert.strictEqual(result.status, 0, result.stderr);
+  });
 
   test('resolveSessionTopic resolves an explicit query to the vault topic it names', () => {
     // #302. This test used to pin the bug: it handed back any non-empty string
