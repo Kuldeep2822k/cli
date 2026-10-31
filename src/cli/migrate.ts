@@ -538,9 +538,9 @@ async function reportStoredTies(
  * note update hits an OCC/lock conflict during `--fix` or `--relabel-ties` — or if
  * a note or its predecessor changed while `--relabel-ties` held it, which is the
  * same "re-run to retry" instruction — and process.exitCode = 5 on unexpected
- * runtime exceptions, including a `--relabel-ties` write that fails for any other
- * reason (permissions, disk), so a caller never sees success on a migration that
- * did not finish.
+ * runtime exceptions, including a `--fix` or `--relabel-ties` write that fails for
+ * any other reason (permissions, disk), so a caller never sees success on a
+ * migration that did not finish.
  *
  * @example
  * ```typescript
@@ -613,6 +613,16 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       }
     }
 
+    // A refused write is not a schema finding: the frontmatter may be perfectly
+    // valid and the write simply never landed (#540). Failures are counted here
+    // so the exit-3 "Unrecognized schema" report cannot speak for them, and the
+    // code comes from the same `exitCodeFor` the relabel pass routes through — a
+    // permission or disk refusal is the documented exit 5, while a containment
+    // refusal keeps its own exit 3. Declared outside the `--fix` block because the
+    // report that consumes them sits after it.
+    const writeFailures: string[] = [];
+    let writeFailureCode: ReturnType<typeof exitCodeFor> | null = null;
+
     if (options.fix && missingSchema.length > 0) {
       // #442 (bug 9): `--dry-run` must never write, including alongside `--fix`.
       // The old help claimed `--dry-run` "does not affect --fix", so `--fix --dry-run`
@@ -660,6 +670,9 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
           failed.push(filePath);
           if (exitCodeFor(err) === ExitCode.Conflict) {
             hadConflict = true;
+          } else {
+            writeFailures.push(filePath);
+            writeFailureCode ??= exitCodeFor(err);
           }
         }
       }
@@ -689,6 +702,28 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
         console.log();
       }
       console.error('Error: OCC conflict or active lock detected during migration. Re-run to retry the conflicting notes.');
+      return;
+    }
+
+    if (writeFailures.length > 0) {
+      // #540: the schema was never the problem, so this report must not borrow the
+      // "Unrecognized schema" wording — a learner told their frontmatter is
+      // unrecognized would go looking for a repair that does not exist. The note is
+      // still schema-less (the write never landed), and a re-run retries it.
+      console.log(`Schema v1: ${schemaV1} notes`);
+      console.log(`Write failures: ${writeFailures.length} notes`);
+      for (const file of writeFailures.slice(0, 5)) {
+        console.log(`  • ${file}`);
+      }
+      if (writeFailures.length > 5) {
+        console.log(`  ... and ${writeFailures.length - 5} more`);
+      }
+      console.log();
+      console.error(
+        `Error: migrate write failed for ${writeFailures.length} note(s). Their schema is recognized and`
+        + ' untouched; fix the permission, lock or disk problem and re-run.'
+      );
+      process.exitCode = writeFailureCode ?? ExitCode.Unexpected;
       return;
     }
 

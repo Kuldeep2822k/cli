@@ -218,6 +218,68 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
         fs.unlinkSync(laterNote);
       }
     });
+
+    test('with --fix exits 5 for a write failure and never calls it an unrecognized schema (#540)', async () => {
+      saveConfig({ vaultPath: vaultDir });
+      const refusedNote = path.join(vaultDir, 'topic-write-failure.md');
+      const laterNote = path.join(vaultDir, 'topic-after-failure.md');
+      fs.writeFileSync(
+        refusedNote,
+        '---\npalee_id: T-write-failure\ntitle: Write Failure\n---\n# Write Failure\n'
+      );
+      fs.writeFileSync(
+        laterNote,
+        '---\npalee_id: T-after-failure\ntitle: After Failure\n---\n# After Failure\n'
+      );
+
+      // Refusing atomicWrite's rename reproduces a permission failure without
+      // chmod, so it behaves the same on POSIX and Windows; EACCES is not in the
+      // win32 EPERM/EBUSY retry set, so it propagates on the first attempt.
+      // Matched by basename: atomicWrite renames onto a realpath-resolved target
+      // while `vaultDir` here is not resolved (macOS /var -> /private/var).
+      const origRenameSync = fs.renameSync;
+      const origReadFileSync = fs.readFileSync;
+      (fs as any).renameSync = (from: any, to: any) => {
+        if (path.basename(String(to)) === 'topic-write-failure.md') {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return origRenameSync(from, to);
+      };
+
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+      const originalLog = console.log;
+      let loggedOutput = '';
+      console.log = (...args: unknown[]) => { loggedOutput += args.join(' ') + '\n'; };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(
+          process.exitCode,
+          5,
+          'a permission failure on the write is an unexpected runtime exception, not a schema finding'
+        );
+        assert.match(loggedError, /Failed to migrate/);
+        assert.match(loggedError, /write failed/);
+        assert.match(loggedOutput, /Write failures: 1 notes/);
+        // The whole report must stay free of the schema wording: it sent the
+        // learner looking for a frontmatter repair that does not exist.
+        assert.doesNotMatch(loggedOutput + loggedError, /Unrecognized schema/);
+        assert.doesNotMatch(loggedOutput + loggedError, /Phase 1 only supports schema v1/);
+        // The refused note is untouched and still schema-less; the rest migrated.
+        const refusedContent = origReadFileSync(refusedNote, 'utf8');
+        assert.ok(!refusedContent.includes('palee_schema'), 'the refused note must not be migrated');
+        const laterContent = origReadFileSync(laterNote, 'utf8');
+        assert.ok(laterContent.includes('palee_schema: 1'), 'migration continued after the write failure');
+      } finally {
+        fs.renameSync = origRenameSync;
+        console.error = originalError;
+        console.log = originalLog;
+        fs.unlinkSync(refusedNote);
+        fs.unlinkSync(laterNote);
+      }
+    });
   });
 
   describe('roadmapCommand', () => {
