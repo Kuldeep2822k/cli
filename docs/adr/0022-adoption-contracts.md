@@ -41,7 +41,7 @@ A single `PALEE_OWNED_KEYS` list drives the strip; every other key, comment and 
 
 ### The rollback journal is verified, not best-effort
 
-A partially-completed batch adoption restores each journaled note to its original content in reverse order, and the restore states its expectation: the note exists, and it must still hold exactly what our adoption wrote. Three-argument writes — where `expectedFingerprint` defaulted to null and nothing could tell that the note had been adopted, reverted, or rewritten by a process that took the lock over — were the one unguarded vault write in the CLI (#334).
+A partially-completed batch adoption restores each journaled note to its original content in reverse order, and the restore states its expectation: the note exists, and it must still hold exactly what our adoption wrote. Three-argument writes — where `expectedFingerprint` defaulted to null and nothing could tell that the note had been adopted, reverted, or rewritten by a process that took the lock over — were the one unguarded vault write in the CLI (#334). The inverse obeys the same rule: `adopt --undo`'s unwind states the fingerprint of the bytes that run wrote, so a note saved by another process mid-rollback is a reported collision (exit `4`) left as that writer saved it, never a restore of the pre-undo file over it (#537).
 
 ### Single-file mode has no hygiene pass — intentionally
 
