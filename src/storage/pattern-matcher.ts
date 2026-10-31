@@ -317,9 +317,12 @@ function normalizePattern(pattern: string): string {
  * The dialect, in one place so the OR-fold in {@link matchesPattern} and the
  * per-pattern tally in {@link tallyPatterns} can never disagree about what a
  * pattern means:
- * - no `/` in the pattern: it matches the note's **filename in any directory**;
+ * - no `/` in the pattern: it matches the note's **filename in any directory**, and a
+ *   segment it names at any depth (`café` reaches `notes/café/01.md`);
  * - any `/`: it is **anchored at the vault root** and must name the whole
- *   relative path, segment by segment (`a/*.md` never reaches `b/a/x.md`);
+ *   relative path, segment by segment (`a/*.md` never reaches `b/a/x.md`), while a
+ *   literal directory still selects its subtree (`notes/café` reaches
+ *   `notes/café/01.md`);
  * - matching ignores case, and `*` stops at a directory boundary while `**`
  *   crosses it.
  */
@@ -343,13 +346,20 @@ function patternHitsFile(trimmedPattern: string, normalizedPath: string, basenam
     const foldedPath = foldIdentity(normalizedPath);
     const foldedPattern = foldIdentity(trimmedPattern);
     const foldedBasename = foldIdentity(basename);
+    // A `/` anchors the pattern at the vault root: it names one path and that path's
+    // subtree. The any-depth arms below are the *filename-in-any-directory* half of the
+    // dialect, so they must not run here — otherwise the literal `a/x.md` selects
+    // `b/a/x.md`, which is the anchored rule the help text and the wildcard form both
+    // already keep (#565 P1-09).
+    const anchored = trimmedPattern.includes('/');
 
     if (
       foldedPath === foldedPattern ||
-      foldedBasename === foldedPattern ||
       foldedPath.startsWith(`${foldedPattern}/`) ||
-      foldedPath.endsWith(`/${foldedPattern}`) ||
-      foldedPath.includes(`/${foldedPattern}/`)
+      (!anchored &&
+        (foldedBasename === foldedPattern ||
+          foldedPath.endsWith(`/${foldedPattern}`) ||
+          foldedPath.includes(`/${foldedPattern}/`)))
     ) {
       return true;
     }

@@ -155,6 +155,21 @@ describe('Glob dialect documented in adopt --help (#312)', () => {
     assert.strictEqual(matchesPattern('b/a/x.md', 'a/*.md'), false, 'and it is not matched at a deeper level');
   });
 
+  test('a literal path is not matched at any depth either (#565 P1-09)', () => {
+    // The anchored rule held for wildcards but not for literal paths: the any-depth arms
+    // ran even when the pattern contained `/`, so `a/x.md` selected `b/a/x.md` and the
+    // filter reported work it was never asked to do.
+    assert.strictEqual(matchesPattern('b/a/x.md', 'a/x.md'), false, 'a deeper path is a different path');
+    assert.strictEqual(matchesPattern('notes/deep/x.md', 'notes/x.md'), false);
+    assert.strictEqual(matchesPattern('a/x.md', 'a/x.md'), true);
+    assert.strictEqual(
+      matchesPattern('notes/café/01-intro.md', 'notes/café'),
+      true,
+      'a literal directory still selects its subtree'
+    );
+    assert.strictEqual(matchesPattern('old/notes/café/01-intro.md', 'notes/café'), false);
+  });
+
   test('a pattern without / matches the filename in any directory', () => {
     assert.strictEqual(matchesPattern('x-draft.md', '*draft*'), true);
     assert.strictEqual(matchesPattern('MODULES/01/x-draft.md', '*draft*'), true);
