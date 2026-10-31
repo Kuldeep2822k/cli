@@ -24,7 +24,7 @@ Every invariant is addressed by its stable `INV-` ID (for example `INV-11`), nev
 - **INV-14** — `ease_factor` is always at least `1.30`.
 - **INV-15** — Ease factor and intervals use positive decimal half-up rounding.
 - **INV-16** — `quality < 3` resets repetition to `0` and interval to `1`.
-- **INV-17** — Successful repetitions use intervals `1`, `6`, then `round(previous_interval * ease_factor)`.
+- **INV-17** — Successful repetitions use intervals `1`, `6`, then `round(previous_interval * ease_factor)`, capped at `MAX_INTERVAL_DAYS` (`36500` days) so the derived `due_at` stays a representable calendar day.
 - **INV-18** — Lapses increase only when a previously learned topic is forgotten; initial-learning failures do not increase lapses.
 - **INV-19** — No result produces an interval below `1`.
 - **INV-20** — Due dates add calendar days in the configured vault timezone.

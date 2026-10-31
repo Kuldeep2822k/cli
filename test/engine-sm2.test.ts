@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { processReview, computeDueDate, calculateEaseFactorDelta } from '../src/engine/sm2';
+import { processReview, computeDueDate, calculateEaseFactorDelta, formatLocalDateOnly, MAX_INTERVAL_DAYS } from '../src/engine/sm2';
 
 describe('SM-2 Algorithm', () => {
   test('quality must be integer 0-5', () => {
@@ -366,5 +366,52 @@ describe('SM-2 Algorithm', () => {
     // than normalized, because no caller or test ever passed one.
     // @ts-expect-error - fromDate accepts Date | string only
     computeDueDate(1_700_000_000_000, 1);
+  });
+});
+
+describe('SM-2 interval cap (#565 P1-01)', () => {
+  test('a 20-review quality-5 history keeps due_at a real calendar day', () => {
+    // The reported failure (#565 P1-01): review 15 persisted `due_at: 84755-11-24`
+    // and review 16 persisted `NaN-NaN-NaN`, both with exit 0 and no diagnostic.
+    let ease = 2.5;
+    let interval = 1;
+    let repetition = 0;
+
+    for (let i = 1; i <= 20; i += 1) {
+      const next = processReview({ ease_factor: ease, interval_days: interval, repetition }, 5);
+      const { interval_days: days, ease_factor: nextEase, repetition: nextRepetition } = next;
+      assert.ok(typeof days === 'number', `review ${i}: interval_days is not a number`);
+      assert.ok(days <= MAX_INTERVAL_DAYS, `review ${i}: interval ${days} exceeds the cap`);
+      assert.ok(typeof nextEase === 'number' && typeof nextRepetition === 'number');
+
+      const due = computeDueDate('2026-01-01', days);
+      const dueAt = formatLocalDateOnly(due);
+      assert.match(dueAt, /^\d{4}-\d{2}-\d{2}$/, `review ${i}: due_at is ${dueAt}`);
+      assert.ok(
+        due.getFullYear() <= 2127,
+        `review ${i}: due_at ${dueAt} is past the 100-year cap`
+      );
+
+      ease = nextEase;
+      interval = days;
+      repetition = nextRepetition;
+    }
+  });
+
+  test('the interval saturates at MAX_INTERVAL_DAYS instead of growing without bound', () => {
+    const result = processReview(
+      { ease_factor: 2.5, interval_days: MAX_INTERVAL_DAYS, repetition: 5 },
+      5
+    );
+    assert.strictEqual(result.interval_days, MAX_INTERVAL_DAYS);
+  });
+
+  test('computeDueDate refuses a day count outside the representable calendar range', () => {
+    // Defense in depth: a caller that skips `processReview` must still not be able
+    // to hand `formatLocalDateOnly` an invalid Date.
+    assert.throws(
+      () => computeDueDate('2026-08-20', 1e15),
+      /leaves the representable calendar range/
+    );
   });
 });

@@ -72,10 +72,15 @@ For successful reviews (`q >= 3`), the next interval (`I`, in calendar days) sca
 ```text
 Repetition 1: I(1) = 1 day
 Repetition 2: I(2) = 6 days
-Repetition n >= 3: I(n) = Math.max(1, Math.round(I(n-1) * EF))
+Repetition n >= 3: I(n) = Math.min(36500, Math.max(1, Math.round(I(n-1) * EF)))
 ```
 
-Every calculated interval is enforced to be at least 1 day (`Math.max(1, newInterval)`).
+Every calculated interval is enforced to be at least 1 day (`Math.max(1, newInterval)`)
+and at most `MAX_INTERVAL_DAYS` (`36500` days, 100 years). The ceiling is not a
+scheduling preference: the multiply above is unbounded, and an interval past it leaves
+the range `Date` can represent, so `due_at` would be written as `NaN-NaN-NaN` — a value
+no validator can repair (#565). `computeDueDate` refuses a day count that leaves the
+representable calendar range rather than returning an invalid `Date`.
 
 #### 3. Lapse Handling
 
