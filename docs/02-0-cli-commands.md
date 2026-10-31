@@ -94,7 +94,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee adopt` | 0 | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). |
 | `palee adopt` | 2 | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, a single file that batch mode cannot take (a non-markdown name, or any file passed with `--all`), or non-interactive stdin without `-y`. |
 | `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (reported with the exact cycle path); no notes adopted. |
-| `palee adopt` | 4 | OCC conflict during atomic note write (`isConflictError`). |
+| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it) or left with an unclosed frontmatter opener, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
 | `palee adopt` | 5 | Uncaught file system exception or atomic batch rollback failure. |
 | `palee next` | 0 | Successfully displayed next due topic, all due topics (`--all`), or empty vault onboarding. |
 | `palee next` | 2 | Unconfigured or non-existent vault path. |
