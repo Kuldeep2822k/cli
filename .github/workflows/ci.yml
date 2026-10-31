@@ -122,10 +122,10 @@ jobs:
 
       - name: Verify Changed-Code Coverage
         if: github.event_name == 'pull_request'
-        run: |
-          npx diff-cover coverage/lcov.info \
-            --compare-branch=origin/main \
-            --fail-under=50
+        # One line, deliberately: `run:` executes under PowerShell on the Windows
+        # legs, where a trailing `\` is not a line continuation — the split form
+        # parsed as `--compare-branch` as a unary operator and failed both legs.
+        run: npx diff-cover coverage/lcov.info --compare-branch=origin/main --fail-under=50
 
   smoke-install:
     name: Global Package Smoke Test on ${{ matrix.os }}

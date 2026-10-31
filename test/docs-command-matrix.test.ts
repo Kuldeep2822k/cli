@@ -4,14 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ExitCode } from '../src/cli/exit-codes';
-import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
+import { PALEE_DIST_ARGV, withoutCoverage, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 
 /**
  * #268's first item: `palee assess` was registered in `bin/palee.ts`, showed in
  * `palee --help`, and appeared nowhere in the exit-code contract — whose own preamble
- * still counted eleven commands. A number in prose is what rots; the dispatcher is the
- * fact. These read both and compare, so adding a command without documenting its exit
- * behavior fails here instead of quietly making the page wrong.
+ * still counted eleven commands. A number in prose is what rots; the command list
+ * the built CLI publishes is the fact. These read both and compare, so adding a
+ * command without documenting its exit behavior fails here instead of quietly
+ * making the page wrong.
  */
 const root = path.resolve(__dirname, '..');
 const contract = fs.readFileSync(path.join(root, 'docs/02-0-cli-commands.md'), 'utf8');
@@ -25,8 +26,9 @@ const exitSection = contract.slice(
   contract.indexOf('\n## ', contract.indexOf('## Exit Code Contract') + 1)
 );
 
-const help = spawnSync(process.execPath, [...PALEE_ARGV, '--help'], {
+const help = spawnSync(process.execPath, [...PALEE_DIST_ARGV, '--help'], {
   cwd: root,
+  env: withoutCoverage(),
   encoding: 'utf8',
   stdio: 'pipe',
   timeout: CLI_SPAWN_TIMEOUT_MS,

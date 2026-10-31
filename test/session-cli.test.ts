@@ -7,7 +7,7 @@ import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
 import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex } from '../src/storage';
-import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
+import { PALEE_DIST_ARGV, withoutCoverage, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 
 describe('Session CLI Coverage', () => {
   let tempDir: string;
@@ -106,9 +106,12 @@ describe('Session CLI Coverage', () => {
   }
 
   test('the built CLI launches the session command', () => {
-    const result = spawnSync(process.execPath, [...PALEE_ARGV, 'session', 'list'], {
+    // #568 review: `PALEE_ARGV` swaps to the TypeScript sources under coverage,
+    // and CI's matrix legs run `test:coverage` only — so the artifact this test
+    // claims to start would never run where CI would notice.
+    const result = spawnSync(process.execPath, [...PALEE_DIST_ARGV, 'session', 'list'], {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, PALEE_CONFIG_DIR: tempDir, NODE_ENV: 'test' },
+      env: withoutCoverage({ ...process.env, PALEE_CONFIG_DIR: tempDir, NODE_ENV: 'test' }),
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: CLI_SPAWN_TIMEOUT_MS,

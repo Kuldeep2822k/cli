@@ -47,7 +47,7 @@ The matrix is **one list for every event** — a pull request, a push to `main`,
 | macOS | 22.x, 24.x | Always |
 
 - Coverage: Tests are executed via `npm run test:coverage`[.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
-- PR Coverage Guard: For PRs on Ubuntu/Node 24.x, the `diff-cover` tool ensures that new or changed code maintains at least 50% coverage relative to `origin/main`[.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
+- PR Coverage Guard: On every pull-request leg of the matrix, the `diff-cover` tool ensures that new or changed code maintains at least 50% coverage relative to `origin/main`[.github/workflows/ci.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/ci.yml)
 
 ### 3. Global Smoke Test
 
