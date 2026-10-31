@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`adopt --undo` no longer overwrites a note saved during its rollback** ([#537](https://github.com/Kuldeep2822k/cli/issues/537)): the unwind's restore was the last three-argument `atomicWrite` in the CLI, so a note changed between its undo write and the rollback — an Obsidian save, a re-adopt — was restored over by the rollback while the run reported only the failure that started the unwind. The journal now records the fingerprint of the bytes each write left behind and the restore states `{ expectExists: true }` plus that fingerprint, so a concurrent writer is an `OCC conflict` and the run exits `4` — even when the triggering failure was not itself a conflict — with the note left as that writer saved it. A rollback that could not restore every note now says how many it left, each reason named.
 - **A lock directory that cannot be emptied no longer spins the CLI at 100% CPU** ([#539](https://github.com/Kuldeep2822k/cli/issues/539)): stale recovery's `ENOTEMPTY` path was an unconditional `continue` with no sleep and no bound, so a leftover subdirectory — or a file another process held open — hung `palee` indefinitely. Removal now retries with exponential backoff and then throws a `Lock conflict` naming the entries still inside, exit `4` as INV-09 promises; a directory entry, which no wait can clear, is refused immediately; and the acquisition loop is capped. The Windows `EPERM`/`EBUSY` path is unchanged. Recorded as ADR-0036.
 
 ## [1.1.0] - 2026-10-23

@@ -157,7 +157,7 @@ palee adopt "MODULES" --auto-chain --dry-run
 #### 5. Two-Phase Atomic Batch Writer & Rollback Journal
 In batch mode, adoption executes in two strict phases:
 - **Phase 1 (Preflight)**: Re-reads every note to capture fresh SHA-256 content fingerprints and computes updated frontmatter structures in memory.
-- **Phase 2 (Execution & Rollback)**: Writes notes sequentially via atomic write operations (`.tmp` + rename). If any write fails (e.g. disk error or OCC conflict), the system executes a reverse rollback journal, restoring previously modified files to their original state before exiting.
+- **Phase 2 (Execution & Rollback)**: Writes notes sequentially via atomic write operations (`.tmp` + rename). If any write fails (e.g. disk error or OCC conflict), the system executes a reverse rollback journal, restoring previously modified files to their original state before exiting. Each restore is OCC-verified against the bytes that run wrote, so a note saved by another process mid-rollback is reported (exit `4`) and left as that writer saved it rather than overwritten (#537), and a rollback that could not restore every note says how many it left.
 
 ```mermaid
 flowchart TD
