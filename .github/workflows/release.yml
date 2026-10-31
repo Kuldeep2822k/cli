@@ -56,18 +56,7 @@ jobs:
 
       - name: Build verified distribution tarball
         id: pack
-        run: |
-          node -e "
-            const fs = require('fs');
-            const path = require('path');
-            const { execSync } = require('child_process');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            execSync('npm pack');
-            const filename = pkg.name.replace('@', '').replace('/', '-') + '-' + pkg.version + '.tgz';
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'filename=' + filename + '\n');
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\n');
-            console.log('Created tarball:', filename);
-          "
+        run: node scripts/pack-package.js
 
       - name: Dynamic Tarball Assertions
         run: node scripts/verify-tarball.js
@@ -147,8 +136,8 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.x
-          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Download verified release tarball
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -216,6 +205,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.x
+          cache: 'npm'
 
       - name: Install published package globally
         shell: bash

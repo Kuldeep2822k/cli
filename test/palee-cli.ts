@@ -75,6 +75,36 @@ export const PALEE_ARGV: string[] = underCoverage
   : [PALEE_DIST_ENTRY];
 
 /**
+ * Node argv prefix that launches the built CLI in both launch modes.
+ *
+ * @remarks
+ * `PALEE_ARGV` swaps to the TypeScript sources whenever coverage is on, so a
+ * `test:coverage` run never executes `dist/bin/palee.js` — the file the
+ * tarball ships. CI's matrix legs run `test:coverage` and nothing else, so an
+ * artifact check written against `PALEE_ARGV` proves nothing about the built
+ * CLI exactly where CI would notice. Suites that exist to prove the built CLI
+ * starts use this prefix with {@link withoutCoverage}; `pretest:coverage`
+ * builds `dist` first, so the entry point is present in both modes.
+ */
+export const PALEE_DIST_ARGV: string[] = [PALEE_DIST_ENTRY];
+
+/**
+ * The parent environment with `NODE_V8_COVERAGE` removed.
+ *
+ * @remarks
+ * A `dist` child instrumented into the same directory as the `tsx` children
+ * compiles with tsc, and the two lineages do not merge: on the #451 attempt
+ * each side's function map replaced the other's and function coverage fell
+ * from 94.35% to 87.07%. Dropping the variable for these launches keeps the
+ * artifact check honest without moving the floor.
+ */
+export function withoutCoverage(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const child = { ...env };
+  delete child.NODE_V8_COVERAGE;
+  return child;
+}
+
+/**
  * Shell command prefix for `execSync`-style launches. `process.execPath` is
  * quoted because it can contain spaces (e.g. `C:\Program Files\nodejs`), and
  * it replaces the PATH-resolved `node` so shell launches cannot resolve a

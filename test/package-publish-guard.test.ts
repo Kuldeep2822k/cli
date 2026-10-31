@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
+import { parseDocument } from 'yaml';
 
 /**
  * Publishing has two paths and only one of them was guarded. `release.yml`
@@ -21,6 +22,10 @@ describe('npm publish build guard (#336)', () => {
     scripts: Record<string, string>;
   };
   const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  const packer = fs.readFileSync(path.join(root, 'scripts/pack-package.js'), 'utf8');
+  const releaseJobs = (parseDocument(release).toJSON() as {
+    jobs: Record<string, { steps?: Array<{ run?: string }> }>;
+  }).jobs;
 
   test('publishing rebuilds from source instead of shipping a stale dist/', () => {
     assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run build');
@@ -32,9 +37,21 @@ describe('npm publish build guard (#336)', () => {
       undefined,
       'a prepack hook would re-run the build inside verify-and-pack npm pack',
     );
-    const pack = release.indexOf('npm pack');
+    const pack = packer.indexOf('npm pack');
     assert.ok(pack > -1, 'verify-and-pack packs a tarball');
-    assert.ok(release.indexOf('npm run build') < pack, 'and builds before packing it');
+
+    // The tarball is packed by the shared helper, so build-then-pack is an
+    // ordering claim about two entries in `verify-and-pack`'s step list. Read
+    // from the file text, a `npm run build` in some other job would satisfy the
+    // comparison even after this job stopped building; read as job steps, it
+    // cannot. Existence is asserted before order because `findIndex` answers -1
+    // for a missing step, and -1 is trivially less than the pack index.
+    const steps = releaseJobs['verify-and-pack']?.steps ?? [];
+    const packAt = steps.findIndex((step) => (step.run ?? '').includes('scripts/pack-package.js'));
+    const buildAt = steps.findIndex((step) => (step.run ?? '').includes('npm run build'));
+    assert.ok(packAt > -1, 'verify-and-pack invokes the pack helper');
+    assert.ok(buildAt > -1, 'verify-and-pack builds from source');
+    assert.ok(buildAt < packAt, 'and builds before packing it');
   });
 
   test('the release job publishes the verified artifact, not the working tree', () => {
