@@ -220,15 +220,19 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
     });
 
     test('with --fix exits 5 for a write failure and never calls it an unrecognized schema (#540)', async () => {
-      saveConfig({ vaultPath: vaultDir });
-      const refusedNote = path.join(vaultDir, 'topic-write-failure.md');
-      const laterNote = path.join(vaultDir, 'topic-after-failure.md');
+      // A vault of its own, so exactly these two notes are in the batch and the
+      // continuation claim cannot ride on whatever else happened to be staged.
+      const failureVault = path.join(vaultDir, 'write-failure-vault');
+      fs.mkdirSync(failureVault, { recursive: true });
+      saveConfig({ vaultPath: failureVault });
+      const firstNote = path.join(failureVault, 'topic-write-failure.md');
+      const secondNote = path.join(failureVault, 'topic-after-failure.md');
       fs.writeFileSync(
-        refusedNote,
+        firstNote,
         '---\npalee_id: T-write-failure\ntitle: Write Failure\n---\n# Write Failure\n'
       );
       fs.writeFileSync(
-        laterNote,
+        secondNote,
         '---\npalee_id: T-after-failure\ntitle: After Failure\n---\n# After Failure\n'
       );
 
@@ -236,12 +240,22 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       // chmod, so it behaves the same on POSIX and Windows; EACCES is not in the
       // win32 EPERM/EBUSY retry set, so it propagates on the first attempt.
       // Matched by basename: atomicWrite renames onto a realpath-resolved target
-      // while `vaultDir` here is not resolved (macOS /var -> /private/var).
+      // while the fixture path is not resolved (macOS /var -> /private/var).
       const origRenameSync = fs.renameSync;
       const origReadFileSync = fs.readFileSync;
+      const noteNames = new Set([path.basename(firstNote), path.basename(secondNote)]);
+      const attempted: string[] = [];
+      let refusedName: string | null = null;
       (fs as any).renameSync = (from: any, to: any) => {
-        if (path.basename(String(to)) === 'topic-write-failure.md') {
-          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        const name = path.basename(String(to));
+        if (noteNames.has(name)) {
+          attempted.push(name);
+          // Refuse the batch's *first* write, whichever note readdir put first: the
+          // continuation claim must not depend on directory order.
+          if (refusedName === null) {
+            refusedName = name;
+            throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+          }
         }
         return origRenameSync(from, to);
       };
@@ -267,17 +281,196 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
         // learner looking for a frontmatter repair that does not exist.
         assert.doesNotMatch(loggedOutput + loggedError, /Unrecognized schema/);
         assert.doesNotMatch(loggedOutput + loggedError, /Phase 1 only supports schema v1/);
-        // The refused note is untouched and still schema-less; the rest migrated.
-        const refusedContent = origReadFileSync(refusedNote, 'utf8');
-        assert.ok(!refusedContent.includes('palee_schema'), 'the refused note must not be migrated');
-        const laterContent = origReadFileSync(laterNote, 'utf8');
-        assert.ok(laterContent.includes('palee_schema: 1'), 'migration continued after the write failure');
+        // Every note was attempted after the refusal, and the one that was not
+        // refused carries the migration.
+        assert.strictEqual(attempted.length, 2, 'the batch must attempt the note it did not refuse');
+        assert.ok(refusedName, 'the batch offered at least one write to refuse');
+        const survivorPath = refusedName === path.basename(firstNote) ? secondNote : firstNote;
+        const refusedPath = survivorPath === firstNote ? secondNote : firstNote;
+        assert.ok(!origReadFileSync(refusedPath, 'utf8').includes('palee_schema'), 'the refused note must not be migrated');
+        assert.ok(origReadFileSync(survivorPath, 'utf8').includes('palee_schema: 1'), 'migration continued after the write failure');
       } finally {
         fs.renameSync = origRenameSync;
         console.error = originalError;
         console.log = originalLog;
-        fs.unlinkSync(refusedNote);
-        fs.unlinkSync(laterNote);
+        saveConfig({ vaultPath: vaultDir });
+        fs.rmSync(failureVault, { recursive: true, force: true });
+      }
+    });
+
+    test('a conflict and a write failure in one batch are reported apart and exit 4 (#540)', async () => {
+      const mixedVault = path.join(vaultDir, 'mixed-batch-vault');
+      fs.mkdirSync(mixedVault, { recursive: true });
+      saveConfig({ vaultPath: mixedVault });
+      const conflictedNote = path.join(mixedVault, 'note-conflict.md');
+      const refusedNote = path.join(mixedVault, 'note-refused.md');
+      fs.writeFileSync(
+        conflictedNote,
+        '---\npalee_id: T-mixed-conflict\ntitle: Mixed Conflict\n---\n# Conflict\nInitial content.\n'
+      );
+      fs.writeFileSync(
+        refusedNote,
+        '---\npalee_id: T-mixed-refused\ntitle: Mixed Refused\n---\n# Refused\n'
+      );
+
+      const origReadFileSync = fs.readFileSync;
+      const origRenameSync = fs.renameSync;
+      let conflictReads = 0;
+      (fs as any).readFileSync = (p: any, options: any) => {
+        const content = origReadFileSync(p, options);
+        if (typeof p === 'string' && p.endsWith('note-conflict.md')) {
+          conflictReads++;
+          if (conflictReads > 1) {
+            fs.writeFileSync(p, String(content).replace('Initial content.', 'Externally modified.'), 'utf8');
+          }
+        }
+        return content;
+      };
+      (fs as any).renameSync = (from: any, to: any) => {
+        if (path.basename(String(to)) === 'note-refused.md') {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return origRenameSync(from, to);
+      };
+
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+      const originalLog = console.log;
+      let loggedOutput = '';
+      console.log = (...args: unknown[]) => { loggedOutput += args.join(' ') + '\n'; };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(process.exitCode, 4, 'the conflict still outranks the write failure');
+        assert.match(loggedOutput, /Locked or changed \(re-run to retry\): 1 notes/);
+        assert.match(loggedOutput, /Write failures: 1 notes/, 'the refused write keeps its own heading');
+        assert.doesNotMatch(
+          loggedOutput,
+          /Unrecognized schema/,
+          'neither a conflict nor a refused write is a schema finding'
+        );
+        assert.match(loggedError, /OCC conflict or active lock detected during migration/);
+      } finally {
+        fs.readFileSync = origReadFileSync;
+        fs.renameSync = origRenameSync;
+        console.error = originalError;
+        console.log = originalLog;
+        saveConfig({ vaultPath: vaultDir });
+        fs.rmSync(mixedVault, { recursive: true, force: true });
+      }
+    });
+
+    test('a write failure still names the notes with an unsupported schema (#540)', async () => {
+      const mixedVault = path.join(vaultDir, 'write-failure-schema-vault');
+      fs.mkdirSync(mixedVault, { recursive: true });
+      saveConfig({ vaultPath: mixedVault });
+      const refusedNote = path.join(mixedVault, 'topic-refused.md');
+      const v2Note = path.join(mixedVault, 'topic-v2-sibling.md');
+      fs.writeFileSync(
+        refusedNote,
+        '---\npalee_id: T-refused\ntitle: Refused\n---\n# Refused\n'
+      );
+      fs.writeFileSync(
+        v2Note,
+        '---\npalee_id: T-v2-sibling\npalee_schema: 2\ntitle: V2 Sibling\n---\n# V2\n'
+      );
+
+      const origRenameSync = fs.renameSync;
+      (fs as any).renameSync = (from: any, to: any) => {
+        if (path.basename(String(to)) === 'topic-refused.md') {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return origRenameSync(from, to);
+      };
+
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+      const originalLog = console.log;
+      let loggedOutput = '';
+      console.log = (...args: unknown[]) => { loggedOutput += args.join(' ') + '\n'; };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(process.exitCode, 5);
+        assert.match(loggedOutput, /Write failures: 1 notes/);
+        assert.match(
+          loggedOutput,
+          /Unrecognized schema: 1 notes/,
+          'the unsupported schema is reported in the same run, not hidden behind the refusal'
+        );
+        assert.match(loggedOutput, /topic-v2-sibling\.md \(schema: 2\)/);
+        assert.doesNotMatch(loggedOutput, /topic-refused\.md \(schema/);
+        // The unexpected write refusal is the code and the message that win; the
+        // unsupported schema is reported, not promoted to the exit code.
+        assert.match(loggedError, /write failed/);
+        assert.doesNotMatch(loggedError, /Phase 1 only supports schema v1/);
+      } finally {
+        fs.renameSync = origRenameSync;
+        console.error = originalError;
+        console.log = originalLog;
+        saveConfig({ vaultPath: vaultDir });
+        fs.rmSync(mixedVault, { recursive: true, force: true });
+      }
+    });
+
+    test('a note that is gone and a note that cannot be read get their own apart-from-write headings (#540)', async () => {
+      const brokenVault = path.join(vaultDir, 'unreadable-batch-vault');
+      fs.mkdirSync(brokenVault, { recursive: true });
+      saveConfig({ vaultPath: brokenVault });
+      const vanishedNote = path.join(brokenVault, 'topic-vanished.md');
+      const unreadableNote = path.join(brokenVault, 'topic-unreadable.md');
+      const healthyNote = path.join(brokenVault, 'topic-healthy.md');
+      fs.writeFileSync(vanishedNote, '---\npalee_id: T-vanished\ntitle: Vanished\n---\n# Vanished\n');
+      fs.writeFileSync(unreadableNote, '---\npalee_id: T-unreadable\ntitle: Unreadable\n---\n# Unreadable\n');
+      fs.writeFileSync(healthyNote, '---\npalee_id: T-healthy\ntitle: Healthy\n---\n# Healthy\n');
+
+      // Both failures happen on the migration pass's own read, after the scan that
+      // staged them: one note is deleted under the pass, the other refuses to be
+      // read for a permission reason. Neither is a refused write, and neither is a
+      // schema problem.
+      const origReadFileSync = fs.readFileSync;
+      const reads = new Map<string, number>();
+      (fs as any).readFileSync = (p: any, options: any) => {
+        if (typeof p === 'string') {
+          const name = path.basename(p);
+          const seen = (reads.get(name) ?? 0) + 1;
+          reads.set(name, seen);
+          if (seen > 1 && name === 'topic-vanished.md') {
+            fs.rmSync(p, { force: true });
+            throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+          }
+          if (seen > 1 && name === 'topic-unreadable.md') {
+            throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+          }
+        }
+        return origReadFileSync(p, options);
+      };
+
+      const originalError = console.error;
+      let loggedError = '';
+      console.error = (msg: string) => { loggedError += msg; };
+      const originalLog = console.log;
+      let loggedOutput = '';
+      console.log = (...args: unknown[]) => { loggedOutput += args.join(' ') + '\n'; };
+
+      try {
+        await migrateCommand({ fix: true });
+        assert.strictEqual(process.exitCode, 5, 'an unreadable note is an unfinished migration');
+        assert.match(loggedOutput, /Unreadable: 1 notes/);
+        assert.match(loggedOutput, /No longer present \(nothing to migrate\): 1 notes/);
+        assert.doesNotMatch(loggedOutput, /Write failures/);
+        assert.doesNotMatch(loggedOutput, /Unrecognized schema/);
+        assert.match(loggedError, /could not be read or rewritten/);
+        // The healthy note still migrated.
+        assert.ok(origReadFileSync(healthyNote, 'utf8').includes('palee_schema: 1'));
+      } finally {
+        fs.readFileSync = origReadFileSync;
+        console.error = originalError;
+        console.log = originalLog;
+        saveConfig({ vaultPath: vaultDir });
+        fs.rmSync(brokenVault, { recursive: true, force: true });
       }
     });
   });
