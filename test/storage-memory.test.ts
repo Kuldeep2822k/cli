@@ -951,6 +951,47 @@ ${body}
     fs.unlinkSync(schemaFile);
   });
 
+  test('rebuildHotAndIndex keeps hot.md and index.md on the same schema gate (#542)', async () => {
+    const vaultPath = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-542-schema-parity-'));
+    try {
+      const sessionsDir = path.join(vaultPath, '.palee', 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(sessionsDir, 'S-supported.md'),
+        '---\npalee_schema: 1\nsession_id: S-supported\ntopic_id: T-supported\nstatus: completed\nstarted_at: 2026-08-30T10:00:00.000Z\nended_at: 2026-08-30T10:30:00.000Z\n---\nSupported body',
+        'utf8'
+      );
+      // Newer *and* completed, so a selector without the schema gate would pick it
+      // and hot.md would name a session index.md skips as unsupported.
+      fs.writeFileSync(
+        path.join(sessionsDir, 'S-newer-unsupported.md'),
+        '---\npalee_schema: 2\nsession_id: S-newer-unsupported\ntopic_id: T-unsupported\nstatus: completed\nstarted_at: 2026-09-30T10:00:00.000Z\nended_at: 2026-09-30T10:30:00.000Z\n---\nUnsupported body',
+        'utf8'
+      );
+
+      await rebuildHotAndIndex(vaultPath);
+
+      const hot = readHotMemory(vaultPath);
+      assert.strictEqual(
+        hot.frontmatter?.last_session,
+        'S-supported',
+        'hot.md must name the newest eligible session, not the unsupported-schema one'
+      );
+      assert.ok(hot.body.includes('Supported body'), 'hot.md must carry the eligible session body');
+      assert.ok(!hot.body.includes('Unsupported body'), 'the unsupported session body must not reach hot.md');
+
+      const index = fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8');
+      assert.ok(index.includes('[[S-supported]]'), 'index.md lists the session hot.md names');
+      assert.ok(
+        !index.includes('S-newer-unsupported'),
+        'index.md must not list the unsupported-schema session'
+      );
+      assert.match(index, /Skipped \(unreadable or unsupported schema\): 1/);
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
   test('regenerateIndex counts and surfaces an unreadable/corrupt session (#362)', async () => {
     const sessionsDir = path.join(testVaultPath, '.palee', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
