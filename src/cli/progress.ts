@@ -45,19 +45,38 @@ function toProgressTopic(t: LoadedTopic): ProgressTopic {
 }
 
 /**
+ * A calendar-day spelling the vault accepts as a date: `YYYY-MM-DD` with a one- or
+ * two-digit month and day, plus the optional trailing `Z`/`z` the `assessed_at`
+ * validator allows on a date-only form (`2026-9-1Z`).
+ *
+ * @remarks
+ * `isValidAssessedAt` reads the written components as the calendar truth for
+ * exactly these shapes, so display must too: `new Date('2026-9-1Z')` is UTC
+ * midnight, and formatting it in local time reports the previous day west of UTC.
+ */
+const CALENDAR_DAY = /^(\d{4})-(\d{1,2})-(\d{1,2})[Zz]?$/;
+
+/**
  * Renders a stored date field as the learner's local calendar day.
  *
  * @remarks
- * A `YYYY-MM-DD` value is already a calendar day and is returned as it stands:
- * `new Date('YYYY-MM-DD')` reads as UTC midnight, so re-formatting it would move
- * the day back for every learner west of UTC — the hazard `record-review`
- * documents for the same field. Only a timestamp shape, which is what `assess`
- * writes into `assessed_at`, is converted, and then through local getters, so it
- * reports the day the learner experienced rather than the UTC calendar day
- * (#541). An unparseable value is echoed unchanged, as it always was.
+ * A value already spelled as a calendar day is returned as one, zero-padded from
+ * its written components and never round-tripped through `Date`: ISO date-only
+ * strings read as UTC midnight, so re-formatting them would move the day back for
+ * every learner west of UTC — the hazard `record-review` documents for the same
+ * field. Only a timestamp shape, which is what `assess` writes into `assessed_at`,
+ * is converted, and then through local getters, so it reports the day the learner
+ * experienced rather than the UTC calendar day (#541). An unparseable value is
+ * echoed unchanged, as it always was.
  */
 function formatStoredDay(value: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const day = CALENDAR_DAY.exec(value.trim());
+  if (day !== null) {
+    const [, year, month, dayOfMonth] = day;
+    if (year !== undefined && month !== undefined && dayOfMonth !== undefined) {
+      return `${year}-${month.padStart(2, '0')}-${dayOfMonth.padStart(2, '0')}`;
+    }
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : formatLocalDateOnly(parsed);
 }

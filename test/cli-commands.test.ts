@@ -460,6 +460,7 @@ Body content.
 
   test('progress --topic renders both dates on the learner local calendar day (#541)', () => {
     const localDateNotePath = path.join(vaultDir, 'local-date-progress.md');
+    const legacyDayNotePath = path.join(vaultDir, 'local-date-legacy.md');
     try {
       fs.writeFileSync(
         localDateNotePath,
@@ -494,9 +495,38 @@ last_reviewed_at: "2026-08-24"
         /Last Reviewed: 2026-08-24/,
         'a date-only value is already a calendar day and must not shift west of UTC'
       );
+
+      // The validator accepts one- or two-digit month/day and a trailing Z on a
+      // date-only form, so `2026-9-1Z` is a real note field — and `new Date` reads
+      // it as UTC midnight, which is 2026-08-31 in Los Angeles.
+      fs.writeFileSync(
+        legacyDayNotePath,
+        `---
+palee_id: T-local-date-legacy
+palee_schema: 1
+title: Legacy Date Topic
+difficulty: beginner
+depends_on: []
+topic_mastery: 0.5
+assessed_at: "2026-9-1Z"
+---
+# Legacy Date Topic
+`,
+        'utf8'
+      );
+      const legacy = runCLI(['progress', '--topic', 'T-local-date-legacy'], { TZ: 'America/Los_Angeles' });
+      assert.strictEqual(legacy.status, 0, legacy.stdout + legacy.stderr);
+      assert.match(
+        legacy.stdout,
+        /Last Assessed: 2026-09-01/,
+        'a date-only spelling with a trailing Z is a written calendar day, not an instant'
+      );
     } finally {
       if (fs.existsSync(localDateNotePath)) {
         fs.unlinkSync(localDateNotePath);
+      }
+      if (fs.existsSync(legacyDayNotePath)) {
+        fs.unlinkSync(legacyDayNotePath);
       }
     }
   });
