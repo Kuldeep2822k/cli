@@ -808,6 +808,7 @@ describe('palee adopt --undo reverses adoption without touching authored content
     );
     assert.match(output, /OCC conflict/);
     assert.ok(output.includes('Rollback incomplete: 1 of 1 note(s)'), output);
+    assert.doesNotMatch(output, /and stay un-adopted/, output);
 
     // The deciding pair: the other writer's bytes survive, and the pre-undo content was
     // not restored over them. Without the fingerprint guard both fail — the restore
@@ -840,8 +841,9 @@ describe('palee adopt --undo reverses adoption without touching authored content
     // base exit code would be 5. `renameSync` is where a write commits, so failing it
     // there leaves the note untouched — the shape a disk error has.
     const realRename = fs.renameSync;
+    const canonicalBlocked = fs.realpathSync(absBlocked);
     fs.renameSync = ((from: string | Buffer | URL, to: string | Buffer | URL): void => {
-      if (String(to) === absBlocked) {
+      if (String(to) === canonicalBlocked) {
         const ioError = new Error('EIO: i/o error, rename failed') as Error & { code?: string };
         ioError.code = 'EIO';
         throw ioError;

@@ -439,7 +439,7 @@ async function rollbackBatch(
     // deleted note both land here, and neither leaves "the newer bytes" behind.
     console.error(
       `  Rollback incomplete: ${unrestored} of ${journal.length} note(s) were not restored ` +
-        'and stay un-adopted. Each reason is listed above.'
+        '. Each reason is listed above.'
     );
   }
   return { unrestored, conflicted };
