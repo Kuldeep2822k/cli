@@ -16,6 +16,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { assertContainedInVault } from './containment';
+import { foldIdentity } from './vault-walker';
 import { LockData, NodeError } from '../types';
 
 /**
@@ -156,6 +157,35 @@ function generateLockId(): string {
 }
 
 /**
+ * Platforms whose filesystems resolve `Notes/Foo.md` and `notes/foo.md` to one file.
+ *
+ * @remarks
+ * Mirrors `containment.ts`, which compares case-insensitively on these platforms for the
+ * same reason: the filesystem does, so a comparison that does not is the odd one out.
+ */
+const CASE_INSENSITIVE_PLATFORMS = new Set(['win32', 'darwin']);
+
+/**
+ * Folds a vault-relative lock key so every spelling of one note maps to one lock directory.
+ *
+ * @param relativePath - Vault-relative note path, POSIX separators
+ * @param platform - `process.platform`; injected so every branch is testable on any OS
+ * @returns The folded key on a case-insensitive platform, the input unchanged otherwise
+ *
+ * @remarks
+ * `realpathSync` preserves the caller's spelling on Windows, so `Notes/foo.md` and
+ * `notes/foo.md` reached {@link getLockDir} as two different strings and hashed to two
+ * different lock directories: two processes spelling the same note differently were not
+ * mutually excluded (#565 P1-07). `foldIdentity` is already the vault's one identity fold
+ * (lowercase + NFC), so the lock cannot disagree with the scanner about which note is
+ * meant. Linux stays case-sensitive on purpose — there they are two files, and folding
+ * would *create* the collision this prevents.
+ */
+function foldLockKey(relativePath: string, platform: string = process.platform): string {
+  return CASE_INSENSITIVE_PLATFORMS.has(platform) ? foldIdentity(relativePath) : relativePath;
+}
+
+/**
  * Derives the canonical lock directory path in `.palee/locks/` corresponding to a target file.
  *
  * @param vaultPath - Absolute path to the vault root
@@ -188,7 +218,7 @@ function getLockDir(vaultPath: string, targetPath: string): string {
     resolvedVault = fs.realpathSync(vaultPath);
   } catch {}
 
-  const relativePath = path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/');
+  const relativePath = foldLockKey(path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/'));
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   // Anchored once, like `getPaleeDir`: with a relative `vaultPath` the joined
   // string is relative, and the assertion below resolves a relative destination
@@ -903,5 +933,6 @@ export {
   Lock,
   HEARTBEAT_INTERVAL,
   STALE_TIMEOUT,
+  foldLockKey,
   isTransientHandleCode,
 };

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT, isTransientHandleCode } from '../src/storage/lock';
+import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT, foldLockKey, isTransientHandleCode } from '../src/storage/lock';
 import { isConflictError } from '../src/storage/atomic-write';
 import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
 import { NodeError } from '../src/types';
@@ -739,6 +739,39 @@ describe('File Locking', () => {
     } finally {
       lock1.release();
       lock2.release();
+    }
+  });
+
+  test('foldLockKey folds case and NFC only where the filesystem does (#565 P1-07)', () => {
+    // Two spellings of one note must reach one lock directory exactly where the
+    // filesystem already treats them as one file, and stay distinct where it does not.
+    assert.strictEqual(foldLockKey('Notes/Foo.md', 'win32'), 'notes/foo.md');
+    assert.strictEqual(foldLockKey('Notes/Café.md', 'win32'), foldLockKey('notes/cafe\u0301.md', 'win32'));
+    assert.strictEqual(foldLockKey('Notes/Café.md', 'darwin'), foldLockKey('notes/cafe\u0301.md', 'darwin'));
+    assert.strictEqual(foldLockKey('Notes/Foo.md', 'linux'), 'Notes/Foo.md');
+    assert.notStrictEqual(foldLockKey('Notes/Foo.md', 'linux'), foldLockKey('notes/foo.md', 'linux'));
+  });
+
+  test('a case-varied spelling of the same note takes the same lock (#565 P1-07)', { skip: process.platform !== 'win32' && process.platform !== 'darwin' }, async () => {
+    // The real path: `realpathSync` keeps the caller's spelling, so before this fold
+    // `Notes/Alpha.md` and `notes/alpha.md` hashed to two lock directories and neither
+    // process excluded the other.
+    fs.mkdirSync(path.join(testVaultPath, 'Notes'), { recursive: true });
+    const canonical = path.join(testVaultPath, 'Notes', 'Alpha.md');
+    fs.writeFileSync(canonical, '# Alpha\n', 'utf8');
+
+    const holder = new Lock(testVaultPath, canonical);
+    await holder.acquire();
+    const rival = new Lock(testVaultPath, path.join(testVaultPath, 'notes', 'alpha.md'));
+    try {
+      await assert.rejects(
+        () => rival.acquire(),
+        (e: unknown) => (e as NodeError).code === 'ECONFLICT',
+        'the second spelling must collide with the first'
+      );
+    } finally {
+      holder.release();
+      rival.release();
     }
   });
 
