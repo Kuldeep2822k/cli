@@ -711,6 +711,32 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     );
   });
 
+  test('a plain batch adopts a README whose body is the lesson (#545)', () => {
+    // A lesson-body repo: the prose lives in README.md, as in
+    // microsoft/Web-Dev-For-Beginners, where each module is ~3800 words.
+    const lessonBody = Array.from({ length: 380 }, () => 'Lesson prose about the topic at hand.').join('\n\n');
+    const { vaultDir, configDir } = freshVault({
+      '2-js-basics/1-data-types/README.md': `# Data Types\n\n${lessonBody}\n`,
+      '2-js-basics/1-data-types/02-homework.md': '# Homework\n',
+    });
+
+    const plain = runCLI(['adopt', '--all', '--dry-run'], configDir);
+    assert.strictEqual(plain.status, 0, plain.stdout + plain.stderr);
+    assert.match(
+      plain.stdout,
+      /Ready to Adopt:\s+2 notes/,
+      'a lesson-sized README is curriculum, not repo meta'
+    );
+    assert.doesNotMatch(plain.stdout, /Skipped \(meta\)/, 'the README is no longer skipped by hygiene');
+
+    const applied = runCLI(['adopt', '--all', '-y'], configDir);
+    assert.strictEqual(applied.status, 0, applied.stdout + applied.stderr);
+    assert.ok(
+      [...idToPath(vaultDir).values()].includes('2-js-basics/1-data-types/README.md'),
+      'the lesson README is written as a topic, not just previewed'
+    );
+  });
+
   // #298 moved the hygiene report onto the plain batch too, so a note the learner
   // dropped with `--tag` must still be accounted for by the filter that dropped
   // it. The witness here is a note Tier-0 would adopt: a template as the witness
