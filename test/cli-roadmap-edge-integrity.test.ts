@@ -5,6 +5,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { PALEE_ARGV } from './palee-cli';
+import roadmapCommand from '../src/cli/roadmap';
+import { ExitCode } from '../src/cli/exit-codes';
 
 /**
  * A roadmap import that fails partway still leaves the notes it *did* write
@@ -399,5 +401,109 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     assert.ok(written.includes('T-was'), 'the dangling depends_on is what the learner is left with');
     const survivor = fs.readFileSync(path.join(vaultDir, 'retired.md'), 'utf8');
     assert.ok(survivor.includes('T-now') && !survivor.includes('T-was'), 'T-was was retired by the overwrite');
+  });
+
+  // #565 P1-08: the claim the writer makes is pinned at the call site, not at the
+  // helper — deleting the argument while leaving the helper in place must fail. The
+  // interleaving is injected rather than raced, so it is not a coincidence of
+  // scheduling; it is the approach `storage-first-creation-occ.test.ts` takes for the
+  // `hot.md` and `index.md` creators.
+  //
+  // `atomicWrite` asks `existsSync` about the target twice: first while the lock names
+  // it, then again from its own re-test of the caller's "it was absent" claim, inside
+  // the lock. The winner is created on that second probe — the window the finding
+  // names: inspected as absent, present by the time the claim is tested.
+  test('a note created between the inspection and the write is a conflict, not a silent overwrite', async () => {
+    const yamlPath = path.join(tempDir, 'race.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-race', '    title: Raced', '    path: n/raced.md', ''].join('\n')
+    );
+    const notePath = path.join(vaultDir, 'n', 'raced.md');
+    // The writer resolves the vault with `realpathSync` before it probes anything, and a
+    // temp root is a link on macOS (`/var` -> `/private/var`). Probe the canonical
+    // spelling or the match never fires there.
+    const canonicalNote = path.join(fs.realpathSync(path.dirname(notePath)), path.basename(notePath));
+    const winnerContent = '# the other process committed first\n';
+    assert.ok(!fs.existsSync(canonicalNote), 'this case requires the note to start absent');
+
+    const originalExists = fs.existsSync;
+    const originalExitCode = process.exitCode;
+    let probes = 0;
+    let injected = false;
+    let exitCodeAtEnd: typeof process.exitCode;
+    try {
+      (fs as unknown as { existsSync: typeof fs.existsSync }).existsSync = (arg: unknown) => {
+        if (path.resolve(String(arg)) === canonicalNote) {
+          probes++;
+          if (probes === 2) {
+            injected = true;
+            fs.writeFileSync(canonicalNote, winnerContent, 'utf8');
+          }
+        }
+        return (originalExists as (p: unknown) => boolean)(arg);
+      };
+
+      process.exitCode = ExitCode.Success;
+      await roadmapCommand({ from: yamlPath, yes: true });
+    } finally {
+      (fs as unknown as { existsSync: typeof fs.existsSync }).existsSync = originalExists;
+      exitCodeAtEnd = process.exitCode;
+      process.exitCode = originalExitCode;
+    }
+
+    assert.strictEqual(
+      probes,
+      2,
+      'the target must be probed by the lock and then by the absence re-test; a different count means this test no longer models that pair'
+    );
+    assert.strictEqual(injected, true, "the injection must have met atomicWrite's re-test of the absence claim");
+    assert.strictEqual(
+      exitCodeAtEnd,
+      ExitCode.Conflict,
+      'a lost first-creation race is a retryable conflict, not a successful write'
+    );
+    assert.strictEqual(
+      fs.readFileSync(canonicalNote, 'utf8'),
+      winnerContent,
+      "the winner's bytes must survive"
+    );
+  });
+
+  // #565 P1-08: the write claims "this note did not exist" only when the import
+  // actually creates it. Sent unconditionally, the claim refuses every ordinary
+  // re-import as an OCC conflict — the note it just read is, by definition, present —
+  // and the pre-existing same-id re-import case above already goes red on that. What
+  // this case adds is the create-then-re-import sequence over the note this import
+  // itself made: `Created: 1`, then `Updated: 1`, with the learner's prose intact.
+  test('re-importing over the note it created is an update, not a second creation', () => {
+    const yamlPath = path.join(tempDir, 'reimport.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      [
+        'topics:',
+        '  - id: T-reimport',
+        '    title: Reimported',
+        '    path: n/reimport.md',
+        '',
+      ].join('\n')
+    );
+
+    const first = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    assert.strictEqual(first.status, 0, `the first import must create the note: ${first.stdout}${first.stderr}`);
+    assert.match(first.stdout, /Created: 1/, 'the note did not exist, so it is a creation');
+
+    const notePath = path.join(vaultDir, 'n', 'reimport.md');
+    const learnerNotes = '\nMy own prose must survive a re-import.\n';
+    fs.appendFileSync(notePath, learnerNotes, 'utf8');
+
+    const second = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = second.stdout + second.stderr;
+    assert.strictEqual(second.status, 0, `a re-import must not conflict with the note it wrote: ${output}`);
+    assert.match(second.stdout, /Updated: 1/, 'the note existed, so it is an update');
+    assert.ok(
+      fs.readFileSync(notePath, 'utf8').includes(learnerNotes.trim()),
+      'the learner wrote prose the import must not clobber'
+    );
   });
 });
