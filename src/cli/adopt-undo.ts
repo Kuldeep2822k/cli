@@ -17,6 +17,7 @@ import {
   updateFrontmatter,
   computeFingerprint,
   atomicWrite,
+  isConflictError,
   walkVault,
   relativeVaultPath,
   matchesPattern,
@@ -135,6 +136,12 @@ interface RollbackRecord {
   absolutePath: string;
   relativePath: string;
   originalContent: string;
+  /**
+   * Fingerprint of the content this process wrote while un-adopting, i.e. what the
+   * note should hold right now. Restoring the pre-undo bytes is an overwrite of
+   * that, so it is the value the restore is verified against (#537).
+   */
+  writtenFingerprint: string;
 }
 
 /** A note inside `.palee/` that still names a topic this run un-adopted. */
@@ -368,30 +375,74 @@ function prepareUndoWrite(target: UndoTarget, freshContent: string): PreparedUnd
   };
 }
 
+/** What a rollback attempt achieved, for the caller's exit code (#537). */
+interface RollbackOutcome {
+  /** Notes the unwind could not restore; each one's reason was printed as it failed */
+  unrestored: number;
+  /** Whether any refusal was a collision rather than an I/O or containment error */
+  conflicted: boolean;
+}
+
 /**
  * Restores every journaled note, newest write first.
  *
  * @param vaultPath - Absolute path to the vault root
  * @param journal - Notes already written by the current run
+ * @returns How many notes the unwind could not restore, and whether any refusal was
+ * a collision
  *
  * @remarks
  * Best-effort, in reverse journal order, exactly like batch adoption's rollback: a
  * reversal that half-completed is worse than one that never started, because the
  * notes still carrying a `palee_id` are the only remaining record of what the run
  * intended to take.
+ *
+ * Each restore is OCC-verified against the bytes this run wrote (#537), so a note
+ * that moved after its own undo write is reported and left as the other writer saved
+ * it, never restored to stale bytes: `--undo`'s promise is to remove PALEE's keys,
+ * not to overwrite a byte it did not write.
  */
-async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Promise<void> {
-  if (journal.length === 0) return;
+async function rollbackBatch(
+  vaultPath: string,
+  journal: RollbackRecord[]
+): Promise<RollbackOutcome> {
+  if (journal.length === 0) return { unrestored: 0, conflicted: false };
 
   console.error('\nRolling back un-adopted notes...');
+  let unrestored = 0;
+  let conflicted = false;
   for (const item of [...journal].reverse()) {
     try {
-      await atomicWrite(vaultPath, item.absolutePath, item.originalContent);
+      // #537: this restore used to be the one unguarded vault write left in the CLI —
+      // three arguments, so `expectedFingerprint` defaulted to null and nothing could
+      // tell that the note had been edited, re-adopted, or rewritten by a process that
+      // took the lock over while this one was stalled. It now states its expectation,
+      // exactly as batch adoption's revert does (#334): the note exists, and it must
+      // still hold what our un-adoption wrote.
+      await atomicWrite(
+        vaultPath,
+        item.absolutePath,
+        item.originalContent,
+        item.writtenFingerprint,
+        { expectExists: true }
+      );
     } catch (err: unknown) {
       const e = err as Error;
+      unrestored += 1;
+      if (isConflictError(err)) conflicted = true;
       console.error(`  Failed to restore ${item.relativePath}: ${e.message}`);
     }
   }
+  if (unrestored > 0) {
+    // The reason each note was left alone is the line printed above it. The summary
+    // states only what the loop actually knows: a lock lost to another writer and a
+    // deleted note both land here, and neither leaves "the newer bytes" behind.
+    console.error(
+      `  Rollback incomplete: ${unrestored} of ${journal.length} note(s) were not restored ` +
+        'and stay un-adopted. Each reason is listed above.'
+    );
+  }
+  return { unrestored, conflicted };
 }
 
 /**
@@ -405,8 +456,13 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
  * `atomicWrite` takes the target's `Lock`, re-checks the prior content's
  * `computeFingerprint` against disk and renames an fsynced temp file into place, so
  * this pass owns no writer and opens no second locking path. Any conflict fails the
- * whole run: the journal unwinds and the exit code comes from `exitCodeFor`, which
- * is the same 4 the rest of the CLI uses for a collision.
+ * whole run: the journal unwinds and the exit code comes from `exitCodeFor` — unless
+ * a restore was itself refused by a collision, in which case the run reports
+ * `ExitCode.Conflict`, so the unwind's refusal is never hidden behind whichever
+ * failure happened to surface first (#537).
+ *
+ * Each journal entry records the fingerprint of the bytes its write left behind, so
+ * the unwind can tell this run's bytes from a later writer's (#537).
  */
 async function commitBatch(vaultPath: string, items: PreparedUndoItem[]): Promise<number | null> {
   const journal: RollbackRecord[] = [];
@@ -417,14 +473,18 @@ async function commitBatch(vaultPath: string, items: PreparedUndoItem[]): Promis
         absolutePath: item.absolutePath,
         relativePath: item.relativePath,
         originalContent: item.originalContent,
+        writtenFingerprint: computeFingerprint(item.updatedContent),
       });
     }
     return journal.length;
   } catch (writeErr: unknown) {
     const err = writeErr as Error;
     console.error(`\nBatch un-adoption write error: ${err.message}`);
-    await rollbackBatch(vaultPath, journal);
-    process.exitCode = exitCodeFor(writeErr);
+    const rollback = await rollbackBatch(vaultPath, journal);
+    // #537: a refused restore is a collision whatever started the unwind. The run
+    // must say 4 rather than the code of the failure that surfaced first, because
+    // the restore is the step that could have lost another writer's bytes.
+    process.exitCode = rollback.conflicted ? ExitCode.Conflict : exitCodeFor(writeErr);
     return null;
   }
 }

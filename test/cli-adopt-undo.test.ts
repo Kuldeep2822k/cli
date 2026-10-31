@@ -6,7 +6,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
-import { Lock } from '../src/storage';
+import { Lock, walkVault } from '../src/storage';
 
 /**
  * `palee adopt --undo` (#299).
@@ -743,6 +743,146 @@ describe('palee adopt --undo reverses adoption without touching authored content
     assert.strictEqual(readNote(first), aBefore, 'the note already reversed is restored');
     assert.strictEqual(readNote(second), bBefore, 'and the refused note never moved');
     assert.match(readNote(first), /palee_id: T-/, 'both are still adopted, as the failure claims');
+  });
+
+  test('a concurrent save during the rollback is refused, not overwritten (#537)', async () => {
+    // The rollback exists so a failed batch leaves the vault as it was. The one write
+    // that can break that promise is the restore itself: it puts the pre-undo bytes
+    // back, and a note saved by someone else in between is exactly what "as it was"
+    // no longer describes. The restore therefore states which bytes it expects and
+    // refuses rather than reverting over an edit it never read.
+    const scope = 'undo-rollback-race';
+    fs.mkdirSync(path.join(vaultDir, scope), { recursive: true });
+    writeNote(`${scope}/a.md`, '---\ntitle: A\nauthor: human\n---\n# A\n');
+    writeNote(`${scope}/b.md`, '---\ntitle: B\nauthor: human\n---\n# B\n');
+    const adopted = runCLI(['adopt', scope, '--yes']);
+    assert.strictEqual(adopted.status, 0, adopted.stdout + adopted.stderr);
+
+    // Commit order is `walkVault`'s readdir order, which is filesystem-dependent
+    // (NTFS is roughly lexical, ext4 hashed), so it is read here rather than assumed:
+    // the first note is written and journaled before the second one fails.
+    const order = walkVault(path.join(vaultDir, scope)).map((file) => path.basename(file));
+    assert.strictEqual(order.length, 2, order.join(', '));
+    const [victim, blocked] = order;
+    assert.ok(victim !== undefined && blocked !== undefined);
+    const absVictim = path.join(vaultDir, scope, victim);
+
+    // A live lock held here fails the second write, which is what starts the unwind.
+    const lock = new Lock(vaultDir, path.join(vaultDir, scope, blocked));
+    await lock.acquire();
+
+    const logs: string[] = [];
+    const realError = console.error;
+    let injected = false;
+    console.error = (msg?: unknown) => {
+      const line = String(msg);
+      logs.push(line);
+      // The rollback prints this before restoring anything, so the victim's undo write
+      // has already landed and the next write the run makes is the restore. Editing at
+      // that instant is the concurrent save the issue reports.
+      if (!injected && line.includes('Rolling back un-adopted notes')) {
+        injected = true;
+        fs.appendFileSync(absVictim, '\nSaved by someone else during the rollback.\n', 'utf8');
+      }
+    };
+
+    const previousExitCode = process.exitCode;
+    let exitCode: typeof process.exitCode;
+    process.exitCode = undefined;
+    try {
+      const { default: adoptEntry } = await import('../src/cli/adopt');
+      await adoptEntry(scope, { undo: true, yes: true });
+      exitCode = process.exitCode;
+    } finally {
+      console.error = realError;
+      process.exitCode = previousExitCode;
+      lock.release();
+    }
+
+    assert.ok(injected, 'the rollback started, so the injection landed in its window');
+    assert.strictEqual(exitCode, 4, logs.join('\n'));
+    const output = logs.join('\n');
+    assert.ok(
+      output.includes(`Failed to restore ${scope}/${victim}`),
+      `the refused restore is named: ${output}`
+    );
+    assert.match(output, /OCC conflict/);
+    assert.ok(output.includes('Rollback incomplete: 1 of 1 note(s)'), output);
+
+    // The deciding pair: the other writer's bytes survive, and the pre-undo content was
+    // not restored over them. Without the fingerprint guard both fail — the restore
+    // succeeds, dropping the marker and putting `palee_id` back.
+    const after = readNote(`${scope}/${victim}`);
+    assert.match(after, /Saved by someone else during the rollback/);
+    assert.doesNotMatch(after, /palee_id:/);
+    assert.match(readNote(`${scope}/${blocked}`), /palee_id:/, 'the refused note never moved');
+  });
+
+  test('a rollback collision exits 4 even when a non-conflict failure started the unwind', async () => {
+    // The exit code must not hide the restore's refusal behind the failure that
+    // surfaced first: a run whose restore collided reports 4 even when the write that
+    // started the unwind failed for an unrelated I/O reason (#537).
+    const scope = 'undo-rollback-exit';
+    fs.mkdirSync(path.join(vaultDir, scope), { recursive: true });
+    writeNote(`${scope}/a.md`, '---\ntitle: A\nauthor: human\n---\n# A\n');
+    writeNote(`${scope}/b.md`, '---\ntitle: B\nauthor: human\n---\n# B\n');
+    const adopted = runCLI(['adopt', scope, '--yes']);
+    assert.strictEqual(adopted.status, 0, adopted.stdout + adopted.stderr);
+
+    const order = walkVault(path.join(vaultDir, scope)).map((file) => path.basename(file));
+    assert.strictEqual(order.length, 2, order.join(', '));
+    const [victim, blocked] = order;
+    assert.ok(victim !== undefined && blocked !== undefined);
+    const absVictim = path.join(vaultDir, scope, victim);
+    const absBlocked = path.join(vaultDir, scope, blocked);
+
+    // The second write fails with an I/O error that is not a conflict, so the run's
+    // base exit code would be 5. `renameSync` is where a write commits, so failing it
+    // there leaves the note untouched — the shape a disk error has.
+    const realRename = fs.renameSync;
+    fs.renameSync = ((from: string | Buffer | URL, to: string | Buffer | URL): void => {
+      if (String(to) === absBlocked) {
+        const ioError = new Error('EIO: i/o error, rename failed') as Error & { code?: string };
+        ioError.code = 'EIO';
+        throw ioError;
+      }
+      realRename(from, to);
+    }) as typeof fs.renameSync;
+
+    const logs: string[] = [];
+    const realError = console.error;
+    let injected = false;
+    console.error = (msg?: unknown) => {
+      const line = String(msg);
+      logs.push(line);
+      if (!injected && line.includes('Rolling back un-adopted notes')) {
+        injected = true;
+        fs.appendFileSync(absVictim, '\nSaved by someone else during the rollback.\n', 'utf8');
+      }
+    };
+
+    const previousExitCode = process.exitCode;
+    let exitCode: typeof process.exitCode;
+    process.exitCode = undefined;
+    try {
+      const { default: adoptEntry } = await import('../src/cli/adopt');
+      await adoptEntry(scope, { undo: true, yes: true });
+      exitCode = process.exitCode;
+    } finally {
+      console.error = realError;
+      fs.renameSync = realRename;
+      process.exitCode = previousExitCode;
+    }
+
+    assert.ok(injected, 'the rollback started, so the injection landed in its window');
+    const output = logs.join('\n');
+    assert.match(output, /Batch un-adoption write error: EIO/);
+    assert.match(output, /Failed to restore .*OCC conflict/);
+    assert.strictEqual(exitCode, 4, output);
+
+    const after = readNote(`${scope}/${victim}`);
+    assert.match(after, /Saved by someone else during the rollback/);
+    assert.doesNotMatch(after, /palee_id:/);
   });
 
   test('undo leaves .palee/ derived views byte-identical and names what still refers to the topic', () => {
