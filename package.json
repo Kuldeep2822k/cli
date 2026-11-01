@@ -70,7 +70,7 @@
     "typescript-eslint": "^8.66.0"
   },
   "overrides": {
-    "vite": "^6.4.3",
+    "vite": "^8.0.0",
     "mermaid": {
       "katex": "0.19.1",
       "dompurify": "^3.4.17"
