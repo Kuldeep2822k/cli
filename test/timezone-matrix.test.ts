@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { computeDueDate, formatLocalDateOnly } from '../src/engine/sm2';
 import { formatDateOnly } from '../src/storage/memory';
-import { withoutCoverage, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
+import { withoutCoverage, CLI_SPAWN_TIMEOUT_MS } from './cli-spawn-env';
 
 const root = path.resolve(__dirname, '..');
 
