@@ -1,9 +1,12 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { parseDocument } from 'yaml';
+import { CLI_SPAWN_TIMEOUT_MS } from './cli-spawn-env';
 
 const requireScript = createRequire(__filename);
 const root = path.resolve(__dirname, '..');
@@ -146,12 +149,82 @@ describe('npm publish build guard (#336)', () => {
 });
 
 /**
+ * Preloaded into the packer child, which destructures `execSync` at require
+ * time — so the patch has to be in place before the script loads, and a later
+ * stub would come too late. The command is recorded instead of run, so "the
+ * packer called `npm pack`" is observable without paying for a real pack.
+ */
+const PACK_HOOK_SOURCE = [
+  "const fs = require('fs');",
+  "const childProcess = require('child_process');",
+  'childProcess.execSync = (command) => {',
+  '  fs.appendFileSync(process.env.PACK_HOOK_RECORD, `${command}\\n`);',
+  '};',
+].join('\n');
+
+/**
+ * Builds a throwaway copy of the release layout: the two scripts byte for byte,
+ * and the `package.json` `readReleaseManifest` reads one directory above its own.
+ *
+ * @remarks
+ * The packer reads the manifest relative to its own location, so it cannot be
+ * pointed at a fixture; it is run from a copy instead of against the real root
+ * so no other test races it. The copy is taken from the working tree at run
+ * time, which is what keeps the run honest — a packer that stopped validating
+ * is the file this copies.
+ *
+ * @param manifest - The `package.json` the copied packer will read
+ * @returns The temp root, to be removed by the caller
+ */
+function packerLayout(manifest: { name: string; version: string }): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-pack-guard-'));
+  fs.mkdirSync(path.join(dir, 'scripts'));
+  for (const name of ['pack-package.js', 'release-manifest.js']) {
+    fs.copyFileSync(path.join(root, 'scripts', name), path.join(dir, 'scripts', name));
+  }
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+  return dir;
+}
+
+/**
+ * Runs that copy with `GITHUB_OUTPUT` pointed at `output`.
+ *
+ * @param dir - A layout from {@link packerLayout}
+ * @param output - File the packer will append its output lines to
+ * @returns The exit status, stderr, and every command the script handed to `execSync`
+ */
+function runPacker(
+  dir: string,
+  output: string,
+): { status: number | null; stderr: string; commands: string[] } {
+  const hook = path.join(dir, 'pack-hook.js');
+  const record = path.join(dir, 'exec-sync.log');
+  fs.writeFileSync(hook, PACK_HOOK_SOURCE);
+  const result = spawnSync(
+    process.execPath,
+    ['-r', hook, path.join(dir, 'scripts', 'pack-package.js')],
+    {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: output, PACK_HOOK_RECORD: record },
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    },
+  );
+  const commands = fs.existsSync(record)
+    ? fs.readFileSync(record, 'utf8').split('\n').filter(Boolean)
+    : [];
+  return { status: result.status, stderr: result.stderr, commands };
+}
+
+/**
  * The manifest rules the pipeline shares, asserted directly.
  *
- * These run against the module rather than through a workflow, because a release
- * cannot be exercised from a test: the point is that a hostile or malformed
- * manifest is refused *before* `npm pack` runs and before any `GITHUB_OUTPUT`
- * line is written, so no downstream job can ever see the value.
+ * Most of these run against the module rather than through a workflow, because a
+ * release cannot be exercised from a test. The sequencing is not in the module,
+ * though — it is in `scripts/pack-package.js` — so the last two run the packer
+ * itself: a hostile or malformed manifest must be refused *before* `npm pack`
+ * runs and before any `GITHUB_OUTPUT` line is written, so no downstream job can
+ * ever see the value.
  */
 describe('release manifest rules (#565 P1-06)', () => {
   const verifier = fs.readFileSync(path.join(root, 'scripts/verify-tarball.js'), 'utf8');
@@ -232,5 +305,55 @@ describe('release manifest rules (#565 P1-06)', () => {
       /pkg\.name\.replace/,
       'the filename expression has one home, and it is not this file',
     );
+  });
+
+  // #565 P1-06 review: the rules above are asserted against the module, but
+  // `pack-package.js` is what sequences them. Deleting its `readReleaseManifest()`
+  // call left every one of them green, so the promised early refusal was unpinned.
+  test('the packer refuses an invalid manifest before packing or writing outputs', () => {
+    const dir = packerLayout({ name: '@kuldeep2822k/palee', version: '1.0.0; rm -rf /' });
+    const output = path.join(dir, 'github-output');
+    // Pre-created with a sentinel, so "nothing was appended" is observable even
+    // if the file exists for some other reason.
+    fs.writeFileSync(output, 'prior-line\n');
+    try {
+      const run = runPacker(dir, output);
+
+      assert.notStrictEqual(run.status, 0, 'a hostile version must fail the pack job');
+      assert.match(
+        run.stderr,
+        /not a release semver/,
+        'and it must fail on the manifest rule, not somewhere further down',
+      );
+      assert.deepStrictEqual(run.commands, [], '`npm pack` must not run at all');
+      assert.strictEqual(
+        fs.readFileSync(output, 'utf8'),
+        'prior-line\n',
+        'and no filename=/version= line may be appended for a downstream job to read',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the packer packs and writes the outputs for a valid manifest', () => {
+    // The control for the test above: a packer that refuses everything, or one
+    // that never starts, also reports "no pack and no output".
+    const dir = packerLayout({ name: '@kuldeep2822k/palee', version: '9.9.9' });
+    const output = path.join(dir, 'github-output');
+    fs.writeFileSync(output, 'prior-line\n');
+    try {
+      const run = runPacker(dir, output);
+
+      assert.strictEqual(run.status, 0, run.stderr);
+      assert.deepStrictEqual(run.commands, ['npm pack'], 'the pack runs, and is the only command issued');
+      assert.strictEqual(
+        fs.readFileSync(output, 'utf8'),
+        'prior-line\nfilename=kuldeep2822k-palee-9.9.9.tgz\nversion=9.9.9\n',
+        'and the outputs carry the derived filename and the validated version',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

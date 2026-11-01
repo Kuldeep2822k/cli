@@ -27,7 +27,7 @@ The values also had two homes. `pack-package.js` and `verify-tarball.js` each co
 
 `scripts/release-manifest.js` is the single home for the rules: a strict semver (prerelease and build suffixes allowed), an npm package name, and the one tarball-filename derivation. It is side-effect free on require, so the guard suite can assert the rules without running a release.
 
-`pack-package.js` calls it **before** `npm pack` and before writing `GITHUB_OUTPUT`, so a malformed manifest fails the job before the outputs every downstream job consumes are created. A value that cannot be produced cannot be interpolated.
+`pack-package.js` calls it **before** `npm pack` and before writing `GITHUB_OUTPUT`, so a malformed manifest fails the job before the outputs every downstream job consumes are created. A value that cannot be produced cannot be interpolated. `test/package-publish-guard.test.ts` pins that ordering rather than the rules alone: it runs the packer against a manifest carrying shell syntax and asserts that `npm pack` was never invoked and that no output line was appended.
 
 ### 2. Pass values through `env:`, quote them at use, and keep them out of string-built commands
 
