@@ -1692,4 +1692,54 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'the committed graph is the one the dry run printed'
     );
   });
+
+  // A severed list is still a planned list. A prose declaration outranks the note's
+  // own frontmatter `depends_on` (#258's precedence), so once the declared target is
+  // projected out the plan for that note is empty — and a composer that treats empty
+  // as "no plan" would write back a gate the approved plan had just removed.
+  test('an emptied chain does not resurrect the note frontmatter depends_on', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-third.md': [
+        '---',
+        'depends_on: [T-hand-authored]',
+        '---',
+        '',
+        '# Three',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/02-big]]',
+        '',
+        'third',
+      ].join('\n'),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const output = (result.stdout ?? '') + (result.stderr ?? '');
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /03-third\.md" → "MODULES\/02-big\.md/, 'the severed edge is disclosed');
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/03-third.md'),
+      [],
+      'the severed list stays empty; the frontmatter gate is not a fallback'
+    );
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/03-third.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+  });
 });

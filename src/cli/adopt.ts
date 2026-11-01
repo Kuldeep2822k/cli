@@ -1179,9 +1179,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // commonest one — from flattening a hand-written gate to `[]`. A note the
       // planner visited keeps the ids the planner chose for it, which for a
       // hand-authored note are the same ids (see `handAuthoredDeps`).
+      //
+      // `chainDependsOn` carries an entry for every note the planner visited, even
+      // when it planned nothing for it, so *presence* is what tells "no plan" from
+      // "a plan that selects nothing". The distinction is load-bearing once the
+      // result-cap projection severs a planned edge: an emptied list is a decision
+      // this run made and the plan it printed shows, so falling back to the note's
+      // own frontmatter here would write a gate that was just removed.
       const ownDeps = normalizeDependencies(frontmatter?.depends_on);
+      const hasPlan = chainDependsOn.has(note.relativePath);
       const chainDeps = chainDependsOn.get(note.relativePath) ?? [];
-      const preservedOwnDeps = chainDeps.length === 0 && ownDeps.length > 0;
+      const preservedOwnDeps = !hasPlan && ownDeps.length > 0;
       const plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
