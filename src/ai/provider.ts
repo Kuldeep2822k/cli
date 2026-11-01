@@ -150,6 +150,24 @@ export const DEFAULT_MODEL = 'nemotron-3-ultra-free';
 const DEFERRED_PROVIDERS = new Set(['anthropic']);
 
 /**
+ * Drops a trailing root-label dot from a hostname.
+ *
+ * @param hostname - A `URL.hostname` value
+ * @returns The same host without the FQDN root label
+ *
+ * @remarks
+ * `new URL('https://metadata.google.internal./').hostname` is `metadata.google.internal.`
+ * — the absolute spelling of the same host, which is what the URL parser keeps when the
+ * caller wrote the root label. Both rules below decide by comparing spellings rather than
+ * by resolving names, so the dot has to be folded away once, here, instead of being
+ * remembered at each suffix test. Without it the `.internal` refusal is one character
+ * wide open (#565 P1-05).
+ */
+function withoutRootDot(hostname: string): string {
+  return hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+}
+
+/**
  * True only for hosts that cannot leave the machine.
  *
  * @param hostname - A `URL.hostname` value (lowercased, brackets removed)
@@ -166,7 +184,7 @@ const DEFERRED_PROVIDERS = new Set(['anthropic']);
  * (what a bare `0` parses to) is a bind address, not a loopback one.
  */
 export function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const host = withoutRootDot(hostname.toLowerCase()).replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host === '::1') return true;
   return /^127(\.\d{1,3}){3}$/.test(host);
 }
@@ -335,7 +353,7 @@ function embeddedIPv4s(bare: string): string[] {
  * on IPv6 usable over http.
  */
 export function isReservedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  const host = withoutRootDot(hostname.toLowerCase());
   if (host.startsWith('[')) {
     const bare = host.slice(1, -1);
     if (bare === '::') return true;
