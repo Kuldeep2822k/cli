@@ -16,6 +16,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { assertContainedInVault } from './containment';
+import { foldIdentity } from './vault-walker';
 import { LockData, NodeError } from '../types';
 
 /**
@@ -156,6 +157,53 @@ function generateLockId(): string {
 }
 
 /**
+ * Platforms whose *default* volume resolves `Notes/Foo.md` and `notes/foo.md` to one file.
+ *
+ * @remarks
+ * Chosen from the platform, not probed from the mounted volume, so a vault on an opt-in
+ * case-sensitive volume folds more keys than that volume strictly needs. {@link foldLockKey}
+ * records why that is the accepted side of the trade. This set is deliberately narrower than
+ * the vault's own identity fold, {@link foldIdentity} (`src/storage/vault-walker.ts`), which
+ * case-folds on every platform including Linux.
+ *
+ * `containment.ts` is not a precedent either way: it platform-gates nothing, because it defers
+ * to `path.relative`, which is case-insensitive on win32 by OS rule and case-sensitive on a
+ * case-sensitive volume — and treats the two answers as correct where they apply.
+ */
+const CASE_INSENSITIVE_PLATFORMS = new Set(['win32', 'darwin']);
+
+/**
+ * Folds a vault-relative lock key so every spelling of one note maps to one lock directory.
+ *
+ * @param relativePath - Vault-relative note path, POSIX separators
+ * @param platform - `process.platform`; injected so every branch is testable on any OS
+ * @returns The folded key on a case-insensitive platform, the input unchanged otherwise
+ *
+ * @remarks
+ * `realpathSync` preserves the caller's spelling on Windows, so `Notes/foo.md` and
+ * `notes/foo.md` reached {@link getLockDir} as two different strings and hashed to two
+ * different lock directories: two processes spelling the same note differently were not
+ * mutually excluded (#565 P1-07). `foldIdentity` is already the vault's one identity fold
+ * (lowercase + NFC), so the lock cannot disagree with the scanner about which note is
+ * meant. Linux stays case-sensitive on purpose — there they are two files, and folding
+ * would *create* the collision this prevents.
+ *
+ * Known limitation, accepted: on a case-sensitive volume — an APFS volume created with the
+ * case-sensitive option, or a Windows directory with case sensitivity enabled — the two
+ * spellings really are two files, and this fold gives them one lock directory. The cost is
+ * throughput, never correctness: a second writer on the other file finds the lock held and
+ * waits or reports the conflict, where without the fold it would have written in parallel.
+ * That is preferred over per-volume detection because the lock is not the component that
+ * decides whether two spellings are one note — {@link foldIdentity} already answers that for
+ * the whole vault, unconditionally on every platform — and a lock that disagreed would leave
+ * the scanner and the lock manager with two different ideas of note identity, which is the
+ * failure this fold exists to remove.
+ */
+function foldLockKey(relativePath: string, platform: string = process.platform): string {
+  return CASE_INSENSITIVE_PLATFORMS.has(platform) ? foldIdentity(relativePath) : relativePath;
+}
+
+/**
  * Derives the canonical lock directory path in `.palee/locks/` corresponding to a target file.
  *
  * @param vaultPath - Absolute path to the vault root
@@ -188,7 +236,7 @@ function getLockDir(vaultPath: string, targetPath: string): string {
     resolvedVault = fs.realpathSync(vaultPath);
   } catch {}
 
-  const relativePath = path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/');
+  const relativePath = foldLockKey(path.relative(resolvedVault, resolvedTarget).replace(/\\/g, '/'));
   const hash = crypto.createHash('sha256').update(relativePath, 'utf8').digest('hex');
   // Anchored once, like `getPaleeDir`: with a relative `vaultPath` the joined
   // string is relative, and the assertion below resolves a relative destination
@@ -903,5 +951,6 @@ export {
   Lock,
   HEARTBEAT_INTERVAL,
   STALE_TIMEOUT,
+  foldLockKey,
   isTransientHandleCode,
 };
