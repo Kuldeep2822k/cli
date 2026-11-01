@@ -12,6 +12,24 @@ import { Review } from '../types';
 import { formatDiagnosticValue } from '../validation/rules/diagnostic-value';
 
 /**
+ * Ceiling on a computed `interval_days`, in days (100 years).
+ *
+ * @remarks
+ * The SM-2 multiply is unbounded, so an interval needs a policy ceiling or it grows
+ * without end. 36500 days is that ceiling — the conventional SRS cap — and it is not
+ * the limit of `Date` itself: the representable range is plus or minus `8.64e15`
+ * milliseconds from the epoch, roughly 100 million days, so a 36500-day interval is
+ * still an ordinary date. The calendar limit is the backstop the cap keeps the
+ * schedule away from, not the number the cap was computed from: left uncapped, a long
+ * review history eventually crosses it, `formatLocalDateOnly` writes `NaN-NaN-NaN` into
+ * `due_at`, and no validator can repair that. {@link computeDueDate} refuses a day count
+ * that leaves the range as the second line of defence for callers that bypass this cap.
+ * Capping here means a long-lived note degrades to a 100-year interval instead of a
+ * corrupt date (INV-17).
+ */
+const MAX_INTERVAL_DAYS = 36500;
+
+/**
  * Calculates the delta adjustment to the ease factor based on review quality.
  *
  * @remarks
@@ -190,6 +208,13 @@ function processReview(
   if (!Number.isFinite(newInterval)) {
     throw new Error(`Invalid interval_days: computed non-finite value, got ${formatDiagnosticValue(newInterval)}`);
   }
+  // A finite interval is not automatically a representable date: the multiply above
+  // is unbounded, so a long review history reaches `due_at: 84755-11-24` and then
+  // `NaN-NaN-NaN`. Clamp rather than throw — a decade-scale schedule is a legal,
+  // recoverable state, and the persisted date must stay a real calendar day.
+  if (newInterval > MAX_INTERVAL_DAYS) {
+    newInterval = MAX_INTERVAL_DAYS;
+  }
   if (!Number.isFinite(newEaseFactor)) {
     throw new Error(`Invalid ease_factor: computed non-finite value, got ${formatDiagnosticValue(newEaseFactor)}`);
   }
@@ -262,10 +287,17 @@ function computeDueDate(fromDate: Date | string, days: number): Date {
   }
   // Perform calendar arithmetic in local timezone to avoid cross-DST shift bugs
   due.setDate(due.getDate() + days);
+  // Defense in depth for callers that bypass `processReview`'s cap: `setDate` past
+  // the `Date` range yields an invalid date, and `formatLocalDateOnly` would then
+  // persist `NaN-NaN-NaN`. Refuse it here, at the one place a due date is built.
+  if (Number.isNaN(due.getTime())) {
+    throw new Error(`Invalid days: advancing the due date by ${formatDiagnosticValue(days)} days leaves the representable calendar range`);
+  }
   return due;
 }
 
 export {
+  MAX_INTERVAL_DAYS,
   calculateEaseFactorDelta,
   processReview,
   computeDueDate,

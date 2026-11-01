@@ -72,10 +72,17 @@ For successful reviews (`q >= 3`), the next interval (`I`, in calendar days) sca
 ```text
 Repetition 1: I(1) = 1 day
 Repetition 2: I(2) = 6 days
-Repetition n >= 3: I(n) = Math.max(1, Math.round(I(n-1) * EF))
+Repetition n >= 3: I(n) = Math.min(36500, Math.max(1, Math.round(I(n-1) * EF)))
 ```
 
-Every calculated interval is enforced to be at least 1 day (`Math.max(1, newInterval)`).
+Every calculated interval is enforced to be at least 1 day (`Math.max(1, newInterval)`)
+and at most `MAX_INTERVAL_DAYS` (`36500` days, 100 years). 36500 is the conventional SRS
+ceiling, a scheduling policy — not the limit of `Date` itself, which reaches roughly 100
+million days (`±8.64e15` ms) from the epoch. The ceiling stops the unbounded multiply
+above from growing a schedule into that limit, where `due_at` would be written as
+`NaN-NaN-NaN` — a value no validator can repair (#565). As a separate backstop for callers
+that bypass the ceiling, `computeDueDate` refuses a day count that leaves the
+representable calendar range rather than returning an invalid `Date`.
 
 #### 3. Lapse Handling
 

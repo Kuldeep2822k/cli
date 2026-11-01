@@ -108,7 +108,8 @@ When `palee review` executes [src/cli/review.ts](https://github.com/Kuldeep2822k
    - **Interval Progression**:
      - Repetition 1: `I(1) = 1` day
      - Repetition 2: `I(2) = 6` days
-     - Repetition `n >= 3`: `I(n) = Math.max(1, Math.round(I(n-1) * EF))`
+     - Repetition `n >= 3`: `I(n) = Math.min(MAX_INTERVAL_DAYS, Math.max(1, Math.round(I(n-1) * EF)))`
+     - `MAX_INTERVAL_DAYS` is `36500` (100 years): the conventional SRS ceiling that stops the unbounded multiply from growing a schedule past `Date`'s own range (roughly 100 million days), where `due_at` would be written as `NaN-NaN-NaN` (#565).
    - If `q < 3` (failed recall): resets interval to `1` day and increments `lapses`.
 3. **Mastery & Pillar Score Sync**: Recomputes `topic_mastery` via the 4-pillar mastery formula. Pillar scores already on the note are normalized and written back unchanged; a pillar the note does not carry is **not written** (#300) — a review records the SM-2 outcome, never an assessment score the learner never gave, the same rule roadmap import (#191) and adopt (#277) follow via the shared `carriedPillarScores()` helper in [src/engine/mastery.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/engine/mastery.ts).
 4. **Local Date Calculation**: Computes `due_at` by adding `interval_days` calendar days to current local date (`YYYY-MM-DD`).
