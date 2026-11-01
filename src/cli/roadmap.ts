@@ -586,18 +586,23 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           //
           // `lstatSync`, not `existsSync` + `statSync`: this probe asks about the
           // directory entry, the same question every guard on the write path asks.
-          // `existsSync` follows a link and reads a dangling one as absent (#565 P1-08),
-          // and a symlinked target is never a note here anyway — the loop's own
-          // inspection skips it as "not a regular file".
-          let targetSize: number | null = null;
+          // `existsSync` follows a link and reads a dangling one as absent (#565 P1-08).
+          //
+          // The size is then read only off a regular file (#565 P1-10 review): a
+          // directory entry has a size too — a wide Linux directory crosses 512 KiB — and
+          // refusing the whole batch for one would turn a target the write loop already
+          // declines per topic, as "not a regular file", into a vault-wide error. A link
+          // and a directory are decided by that inspection, which stays the one place
+          // that judges what is importable; this preflight judges only the notes.
+          let targetStat: fs.Stats | null = null;
           try {
-            targetSize = fs.lstatSync(absoluteTopicPath).size;
+            targetStat = fs.lstatSync(absoluteTopicPath);
           } catch {
-            targetSize = null;
+            targetStat = null;
           }
-          if (targetSize !== null && noteExceedsReadCap(targetSize)) {
+          if (targetStat !== null && targetStat.isFile() && noteExceedsReadCap(targetStat.size)) {
             errors.push(
-              `Topic "${id}" targets ${relativePath}. ${oversizedNoteDiagnostic(targetSize)} — every ` +
+              `Topic "${id}" targets ${relativePath}. ${oversizedNoteDiagnostic(targetStat.size)} — every ` +
                 'reading command skips it, so it cannot be imported. Nothing was written.'
             );
           } else if (incumbent && incumbent.id !== id) {
