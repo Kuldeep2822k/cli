@@ -1621,4 +1621,75 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'nothing depended on the skipped note, so nothing was severed'
     );
   });
+
+  // The other half of the same defect: the plan is printed and confirmed before the
+  // write, so a result-cap verdict taken only at write time approves edges that never
+  // land. The verdict is now projected from the scanned bytes before the plan prints.
+  test('the dry-run plan drops an over-cap predecessor before it is confirmed', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-third.md': '# Three\n\nthird\n',
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 1 note\(s\) that would have crossed the 524288 byte read cap/,
+      `the skip must be disclosed before the plan is approved: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /03-third\.md depends on 02-big\.md/,
+      `the approved plan must not promise an edge the write severs: ${dryOut}`
+    );
+    assert.match(dryOut, /03-third\.md \(chain head\)/, 'the successor is previewed as a head');
+    assert.match(
+      dryOut,
+      /Planned dependency chain \(0 edges to write\)/,
+      `and the plan says so: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Auto-chain:\s+enabled \(strict tier .* 0 edge\(s\) written: 0 numbered, 0 toc\)/,
+      `the pre-gate count must be the written count, not the planned one: ${dryOut}`
+    );
+    // A dry run writes nothing, and the commit that follows agrees with the plan.
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'),
+      overCapBody,
+      'the dry run wrote nothing'
+    );
+
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    assert.strictEqual(commit.status, 0, (commit.stdout ?? '') + (commit.stderr ?? ''));
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/03-third.md'),
+      [],
+      'the committed graph is the one the dry run printed'
+    );
+  });
 });
