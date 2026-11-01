@@ -15,12 +15,17 @@ import { formatDiagnosticValue } from '../validation/rules/diagnostic-value';
  * Ceiling on a computed `interval_days`, in days (100 years).
  *
  * @remarks
- * The SM-2 multiply is unbounded, but a calendar date is not: past roughly 3e13
- * milliseconds from the epoch `Date` saturates, and `formatLocalDateOnly` then
- * writes `NaN-NaN-NaN` into `due_at`, which no validator can repair. 36500 days is
- * the conventional SRS ceiling and keeps every schedule inside the representable
- * range with room to spare, so a long-lived note degrades to a 100-year interval
- * instead of a corrupt date (INV-17).
+ * The SM-2 multiply is unbounded, so an interval needs a policy ceiling or it grows
+ * without end. 36500 days is that ceiling — the conventional SRS cap — and it is not
+ * the limit of `Date` itself: the representable range is plus or minus `8.64e15`
+ * milliseconds from the epoch, roughly 100 million days, so a 36500-day interval is
+ * still an ordinary date. The calendar limit is the backstop the cap keeps the
+ * schedule away from, not the number the cap was computed from: left uncapped, a long
+ * review history eventually crosses it, `formatLocalDateOnly` writes `NaN-NaN-NaN` into
+ * `due_at`, and no validator can repair that. {@link computeDueDate} refuses a day count
+ * that leaves the range as the second line of defence for callers that bypass this cap.
+ * Capping here means a long-lived note degrades to a 100-year interval instead of a
+ * corrupt date (INV-17).
  */
 const MAX_INTERVAL_DAYS = 36500;
 

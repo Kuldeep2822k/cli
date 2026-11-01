@@ -414,4 +414,29 @@ describe('SM-2 interval cap (#565 P1-01)', () => {
       /leaves the representable calendar range/
     );
   });
+
+  test('the ceiling is policy, not the limit of Date (#565 P1-01 review)', () => {
+    // The first draft's prose called 36500 days the range `Date` can represent. It is
+    // not: the limit is roughly 100 million days (±8.64e15 ms from the epoch), measured
+    // here on both sides so the wording in sm2.ts, ADR-0001 and docs/03-1 has a checked
+    // fact behind it instead of a guess.
+    assert.ok(
+      !Number.isNaN(computeDueDate('2026-01-01', 90_000_000).getTime()),
+      '90 million days is still a representable date'
+    );
+    assert.notStrictEqual(
+      formatLocalDateOnly(computeDueDate('2026-01-01', 90_000_000)),
+      'NaN-NaN-NaN',
+      'and it formats as a calendar day, not as the corrupt value the cap exists to avoid'
+    );
+    assert.throws(
+      () => computeDueDate('2026-01-01', 101_000_000),
+      /leaves the representable calendar range/,
+      'the range ends near 100 million days'
+    );
+    assert.ok(
+      MAX_INTERVAL_DAYS * 2000 < 90_000_000,
+      'the 36500-day ceiling sits thousands of times inside the range it protects'
+    );
+  });
 });

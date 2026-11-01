@@ -25,7 +25,7 @@ Key design choices:
    - Repetition 1: 1 day.
    - Repetition 2: 6 days.
    - Repetition $n > 2$: `round(interval_{n-1} * EF)`, clamped to `MAX_INTERVAL_DAYS` (36500 days, 100 years).
-   - The clamp is not a scheduling preference: the multiply is unbounded, and past it the due date leaves the range `Date` can represent and `due_at` is written as `NaN-NaN-NaN`, which no validator can repair (#565).
+   - The clamp is a scheduling policy, not the calendar limit: `Date` itself reaches roughly 100 million days (`±8.64e15` ms from the epoch), but the multiply is unbounded, so an uncapped schedule grows toward that limit, where `due_at` is written as `NaN-NaN-NaN` and no validator can repair it (#565).
 3. **Lapse Handling**:
    - Ratings $q < 3$ trigger a lapse: repetition resets to `0`, interval resets to `1`, and the lapse counter increments if the topic had prior repetitions.
 4. **Calendar Due Dates**:
