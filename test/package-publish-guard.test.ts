@@ -180,6 +180,20 @@ describe('release manifest rules (#565 P1-06)', () => {
   test('a prerelease and a build suffix are still release semver', () => {
     assert.strictEqual(assertNpmVersion('1.1.0-rc.1'), '1.1.0-rc.1');
     assert.strictEqual(assertNpmVersion('1.1.0+build.5'), '1.1.0+build.5');
+    assert.strictEqual(assertNpmVersion('1.1.0-rc.1+build.5'), '1.1.0-rc.1+build.5');
+    assert.strictEqual(assertNpmVersion('1.0.0-0'), '1.0.0-0', 'a numeric prerelease of zero is valid');
+    assert.strictEqual(assertNpmVersion('1.0.0-alpha'), '1.0.0-alpha');
+  });
+
+  // #565 P1-06 review: the first draft's fragment `[0-9A-Za-z.-]+` accepted these.
+  test('a malformed prerelease or build suffix is refused', () => {
+    for (const version of ['1.0.0-01', '1.0.0-rc..1', '1.0.0+build..5', '1.0.0-', '1.0.0+']) {
+      assert.throws(
+        () => assertNpmVersion(version),
+        /not a release semver/,
+        `${version} is not a release semver`,
+      );
+    }
   });
 
   test('a package name carrying shell syntax is refused', () => {
@@ -187,6 +201,13 @@ describe('release manifest rules (#565 P1-06)', () => {
     assert.throws(() => assertPackageName('palee; echo owned'), /not a valid npm package name/);
     assert.throws(() => assertPackageName(['@kuldeep2822k/palee']), /not a valid npm package name/);
     assert.strictEqual(assertPackageName('@kuldeep2822k/palee'), '@kuldeep2822k/palee');
+  });
+
+  test('a package name npm reserves or rejects for length is refused', () => {
+    assert.throws(() => assertPackageName('node_modules'), /reserved by npm/);
+    assert.throws(() => assertPackageName('favicon.ico'), /reserved by npm/);
+    assert.throws(() => assertPackageName('a'.repeat(215)), /longer than the 214 characters/);
+    assert.strictEqual(assertPackageName('a'.repeat(214)), 'a'.repeat(214), 'the limit itself is allowed');
   });
 
   test('the filename is derived from the manifest, not from a second expression', () => {
