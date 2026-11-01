@@ -46,4 +46,24 @@ function oversizedNoteDiagnostic(sizeInBytes: number): string {
   );
 }
 
-export { MAX_NOTE_SOURCE_BYTES, oversizedNoteDiagnostic };
+/**
+ * Whether a note's on-disk size is over the reading ceiling.
+ *
+ * @param sizeInBytes - Byte size reported by `fs.statSync`/`fs.fstatSync` for the note
+ * @returns `true` when the note must not be read at all
+ *
+ * @remarks
+ * #565 P1-10: the reading path applied this comparison inline (see `loader.ts` and
+ * `scanner.ts`), and the write paths — `adopt`, `adopt --undo`, `roadmap` — applied
+ * none, so a note too large to ever be read could still be adopted and reported as a
+ * topic. Stating the comparison once means a write path cannot grow its own spelling
+ * of the ceiling.
+ *
+ * Stat before read, never read-then-measure: `Buffer.byteLength` on content already in
+ * memory leaves the allocation this guard exists to prevent.
+ */
+function noteExceedsReadCap(sizeInBytes: number): boolean {
+  return sizeInBytes > MAX_NOTE_SOURCE_BYTES;
+}
+
+export { MAX_NOTE_SOURCE_BYTES, noteExceedsReadCap, oversizedNoteDiagnostic };

@@ -81,6 +81,16 @@ On Windows filesystems, file locks held briefly by virus scanners, search indexe
 - **Initial Delay**: 50 ms (`WINDOWS_RETRY_INITIAL_DELAY = 50`), doubling each retry (`WINDOWS_RETRY_MULTIPLIER = 2`) with $\pm 25\%$ jitter (`WINDOWS_RETRY_JITTER = 0.25`), capped at 300 ms.
 - **Cleanup**: If all retries are exhausted, temporary files are cleaned up (`fs.unlinkSync(tempPath)`) and the error is rethrown. This runs only on a *handled* error: a process killed by a signal reaches neither this branch nor any `finally`, because no handler exists on the write path (the only `SIGINT` listener in `src/` closes a readline prompt in `src/cli/config.ts`) — which is the residue step 2 above reclaims.
 
+### Read Cap on the Write Paths
+
+The reading path declines any note larger than `MAX_NOTE_SOURCE_BYTES` (512 KiB, `src/storage/source-cap.ts`), stat-first so the bound covers the IO and not only the parse. Adopting, un-adopting or importing a roadmap entry does not go through that path, so all three commands apply the same ceiling before they read:
+
+- `adopt` and `adopt --undo` refuse a single named note with exit `2` (`ExitCode.Usage`) and write nothing; in a batch the note is skipped, named, and the rest of the batch proceeds. A note that *grows* past the cap between the scan and the pre-write re-read is a different case: it joins the drift refusal, so the whole batch aborts at exit `4`, as the exit-code tables record.
+- `adopt` counts the refusals under their own `Oversized:` heading rather than under `Unreadable:`, because the shared line promises "frontmatter will not parse" and the remedy differs — an oversized file is not a note to repair.
+- `roadmap` refuses an over-cap target during validation, before any write, because the importer cannot see the `depends_on` such a note already holds and so cannot prove the graph it writes stays acyclic — the same fail-closed reading INV-46 asks for, and exit `3`. The guard in `readBoundNote` stays as defence for a note that crosses the cap mid-run; it reads `fstatSync(...).size` from the descriptor already open, so it costs no extra syscall and does not reopen the check-then-use window that function exists to close. Validation's own check reports `Topic "<id>" targets <path>. Oversized source: …`. Its wikilink format pre-reads a target before either point (`resolveWikilinkRoadmap`) and refuses an over-cap one there as `Cannot read roadmap target <path>: …`.
+
+Without this, a note over the cap could be adopted — minting a `palee_id` onto a file every reading command skips forever — and then rewritten by `--undo`, which is the one path that would touch it again.
+
 ### Data Flow: Atomic Write Sequence
 
 ```mermaid

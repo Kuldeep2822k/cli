@@ -24,6 +24,7 @@ import {
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
+import { noteExceedsReadCap, oversizedNoteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
@@ -324,6 +325,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         return;
       }
 
+      // #565 P1-10: a note this large is declined by every reading command forever, so
+      // adopting it would mint an identity onto a file `palee plan` can never surface.
+      // Stat before the read rather than measuring the string: the cap exists to bound
+      // the read, not the parse.
+      const { size: sourceSize } = fs.statSync(absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(sourceSize)}; nothing was adopted.`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       const content = fs.readFileSync(absolutePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
 
@@ -550,6 +562,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedInvalidId: string[] = [];
     /** Notes whose frontmatter block will not parse, and why: neither adopted nor rewritten */
     const skippedUnreadable = new Map<string, string>();
+    /**
+     * #565 P1-10 — notes over the read ceiling, and their diagnostic. Kept apart from
+     * `skippedUnreadable` because the remedy differs: a malformed block is the learner's
+     * to repair, an oversized file is not a note at all, and the shared label promises
+     * "frontmatter will not parse" — which would be false here.
+     */
+    const skippedOversized = new Map<string, string>();
     /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
     const adoptedPaleeId = new Map<string, unknown>();
     /**
@@ -582,6 +601,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // for an unreadable frontmatter or an unusable `palee_id` is still a file the
       // pattern could name, and a pattern that reached one of them is not dead.
       scannedPaths.push(relPath);
+      // #565 P1-10: the read commands decline a note over the cap and will keep doing so,
+      // so a batch must not adopt one. It joins the oversized bucket the summary reports
+      // by name — the note is refused and the rest of the batch proceeds.
+      const { size: sourceSize } = fs.statSync(filePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        skippedOversized.set(relPath, oversizedNoteDiagnostic(sourceSize));
+        continue;
+      }
       const content = fs.readFileSync(filePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
 
@@ -1145,6 +1172,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         `Unreadable:         ${skippedUnreadable.size} notes (frontmatter will not parse; not adopted, not rewritten)`
       );
     }
+    if (skippedOversized.size > 0) {
+      console.log(
+        `Oversized:          ${skippedOversized.size} notes (over the ${MAX_NOTE_SOURCE_BYTES} byte read cap; not adopted, not rewritten)`
+      );
+    }
     // Without `--difficulty` each note keeps the difficulty its own frontmatter
     // declares, so one number here would over-claim the run.
     console.log(
@@ -1157,6 +1189,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // with the YAML that rejected it.
     for (const [relPath, reason] of skippedUnreadable) {
       console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
+    }
+    for (const [relPath, reason] of skippedOversized) {
+      console.error(`Skipped ${relPath}: ${reason}`);
     }
     if (options.autoChain) {
       if (chainRefused) {
@@ -1307,6 +1342,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           console.log(`  ? ${relPath}`);
         }
       }
+      if (skippedOversized.size > 0) {
+        console.log(`\nSkipped: over the ${MAX_NOTE_SOURCE_BYTES} byte read cap (not adopted):`);
+        for (const relPath of skippedOversized.keys()) {
+          console.log(`  ? ${relPath}`);
+        }
+      }
       for (const [reason, list] of skippedByHygiene) {
         console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
         list.forEach((f) => console.log(`  ! ${f}`));
@@ -1396,6 +1437,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      */
     const driftedDuringRun: Array<{ relativePath: string; reason: string }> = [];
     for (const note of toAdopt) {
+      // #565 P1-10: the scan refused oversized notes; this re-read is the same write path
+      // one step later, so a note that grew past the cap joins the drift list — refused,
+      // named, and the whole batch aborts before a single write (exit 4), exactly like the
+      // identity and opener drifts it is listed beside.
+      const { size: sourceSize } = fs.statSync(note.absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        driftedDuringRun.push({ relativePath: note.relativePath, reason: oversizedNoteDiagnostic(sourceSize) });
+        continue;
+      }
       // Re-read fresh content to minimize TOCTOU window
       const freshContent = fs.readFileSync(note.absolutePath, 'utf8');
       const freshFingerprint = computeFingerprint(freshContent);
@@ -1520,6 +1570,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.error(`  • … and ${driftedDuringRun.length - 5} more`);
       }
       console.error('  Re-run to plan against the current bytes.');
+      // A note that merely grew past the read cap reaches this same refusal. The banner
+      // above talks about modification because that is the common case; the per-note
+      // reason is what names the oversized one.
       process.exitCode = ExitCode.Conflict;
       return;
     }

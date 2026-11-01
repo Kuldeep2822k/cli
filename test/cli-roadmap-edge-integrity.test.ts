@@ -400,4 +400,27 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     const survivor = fs.readFileSync(path.join(vaultDir, 'retired.md'), 'utf8');
     assert.ok(survivor.includes('T-now') && !survivor.includes('T-was'), 'T-was was retired by the overwrite');
   });
+
+  // #565 P1-10: a target over the read cap is refused during validation, not skipped at
+  // write time. The importer cannot see the `depends_on` an unreadable note already holds,
+  // so it cannot prove the graph it writes stays acyclic — the fail-closed reading, and the
+  // same one the wikilink format takes for the same condition.
+  test('an entry targeting a note over the read cap is refused before any write', () => {
+    const notePath = path.join(vaultDir, 'n', 'huge.md');
+    const before = `---\npalee_id: T-huge\ntitle: Huge\n---\n# Huge\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(notePath, before, 'utf8');
+
+    const yamlPath = path.join(tempDir, 'huge.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-huge', '    title: Huge Imported', '    path: n/huge.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 3, `an unimportable target refuses the batch: ${output}`);
+    assert.match(output, /Topic "T-huge" targets n\/huge\.md\. Oversized source: \d+ bytes exceeds/);
+    assert.strictEqual(fs.readFileSync(notePath, 'utf8'), before, 'nothing was written');
+  });
 });

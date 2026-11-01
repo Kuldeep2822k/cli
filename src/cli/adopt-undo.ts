@@ -26,6 +26,7 @@ import {
   readHotMemory,
   loadSessions,
 } from '../storage';
+import { noteExceedsReadCap, oversizedNoteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { AdoptOptions } from '../types';
 
 /**
@@ -687,6 +688,15 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         return;
       }
 
+      // #565 P1-10: the same cap the reading path applies. Un-adopting a note no command
+      // can ever read would rewrite a file the learner's reports still cannot see.
+      const { size: sourceSize } = fs.statSync(absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(sourceSize)}; nothing was un-adopted.`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       const content = fs.readFileSync(absolutePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
       if (frontmatterError !== undefined) {
@@ -726,6 +736,16 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
 
       // Re-read once and hold the scan-time fingerprint as the write's OCC
       // expectation: a note edited out-of-band in this window is a collision.
+      // #565 P1-10: a note that grew past the read cap is refused here for the same
+      // reason the rest of the CLI will never load it again — and with the same exit code
+      // as the byte change the check below reports, because a size that crossed the cap is
+      // a change to the bytes this run read.
+      const { size: rereadSize } = fs.statSync(absolutePath);
+      if (noteExceedsReadCap(rereadSize)) {
+        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(rereadSize)}; nothing was un-adopted.`);
+        process.exitCode = ExitCode.Conflict;
+        return;
+      }
       const freshContent = fs.readFileSync(absolutePath, 'utf8');
       if (computeFingerprint(freshContent) !== target.fingerprint) {
         console.error(
@@ -816,9 +836,22 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     const skippedByTag: string[] = [];
     /** Notes whose frontmatter will not parse: neither reversed nor rewritten */
     const skippedUnreadable = new Map<string, string>();
+    /**
+     * #565 P1-10 — notes over the read ceiling, and their diagnostic. Kept apart from
+     * `skippedUnreadable`: the shared label says "frontmatter will not parse", which would
+     * be false here, and an oversized file is not a note the learner can repair.
+     */
+    const skippedOversized = new Map<string, string>();
 
     for (const filePath of allFiles) {
       const relPath = relativeVaultPath(vaultPath, filePath);
+      // #565 P1-10: declined by the reading path, so it joins its own bucket and the
+      // batch proceeds rather than rewriting a file nothing can read back.
+      const { size: sourceSize } = fs.statSync(filePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        skippedOversized.set(relPath, oversizedNoteDiagnostic(sourceSize));
+        continue;
+      }
       const content = fs.readFileSync(filePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
 
@@ -905,6 +938,11 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         `Unreadable:         ${skippedUnreadable.size} notes (frontmatter will not parse; not rewritten)`
       );
     }
+    if (skippedOversized.size > 0) {
+      console.log(
+        `Oversized:          ${skippedOversized.size} notes (over the ${MAX_NOTE_SOURCE_BYTES} byte read cap; not rewritten)`
+      );
+    }
     const titlesKept = toUndo.filter((t) => !options.dropTitle && carriesTitle(t)).length;
     if (titlesKept > 0) {
       console.log(
@@ -915,6 +953,9 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     console.log('Owned keys only:  every other frontmatter key, comment and body byte is preserved');
     for (const [relPath, reason] of skippedUnreadable) {
       console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
+    }
+    for (const [relPath, reason] of skippedOversized) {
+      console.error(`Skipped ${relPath}: ${reason}`);
     }
 
     if (options.verbose) {
@@ -949,6 +990,12 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       if (skippedUnreadable.size > 0) {
         console.log('\nSkipped: frontmatter will not parse (not rewritten):');
         for (const relPath of skippedUnreadable.keys()) {
+          console.log(`  ? ${relPath}`);
+        }
+      }
+      if (skippedOversized.size > 0) {
+        console.log(`\nSkipped: over the ${MAX_NOTE_SOURCE_BYTES} byte read cap (not rewritten):`);
+        for (const relPath of skippedOversized.keys()) {
           console.log(`  ? ${relPath}`);
         }
       }
@@ -1004,6 +1051,14 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     const preparedBatch: PreparedUndoItem[] = [];
     const changedDuringRun: string[] = [];
     for (const target of toUndo) {
+      // #565 P1-10: a note that grew past the cap after the scan is refused like the other
+      // shapes that moved under the run; `changedDuringRun` already aborts the batch before
+      // a single write and names what it left.
+      const { size: sourceSize } = fs.statSync(target.absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        changedDuringRun.push(target.relativePath);
+        continue;
+      }
       const freshContent = fs.readFileSync(target.absolutePath, 'utf8');
       if (computeFingerprint(freshContent) !== target.fingerprint) {
         changedDuringRun.push(target.relativePath);
@@ -1032,6 +1087,9 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         console.error(`  • … and ${changedDuringRun.length - 5} more`);
       }
       console.error('  Re-run to plan against the current bytes.');
+      // A note that merely grew past the read cap reaches this same refusal (see the
+      // Phase 1 loop); the count above is the shared bucket, not a claim that every one of
+      // them was edited.
       process.exitCode = ExitCode.Conflict;
       return;
     }

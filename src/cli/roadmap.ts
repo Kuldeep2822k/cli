@@ -23,6 +23,10 @@ import {
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
+import {
+  noteExceedsReadCap,
+  oversizedNoteDiagnostic,
+} from '../storage/source-cap';
 import { detectCyclesBounded } from '../engine/dependency';
 import { isValidTopicId } from '../engine/topic-id';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
@@ -228,6 +232,11 @@ function declaredIdOfNote(absolutePath: string):
   { kind: 'absent' } | { kind: 'unreadable'; reason: string } | { kind: 'declared'; raw: unknown } {
   let content: string;
   try {
+    // #565 P1-10: this pre-read has no cap of its own, and it is the first thing the
+    // import asks a note. Refusing an oversized file here costs one `stat` and keeps the
+    // answer the same shape a note with broken frontmatter already produces.
+    const { size } = fs.statSync(absolutePath);
+    if (noteExceedsReadCap(size)) return { kind: 'unreadable', reason: oversizedNoteDiagnostic(size) };
     content = fs.readFileSync(absolutePath, 'utf8');
   } catch {
     return { kind: 'absent' }; // no note yet: this entry adopts rather than overwrites
@@ -329,6 +338,12 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
     const opened = fs.fstatSync(fd);
     if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
       throw new Error(`${targetPath} changed between validation and read`);
+    }
+    // #565 P1-10: the cap is applied to the descriptor's own byte count. A second
+    // `stat` on the path would reopen the check-then-use window this function exists to
+    // close, and this writer is the one place the size is already in hand.
+    if (noteExceedsReadCap(opened.size)) {
+      throw new Error(oversizedNoteDiagnostic(opened.size));
     }
     return fs.readFileSync(fd, 'utf8');
   } finally {
@@ -541,7 +556,19 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // out afterwards, from a stderr list. INV-32 puts the decision before
           // any write instead, and names both ids so the roadmap can be corrected.
           const incumbent = existingTopicsByPath.get(absoluteTopicPath);
-          if (incumbent && incumbent.id !== id) {
+          // #565 P1-10: a target over the read cap cannot be imported. `loadTopics` and
+          // the write loop both decline such a file, so the importer cannot see the
+          // `depends_on` the note already holds — which means it cannot prove the graph it
+          // writes stays acyclic, and an identity minted here would never be surfaced by
+          // any reading command. Fail closed, before the first write, like the wikilink
+          // format does for the same condition.
+          const targetSize = fs.existsSync(absoluteTopicPath) ? fs.statSync(absoluteTopicPath).size : null;
+          if (targetSize !== null && noteExceedsReadCap(targetSize)) {
+            errors.push(
+              `Topic "${id}" targets ${relativePath}. ${oversizedNoteDiagnostic(targetSize)} — every ` +
+                'reading command skips it, so it cannot be imported. Nothing was written.'
+            );
+          } else if (incumbent && incumbent.id !== id) {
             errors.push(
               `Topic "${id}" targets ${relativePath}, which is already adopted as "${incumbent.id}". ` +
                 `Importing would retire "${incumbent.id}" and orphan every edge that names it. ` +
@@ -802,6 +829,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         // An escaping path is reported per topic by the loop, and validation has
         // already refused the file for it.
         if (!isWithinVault(resolvedVault, absolutePath)) continue;
+        // An over-cap target never reaches this pass: validation refuses it before the
+        // import starts. A note that grows past the cap mid-run is skipped per topic by
+        // the write loop, exactly like any other note it cannot read.
         if (inspectExistingNote(absolutePath).blocker !== null) blockedIds.add(topic.id);
       }
       if (blockedIds.size === 0) return true;
