@@ -752,6 +752,48 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
     assert.match(dry.stdout, /Skipped \(meta\): 1 notes/);
   });
 
+  // #545 review: the two cases above prove a 380-word README is adopted and a
+  // navigation page is skipped, but not where the line sits — the threshold could be
+  // 2000 and both would stay green, and a README of exactly 200 words was never
+  // exercised. `countWords` splits the trimmed body on whitespace and the heading
+  // costs two of those tokens, so the prose below carries the rest.
+  const proseWithHeading = (proseWords: number): string =>
+    `# Course\n\n${Array.from({ length: proseWords }, (_, i) => `w${i}`).join(' ')}\n`;
+
+  test('a README one body word below the lesson threshold stays repo-meta (#545 review)', () => {
+    // 199 body tokens: below `README_LESSON_MIN_WORDS`, so the name-only skip stands.
+    const { configDir } = freshVault({
+      'README.md': proseWithHeading(197),
+      'guide/01.md': '# Lesson One\n',
+    });
+
+    const dry = runCLI(['adopt', '--all', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Skipped \(meta\): 1 notes/, '199 body words does not clear the threshold');
+    assert.match(dry.stdout, /Ready to Adopt:\s+1 notes/);
+  });
+
+  test('a README at exactly the lesson threshold is adopted (#545 review)', () => {
+    // 200 body tokens: the documented rule is "at or above", so this is the first
+    // prose length the plain batch must take, and it must take it for real.
+    const { vaultDir, configDir } = freshVault({
+      'README.md': proseWithHeading(198),
+      'guide/01.md': '# Lesson One\n',
+    });
+
+    const dry = runCLI(['adopt', '--all', '--dry-run'], configDir);
+    assert.strictEqual(dry.status, 0, dry.stdout + dry.stderr);
+    assert.match(dry.stdout, /Ready to Adopt:\s+2 notes/, 'exactly 200 body words clears the threshold');
+    assert.doesNotMatch(dry.stdout, /Skipped \(meta\)/, 'and the README is not counted as repo-meta');
+
+    const run = runCLI(['adopt', '--all', '-y'], configDir);
+    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+    assert.ok(
+      [...idToPath(vaultDir).values()].includes('README.md'),
+      'the threshold README is written as a topic, not only previewed'
+    );
+  });
+
   // #298 moved the hygiene report onto the plain batch too, so a note the learner
   // dropped with `--tag` must still be accounted for by the filter that dropped
   // it. The witness here is a note Tier-0 would adopt: a template as the witness
