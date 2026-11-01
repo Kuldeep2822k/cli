@@ -428,35 +428,37 @@ describe('roadmap import reports edges to notes that do not exist', () => {
     assert.ok(!fs.existsSync(canonicalNote), 'this case requires the note to start absent');
 
     const originalExists = fs.existsSync;
+    const originalLstat = fs.lstatSync;
     const originalExitCode = process.exitCode;
-    let probes = 0;
+    let armed = false;
     let injected = false;
     let exitCodeAtEnd: typeof process.exitCode;
+    // #565 P1-08 review: the claim is re-tested with `lstatSync`, but lstat is also how
+    // the import inspects the note — so the injection cannot key on a probe count. It
+    // arms on the lock's own `existsSync` of the target, which happens after every
+    // inspection, and then commits the winner at the writer's first look.
     try {
       (fs as unknown as { existsSync: typeof fs.existsSync }).existsSync = (arg: unknown) => {
-        if (path.resolve(String(arg)) === canonicalNote) {
-          probes++;
-          if (probes === 2) {
-            injected = true;
-            fs.writeFileSync(canonicalNote, winnerContent, 'utf8');
-          }
-        }
+        if (path.resolve(String(arg)) === canonicalNote) armed = true;
         return (originalExists as (p: unknown) => boolean)(arg);
       };
+      (fs as unknown as { lstatSync: typeof fs.lstatSync }).lstatSync = ((arg: unknown, ...rest: unknown[]) => {
+        if (armed && !injected && path.resolve(String(arg)) === canonicalNote) {
+          injected = true;
+          fs.writeFileSync(canonicalNote, winnerContent, 'utf8');
+        }
+        return (originalLstat as (...a: unknown[]) => unknown)(arg, ...rest);
+      }) as typeof fs.lstatSync;
 
       process.exitCode = ExitCode.Success;
       await roadmapCommand({ from: yamlPath, yes: true });
     } finally {
       (fs as unknown as { existsSync: typeof fs.existsSync }).existsSync = originalExists;
+      (fs as unknown as { lstatSync: typeof fs.lstatSync }).lstatSync = originalLstat;
       exitCodeAtEnd = process.exitCode;
       process.exitCode = originalExitCode;
     }
 
-    assert.strictEqual(
-      probes,
-      2,
-      'the target must be probed by the lock and then by the absence re-test; a different count means this test no longer models that pair'
-    );
     assert.strictEqual(injected, true, "the injection must have met atomicWrite's re-test of the absence claim");
     assert.strictEqual(
       exitCodeAtEnd,

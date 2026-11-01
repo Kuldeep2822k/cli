@@ -237,6 +237,36 @@ function occConflict(message: string): NodeError {
 }
 
 /**
+ * Whether a directory entry of any kind sits at `target`.
+ *
+ * @param target - Resolved path to probe
+ * @returns `true` for a file, a link (resolvable or not), or any other entry
+ * @throws The original error when the probe fails for any reason other than absence
+ *
+ * @remarks
+ * #565 P1-08 review: the existence claims in {@link atomicWrite} were probed with
+ * `existsSync`, which follows the link and reports `false` for a *dangling* one. A
+ * symlink planted between the caller's inspection and its write therefore looked
+ * absent to every claim, and the rename replaced the link instead of reporting
+ * the conflict — the #264 check-then-use seam, one level below the roadmap
+ * writer that first made it reachable.
+ *
+ * `lstatSync` answers about the entry itself, which is what "was there a file at
+ * this path" actually means here. Only `ENOENT` is absence; anything else is a
+ * failure to find out, and guessing "absent" would hand the write the answer it
+ * wanted.
+ */
+function entryExists(target: string): boolean {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch (e: unknown) {
+    if ((e as NodeError).code === 'ENOENT') return false;
+    throw e;
+  }
+}
+
+/**
  * Atomically writes content to a target file within a vault with OCC verification and lock synchronization.
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
@@ -371,7 +401,7 @@ async function atomicWrite(
     // someone else's bytes. Failing now is what turns that lost update into a retryable
     // conflict. An uncontested first creation still succeeds — nothing raced it.
     if (options.expectExists === false) {
-      if (fs.existsSync(resolvedTarget)) {
+      if (entryExists(resolvedTarget)) {
         throw occConflict(`${resolvedTarget} was created by another process`);
       }
 
@@ -385,7 +415,7 @@ async function atomicWrite(
     } else if (options.expectExists === true && expectedFingerprint === null) {
       throw occConflict(`${resolvedTarget} exists and this overwrite carries no expectedFingerprint`);
     } else if (expectedFingerprint !== null) {
-      if (!fs.existsSync(resolvedTarget)) {
+      if (!entryExists(resolvedTarget)) {
         const conflictErr = new Error(`OCC conflict: ${resolvedTarget} does not exist (was deleted or missing)`) as NodeError;
         conflictErr.code = 'ECONFLICT';
         throw conflictErr;
@@ -498,7 +528,7 @@ async function atomicWrite(
         // rename catches the synchronous takeover window: if the target's
         // existence state or content changed since the OCC read, the rename
         // would be a lost update over the takeover's bytes.
-        const targetExistsPostWrite = fs.existsSync(resolvedTarget);
+        const targetExistsPostWrite = entryExists(resolvedTarget);
         if (options.expectExists === false && targetExistsPostWrite) {
           const staleConflict = new Error(
             `OCC conflict: ${resolvedTarget} was created by a concurrent write during the write`

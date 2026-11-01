@@ -340,4 +340,43 @@ describe('an overwrite that states existence must state what it read (#334)', ()
     );
     assert.strictEqual(fs.readFileSync(target, 'utf8'), '# Current\n');
   });
+
+  // #565 P1-08 review: the absence claim was probed with `existsSync`, which follows
+  // the link and reports `false` for a dangling one. A symlink planted between the
+  // caller's inspection and its write therefore read as absent, and the rename replaced
+  // the link instead of reporting the conflict.
+  test('a dangling symlink planted where the write expects absence is a conflict, not a replacement', async (t) => {
+    const target = path.join(vault, 'planted-link.md');
+    const missing = path.join(vault, 'no-such-target.md');
+    try {
+      fs.symlinkSync(missing, target, 'file');
+    } catch {
+      t.skip('this platform/user cannot create a symlink, so the dangling-link case is unreachable');
+      return;
+    }
+    try {
+      // The link resolves to nothing, so `existsSync` would answer `false` here.
+      assert.strictEqual(fs.existsSync(target), false, 'the fixture must be a dangling link');
+
+      await assert.rejects(
+        () => atomicWrite(vault, target, '# Ours\n', null, { expectExists: false }),
+        (err: unknown) => {
+          const e = err as Error & { code?: string };
+          assert.strictEqual(e.code, 'ECONFLICT');
+          assert.strictEqual(isConflictError(err), true);
+          return true;
+        },
+        'a directory entry exists there, so the absence claim must fail'
+      );
+
+      assert.strictEqual(
+        fs.lstatSync(target).isSymbolicLink(),
+        true,
+        'the planted link is still there, not replaced by the write'
+      );
+      assert.strictEqual(fs.existsSync(missing), false, 'and nothing was created at its target');
+    } finally {
+      fs.rmSync(target, { force: true });
+    }
+  });
 });
