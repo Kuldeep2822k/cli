@@ -907,16 +907,29 @@ Content.
       console.error = (msg: string) => { loggedError += msg; };
 
       const origExistsSync = fs.existsSync;
+      const origLstatSync = fs.lstatSync;
       let checkCount = 0;
+      // #565 P1-08 review: `atomicWrite` now probes the presence claim with `lstatSync`
+      // (so a dangling link counts as present). The simulation has to answer both, or it
+      // would answer through a seam the writer no longer uses.
+      const deleted = (): boolean => {
+        checkCount++;
+        return checkCount > 1;
+      };
       (fs as any).existsSync = (p: any) => {
-        if (typeof p === 'string' && p.includes('deleted-review-topic.md')) {
-          checkCount++;
-          if (checkCount > 1) {
-            // Simulate file deletion right after initial discovery
-            return false;
-          }
+        if (typeof p === 'string' && p.includes('deleted-review-topic.md') && deleted()) {
+          // Simulate file deletion right after initial discovery
+          return false;
         }
         return origExistsSync(p);
+      };
+      (fs as any).lstatSync = (p: any, ...rest: unknown[]) => {
+        if (typeof p === 'string' && p.includes('deleted-review-topic.md') && deleted()) {
+          const enoent = new Error(`ENOENT: no such file or directory, lstat '${p}'`) as NodeJS.ErrnoException;
+          enoent.code = 'ENOENT';
+          throw enoent;
+        }
+        return (origLstatSync as (...a: unknown[]) => unknown)(p, ...rest);
       };
 
       try {
@@ -925,6 +938,7 @@ Content.
         assert.match(loggedError, /OCC conflict/i);
       } finally {
         fs.existsSync = origExistsSync;
+        fs.lstatSync = origLstatSync;
         console.error = originalError;
         process.exitCode = originalExitCode;
       }

@@ -89,22 +89,6 @@ export const PALEE_ARGV: string[] = underCoverage
 export const PALEE_DIST_ARGV: string[] = [PALEE_DIST_ENTRY];
 
 /**
- * The parent environment with `NODE_V8_COVERAGE` removed.
- *
- * @remarks
- * A `dist` child instrumented into the same directory as the `tsx` children
- * compiles with tsc, and the two lineages do not merge: on the #451 attempt
- * each side's function map replaced the other's and function coverage fell
- * from 94.35% to 87.07%. Dropping the variable for these launches keeps the
- * artifact check honest without moving the floor.
- */
-export function withoutCoverage(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const child = { ...env };
-  delete child.NODE_V8_COVERAGE;
-  return child;
-}
-
-/**
  * Shell command prefix for `execSync`-style launches. `process.execPath` is
  * quoted because it can contain spaces (e.g. `C:\Program Files\nodejs`), and
  * it replaces the PATH-resolved `node` so shell launches cannot resolve a
@@ -114,16 +98,7 @@ export const PALEE_CMD: string = underCoverage
   ? `"${process.execPath}" --import tsx "${path.join(ROOT, 'bin', 'palee.ts')}"`
   : `"${process.execPath}" "${PALEE_DIST_ENTRY}"`;
 
-/**
- * Per-spawn budget for a CLI child process launched directly.
- *
- * @remarks
- * `execSync` and `spawnSync` block their worker with no way back, so an
- * unbounded call that hangs takes the whole file down and reports nothing about
- * what hung. 120 s is roughly two orders of magnitude above the slowest single
- * invocation measured across the direct-spawn suites (all under 1 s; the
- * multi-spawn suites that aggregate several calls top out near 32 s), and it is
- * the budget `runPalee` has carried in `test/e2e/test-env.ts` since #456, so
- * both launch styles fail on the same clock.
- */
-export const CLI_SPAWN_TIMEOUT_MS = 120_000;
+// Re-exported so the suites that already import them from here are unchanged.
+// They live in `test/cli-spawn-env.ts`, which makes no claim about the build —
+// a suite that only launches `src` must not inherit the `dist` prerequisite.
+export { CLI_SPAWN_TIMEOUT_MS, withoutCoverage } from './cli-spawn-env';
