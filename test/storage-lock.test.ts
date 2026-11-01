@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Lock, HEARTBEAT_INTERVAL, STALE_TIMEOUT, foldLockKey, isTransientHandleCode } from '../src/storage/lock';
+import { foldIdentity } from '../src/storage/vault-walker';
 import { isConflictError } from '../src/storage/atomic-write';
 import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
 import { NodeError } from '../src/types';
@@ -742,7 +743,7 @@ describe('File Locking', () => {
     }
   });
 
-  test('foldLockKey folds case and NFC only where the filesystem does (#565 P1-07)', () => {
+  test('foldLockKey folds case and NFC on the platforms whose default volume does (#565 P1-07)', () => {
     // Two spellings of one note must reach one lock directory exactly where the
     // filesystem already treats them as one file, and stay distinct where it does not.
     assert.strictEqual(foldLockKey('Notes/Foo.md', 'win32'), 'notes/foo.md');
@@ -750,6 +751,29 @@ describe('File Locking', () => {
     assert.strictEqual(foldLockKey('Notes/Café.md', 'darwin'), foldLockKey('notes/cafe\u0301.md', 'darwin'));
     assert.strictEqual(foldLockKey('Notes/Foo.md', 'linux'), 'Notes/Foo.md');
     assert.notStrictEqual(foldLockKey('Notes/Foo.md', 'linux'), foldLockKey('notes/foo.md', 'linux'));
+  });
+
+  test('the fold comes from the platform, not from a probe of the volume (#565 P1-07 review)', () => {
+    // The accepted side of the trade, recorded in `foldLockKey`'s remarks: on an opt-in
+    // case-sensitive APFS volume, or a Windows directory with case sensitivity enabled,
+    // these two spellings really are two files and still share one lock — one writer
+    // waits, nothing is clobbered. Pinning the platform table here means a silent change
+    // of policy (dropping `darwin`, or probing the mount) fails a test instead of surfacing
+    // in the field.
+    assert.strictEqual(
+      foldLockKey('Notes/Foo.md', 'darwin'),
+      foldLockKey('notes/foo.md', 'darwin'),
+      'darwin folds even though a case-sensitive volume exists there'
+    );
+    assert.strictEqual(
+      foldLockKey('Notes/Foo.md', 'win32'),
+      foldLockKey('notes/foo.md', 'win32'),
+      'win32 folds even though a case-enabled directory exists there'
+    );
+    // One fold, no second dialect: the lock uses the vault's own identity fold, so the
+    // scanner and the lock manager cannot disagree about which note is meant.
+    assert.strictEqual(foldLockKey('Notes/Café.md', 'win32'), foldIdentity('Notes/Café.md'));
+    assert.strictEqual(foldLockKey('Notes/Café.md', 'aix'), 'Notes/Café.md', 'unlisted platforms pass the key through');
   });
 
   test('a case-varied spelling of the same note takes the same lock (#565 P1-07)', { skip: process.platform !== 'win32' && process.platform !== 'darwin' }, async () => {

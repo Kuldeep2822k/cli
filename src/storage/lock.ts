@@ -157,11 +157,18 @@ function generateLockId(): string {
 }
 
 /**
- * Platforms whose filesystems resolve `Notes/Foo.md` and `notes/foo.md` to one file.
+ * Platforms whose *default* volume resolves `Notes/Foo.md` and `notes/foo.md` to one file.
  *
  * @remarks
- * Mirrors `containment.ts`, which compares case-insensitively on these platforms for the
- * same reason: the filesystem does, so a comparison that does not is the odd one out.
+ * Chosen from the platform, not probed from the mounted volume, so a vault on an opt-in
+ * case-sensitive volume folds more keys than that volume strictly needs. {@link foldLockKey}
+ * records why that is the accepted side of the trade. This set is deliberately narrower than
+ * the vault's own identity fold, {@link foldIdentity} (`src/storage/vault-walker.ts`), which
+ * case-folds on every platform including Linux.
+ *
+ * `containment.ts` is not a precedent either way: it platform-gates nothing, because it defers
+ * to `path.relative`, which is case-insensitive on win32 by OS rule and case-sensitive on a
+ * case-sensitive volume — and treats the two answers as correct where they apply.
  */
 const CASE_INSENSITIVE_PLATFORMS = new Set(['win32', 'darwin']);
 
@@ -180,6 +187,17 @@ const CASE_INSENSITIVE_PLATFORMS = new Set(['win32', 'darwin']);
  * (lowercase + NFC), so the lock cannot disagree with the scanner about which note is
  * meant. Linux stays case-sensitive on purpose — there they are two files, and folding
  * would *create* the collision this prevents.
+ *
+ * Known limitation, accepted: on a case-sensitive volume — an APFS volume created with the
+ * case-sensitive option, or a Windows directory with case sensitivity enabled — the two
+ * spellings really are two files, and this fold gives them one lock directory. The cost is
+ * throughput, never correctness: a second writer on the other file finds the lock held and
+ * waits or reports the conflict, where without the fold it would have written in parallel.
+ * That is preferred over per-volume detection because the lock is not the component that
+ * decides whether two spellings are one note — {@link foldIdentity} already answers that for
+ * the whole vault, unconditionally on every platform — and a lock that disagreed would leave
+ * the scanner and the lock manager with two different ideas of note identity, which is the
+ * failure this fold exists to remove.
  */
 function foldLockKey(relativePath: string, platform: string = process.platform): string {
   return CASE_INSENSITIVE_PLATFORMS.has(platform) ? foldIdentity(relativePath) : relativePath;
