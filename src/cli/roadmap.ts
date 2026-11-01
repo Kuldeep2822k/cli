@@ -23,6 +23,7 @@ import {
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
+import type { AtomicWriteOptions } from '../storage/atomic-write';
 import { detectCyclesBounded } from '../engine/dependency';
 import { isValidTopicId } from '../engine/topic-id';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
@@ -334,6 +335,24 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/**
+ * The existence claim a roadmap write makes about its target.
+ *
+ * @param isNew - Whether `inspectExistingNote` found no file at the target
+ * @returns `{ expectExists: false }` for a first creation, `undefined` otherwise
+ *
+ * @remarks
+ * #565 P1-08: "the inspection found nothing" is a claim, not the absence of one, and
+ * `atomicWrite` only re-tests it when it is stated. Left implicit, a note created
+ * between the inspection and the rename was replaced silently — the #327 lost update,
+ * in a note writer. The overwrite branch states nothing because the fingerprint it
+ * already passes is the stronger claim, and leaving it unstated keeps this write shaped
+ * like every other overwrite in the CLI.
+ */
+function writeExistenceClaim(isNew: boolean): AtomicWriteOptions | undefined {
+  return isNew ? { expectExists: false } : undefined;
 }
 
 /**
@@ -959,7 +978,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             ? ['dependencies', 'depends_on_source']
             : ['dependencies'];
           const updatedContent = updateFrontmatter(content, paleeData, removals);
-          await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
+          await atomicWrite(
+            vaultPath,
+            resolvedTargetPath,
+            updatedContent,
+            fingerprint,
+            writeExistenceClaim(isNew),
+          );
 
           if (isNew) {
             created++;
