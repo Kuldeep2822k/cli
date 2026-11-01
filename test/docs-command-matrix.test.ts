@@ -43,6 +43,12 @@ const registered = [...commandsSection.matchAll(/^\x20{2}([a-z][a-z-]*)\b/gm)]
   .map((m) => m[1])
   .filter((command) => command !== 'help');
 
+// Actions the `session` command accepts (named by its `--help`). Kept as a
+// small constant because `registered` above only lists top-level commands; a
+// README row like `palee session strt` must fail here, not pass as just
+// `session`.
+const SESSION_ACTIONS = ['start', 'draft', 'end', 'list'];
+
 interface ExitRow {
   command: string;
   exit: number;
@@ -309,5 +315,77 @@ describe('agent.md stub claims match the handlers (#486)', () => {
     }
 
     assert.deepStrictEqual(stale, [], `agent.md calls shipped commands stubs:\n${stale.join('\n')}`);
+  });
+});
+
+/**
+ * #565 P1-12: the README is the first page a user reads and it was the one command
+ * table no test read — this file guarded `docs/02-0` and `agent.md` only. Two rows had
+ * drifted from the handlers: `session start` promised an AI tutor the handler never
+ * calls, and `validate --fix` named one of its three repairers. The table is checked
+ * against the same `--help` parse as everything above, so the command list cannot rot
+ * either.
+ */
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readmeCommandsSection = readme.slice(
+  readme.indexOf('## Commands'),
+  readme.indexOf('### Key Options')
+);
+const readmeTableRows = readme.split(/\r?\n/).filter((line) => line.startsWith('| `palee '));
+
+/** The README table row whose command cell starts with `palee <prefix>`. */
+function readmeRow(prefix: string): string {
+  const row = readmeTableRows.find((line) => line.startsWith(`| \`palee ${prefix}`));
+  assert.ok(row, `README has no \`palee ${prefix}\` table row`);
+  return row;
+}
+
+describe('README command table matches the built CLI (#565 P1-12)', () => {
+  test('every command in the README table is one the CLI registers', () => {
+    const named = readmeCommandsSection
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('| `palee '))
+      .map((line) => /^\| `palee ([a-z-]+)/.exec(line)?.[1] ?? '');
+
+    // Floor: a parse that found nothing would pass vacuously, and the table has always
+    // listed every command.
+    assert.ok(named.length >= 10, `expected the README commands table, parsed ${named.length} rows`);
+    assert.deepStrictEqual(
+      named.filter((command) => !registered.includes(command)),
+      [],
+      'the README table documents a command `palee --help` does not register'
+    );
+
+    // `session <action>` rows must name an action the handler accepts. Other
+    // second tokens (`<topic>`, `--fix`) are placeholders or flags, so only the
+    // session rows are checked.
+    const badSessionActions = readmeTableRows
+      .map((line) => /^\| `palee session ([a-z-]+)/.exec(line)?.[1])
+      .filter((action): action is string => typeof action === 'string' && !SESSION_ACTIONS.includes(action));
+    assert.deepStrictEqual(badSessionActions, [], 'a README session action is not one `palee session` accepts');
+  });
+
+  test('session start warns when no provider is configured instead of promising a tutor', () => {
+    // `src/cli/session.ts` prints `No AI provider configured.` in human mode
+    // only when `config.aiProvider` is absent; the affirmative
+    // `ai_provider_configured` field exists only in `--json`. The row must
+    // describe that default output, not claim the command reports provider status
+    // on every run.
+    const row = readmeRow('session start');
+    assert.doesNotMatch(row, /tutor/i, 'session start runs no tutor — that promise was never true');
+    assert.match(row, /warns when no AI provider is configured/, 'the row states the human-mode warning');
+    assert.doesNotMatch(row, /reports whether an AI provider is configured/, 'do not claim affirmative provider reporting in default output');
+    assert.match(row, /--json/, 'provider status is stated to be JSON-only');
+  });
+
+  test('validate --fix names every repairer it dispatches', () => {
+    // `src/cli/validate.ts` maps valid-session-index and valid-hot-memory to
+    // rebuild_derived_views, valid-topic-mastery to recompute_topic_mastery, and
+    // valid-review-fields to reset_review_fields. A row naming only SM-2 hides the two
+    // repairs that rewrite derived state.
+    const row = readmeRow('validate --fix').toLowerCase();
+    for (const subject of ['derived views', 'mastery', 'sm-2']) {
+      assert.ok(row.includes(subject), `the validate --fix row omits ${subject}`);
+    }
   });
 });

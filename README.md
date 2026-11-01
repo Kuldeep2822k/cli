@@ -150,7 +150,7 @@ palee progress
 | `palee progress` | View mastery statistics |
 | `palee review <topic> <quality>` | Record review result (0-5) |
 | `palee assess <topic>` | Record a four-pillar assessment (conceptual, practical, debug, Feynman) and recompute mastery |
-| `palee session start` | Resume learning from hot memory; starts AI tutor if provider is configured |
+| `palee session start` | Resume learning from hot memory; warns when no AI provider is configured (provider status appears in `--json`) |
 | `palee session end` | Save a confirmed session summary and refresh hot memory |
 | `palee session draft` | Save a recoverable draft checkpoint for the active session |
 | `palee session list` | List session history and pending drafts |
@@ -184,7 +184,7 @@ Flags that change what a command does, rather than which rows it prints:
 | `palee adopt <path> --auto-chain` | Wire `depends_on` from a note's own prerequisites, else the numbered tree (batch mode; Tier-0 hygiene is on for every batch, so this flag wires rather than filters — except that a chained scan keeps README/SUMMARY as chain backbone, which a plain scan skips) |
 | `palee adopt <path> --auto-chain --chain-tier <tier>` | `strict` (default) consumes numbers only; `full` adds listing order, which never gates |
 | `palee adopt <path> --dry-run` | Preview an adoption without writing — likewise `palee roadmap` and `palee migrate` |
-| `palee validate --fix` | Repair corrupted SM-2 review fields to adopt defaults |
+| `palee validate --fix` | Repair what validation can fix automatically: derived views (session index, hot memory), topic mastery, and invalid SM-2 review fields |
 | `palee migrate --fix` | Upgrade notes missing `palee_schema` to schema v1 |
 | `palee migrate --relabel-ties` | Store an alphabetical tiebreak as `tie` rather than `numbered`, so ties stop gating; `depends_on` is never changed |
 | `palee migrate --relabel-ties --include-unlabeled-ties` | Also relabel ties with no `depends_on_source` key at all (opt-in; combine with `--dry-run` to preview) |
