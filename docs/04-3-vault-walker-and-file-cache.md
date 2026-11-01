@@ -9,8 +9,13 @@ description: "The storage subsystem relies on efficient discovery of Markdown fi
 
 - [src/storage/vault-walker.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/vault-walker.ts)
 - [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
+- [src/storage/loader.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/loader.ts)
+- [src/storage/scanner.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/scanner.ts)
+- [src/storage/source-cap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/source-cap.ts)
 - [test/storage-walker.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-walker.test.ts)
 - [test/storage-cache.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-cache.test.ts)
+- [test/storage-loader.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-loader.test.ts)
+- [test/storage-scanner.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-scanner.test.ts)
 
 :::
 
@@ -130,3 +135,78 @@ Sources: [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/sr
 | `clear()` | Flushes all entries from the in-memory cache | [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts) |
 
 Sources: [src/storage/cache.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/cache.ts)
+
+---
+
+## Two Accepted Limits of the Note Read Path
+
+Both limits are deliberate and are preserved as-is; the obvious fix for either is worse than the limit. They
+are recorded here so a user hitting one does not have to read the source to find out it is expected, and they
+are pinned by tests so an edit that changes either behaviour fails loudly. The full reasoning is in
+[ADR-0018](./adr/0018-read-path-caching-and-locking.md).
+
+### A note over the read cap is dropped from the study graph, and `loadTopics` does not say so
+
+`loadTopics` declines any file larger than `MAX_NOTE_SOURCE_BYTES` (512 KiB) with a `stat` alone — the file is
+never opened. That is what keeps a generated index or an exported log from being read and YAML-parsed on every
+scan, but it applies regardless of content: an oversized file that does carry a `palee_id` is not loaded, so it
+is absent from `next`, `plan`, `dashboard` and `progress`, and the commands that call `loadTopics` print no
+warning about it. By the time the size is known the file has not been read, so the loader cannot tell an
+oversized *note* from an oversized non-note.
+
+The decline is reported where a diagnostic is actionable:
+
+- `scanNotes` sets `readError` on the declined entry, using `oversizedNoteDiagnostic`, which names both the
+  observed size and the ceiling — so "too large to read" is distinguishable from "could not be read".
+- `palee validate` surfaces it as a `read-failure` warning (`Could not read <path>: Oversized source: …`), and
+  its output notes that validation ran on an incomplete snapshot.
+
+If a topic you expect is missing from `palee plan` and `palee next`, check its size before anything else.
+A note exactly at the ceiling is still read; the cap is inclusive.
+
+Two follow-on points are worth stating, because both look like bugs and neither is one:
+
+- The oversized file is *not* recorded in the non-topic cache. A declined read leaves no verdict behind, so
+  shrinking the file below the cap makes it a topic again on the very next scan, with no cache clearing.
+- `palee validate` reporting the file while `loadTopics` stays quiet is the intended split, not a
+  contradiction: validation is the diagnostic surface, the study commands are not.
+
+```mermaid
+flowchart TD
+    L["loadTopics(vault)"] --> S["statSync(path)"]
+    S --> SIZE{"size > 512 KiB?"}
+    SIZE -- "No" --> READ["Read + parse frontmatter"]
+    READ --> ID{"has palee_id?"}
+    ID -- "Yes" --> Topic["Topic loaded — appears in next / plan / dashboard"]
+    ID -- "No" --> NonTopic["Negatively cached as a non-topic note"]
+    SIZE -- "Yes" --> Decline["Declined stat-first — never opened<br/>absent from the study graph<br/>no warning from loadTopics"]
+    Decline -.-> Scan["scanNotes sets readError<br/>( oversizedNoteDiagnostic )"]
+    Scan -.-> Validate["palee validate reports<br/>a read-failure warning"]
+```
+
+Sources: [src/storage/loader.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/loader.ts)[src/storage/source-cap.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/source-cap.ts)[test/storage-loader.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-loader.test.ts)
+
+### A swallowed heading before a `key: value`-shaped line is not reported as unclosed frontmatter
+
+`scanNotes` flags a missing closing fence by finding Markdown body text inside the frontmatter block. A
+`## Subheading` line inside that block is legal YAML — a `#` starts a comment however many hashes follow — so
+the scanner decides by *position*: a heading counts as leaked body text only when a column-0 blank line has
+already ended the mapping **and** no YAML data line follows it. Against the closing `---`, that is the signature
+of a note whose real closing fence is missing and whose `---` is a thematic break.
+
+Two residual shapes fall outside that rule, in opposite directions:
+
+| Frontmatter | Reported? | Why |
+| --- | --- | --- |
+| `\n## Subheading\n---` | Yes, unclosed | Trailing heading against the fence, no data line after it — the swallowed-body signature |
+| `\n## Subheading\nfoo: bar\n---` | **No** | The `foo: bar` line is data-shaped, so the block reads as still running and the heading no longer looks trailing |
+| `## reviewed 2026-01-01` directly under the entries | No | A plain YAML comment among the entries, which is how frontmatter comments are written |
+| `\n## reviewed 2026-01-01\n---` | Yes, unclosed | The same bytes as the second row, so it is reported too, though it is legal YAML |
+
+The two shapes in the middle are byte-for-byte identical to their neighbours in the first and last rows, and
+position is the only signal available — the parser cannot distinguish a comment between mapping entries from a
+swallowed body without a closing fence, which is exactly what is missing. The chosen direction fails safe: the
+unreported shape still parses, so the note keeps its metadata and only the *warning* is lost. Widening the rule
+to catch it would re-introduce the false positives the position test exists to eliminate.
+
+Sources: [src/storage/scanner.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/scanner.ts)[test/storage-scanner.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/storage-scanner.test.ts)

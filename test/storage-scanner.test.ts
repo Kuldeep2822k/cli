@@ -518,6 +518,59 @@ describe('Storage Note Scanner', () => {
       assert.strictEqual((firstNote.frontmatter as Record<string, unknown>).palee_id, 'T-319-nospace');
     });
 
+    test('a swallowed heading followed by a data-shaped line is not reported — the accepted miss', () => {
+      // Issue #427: this is the accepted direction the heuristic trades away, and
+      // it is asserted as such — the shape is *not* flagged. The `foo: bar` line is
+      // data-shaped, so `lastYamlDataIndex` moves past the heading and the heading
+      // stops looking trailing, even though the closing fence is genuinely missing.
+      // Position is the only signal the scanner has, and this shape is byte-for-byte
+      // identical to the legal trailing-comment fixture below. If a future change
+      // starts reporting this, that change is narrowing the accepted limit and this
+      // assertion must move with it deliberately, not silently.
+      fs.writeFileSync(
+        path.join(tmpVault, 'swallowed-then-data.md'),
+        '---\npalee_id: T-427-miss\ntitle: Miss\ndifficulty: beginner\n\n## Subheading\nfoo: bar\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(
+        firstNote.parseError,
+        undefined,
+        'the accepted miss: no unclosed-fence report for this shape (#427)'
+      );
+      assert.ok(firstNote.frontmatter, 'and the note keeps its metadata, which is why the miss is the cheaper failure');
+      const fm = firstNote.frontmatter as Record<string, unknown>;
+      assert.strictEqual(fm.palee_id, 'T-427-miss');
+      assert.strictEqual(fm.difficulty, 'beginner');
+    });
+
+    test('the mirror direction is reported though it is legal YAML — the accepted false positive', () => {
+      // Issue #427's other accepted direction, and the reason the first case cannot
+      // simply be widened: a trailing `##` comment with a blank line before it is a
+      // legal YAML comment, but it is byte-identical to the swallowed-heading shape
+      // the heuristic exists to catch, so position reports it. Over-reporting is the
+      // deliberate side of this trade; the note is still a note to the parser.
+      fs.writeFileSync(
+        path.join(tmpVault, 'trailing-comment-with-blank.md'),
+        '---\npalee_id: T-427-over\ntitle: Over\ndifficulty: beginner\n\n## reviewed 2026-01-01\n---\n# Real Body\n',
+        'utf8'
+      );
+
+      const notes = scanNotes(tmpVault);
+
+      assert.strictEqual(notes.length, 1);
+      const [firstNote] = notes;
+      assert.ok(firstNote !== undefined);
+      assert.strictEqual(firstNote.frontmatter, null);
+      assert.ok(firstNote.parseError, 'a heading in the trailing paragraph is reported regardless of YAML legality');
+      assert.match(firstNote.parseError, /unclosed/i);
+    });
+
     test('the heading shape is fatal only in the trailing paragraph, not adjacent to the entries', () => {
       // The pair that pins the #319 / #171.11 distinction: identical heading
       // text, different position. The blank-line-separated trailing heading is
