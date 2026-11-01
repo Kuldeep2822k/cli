@@ -146,8 +146,12 @@ jobs:
 
       - name: Check if version is already published
         id: check-published
+        # #565 P1-06: `${VERSION}` is a POSIX-shell reference; declare the shell instead
+        # of relying on the runner's default.
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify-and-pack.outputs.version }}
         run: |
-          VERSION=${{ needs.verify-and-pack.outputs.version }}
           if npm view "@kuldeep2822k/palee@${VERSION}" version >/dev/null 2>&1; then
             echo "already_published=true" >> "$GITHUB_OUTPUT"
             echo "⚠️ Version ${VERSION} is already published on npm. Skipping publish step."
@@ -157,8 +161,11 @@ jobs:
 
       - name: Publish to NPM Registry (OIDC)
         if: steps.check-published.outputs.already_published != 'true'
-        run: npm publish ${{ needs.verify-and-pack.outputs.package-filename }} --access public --provenance
+        # #565 P1-06: declare the POSIX shell this line's `$PACKAGE_FILENAME` needs.
+        shell: bash
+        run: npm publish "$PACKAGE_FILENAME" --access public --provenance
         env:
+          PACKAGE_FILENAME: ${{ needs.verify-and-pack.outputs.package-filename }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   github-release:
@@ -209,11 +216,12 @@ jobs:
 
       - name: Install published package globally
         shell: bash
+        env:
+          VERSION: ${{ needs.verify-and-pack.outputs.version }}
         run: |
-          VERSION=${{ needs.verify-and-pack.outputs.version }}
           echo "Waiting for npm registry to propagate @kuldeep2822k/palee@$VERSION..."
           for i in {1..30}; do
-            if npm install -g @kuldeep2822k/palee@$VERSION; then
+            if npm install -g "@kuldeep2822k/palee@$VERSION"; then
               echo "Successfully installed @kuldeep2822k/palee@$VERSION!"
               exit 0
             fi
@@ -225,8 +233,10 @@ jobs:
 
       - name: Verify Exact Version Match
         shell: pwsh
+        env:
+          VERSION: ${{ needs.verify-and-pack.outputs.version }}
         run: |
-          $EXPECTED = "${{ needs.verify-and-pack.outputs.version }}"
+          $EXPECTED = "$env:VERSION"
           $ACTUAL = (palee --version).Trim()
           if ($ACTUAL -ne $EXPECTED) {
             Write-Error "❌ Version mismatch! Expected $EXPECTED, got $ACTUAL"

@@ -1,7 +1,12 @@
-const { execSync } = require('child_process');
+// Asserts the packed tarball ships what it must and nothing it must not
+// (#565 P1-06). `execFileSync` with an argv array keeps the manifest-derived
+// filename out of any shell: it is passed to `tar` as one argument, so a name
+// carrying metacharacters can never be parsed as a command.
+const { execFileSync } = require('child_process');
 const pkg = require('../package.json');
-const filename = pkg.name.replace('@', '').replace('/', '-') + '-' + pkg.version + '.tgz';
-const tarList = execSync(`tar -tzf ${filename}`, { encoding: 'utf8' }).split('\n');
+const { readReleaseManifest, tarballFilename } = require('./release-manifest');
+const filename = tarballFilename(readReleaseManifest());
+const tarList = execFileSync('tar', ['-tzf', filename], { encoding: 'utf8' }).split('\n');
 
 const REQUIRED = [
   'package/' + pkg.main,
