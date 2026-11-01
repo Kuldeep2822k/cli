@@ -460,7 +460,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee migrate` | 2 | Unconfigured or non-existent vault path. |
 | `palee migrate` | 3 | Unrecognized schema version found (`palee_schema` missing or $\ne 1$). |
 | `palee migrate` | 4 | A note update under `--fix` hit an OCC conflict or an active lock, or a note or its predecessor changed while a relabel pass held it — both are "re-run to retry". |
-| `palee migrate` | 5 | Unexpected runtime exception or YAML parsing error. |
+| `palee migrate` | 5 | Unexpected runtime exception, YAML parsing error, or a `--fix`/`--relabel-ties` write refused for a permission or disk reason. An active lock or an OCC collision is exit `4`, not this code. |
 
 ---
 

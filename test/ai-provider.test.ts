@@ -183,6 +183,10 @@ describe('provider endpoint validation (#24)', () => {
       'https://[2001:0:a9fe:a9fe:8000:63bf:3fff:fdd2]/v1',
       'https://[2001:0:4136:e378:8000:63bf:5601:5601]/v1',
       'https://metadata.google.internal/v1',
+      // The FQDN spelling of the same host: `URL.hostname` keeps the root-label dot, so a
+      // bare `endsWith('.internal')` is false for it (#565 P1-05).
+      'https://metadata.google.internal./v1',
+      'https://metadata.google.INTERNAL./v1',
     ]) {
       assert.throws(() => normalizeProviderEndpoint(refused), /reserved address space/, refused);
     }
@@ -190,6 +194,9 @@ describe('provider endpoint validation (#24)', () => {
       'https://169.254.example.com/v1',
       'https://224.example.com/v1',
       'https://api.internal-host.example/v1',
+      // A trailing root label is spelling, not a different host: it must not turn an
+      // ordinary endpoint into a refusal.
+      'https://api.internal-host.example./v1',
       'http://127.0.0.1:11434/v1',
       // `::1` is loopback and has to stay usable for a local provider on an IPv6 stack.
       'http://[::1]:11434/v1',
@@ -268,6 +275,8 @@ describe('provider endpoint validation (#24)', () => {
     assert.strictEqual(isLoopbackHost('app.localhost'), false, 'suffix resolution is a platform choice');
     assert.strictEqual(isLoopbackHost('0x7f000001'), false);
     assert.strictEqual(isLoopbackHost('169.254.169.254'), false, 'the cloud metadata address');
+    assert.strictEqual(isLoopbackHost('127.0.0.1.'), true, 'the FQDN spelling of the same literal');
+    assert.strictEqual(isLoopbackHost('localhost.'), true, 'likewise for the name form');
   });
 });
 

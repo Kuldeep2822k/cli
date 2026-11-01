@@ -29,6 +29,7 @@ import {
   oversizedNoteDiagnostic,
   oversizedWriteDiagnostic,
 } from '../storage/source-cap';
+import type { AtomicWriteOptions } from '../storage/atomic-write';
 import { detectCyclesBounded } from '../engine/dependency';
 import { isValidTopicId } from '../engine/topic-id';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
@@ -354,6 +355,24 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
 }
 
 /**
+ * The existence claim a roadmap write makes about its target.
+ *
+ * @param isNew - Whether `inspectExistingNote` found no file at the target
+ * @returns `{ expectExists: false }` for a first creation, `undefined` otherwise
+ *
+ * @remarks
+ * #565 P1-08: "the inspection found nothing" is a claim, not the absence of one, and
+ * `atomicWrite` only re-tests it when it is stated. Left implicit, a note created
+ * between the inspection and the rename was replaced silently — the #327 lost update,
+ * in a note writer. The overwrite branch states nothing because the fingerprint it
+ * already passes is the stronger claim, and leaving it unstated keeps this write shaped
+ * like every other overwrite in the CLI.
+ */
+function writeExistenceClaim(isNew: boolean): AtomicWriteOptions | undefined {
+  return isNew ? { expectExists: false } : undefined;
+}
+
+/**
  * CLI command handler for validating and importing learning roadmaps into the vault.
  *
  * @param options - Roadmap options including `--from` file path, `--dry-run`
@@ -564,7 +583,18 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // writes stays acyclic, and an identity minted here would never be surfaced by
           // any reading command. Fail closed, before the first write, like the wikilink
           // format does for the same condition.
-          const targetSize = fs.existsSync(absoluteTopicPath) ? fs.statSync(absoluteTopicPath).size : null;
+          //
+          // `lstatSync`, not `existsSync` + `statSync`: this probe asks about the
+          // directory entry, the same question every guard on the write path asks.
+          // `existsSync` follows a link and reads a dangling one as absent (#565 P1-08),
+          // and a symlinked target is never a note here anyway — the loop's own
+          // inspection skips it as "not a regular file".
+          let targetSize: number | null = null;
+          try {
+            targetSize = fs.lstatSync(absoluteTopicPath).size;
+          } catch {
+            targetSize = null;
+          }
           if (targetSize !== null && noteExceedsReadCap(targetSize)) {
             errors.push(
               `Topic "${id}" targets ${relativePath}. ${oversizedNoteDiagnostic(targetSize)} — every ` +
@@ -1076,7 +1106,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           if (noteContentExceedsReadCap(updatedContent)) {
             throw new Error(oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')));
           }
-          await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
+          await atomicWrite(
+            vaultPath,
+            resolvedTargetPath,
+            updatedContent,
+            fingerprint,
+            writeExistenceClaim(isNew),
+          );
 
           if (isNew) {
             created++;

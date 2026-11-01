@@ -538,9 +538,11 @@ async function reportStoredTies(
  * note update hits an OCC/lock conflict during `--fix` or `--relabel-ties` — or if
  * a note or its predecessor changed while `--relabel-ties` held it, which is the
  * same "re-run to retry" instruction — and process.exitCode = 5 on unexpected
- * runtime exceptions, including a `--relabel-ties` write that fails for any other
- * reason (permissions, disk), so a caller never sees success on a migration that
- * did not finish.
+ * runtime exceptions, including a `--fix` or `--relabel-ties` write refused for any
+ * other reason (permissions, disk) and a note that could not be read or rewritten,
+ * so a caller never sees success on a migration that did not finish. A note that no
+ * longer exists is counted under its own heading but is not a failure: there is
+ * nothing left to migrate.
  *
  * @example
  * ```typescript
@@ -613,6 +615,49 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       }
     }
 
+    // Each way a note can fail to migrate is counted under the heading that names
+    // what actually happened: a note that vanished, a note whose frontmatter could
+    // not be rewritten, a write the vault refused, and a lock/OCC collision are four
+    // different answers a learner acts on differently (#540). Keeping them in one
+    // list is what made the exit-3 "Unrecognized schema" report speak for a write
+    // that never landed.
+    const conflicts: string[] = [];
+    const writeRefusals: string[] = [];
+    const vanished: string[] = [];
+    const unprepared: string[] = [];
+    // A containment refusal keeps its documented exit 3; every other refused write
+    // is the I/O class (5). Unexpected outranks containment, so the batch code
+    // cannot depend on which note happened to fail first.
+    let refusalCode: 3 | 5 = ExitCode.Validation;
+
+    /** One heading per non-empty bucket, with up to five sample paths. */
+    const reportPaths = (buckets: ReadonlyArray<readonly [string, readonly string[]]>): void => {
+      for (const [label, entries] of buckets) {
+        if (entries.length === 0) continue;
+        console.log(`${label}: ${entries.length} notes`);
+        for (const file of entries.slice(0, 5)) {
+          console.log(`  • ${file}`);
+        }
+        if (entries.length > 5) {
+          console.log(`  ... and ${entries.length - 5} more`);
+        }
+      }
+    };
+
+    /** The schema report every terminal branch shares, so no bucket can go unprinted. */
+    const reportSchema = (): void => {
+      console.log(`Schema v1: ${schemaV1} notes`);
+      reportPaths([
+        ['Missing schema', missingSchema],
+        ['Unrecognized schema', unrecognized],
+        ['Locked or changed (re-run to retry)', conflicts],
+        ['Write failures', writeRefusals],
+        ['Unreadable', unprepared],
+        ['No longer present (nothing to migrate)', vanished],
+      ]);
+      console.log();
+    };
+
     if (options.fix && missingSchema.length > 0) {
       // #442 (bug 9): `--dry-run` must never write, including alongside `--fix`.
       // The old help claimed `--dry-run` "does not affect --fix", so `--fix --dry-run`
@@ -646,68 +691,98 @@ async function migrateCommand(options: MigrateOptions = {}): Promise<void> {
       }
       console.log(`Migrating ${missingSchema.length} schema-less notes to Schema v1...`);
       let migrated = 0;
-      const failed: string[] = [];
-      let hadConflict = false;
       for (const filePath of missingSchema) {
+        let content: string;
         try {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const expectedFingerprint = computeFingerprint(content);
-          const updated = updateFrontmatter(content, { palee_schema: 1 });
-          await atomicWrite(vaultPath, filePath, updated, expectedFingerprint);
+          content = fs.readFileSync(filePath, 'utf8');
+        } catch (err: unknown) {
+          // The scan found this note; the migration could not read it. One that is
+          // really gone is not a failed migration — the relabel pass draws the same
+          // line by re-checking existence rather than trusting ENOENT alone.
+          console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
+          if ((err as { code?: string }).code === 'ENOENT' && !fs.existsSync(filePath)) {
+            vanished.push(filePath);
+          } else {
+            unprepared.push(filePath);
+          }
+          continue;
+        }
+        let updated: string;
+        try {
+          updated = updateFrontmatter(content, { palee_schema: 1 });
+        } catch (err: unknown) {
+          // Malformed frontmatter: the note cannot be rewritten and no write was
+          // attempted, so it must not be reported as a refused write.
+          console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
+          unprepared.push(filePath);
+          continue;
+        }
+        try {
+          await atomicWrite(vaultPath, filePath, updated, computeFingerprint(content));
           migrated++;
         } catch (err: unknown) {
           console.error(`  Failed to migrate ${filePath}: ${(err as Error).message}`);
-          failed.push(filePath);
-          if (exitCodeFor(err) === ExitCode.Conflict) {
-            hadConflict = true;
+          const code = exitCodeFor(err);
+          if (code === ExitCode.Conflict) {
+            conflicts.push(filePath);
+          } else {
+            writeRefusals.push(filePath);
+            if (code !== ExitCode.Validation) refusalCode = ExitCode.Unexpected;
           }
         }
       }
       console.log(`✓ Successfully migrated ${migrated} notes to Schema v1.`);
       schemaV1 += migrated;
+      // Every entry was attempted, so none is still a note this pass has not looked
+      // at. Re-filling the list with the failures is what put them in the exit-3
+      // report under a heading that says their frontmatter was the problem.
       missingSchema.length = 0;
-      missingSchema.push(...failed);
-      if (hadConflict) {
-        // Conflict outranks validation: the documented concurrency condition
-        // requires retrying the migration, so surface it even when other
-        // schema-less notes remain.
-        process.exitCode = ExitCode.Conflict;
-      }
     }
 
-    if (process.exitCode === ExitCode.Conflict) {
-      console.log(`Schema v1: ${schemaV1} notes`);
-      if (missingSchema.length > 0 || unrecognized.length > 0) {
-        const allUnrecognized = [...missingSchema, ...unrecognized];
-        console.log(`Unrecognized schema: ${allUnrecognized.length} notes`);
-        for (const file of allUnrecognized.slice(0, 5)) {
-          console.log(`  • ${file}`);
-        }
-        if (allUnrecognized.length > 5) {
-          console.log(`  ... and ${allUnrecognized.length - 5} more`);
-        }
-        console.log();
-      }
+    // Precedence: a conflict (4) outranks a refusal (its own code), which outranks a
+    // validation verdict (3). Conflict first because the documented remedy is "re-run
+    // to retry"; the refusal branch still names any genuine unrecognized schema it
+    // found, so a second run is not needed just to discover that problem.
+    if (conflicts.length > 0) {
+      reportSchema();
       console.error('Error: OCC conflict or active lock detected during migration. Re-run to retry the conflicting notes.');
+      process.exitCode = ExitCode.Conflict;
       return;
     }
 
-    console.log(`Schema v1: ${schemaV1} notes`);
-    if (missingSchema.length > 0 || unrecognized.length > 0) {
-      const allUnrecognized = [...missingSchema, ...unrecognized];
-      console.log(`Unrecognized schema: ${allUnrecognized.length} notes`);
-      for (const file of allUnrecognized.slice(0, 5)) {
-        console.log(`  • ${file}`);
+    if (writeRefusals.length > 0 || unprepared.length > 0) {
+      reportSchema();
+      if (writeRefusals.length > 0) {
+        console.error(
+          `Error: migrate write failed for ${writeRefusals.length} note(s). Their schema is recognized and`
+          + ' was not the problem; fix the reason reported above and re-run.'
+        );
       }
-      if (allUnrecognized.length > 5) {
-        console.log(`  ... and ${allUnrecognized.length - 5} more`);
+      if (unprepared.length > 0) {
+        console.error(
+          `Error: ${unprepared.length} note(s) could not be read or rewritten, so the migration did not`
+          + ' finish. Their schema was never the problem either.'
+        );
       }
-      console.log();
+      // An unreadable note is not a refused write, but it is still an unfinished
+      // migration: report it as the unexpected-exception class.
+      process.exitCode = unprepared.length > 0 ? ExitCode.Unexpected : refusalCode;
+      return;
+    }
+
+    if (missingSchema.length > 0 || unrecognized.length > 0 || vanished.length > 0) {
+      reportSchema();
       if (missingSchema.length > 0 && !options.fix) {
         console.log(`Tip: Run "${programName()} migrate --fix" to automatically upgrade notes missing palee_schema to Schema v1.`);
       }
-      console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
-      process.exitCode = ExitCode.Validation;
+      if (missingSchema.length > 0 || unrecognized.length > 0) {
+        console.error('Error: Phase 1 only supports schema v1. Cannot migrate unrecognized schemas.');
+        process.exitCode = ExitCode.Validation;
+        return;
+      }
+      // Only notes that vanished under the pass: nothing left to repair, and the
+      // success line still describes everything that is still there.
+      console.log('✓ All remaining notes are schema v1 - no migration needed');
       return;
     }
 

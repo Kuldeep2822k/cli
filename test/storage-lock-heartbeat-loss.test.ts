@@ -503,23 +503,25 @@ describe('lock takeover is visible to the holder (#334)', () => {
     const priorContent = fs.readFileSync(target, 'utf8');
     const expectedFingerprint = computeFingerprint(priorContent);
 
-    // Stub existsSync: the target exists during the OCC read (calls 1+2), but
-    // is gone by the post-write check (call 3). Simulates a taker deleting it
-    // during the synchronous write/fsync block.
-    // Note: existsSync is called 3 times for the target — once in getLockDir
-    // (lock.ts:133), once in the OCC check (atomic-write.ts:388), and once
-    // in the post-write check (atomic-write.ts:501).
-    const originalExistsSync = fs.existsSync;
-    let targetExistsCount = 0;
+    // Stub the two presence probes the writer makes about its target: the OCC check and
+    // the post-write check, both `lstatSync` since #565 P1-08 review. The first sees the
+    // note; the second reports it gone, which simulates a taker deleting it during the
+    // synchronous write/fsync block.
+    const originalLstatSync = fs.lstatSync;
+    let targetProbes = 0;
     const targetBasename = path.basename(target);
 
-    (fs as { existsSync: typeof fs.existsSync }).existsSync = ((p: fs.PathLike) => {
+    (fs as { lstatSync: typeof fs.lstatSync }).lstatSync = ((p: fs.PathLike, ...rest: unknown[]) => {
       if (typeof p === 'string' && p.endsWith(targetBasename)) {
-        targetExistsCount += 1;
-        return targetExistsCount <= 2; // true on calls 1+2, false on call 3 (post-write)
+        targetProbes += 1;
+        if (targetProbes === 2) {
+          const enoent = new Error(`ENOENT: no such file or directory, lstat '${p}'`) as NodeJS.ErrnoException;
+          enoent.code = 'ENOENT';
+          throw enoent;
+        }
       }
-      return (originalExistsSync as (p: fs.PathLike) => boolean)(p);
-    }) as typeof fs.existsSync;
+      return (originalLstatSync as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as typeof fs.lstatSync;
 
     try {
       await assert.rejects(
@@ -531,10 +533,11 @@ describe('lock takeover is visible to the holder (#334)', () => {
           return true;
         }
       );
+      assert.strictEqual(targetProbes, 2, 'the OCC check and the post-write check both probed the target');
       // The target must still exist on disk (unchanged, no rename happened)
       assert.strictEqual(fs.readFileSync(target, 'utf8'), priorContent, 'the target must be untouched');
     } finally {
-      (fs as { existsSync: typeof fs.existsSync }).existsSync = originalExistsSync;
+      (fs as { lstatSync: typeof fs.lstatSync }).lstatSync = originalLstatSync;
     }
   });
 
@@ -544,23 +547,31 @@ describe('lock takeover is visible to the holder (#334)', () => {
     // Ensure parent directory exists
     fs.mkdirSync(path.dirname(target), { recursive: true });
 
-    // Stub existsSync: target does NOT exist during the OCC read (calls 1+2),
-    // but EXISTS by the post-write check (call 3). Simulates a taker creating
-    // the target during the synchronous write/fsync block.
-    // Note: existsSync is called 3 times for the target — once in getLockDir
-    // (lock.ts:133), once in the OCC check (atomic-write.ts:374), and once
-    // in the post-write check (atomic-write.ts:501).
-    const originalExistsSync = fs.existsSync;
-    let targetExistsCount = 0;
+    // Stub the two presence probes about the target. The OCC check must see it absent (it
+    // is a first creation), and the post-write check must see it present — which it is,
+    // because the write just renamed it into place. That second probe is what catches a
+    // taker who created the same path during the synchronous write.
+    const originalLstatSync = fs.lstatSync;
+    let targetProbes = 0;
     const targetBasename = path.basename(target);
 
-    (fs as { existsSync: typeof fs.existsSync }).existsSync = ((p: fs.PathLike) => {
+    (fs as { lstatSync: typeof fs.lstatSync }).lstatSync = ((p: fs.PathLike, ...rest: unknown[]) => {
       if (typeof p === 'string' && p.endsWith(targetBasename)) {
-        targetExistsCount += 1;
-        return targetExistsCount >= 3; // false on calls 1+2, true on call 3 (post-write)
+        targetProbes += 1;
+        if (targetProbes === 1) {
+          // The OCC check: nothing there yet, so the creation claim holds.
+          const enoent = new Error(`ENOENT: no such file or directory, lstat '${p}'`) as NodeJS.ErrnoException;
+          enoent.code = 'ENOENT';
+          throw enoent;
+        }
+        if (targetProbes === 2) {
+          // The post-write check: a taker's entry is there. `entryExists` only asks
+          // whether the probe throws, so a stand-in entry is enough to model it.
+          return originalLstatSync(vault) as fs.Stats;
+        }
       }
-      return (originalExistsSync as (p: fs.PathLike) => boolean)(p);
-    }) as typeof fs.existsSync;
+      return (originalLstatSync as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as typeof fs.lstatSync;
 
     try {
       await assert.rejects(
@@ -572,8 +583,9 @@ describe('lock takeover is visible to the holder (#334)', () => {
           return true;
         }
       );
+      assert.strictEqual(targetProbes, 2, 'the OCC check and the post-write check both probed the target');
     } finally {
-      (fs as { existsSync: typeof fs.existsSync }).existsSync = originalExistsSync;
+      (fs as { lstatSync: typeof fs.lstatSync }).lstatSync = originalLstatSync;
     }
   });
 });

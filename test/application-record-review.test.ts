@@ -1,17 +1,23 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { buildReviewUpdate } from '../src/application/record-review';
-import { formatLocalDateOnly } from '../src/engine/sm2';
 
-const reviewedAt = new Date('2026-05-01T12:00:00.000Z');
+// Local noon, so the local calendar day is 2026-05-01 in every zone the runner could
+// sit in. A UTC instant would make the expectations below depend on an offset wider
+// than -12/+12 instead of on the calendar.
+const reviewedAt = new Date(2026, 4, 1, 12, 0, 0);
 
 describe('buildReviewUpdate', () => {
   test('a passing review advances the SM-2 state and stamps the dates', () => {
-    const { updates, newState, dueDate } = buildReviewUpdate({}, 5, reviewedAt);
+    const { updates, newState } = buildReviewUpdate({}, 5, reviewedAt);
     assert.strictEqual(newState.repetition, 1);
-    assert.ok((newState.interval_days ?? 0) >= 1);
-    assert.strictEqual(updates.last_reviewed_at, formatLocalDateOnly(reviewedAt));
-    assert.strictEqual(updates.due_at, formatLocalDateOnly(dueDate));
+    assert.strictEqual(newState.interval_days, 1, 'the first successful review is a one-day step');
+    // #565 P1-11: these were both `formatLocalDateOnly(...)` of the value under test —
+    // the assertion re-ran the implementation and compared it to itself, so any change
+    // to the local-calendar contract stayed green. The literals are calendar facts: a
+    // review stamped 2026-05-01 with a one-day interval falls due 2026-05-02.
+    assert.strictEqual(updates.last_reviewed_at, '2026-05-01');
+    assert.strictEqual(updates.due_at, '2026-05-02');
     assert.strictEqual(updates.repetition, newState.repetition);
   });
 
