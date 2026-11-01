@@ -336,8 +336,36 @@ describe('release manifest rules (#565 P1-06)', () => {
     }
   });
 
+  // #565 P1-06 review: the refusal above exercises only `assertNpmVersion`, and the name
+  // rule was checked only by calling `assertPackageName` directly. Deleting the
+  // `assertPackageName` call from `readReleaseManifest()` kept every test green while a
+  // hostile name still reached `npm pack` and the outputs a downstream job reads.
+  test('the packer refuses a hostile package name before packing or writing outputs', () => {
+    const dir = packerLayout({ name: 'palee; echo owned', version: '9.9.9' });
+    const output = path.join(dir, 'github-output');
+    fs.writeFileSync(output, 'prior-line\n');
+    try {
+      const run = runPacker(dir, output);
+
+      assert.notStrictEqual(run.status, 0, 'a hostile name must fail the pack job');
+      assert.match(
+        run.stderr,
+        /not a valid npm package name/,
+        'and it must fail on the name rule, with the version itself valid',
+      );
+      assert.deepStrictEqual(run.commands, [], '`npm pack` must not run at all');
+      assert.strictEqual(
+        fs.readFileSync(output, 'utf8'),
+        'prior-line\n',
+        'and no filename=/version= line may be appended for a downstream job to read',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('the packer packs and writes the outputs for a valid manifest', () => {
-    // The control for the test above: a packer that refuses everything, or one
+    // The control for the two refusal tests above: a packer that refuses everything, or one
     // that never starts, also reports "no pack and no output".
     const dir = packerLayout({ name: '@kuldeep2822k/palee', version: '9.9.9' });
     const output = path.join(dir, 'github-output');
