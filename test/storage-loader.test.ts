@@ -1021,7 +1021,7 @@ describe('loadTopics input-size guard (Issue #332)', () => {
       'an oversized topic note is not loaded, however valid its frontmatter looks'
     );
     assert.deepStrictEqual(
-      captured.filter((line) => /oversiz|size|cap/i.test(line)),
+      captured,
       [],
       'and the loader says nothing about it — the accepted silence, not an oversight'
     );

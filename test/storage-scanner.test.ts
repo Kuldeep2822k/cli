@@ -523,10 +523,11 @@ describe('Storage Note Scanner', () => {
       // it is asserted as such — the shape is *not* flagged. The `foo: bar` line is
       // data-shaped, so `lastYamlDataIndex` moves past the heading and the heading
       // stops looking trailing, even though the closing fence is genuinely missing.
-      // Position is the only signal the scanner has, and this shape is byte-for-byte
-      // identical to the legal trailing-comment fixture below. If a future change
-      // starts reporting this, that change is narrowing the accepted limit and this
-      // assertion must move with it deliberately, not silently.
+      // The heading line itself is byte-identical to the legal trailing-comment
+      // case below — what differs is only what surrounds it — and position is the
+      // only signal the scanner has. If a future change starts reporting this, that
+      // change is narrowing the accepted limit and this assertion must move with it
+      // deliberately, not silently.
       fs.writeFileSync(
         path.join(tmpVault, 'swallowed-then-data.md'),
         '---\npalee_id: T-427-miss\ntitle: Miss\ndifficulty: beginner\n\n## Subheading\nfoo: bar\n---\n# Real Body\n',

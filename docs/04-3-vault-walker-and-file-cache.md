@@ -201,11 +201,9 @@ Two residual shapes fall outside that rule, in opposite directions:
 | `\n## Subheading\n---` | Yes, unclosed | Trailing heading against the fence, no data line after it — the swallowed-body signature |
 | `\n## Subheading\nfoo: bar\n---` | **No** | The `foo: bar` line is data-shaped, so the block reads as still running and the heading no longer looks trailing |
 | `## reviewed 2026-01-01` directly under the entries | No | A plain YAML comment among the entries, which is how frontmatter comments are written |
-| `\n## reviewed 2026-01-01\n---` | Yes, unclosed | The same bytes as the second row, so it is reported too, though it is legal YAML |
+| `\n## reviewed 2026-01-01\n---` | Yes, unclosed | The same layout as the first row — blank line, then a heading-shaped line against the fence — so it is reported too, though it is legal YAML |
 
-The two shapes in the middle are byte-for-byte identical to their neighbours in the first and last rows, and
-position is the only signal available — the parser cannot distinguish a comment between mapping entries from a
-swallowed body without a closing fence, which is exactly what is missing. The chosen direction fails safe: the
+The point of the table is that the **heading line itself** (`## …`) is byte-for-byte the same whether it is a legal YAML comment or a Markdown heading; only what surrounds it differs. Rows 1 and 4 are the same *layout* (blank line, then a heading-shaped line against the closing `---`) and are both reported — row 4 is a legal comment that gets over-reported. Row 2 is that layout with a `key: value` line after the heading, which makes the block read as still running, so it is not reported; row 3 is the same heading text placed among the entries with no blank line, which is plainly a comment. Position — the only signal available — is what separates them, and the parser cannot distinguish a comment between mapping entries from a swallowed body without a closing fence, which is exactly what is missing. The chosen direction fails safe: the
 unreported shape still parses, so the note keeps its metadata and only the *warning* is lost. Widening the rule
 to catch it would re-introduce the false positives the position test exists to eliminate.
 
