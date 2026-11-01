@@ -55,7 +55,8 @@ Outside the `UNSETTLED_HORIZON` (2 s), the cache trusted a size + `mtime` match.
 
 ### Negative / Tradeoffs
 
-- **Two accepted trade-offs are preserved deliberately** (#427), and the "obvious fix" for each is net-negative: (a) the unclosed-frontmatter heuristic can miss one shape — a swallowed heading followed by a `key: value`-shaped line — because that shape is byte-identical to a legal `##` YAML comment between mapping entries, and position is the only signal; the chosen direction fails safe (the note still parses; the leak costs a warning, not the note's metadata). (b) An oversized topic note is dropped rather than partially read — a topic that cannot be loaded cannot be recommended, which is honest, and truncating it would invent a partial frontmatter.
+- **The unclosed-frontmatter heuristic can miss one shape, and over-report its mirror** (#427). `hasBodyTextLines` decides by *position alone*, because a swallowed Markdown heading and a legal `##` YAML comment between mapping entries are byte-for-byte the same line. Two residual directions follow, and both are accepted deliberately. A swallowed heading followed by a line that merely looks like `key: value` is **not** reported: that data-shaped line moves `lastYamlDataIndex` past the heading, so the heading stops looking trailing and the block reads as still running. The mirror costs a spurious warning the other way — a *trailing* `##` comment with a blank line before it is reported as an unclosed block, though it is legal YAML. Position cannot separate the two cases, and the miss is the cheaper failure: the note still parses and keeps its metadata, so the leak costs a diagnostic and never the note. Pinned both ways in `test/storage-scanner.test.ts`, so an edit that narrows either direction fails there.
+- **An oversized topic note is dropped from the study graph with no warning from `loadTopics`** (#427). The cap is applied stat-first and the file is never opened, which is what keeps a generated index or an exported log from being parsed on every scan — but it means a file the user *intended* as a topic, one carrying a `palee_id`, simply is not there. `loadTopics` returns nothing for it and says nothing: whether an oversized file has an `palee_id` cannot be known without reading it, so any message emitted here would fire on exactly the non-note files the cap exists to ignore, on every scan. The decline is reported where diagnostics belong — `scanNotes` sets `readError` from `oversizedNoteDiagnostic` and `palee validate` surfaces it as a `read-failure` warning — and a topic that cannot be loaded cannot be recommended. Truncating it instead would invent a partial frontmatter for the loader to normalize, which is worse than its absence. Pinned in `test/storage-loader.test.ts`, including the silence.
 - **The fingerprint fallback costs a hash** whenever `mtime` has no sub-second precision — which is most Windows filesystems. That is the price of correctness on the platform most users run.
 - **The liveness probe is same-host only.** A lock from another machine still waits out the timeout; there is no cluster protocol, by design.
 
@@ -63,11 +64,15 @@ Outside the `UNSETTLED_HORIZON` (2 s), the cache trusted a size + `mtime` match.
 
 1. **Cache non-topic verdicts in the topic cache.**
    - *Why Rejected*: markers would evict real topics on large vaults and turn the optimization into a re-parse. A separate cache with its own cap costs well under a megabyte and leaves topic eviction exactly as it was.
-2. **Read oversized files partially** (first N KiB).
+2. **Give `hasBodyTextLines` a signal beyond line position**, so a swallowed heading is caught even when a `key: value`-shaped body line follows it.
+   - *Why Rejected*: no such signal exists at this layer. The two lines are byte-for-byte identical, and the parser cannot distinguish a comment-between-entries from a swallowed body without the closing fence, which is exactly what is missing. The shape stays unreported on purpose rather than under a heuristic that would re-open #319's false positives. Recorded as an accepted limit in the tradeoffs above.
+3. **Read oversized files partially** (first N KiB).
    - *Why Rejected*: a truncated frontmatter is a lie the loader would then normalize — worse than declining the file outright. An oversized note is not a topic; the scan says so once, by diagnostic, and moves on.
-3. **Trust `mtime` alone and accept same-second misses.**
+4. **Warn from `loadTopics` when a file is declined for size.**
+   - *Why Rejected*: the check is stat-first precisely so the file is never opened, which means the loader cannot tell an oversized *note* from an oversized non-note — the generated index and the exported log it exists to skip look identical from the outside. An unconditional per-file warning would fire for those on every scan and train the reader to ignore it. `scanNotes` already reports the same decline where a diagnostic is actionable (`read-failure` in `palee validate`).
+5. **Trust `mtime` alone and accept same-second misses.**
    - *Why Rejected*: the window is exactly the one that matters for a rapid edit-save-edit loop, and the fix is a hash the cache already computes for validation purposes.
-4. **Keep the 2-byte ids and rely on the OCC fingerprint.**
+6. **Keep the 2-byte ids and rely on the OCC fingerprint.**
    - *Why Rejected*: the OCC check passes *against the colliding file's own path*, which is why the collision is silent. For the lock id it is worse: the collision deletes a live lock. The width is one byte more of entropy for a collision class that disappears.
-5. **Widen the lock timeout instead of probing liveness.**
+7. **Widen the lock timeout instead of probing liveness.**
    - *Why Rejected*: a crashed process's lock would block every writer for the full timeout on every occurrence; the probe answers the actual question (is the holder alive?) in one syscall, same-host.

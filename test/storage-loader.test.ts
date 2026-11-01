@@ -983,6 +983,50 @@ describe('loadTopics input-size guard (Issue #332)', () => {
     );
   });
 
+  test('a topic note over the cap is dropped silently — the accepted limit (#427)', () => {
+    // Issue #427: the drop is deliberate but invisible at this boundary, and the
+    // silence is what this case pins. The file carries a valid `palee_id`, so a
+    // user could reasonably have intended it as a topic, and it is simply absent
+    // from the result with nothing said. `scanNotes` is the surface that reports
+    // it (`readError`), which `palee validate` turns into a `read-failure`
+    // warning — so if a future change starts warning from `loadTopics` too, this
+    // assertion must move deliberately rather than silently become false.
+    const dump = path.join(tmpVault, 'oversized-topic.md');
+    fs.writeFileSync(
+      dump,
+      `---\npalee_id: T-427-silent\n---\n${'x'.repeat(MAX_NOTE_SOURCE_BYTES)}`,
+      'utf8'
+    );
+
+    const captured: string[] = [];
+    const realWarn = console.warn;
+    const realError = console.error;
+    console.warn = (...args: unknown[]): void => {
+      captured.push(args.map(String).join(' '));
+    };
+    console.error = (...args: unknown[]): void => {
+      captured.push(args.map(String).join(' '));
+    };
+    let topics: LoadedTopic[];
+    try {
+      topics = loadTopics(tmpVault, { cache: new TrackingCache() });
+    } finally {
+      console.warn = realWarn;
+      console.error = realError;
+    }
+
+    assert.deepStrictEqual(
+      topics.map((t) => t.palee_id),
+      [],
+      'an oversized topic note is not loaded, however valid its frontmatter looks'
+    );
+    assert.deepStrictEqual(
+      captured,
+      [],
+      'and the loader says nothing about it — the accepted silence, not an oversight'
+    );
+  });
+
   test('a topic note exactly at the cap still loads', () => {
     const edge = path.join(tmpVault, 'edge-topic.md');
     const frontmatter = '---\npalee_id: T-332-edge\n---\n';

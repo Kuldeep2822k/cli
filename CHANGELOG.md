@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The two accepted read-path limits are recorded and pinned** ([#427](https://github.com/Kuldeep2822k/cli/issues/427)): ADR-0018 and the storage-layer docs now state, as deliberate trade-offs rather than surprises, that (a) the unclosed-frontmatter heuristic can miss a swallowed heading followed by a `key: value`-shaped line — and over-reports its mirror, a trailing `##` comment with a blank line before it — because the two are byte-identical and position is the only signal; and (b) `loadTopics` drops a note over `MAX_NOTE_SOURCE_BYTES` (512 KiB) stat-first with no warning, reporting the decline only via `scanNotes`/`palee validate`. Both are pinned by falsifiable tests in `test/storage-scanner.test.ts` and `test/storage-loader.test.ts`, so a change that narrows either direction fails loudly.
+
 ### Fixed
 
 - **A roadmap import no longer overwrites a note created while it was writing** ([#565](https://github.com/Kuldeep2822k/cli/issues/565)): the import inspected each target with `lstat`, decided the note was new, and then wrote with no existence claim at all — so a note another process created in that window was replaced silently, the #327 lost update in a note writer. A first creation now states `{ expectExists: false }`, which `atomicWrite` re-tests from inside the lock: a target that appeared is an `OCC conflict` for that topic and exit `4`, with the winner's bytes untouched. Overwrites are unchanged; their fingerprint is already the stronger claim.
