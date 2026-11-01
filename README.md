@@ -150,7 +150,7 @@ palee progress
 | `palee progress` | View mastery statistics |
 | `palee review <topic> <quality>` | Record review result (0-5) |
 | `palee assess <topic>` | Record a four-pillar assessment (conceptual, practical, debug, Feynman) and recompute mastery |
-| `palee session start` | Resume learning from hot memory; reports whether an AI provider is configured, without calling one |
+| `palee session start` | Resume learning from hot memory; warns when no AI provider is configured (provider status appears in `--json`) |
 | `palee session end` | Save a confirmed session summary and refresh hot memory |
 | `palee session draft` | Save a recoverable draft checkpoint for the active session |
 | `palee session list` | List session history and pending drafts |

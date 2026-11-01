@@ -43,6 +43,12 @@ const registered = [...commandsSection.matchAll(/^\x20{2}([a-z][a-z-]*)\b/gm)]
   .map((m) => m[1])
   .filter((command) => command !== 'help');
 
+// Actions the `session` command accepts (named by its `--help`). Kept as a
+// small constant because `registered` above only lists top-level commands; a
+// README row like `palee session strt` must fail here, not pass as just
+// `session`.
+const SESSION_ACTIONS = ['start', 'draft', 'end', 'list'];
+
 interface ExitRow {
   command: string;
   exit: number;
@@ -349,14 +355,27 @@ describe('README command table matches the built CLI (#565 P1-12)', () => {
       [],
       'the README table documents a command `palee --help` does not register'
     );
+
+    // `session <action>` rows must name an action the handler accepts. Other
+    // second tokens (`<topic>`, `--fix`) are placeholders or flags, so only the
+    // session rows are checked.
+    const badSessionActions = readmeTableRows
+      .map((line) => /^\| `palee session ([a-z-]+)/.exec(line)?.[1])
+      .filter((action): action is string => typeof action === 'string' && !SESSION_ACTIONS.includes(action));
+    assert.deepStrictEqual(badSessionActions, [], 'a README session action is not one `palee session` accepts');
   });
 
-  test('session start reports the provider instead of promising a tutor', () => {
-    // `src/cli/session.ts` reads `config.aiProvider` and prints
-    // `ai_provider_configured`; the handler contains no provider call at all.
+  test('session start warns when no provider is configured instead of promising a tutor', () => {
+    // `src/cli/session.ts` prints `No AI provider configured.` in human mode
+    // only when `config.aiProvider` is absent; the affirmative
+    // `ai_provider_configured` field exists only in `--json`. The row must
+    // describe that default output, not claim the command reports provider status
+    // on every run.
     const row = readmeRow('session start');
     assert.doesNotMatch(row, /tutor/i, 'session start runs no tutor — that promise was never true');
-    assert.match(row, /provider is configured/, 'the row has to state what the command actually reports');
+    assert.match(row, /warns when no AI provider is configured/, 'the row states the human-mode warning');
+    assert.doesNotMatch(row, /reports whether an AI provider is configured/, 'do not claim affirmative provider reporting in default output');
+    assert.match(row, /--json/, 'provider status is stated to be JSON-only');
   });
 
   test('validate --fix names every repairer it dispatches', () => {
