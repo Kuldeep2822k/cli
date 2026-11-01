@@ -321,4 +321,94 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(frontmatter?.depends_on_source, 'declared',
       'a preserved list carries the same label the prose branch uses');
   });
+
+  // #565 P1-10: a note over the 512 KiB read cap is declined by every reading command,
+  // so adopting one minted an identity onto a file `palee plan` could never surface. The
+  // boundary is asserted from both sides: one-sided cases also pass against a zero cap.
+  test('a note over the read cap is skipped by name and left unadopted', () => {
+    const oversizedPath = path.join(vaultDir, 'SOURCE_CAP', 'too-big.md');
+    fs.mkdirSync(path.dirname(oversizedPath), { recursive: true });
+    // 513 KiB of body, comfortably over the 524288-byte ceiling.
+    const body = `# Too Big\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(oversizedPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP', '--yes', '--verbose']);
+    const output = result.stdout + result.stderr;
+
+    assert.match(output, /Oversized:\s+1 notes/, 'the summary must count it separately');
+    assert.match(output, /Skipped: over the 524288 byte read cap \(not adopted\):/);
+    assert.match(output, /\? SOURCE_CAP\/too-big\.md/, 'and name the note it left alone');
+    assert.doesNotMatch(output, /frontmatter will not parse/, 'an oversized note is not a malformed one');
+    assert.strictEqual(result.status, 0, `a skipped note must not fail the batch: ${output}`);
+    assert.strictEqual(
+      fs.readFileSync(oversizedPath, 'utf8'),
+      body,
+      'a refused note keeps its bytes, frontmatter included'
+    );
+  });
+
+  test('a note over the read cap named on its own is refused with exit 2 and no write', () => {
+    const oversizedPath = path.join(vaultDir, 'SOURCE_CAP_SINGLE', 'solo.md');
+    fs.mkdirSync(path.dirname(oversizedPath), { recursive: true });
+    const body = `# Solo\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(oversizedPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_SINGLE/solo.md', '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 2, `a single oversized note is invalid usage: ${output}`);
+    assert.match(output, /Oversized source: \d+ bytes exceeds the 524288 byte note read cap/);
+    assert.strictEqual(fs.readFileSync(oversizedPath, 'utf8'), body, 'nothing was written');
+  });
+
+  // #565 P1-10 review: a source note under the cap can still produce an over-cap file
+  // once the managed keys are added — measured at 265 bytes of `palee_*` frontmatter, so
+  // the band is the last ~265 bytes below the ceiling. Writing that result would report
+  // success and then hide the topic from every reader.
+  test('a note whose managed keys would cross the cap is refused, not written past it', () => {
+    const edgePath = path.join(vaultDir, 'SOURCE_CAP_EDGE', 'edge.md');
+    fs.mkdirSync(path.dirname(edgePath), { recursive: true });
+    // Under the 524288 ceiling, but within the ~265-byte band the frontmatter needs.
+    const body = `# Edge\n\n${'x'.repeat(524240)}`;
+    fs.writeFileSync(edgePath, body, 'utf8');
+    assert.ok(Buffer.byteLength(body, 'utf8') < 524288, 'the fixture must start under the cap');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_EDGE/edge.md', '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 2, `a write past the cap is invalid usage: ${output}`);
+    assert.match(output, /Oversized result: the managed keys would grow this note to \d+ bytes/);
+    assert.strictEqual(fs.readFileSync(edgePath, 'utf8'), body, 'the note was left byte-identical');
+  });
+
+  test('a batch skips the note whose managed keys would cross the cap', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_BATCH');
+    fs.mkdirSync(dir, { recursive: true });
+    const edgePath = path.join(dir, 'edge.md');
+    const safePath = path.join(dir, 'safe.md');
+    const edgeBody = `# Edge\n\n${'x'.repeat(524240)}`;
+    const safeBody = '# Safe\n\n' + 'y'.repeat(4000);
+    fs.writeFileSync(edgePath, edgeBody, 'utf8');
+    fs.writeFileSync(safePath, safeBody, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_EDGE_BATCH', '--yes']);
+
+    assert.strictEqual(result.status, 0, `the batch must survive one over-cap result: ${result.stderr}`);
+    assert.strictEqual(fs.readFileSync(edgePath, 'utf8'), edgeBody, 'the over-cap result was never written');
+    const safe = parseFrontmatter(fs.readFileSync(safePath, 'utf8'));
+    assert.ok(safe.frontmatter?.palee_id, 'the rest of the batch still adopted');
+  });
+
+  test('a note just under the read cap still adopts', () => {
+    const underPath = path.join(vaultDir, 'SOURCE_CAP_UNDER', 'just-fits.md');
+    fs.mkdirSync(path.dirname(underPath), { recursive: true });
+    const body = `# Just Fits\n\n${'x'.repeat(511 * 1024)}\n`;
+    fs.writeFileSync(underPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_UNDER', '--yes']);
+    assert.strictEqual(result.status, 0, `Command failed: ${result.stdout}${result.stderr}`);
+
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(underPath, 'utf8'));
+    assert.ok(frontmatter?.palee_id, 'a note under the ceiling is still adopted');
+  });
 });

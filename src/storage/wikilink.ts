@@ -27,6 +27,7 @@ import type { WikilinkRoadmapSection } from './roadmap-parser';
 import { loadTopics } from './loader';
 import { parseFrontmatter } from './frontmatter';
 import { resolveNoteTitle } from './note-title';
+import { noteExceedsReadCap, oversizedNoteDiagnostic } from './source-cap';
 import type { RoadmapFile, RoadmapTopic } from '../types';
 
 /**
@@ -442,6 +443,14 @@ export function resolveWikilinkRoadmap(
       } else {
         let content: string;
         try {
+          // #565 P1-10: the roadmap write path caps every note it reads; this pre-read is
+          // the one it would reach first, so a link to an over-cap document must not be
+          // loaded whole. The existing wrapper below already turns any refusal here into
+          // the same `Cannot read roadmap target` error the command surfaces.
+          const { size } = fs.statSync(resolved.absolutePath);
+          if (noteExceedsReadCap(size)) {
+            throw new Error(oversizedNoteDiagnostic(size));
+          }
           content = fs.readFileSync(resolved.absolutePath, 'utf8');
         } catch (err: unknown) {
           const e = err as Error;

@@ -92,9 +92,9 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee config` | 3 | A provider reply that failed the output contract (INV-38) during `test-connection`. |
 | `palee config` | 5 | Missing `LOCALAPPDATA` on Windows, or `test-connection` failing to reach the provider (timeout, refused redirect, `5xx`, or an otherwise unreachable host). A corrupt `config.json` is not an exit-5 condition (#326): `loadConfig` catches the `SyntaxError`, prints `Warning: Corrupted configuration at <path>. Falling back to default configuration.`, and the command runs on defaults and exits `0` — a script cannot detect a broken config from the exit code. |
 | `palee adopt` | 0 | Single note or batch adopted, dry-run rendered, or user declined confirmation (`N`). |
-| `palee adopt` | 2 | Missing/unconfigured vault, target note path escapes vault, note already adopted, invalid `--difficulty`, invalid glob pattern, missing path without `--all`, a single file that batch mode cannot take (a non-markdown name, or any file passed with `--all`), or non-interactive stdin without `-y`. |
+| `palee adopt` | 2 | Missing/unconfigured vault, target note path escapes vault, note already adopted, a note over the 512 KiB read cap named on its own (nothing written), invalid `--difficulty`, invalid glob pattern, missing path without `--all`, a single file that batch mode cannot take (a non-markdown name, or any file passed with `--all`), or non-interactive stdin without `-y`. |
 | `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (reported with the exact cycle path); no notes adopted. |
-| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it) or left with an unclosed frontmatter opener, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
+| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it), left with an unclosed frontmatter opener, or grown past the 512 KiB read cap, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
 | `palee adopt` | 5 | Uncaught file system exception or atomic batch rollback failure. |
 | `palee next` | 0 | Successfully displayed next due topic, all due topics (`--all`), or empty vault onboarding. |
 | `palee next` | 2 | Unconfigured or non-existent vault path. |
@@ -120,7 +120,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee roadmap` | 0 | Curriculum parsed, validated, and all topics created/updated on disk. |
 | `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
 | `palee roadmap` | 2 | Missing `--from` argument, roadmap file not found, a `--from` path that is not a regular file (e.g. a directory), malformed structure (missing `topics`), or non-interactive stdin without `-y`. |
-| `palee roadmap` | 3 | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected). |
+| `palee roadmap` | 3 | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected); or the pre-write graph check refused the import because a note it will skip — unreadable, or one whose composed result would cross the 512 KiB read cap — would have left a cycle on disk (nothing written). |
 | `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
 | `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
 | `palee migrate` | 0 | All notes verified to be on current schema (`palee_schema: 1`). |

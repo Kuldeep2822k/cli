@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { PALEE_ARGV } from './palee-cli';
 import roadmapCommand from '../src/cli/roadmap';
+import { MAX_NOTE_SOURCE_BYTES } from '../src/storage/source-cap';
 import { ExitCode } from '../src/cli/exit-codes';
 
 /**
@@ -507,5 +508,91 @@ describe('roadmap import reports edges to notes that do not exist', () => {
       fs.readFileSync(notePath, 'utf8').includes(learnerNotes.trim()),
       'the learner wrote prose the import must not clobber'
     );
+  });
+
+  // #565 P1-10: a target over the read cap is refused during validation, not skipped at
+  // write time. The importer cannot see the `depends_on` an unreadable note already holds,
+  // so it cannot prove the graph it writes stays acyclic — the fail-closed reading, and the
+  // same one the wikilink format takes for the same condition.
+  test('an entry targeting a note over the read cap is refused before any write', () => {
+    const notePath = path.join(vaultDir, 'n', 'huge.md');
+    const before = `---\npalee_id: T-huge\ntitle: Huge\n---\n# Huge\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(notePath, before, 'utf8');
+
+    const yamlPath = path.join(tempDir, 'huge.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-huge', '    title: Huge Imported', '    path: n/huge.md', ''].join('\n')
+    );
+
+    const result = runCLI(['roadmap', '--from', yamlPath, '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 3, `an unimportable target refuses the batch: ${output}`);
+    assert.match(output, /Topic "T-huge" targets n\/huge\.md\. Oversized source: \d+ bytes exceeds/);
+    assert.strictEqual(fs.readFileSync(notePath, 'utf8'), before, 'nothing was written');
+  });
+
+  // #565 P1-10 review: that preflight asks `lstatSync` about the directory entry, and a
+  // directory entry has a size too — a wide Linux directory crosses 512 KiB — so a target
+  // that is not a note at all failed the whole batch instead of being declined per topic,
+  // which is what `an edge from a note the same batch later overwrote is not reported`
+  // already establishes for a directory of ordinary size. No platform makes a directory
+  // that large portably, so only the reported `size` is injected; `isFile` and
+  // `isSymbolicLink` stay whatever the real entry says, because that is the half the
+  // preflight must respect.
+  test('an oversized directory target is declined per topic, not as an oversized note', async () => {
+    const dirPath = path.join(vaultDir, 'huge-dir.md');
+    fs.mkdirSync(dirPath, { recursive: true });
+    // The writer canonicalizes the vault before it probes, and a temp root is a link on
+    // macOS (`/var` -> `/private/var`), so match the canonical spelling or the injection
+    // never fires there.
+    const canonicalDir = path.join(fs.realpathSync(path.dirname(dirPath)), path.basename(dirPath));
+
+    const yamlPath = path.join(tempDir, 'huge-dir.yaml');
+    fs.writeFileSync(
+      yamlPath,
+      ['topics:', '  - id: T-huge-dir', '    title: Huge Directory', '    path: huge-dir.md', ''].join('\n')
+    );
+
+    const originalLstat = fs.lstatSync;
+    const originalError = console.error;
+    const originalExitCode = process.exitCode;
+    let logged = '';
+    let inflatedProbes = 0;
+    try {
+      console.error = (msg: unknown) => { logged += `${msg}\n`; };
+      (fs as unknown as { lstatSync: typeof fs.lstatSync }).lstatSync = ((arg: unknown, ...rest: unknown[]) => {
+        const stat = (originalLstat as (p: unknown, ...r: unknown[]) => fs.Stats)(arg, ...rest);
+        if (typeof arg === 'string' && path.resolve(arg) === canonicalDir) {
+          inflatedProbes += 1;
+          // `lstatSync` builds a fresh Stats per call, so this cannot leak to a sibling.
+          stat.size = MAX_NOTE_SOURCE_BYTES + 1;
+        }
+        return stat;
+      }) as typeof fs.lstatSync;
+
+      process.exitCode = ExitCode.Success;
+      await roadmapCommand({ from: yamlPath, yes: true });
+    } finally {
+      (fs as unknown as { lstatSync: typeof fs.lstatSync }).lstatSync = originalLstat;
+      console.error = originalError;
+    }
+    const exitCodeAtEnd = process.exitCode;
+    process.exitCode = originalExitCode;
+
+    assert.ok(inflatedProbes > 0, 'the preflight must probe the target, or this case decides nothing');
+    assert.match(
+      logged,
+      /Skipped T-huge-dir: huge-dir\.md is not a regular file/,
+      'the write loop\'s own inspection declines it, per topic'
+    );
+    assert.doesNotMatch(logged, /Oversized source/, 'and the read cap never judges a non-file');
+    assert.strictEqual(
+      exitCodeAtEnd,
+      ExitCode.PartialImport,
+      'a skipped target is a partial import, not the validation refusal the cap reports'
+    );
+    assert.ok(fs.lstatSync(canonicalDir).isDirectory(), 'the directory itself is left alone');
   });
 });

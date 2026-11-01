@@ -23,6 +23,12 @@ import {
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
+import {
+  noteContentExceedsReadCap,
+  noteExceedsReadCap,
+  oversizedNoteDiagnostic,
+  oversizedWriteDiagnostic,
+} from '../storage/source-cap';
 import type { AtomicWriteOptions } from '../storage/atomic-write';
 import { detectCyclesBounded } from '../engine/dependency';
 import { isValidTopicId } from '../engine/topic-id';
@@ -229,6 +235,11 @@ function declaredIdOfNote(absolutePath: string):
   { kind: 'absent' } | { kind: 'unreadable'; reason: string } | { kind: 'declared'; raw: unknown } {
   let content: string;
   try {
+    // #565 P1-10: this pre-read has no cap of its own, and it is the first thing the
+    // import asks a note. Refusing an oversized file here costs one `stat` and keeps the
+    // answer the same shape a note with broken frontmatter already produces.
+    const { size } = fs.statSync(absolutePath);
+    if (noteExceedsReadCap(size)) return { kind: 'unreadable', reason: oversizedNoteDiagnostic(size) };
     content = fs.readFileSync(absolutePath, 'utf8');
   } catch {
     return { kind: 'absent' }; // no note yet: this entry adopts rather than overwrites
@@ -330,6 +341,12 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
     const opened = fs.fstatSync(fd);
     if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
       throw new Error(`${targetPath} changed between validation and read`);
+    }
+    // #565 P1-10: the cap is applied to the descriptor's own byte count. A second
+    // `stat` on the path would reopen the check-then-use window this function exists to
+    // close, and this writer is the one place the size is already in hand.
+    if (noteExceedsReadCap(opened.size)) {
+      throw new Error(oversizedNoteDiagnostic(opened.size));
     }
     return fs.readFileSync(fd, 'utf8');
   } finally {
@@ -560,7 +577,35 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // out afterwards, from a stderr list. INV-32 puts the decision before
           // any write instead, and names both ids so the roadmap can be corrected.
           const incumbent = existingTopicsByPath.get(absoluteTopicPath);
-          if (incumbent && incumbent.id !== id) {
+          // #565 P1-10: a target over the read cap cannot be imported. `loadTopics` and
+          // the write loop both decline such a file, so the importer cannot see the
+          // `depends_on` the note already holds — which means it cannot prove the graph it
+          // writes stays acyclic, and an identity minted here would never be surfaced by
+          // any reading command. Fail closed, before the first write, like the wikilink
+          // format does for the same condition.
+          //
+          // `lstatSync`, not `existsSync` + `statSync`: this probe asks about the
+          // directory entry, the same question every guard on the write path asks.
+          // `existsSync` follows a link and reads a dangling one as absent (#565 P1-08).
+          //
+          // The size is then read only off a regular file (#565 P1-10 review): a
+          // directory entry has a size too — a wide Linux directory crosses 512 KiB — and
+          // refusing the whole batch for one would turn a target the write loop already
+          // declines per topic, as "not a regular file", into a vault-wide error. A link
+          // and a directory are decided by that inspection, which stays the one place
+          // that judges what is importable; this preflight judges only the notes.
+          let targetStat: fs.Stats | null = null;
+          try {
+            targetStat = fs.lstatSync(absoluteTopicPath);
+          } catch {
+            targetStat = null;
+          }
+          if (targetStat !== null && targetStat.isFile() && noteExceedsReadCap(targetStat.size)) {
+            errors.push(
+              `Topic "${id}" targets ${relativePath}. ${oversizedNoteDiagnostic(targetStat.size)} — every ` +
+                'reading command skips it, so it cannot be imported. Nothing was written.'
+            );
+          } else if (incumbent && incumbent.id !== id) {
             errors.push(
               `Topic "${id}" targets ${relativePath}, which is already adopted as "${incumbent.id}". ` +
                 `Importing would retire "${incumbent.id}" and orphan every edge that names it. ` +
@@ -751,6 +796,54 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     /**
+     * Composes the note one roadmap topic writes, from bytes already read.
+     *
+     * @param topic - The roadmap entry being written
+     * @param content - The note's current text, or the skeleton for a new one
+     * @param existingData - That note's frontmatter, as the write reads it
+     * @returns The managed keys and the exact text the write would land
+     *
+     * @remarks
+     * Single source of truth for both the pre-write graph check and the write loop
+     * (#139): the bytes the check sizes are the bytes the loop stores, so a verdict
+     * derived from one cannot disagree with the other.
+     */
+    function composeTopicWrite(
+      topic: RoadmapTopic,
+      content: string,
+      existingData: Record<string, unknown>
+    ): { paleeData: Record<string, unknown>; updatedContent: string } {
+      // A pillar absent from the note resolves to `undefined` and is
+      // dropped here, so an import never writes an assessment score the
+      // learner does not have (#191).
+      const paleeData: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        resolveTopicUpdates({
+          topic,
+          existingById: existingTopicsById.get(topic.id),
+          existingAtPath: existingData,
+        })
+      )) {
+        if (value !== undefined) paleeData[key] = value;
+      }
+
+      // Authorship rather than list comparison. A roadmap entry that declares
+      // prerequisites is making the learner's claim, whatever was stored
+      // before, so a leftover `toc` label would make them advisory and the
+      // gate would never bite. Comparing the written list against what the note
+      // held gets both directions wrong: an identical declaration kept a stale
+      // label, and a title-only import — whose preserved list comes back
+      // unioned with the legacy `dependencies` key — looked like a change and
+      // silently turned advisory edges back into gates, re-locking the note.
+      // An entry that omits `depends_on` preserves the note's own edges and the
+      // label recording who authored them.
+      const removals = topic.depends_on !== undefined
+        ? ['dependencies', 'depends_on_source']
+        : ['dependencies'];
+      return { paleeData, updatedContent: updateFrontmatter(content, paleeData, removals) };
+    }
+
+    /**
      * Inspects the note one topic would write over, without creating anything.
      *
      * @param targetPath - The topic's path resolved against the vault
@@ -791,42 +884,99 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     /**
-     * Refuses the import only when a note this command cannot read changes the graph
-     * the validator just cleared (#267).
+     * Ids whose import would be written past the read cap.
+     *
+     * @returns Every roadmap id whose composed note would cross
+     *   `MAX_NOTE_SOURCE_BYTES`, decided from the bytes on disk
+     *
+     * @remarks
+     * The write loop fails such a topic per topic rather than storing a file every
+     * reader then skips (#565 P1-10). A topic that fails keeps the `depends_on` it
+     * already carries, so the graph that lands is not the graph validation cleared —
+     * the same hole the pass below closes for unreadable notes. The verdict is
+     * computed here, before the first write, through the very composer the loop
+     * uses, so the two cannot disagree about which notes those are.
+     *
+     * A target that does not exist composes the skeleton the loop would create and
+     * cannot trip the cap; a target this pass cannot read is the survival pass's own
+     * case. Nothing here creates a directory or writes a byte — a preflight that did
+     * either would make its own verdict stale.
+     */
+    function oversizedWriteIds(): Set<string> {
+      const ids = new Set<string>();
+      for (const topic of roadmap.topics) {
+        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
+        if (!isWithinVault(resolvedVault, absolutePath)) continue;
+        const { stat, blocker } = inspectExistingNote(absolutePath);
+        // Not an existing regular in-vault file: the write loop skips it for that
+        // reason, which is the other cause the survival pass models.
+        if (blocker !== null || stat === null) continue;
+        let content: string;
+        try {
+          content = readBoundNote(absolutePath, stat);
+        } catch {
+          // Grew past the cap between validation and here. The loop isolates it the
+          // same way it would mid-run, so the graph check is not where that is decided.
+          continue;
+        }
+        const parsed = parseFrontmatter(content);
+        let updatedContent: string;
+        try {
+          ({ updatedContent } = composeTopicWrite(topic, content, parsed.frontmatter ?? {}));
+        } catch {
+          // A note whose block will not parse has always failed on its own in the
+          // write loop, which the import is built to absorb. Deciding it here would
+          // turn one unparseable note into a refused batch.
+          continue;
+        }
+        if (noteContentExceedsReadCap(updatedContent)) ids.add(topic.id);
+      }
+      return ids;
+    }
+
+    /**
+     * Refuses the import only when a note this command will not write changes the graph
+     * the validator just cleared (#267, #565).
      *
      * @returns `true` when the pre-write verdict still describes the graph that would
      * land; `false` when it does not and nothing has been written
      *
      * @remarks
-     * A topic whose existing note cannot be read is skipped by the write loop, and a
-     * skipped note keeps whatever `depends_on` it already carries — not the list the
-     * roadmap declared for it, and not what the validator ran with. One stored
-     * backward hop closes a loop the check never saw: the import writes, exits `1`,
-     * and leaves the vault in exactly the state INV-46 says means exit `3` and no
-     * writes.
+     * A topic whose existing note cannot be read, or whose composed result would cross
+     * the read cap, is skipped by the write loop, and a skipped note keeps whatever
+     * `depends_on` it already carries — not the list the roadmap declared for it, and
+     * not what the validator ran with. One stored backward hop closes a loop the check
+     * never saw: the import writes, exits `1`, and leaves the vault in exactly the
+     * state INV-46 says means exit `3` and no writes.
      *
-     * So the declared graph is rebuilt with each unreadable topic contributing the
-     * edges its note *holds* rather than the edges the roadmap meant for it, and
-     * checked again. A cycle appearing only under that reading is the case refused
-     * here, with the ids named, because "this note could not be read" is the reason
-     * the plan changed. When nothing closes, the import proceeds as it always has: the
-     * skip costs its own topic and the edge-integrity report still names whatever
-     * dangles. Refusing every unreadable note would have been the simpler rule and the
-     * worse one — it throws away a partial import the user can act on.
+     * So the declared graph is rebuilt with each skipped topic contributing the edges
+     * its note *holds* rather than the edges the roadmap meant for it, and checked
+     * again. A cycle appearing only under that reading is the case refused here, with
+     * the ids and the reason named, because "the plan changed" is why. When nothing
+     * closes, the import proceeds as it always has: the skip costs its own topic and
+     * the edge-integrity report still names whatever dangles. Refusing every skipped
+     * note would have been the simpler rule and the worse one — it throws away a
+     * partial import the user can act on.
      */
     function planSurvivesSkippedNotes(): boolean {
-      const blockedIds = new Set<string>();
+      // Projected write failures come first: a note can cross the cap without its
+      // bytes on disk changing, so no read check can predict it.
+      const blocked = new Map<string, string>();
+      for (const id of oversizedWriteIds()) blocked.set(id, 'would be written past the read cap');
       for (const topic of roadmap.topics) {
         const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
         // An escaping path is reported per topic by the loop, and validation has
         // already refused the file for it.
         if (!isWithinVault(resolvedVault, absolutePath)) continue;
-        if (inspectExistingNote(absolutePath).blocker !== null) blockedIds.add(topic.id);
+        // An over-cap *target* never reaches this pass: validation refuses it before
+        // the import starts. A note that grows past the cap mid-run is skipped per
+        // topic by the write loop, exactly like any other note it cannot read.
+        if (inspectExistingNote(absolutePath).blocker !== null) blocked.set(topic.id, 'cannot be read');
       }
-      if (blockedIds.size === 0) return true;
+      if (blocked.size === 0) return true;
 
       const effectiveIfSkipped = new Map(topicsMap);
-      for (const id of blockedIds) {
+      for (const id of blocked.keys()) {
         const stored = existingTopicsById.get(id);
         effectiveIfSkipped.set(id, {
           palee_id: id,
@@ -838,9 +988,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       if (cycles.length === 0) return true;
 
       console.error(
-        'Error: refusing to import — the roadmap validates only if these notes are rewritten, and they cannot be read:'
+        'Error: refusing to import — the roadmap validates only if these notes are rewritten, and they will be skipped:'
       );
-      for (const id of blockedIds) console.error(`  • ${id}`);
+      for (const [id, reason] of blocked) console.error(`  • ${id} (${reason})`);
       for (const cycle of cycles.slice(0, 5)) {
         console.error(`  Cycle the skipped notes would leave behind: ${cycle.join(' → ')}`);
       }
@@ -950,34 +1100,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           }
 
 
-          // A pillar absent from the note resolves to `undefined` and is
-          // dropped here, so an import never writes an assessment score the
-          // learner does not have (#191).
-          const paleeData: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(
-            resolveTopicUpdates({
-              topic,
-              existingById: existingTopicsById.get(topic.id),
-              existingAtPath: existingData,
-            })
-          )) {
-            if (value !== undefined) paleeData[key] = value;
+          // One composition for the pre-write graph check and this write, so the
+          // bytes the check sized are the bytes that land.
+          const { paleeData, updatedContent } = composeTopicWrite(topic, content, existingData);
+          // #565 P1-10 review: validation bounded the note that was there, not the note
+          // this write produces. The pre-write graph check predicts this verdict from
+          // the bytes on disk (`oversizedWriteIds`), so reaching it means the note
+          // changed between that look and this one — the race no layer here can close.
+          // It still fails this topic rather than writing a file every reader then skips.
+          if (noteContentExceedsReadCap(updatedContent)) {
+            throw new Error(oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')));
           }
-
-          // Authorship rather than list comparison. A roadmap entry that declares
-          // prerequisites is making the learner's claim, whatever was stored
-          // before, so a leftover `toc` label would make them advisory and the
-          // gate would never bite. Comparing the written list against what the note
-          // held gets both directions wrong: an identical declaration kept a stale
-          // label, and a title-only import — whose preserved list comes back
-          // unioned with the legacy `dependencies` key — looked like a change and
-          // silently turned advisory edges back into gates, re-locking the note.
-          // An entry that omits `depends_on` preserves the note's own edges and the
-          // label recording who authored them.
-          const removals = topic.depends_on !== undefined
-            ? ['dependencies', 'depends_on_source']
-            : ['dependencies'];
-          const updatedContent = updateFrontmatter(content, paleeData, removals);
           await atomicWrite(
             vaultPath,
             resolvedTargetPath,
