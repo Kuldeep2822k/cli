@@ -61,7 +61,7 @@ palee adopt --all -y
 
 Every batch mode runs the Tier-0 hygiene pass before staging notes (#298). Notes classified `excluded` - repo-meta files, translation copies, and templates - are not adopted, and an explicit `--include` narrows the candidate set without re-admitting them. Single-file adoption is the deliberate override: it has no batch hygiene pass, so `palee adopt "translations/01-setup.es.md"` still adopts that note directly.
 
-A plain batch additionally skips README/SUMMARY navigation docs (#442), unless the scan explicitly names them with `--include`. `--auto-chain` keeps README/SUMMARY as curriculum backbone notes, so it can adopt them and use their listing as order input; that is a chaining decision, not a different hygiene scope.
+A plain batch additionally skips short README/SUMMARY navigation docs (#442, #545), unless the scan explicitly names them with `--include`. "Short" is measured on the note body: a README under 200 words is a title and a link list, while a README carrying a lesson-sized body is the lesson itself and is adopted — the case on curricula such as `microsoft/Web-Dev-For-Beginners`, where every module's lesson is its `README.md`. `--auto-chain` keeps README/SUMMARY as curriculum backbone notes, so it can adopt them and use their listing as order input; that is a chaining decision, not a different hygiene scope.
 
 ---
 
@@ -72,7 +72,7 @@ The following table lists every supported option for `palee adopt` [src/types.ts
 | Flag / Argument | Type | Default | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | `[path]` | `string` | `undefined` | Path to a single `.md` file or directory relative to the vault root. | `palee adopt "DSA/Trees.md"` |
-| `--all` | `boolean` | `false` | Scan and adopt all untracked Markdown files across the entire vault. Batch scans skip Tier-0 non-lessons (repo-meta, translations, templates), and a plain scan also skips README/SUMMARY; single-file adoption overrides both. | `palee adopt --all` |
+| `--all` | `boolean` | `false` | Scan and adopt all untracked Markdown files across the entire vault. Batch scans skip Tier-0 non-lessons (repo-meta, translations, templates), and a plain scan also skips README/SUMMARY notes whose body is under 200 words (a longer one is lesson content and is adopted); single-file adoption overrides both. | `palee adopt --all` |
 | `--difficulty <level>` | `string` | the note's own `difficulty`, else `intermediate` | Set difficulty tier: `beginner`, `intermediate`, `advanced`, or numeric `1`..`5` (`1` $\to$ beginner, `2-3` $\to$ intermediate, `4-5` $\to$ advanced). Absent, a hand-authored `difficulty` on the note is preserved. | `--difficulty advanced` |
 | `--depends-on <ids>` | `string` | `""` | Comma-separated list of prerequisite topic IDs (available in single-file mode only). | `--depends-on "T-01-basics,T-02-memory"` |
 | `--include <patterns>` | `string` | `undefined` | Comma-separated inclusion glob patterns. Files matching at least one pattern are included, but a Tier-0 `excluded` note stays excluded - single-file adoption is the override. Repeat the flag to add patterns - every occurrence is applied (#312). Batch modes only; with a single note path it exits `2` (#303). | `--include "0[1-4]-*,lab-*,deep-dive*"` |

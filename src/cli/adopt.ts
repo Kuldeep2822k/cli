@@ -21,6 +21,7 @@ import {
   validatePattern,
   loadTopics,
   deriveTocEnumeration,
+  countWords,
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
@@ -52,6 +53,22 @@ import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, typ
 import { resolveNoteTitle } from '../storage/note-title';
 import { normalizeDependencies } from '../storage/dependencies';
 import adoptUndoCommand from './adopt-undo';
+
+/**
+ * Minimum body words for a README/SUMMARY note to be read as lesson content
+ * rather than as navigation.
+ *
+ * @remarks
+ * Some curricula put the lesson itself in `README.md` — every module of
+ * `microsoft/Web-Dev-For-Beginners` is ~3800 words of prose in that file. A
+ * name-only skip dropped all of them from a plain `--all` while `--auto-chain`
+ * adopted them, so the default batch silently lost the curriculum (#545). Below
+ * the threshold a README is still a title and a link list and is skipped as
+ * before; at or above it the body is the lesson and is adopted. The count is a
+ * heuristic, which is why a skip stays counted in the `Skipped (meta)` report and
+ * `--include` still names any path deliberately.
+ */
+const README_LESSON_MIN_WORDS = 200;
 
 /**
  * Prompts user for interactive confirmation via CLI stdin.
@@ -583,7 +600,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // pattern could name, and a pattern that reached one of them is not dead.
       scannedPaths.push(relPath);
       const content = fs.readFileSync(filePath, 'utf8');
-      const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
+      const { frontmatter, body, error: frontmatterError } = parseFrontmatter(content);
 
       // A note whose frontmatter will not parse may still declare a `palee_id`
       // the parser never reached, so adopting it would mint an identity over the
@@ -667,14 +684,24 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         continue;
       }
 
-      // #442 (UX): a plain batch scan also skips README/SUMMARY - navigation
-      // docs, not lessons. This is deliberately narrower than the classifier:
-      // under --auto-chain a README/SUMMARY is curriculum backbone and is
-      // adopted, and an explicit --include is a deliberate path pick. Repo-meta
-      // names are already excluded by the classifier above.
+      // #442 (UX) / #545: a plain batch scan also skips README/SUMMARY navigation
+      // docs. "Navigation" is decided by the body, not the filename alone: a
+      // curriculum whose lesson body *is* the README had every lesson dropped by a
+      // name-only rule, so a README carrying a lesson-sized body is adopted here.
+      // The body is already parsed from the read above, so the check costs no extra
+      // I/O — and it is the body, not the raw file: frontmatter is metadata, and
+      // counting it let a heavily-tagged navigation page clear the threshold. Still
+      // deliberately narrower than the classifier: under --auto-chain a
+      // README/SUMMARY is curriculum backbone and is adopted, and an explicit
+      // --include is a deliberate path pick. Repo-meta names are already excluded by
+      // the classifier above.
       if (!options.autoChain && !options.include) {
         const stem = stemOf(relPath.slice(relPath.lastIndexOf('/') + 1));
-        if (stem.length > 0 && README_CLASS_STEMS.includes(stem)) {
+        if (
+          stem.length > 0 &&
+          README_CLASS_STEMS.includes(stem) &&
+          countWords(body) < README_LESSON_MIN_WORDS
+        ) {
           recordHygieneSkip('repo-meta', relPath);
           continue;
         }
