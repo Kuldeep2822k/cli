@@ -24,8 +24,10 @@ import {
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
 import {
+  noteContentExceedsReadCap,
   noteExceedsReadCap,
   oversizedNoteDiagnostic,
+  oversizedWriteDiagnostic,
 } from '../storage/source-cap';
 import { detectCyclesBounded } from '../engine/dependency';
 import { isValidTopicId } from '../engine/topic-id';
@@ -989,6 +991,13 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             ? ['dependencies', 'depends_on_source']
             : ['dependencies'];
           const updatedContent = updateFrontmatter(content, paleeData, removals);
+          // #565 P1-10 review: validation bounded the note that was there, not the note
+          // this write produces. Mirroring the readBoundNote guard, an import whose
+          // managed keys would cross the ceiling fails this topic rather than writing a
+          // file every reader then skips.
+          if (noteContentExceedsReadCap(updatedContent)) {
+            throw new Error(oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')));
+          }
           await atomicWrite(vaultPath, resolvedTargetPath, updatedContent, fingerprint);
 
           if (isNew) {

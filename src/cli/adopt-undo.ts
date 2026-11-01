@@ -26,7 +26,7 @@ import {
   readHotMemory,
   loadSessions,
 } from '../storage';
-import { noteExceedsReadCap, oversizedNoteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
+import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { AdoptOptions } from '../types';
 
 /**
@@ -762,6 +762,17 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         return;
       }
 
+      // #565 P1-10 review: undo removes keys, so the result is normally smaller — but the
+      // guard is stated rather than assumed, since a note written past the cap would be
+      // invisible to every reader afterwards.
+      if (noteContentExceedsReadCap(prepared.updatedContent)) {
+        console.error(
+          `Error: ${targetPath} ${oversizedWriteDiagnostic(Buffer.byteLength(prepared.updatedContent, 'utf8'))}; nothing was un-adopted.`
+        );
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       const written = await commitBatch(vaultPath, [prepared]);
       if (written === null) return;
 
@@ -1049,24 +1060,43 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     // Phase 1: re-read every note and refuse the batch on any movement
     // ─────────────────────────────────────────────────────────────────
     const preparedBatch: PreparedUndoItem[] = [];
-    const changedDuringRun: string[] = [];
+    /**
+     * Notes refused in Phase 1, each with the reason. #565 P1-10 review: a bare path
+     * made the banner claim every one of them was "modified", so an oversized note was
+     * reported as a concurrent edit and a re-run then skipped it under `Oversized:` with
+     * no hint why. `adopt` already carries reasons here; this mirrors it.
+     */
+    const changedDuringRun: Array<{ relativePath: string; reason: string }> = [];
     for (const target of toUndo) {
       // #565 P1-10: a note that grew past the cap after the scan is refused like the other
-      // shapes that moved under the run; `changedDuringRun` already aborts the batch before
-      // a single write and names what it left.
+      // shapes that moved under the run; the batch aborts before a single write.
       const { size: sourceSize } = fs.statSync(target.absolutePath);
       if (noteExceedsReadCap(sourceSize)) {
-        changedDuringRun.push(target.relativePath);
+        changedDuringRun.push({
+          relativePath: target.relativePath,
+          reason: oversizedNoteDiagnostic(sourceSize),
+        });
         continue;
       }
       const freshContent = fs.readFileSync(target.absolutePath, 'utf8');
       if (computeFingerprint(freshContent) !== target.fingerprint) {
-        changedDuringRun.push(target.relativePath);
+        changedDuringRun.push({ relativePath: target.relativePath, reason: 'the bytes changed' });
         continue;
       }
       try {
         const prepared = prepareUndoWrite(target, freshContent);
-        if (prepared) preparedBatch.push(prepared);
+        if (!prepared) continue;
+        // #565 P1-10 review: removing owned keys shrinks a note, so this cannot normally
+        // trip — but the guard states the invariant rather than assuming it, and a note
+        // left alone is always readable while one written past the cap never is.
+        if (noteContentExceedsReadCap(prepared.updatedContent)) {
+          changedDuringRun.push({
+            relativePath: target.relativePath,
+            reason: oversizedWriteDiagnostic(Buffer.byteLength(prepared.updatedContent, 'utf8')),
+          });
+          continue;
+        }
+        preparedBatch.push(prepared);
       } catch (err: unknown) {
         const e = err as Error;
         console.error(`Skipped ${target.relativePath}: frontmatter will not parse (${e.message})`);
@@ -1078,18 +1108,15 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       // these bytes and different bytes are now on disk.
       console.error(
         `Error: OCC conflict: ${changedDuringRun.length} note(s) were modified while this run was ` +
-          'planning; nothing was un-adopted.'
+          'planning, or grew past the note read cap; nothing was un-adopted.'
       );
-      for (const relPath of changedDuringRun.slice(0, 5)) {
-        console.error(`  • ${relPath}`);
+      for (const { relativePath, reason } of changedDuringRun.slice(0, 5)) {
+        console.error(`  • ${relativePath} (${reason})`);
       }
       if (changedDuringRun.length > 5) {
         console.error(`  • … and ${changedDuringRun.length - 5} more`);
       }
       console.error('  Re-run to plan against the current bytes.');
-      // A note that merely grew past the read cap reaches this same refusal (see the
-      // Phase 1 loop); the count above is the shared bucket, not a claim that every one of
-      // them was edited.
       process.exitCode = ExitCode.Conflict;
       return;
     }

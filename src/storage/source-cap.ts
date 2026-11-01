@@ -66,4 +66,44 @@ function noteExceedsReadCap(sizeInBytes: number): boolean {
   return sizeInBytes > MAX_NOTE_SOURCE_BYTES;
 }
 
-export { MAX_NOTE_SOURCE_BYTES, noteExceedsReadCap, oversizedNoteDiagnostic };
+/**
+ * Whether the content a write is about to store would itself be over the ceiling.
+ *
+ * @param content - The exact text that would be written
+ * @returns `true` when storing it would make the note unreadable to every reader
+ *
+ * @remarks
+ * #565 P1-10 review: bounding the *read* is not enough. `adopt`, `adopt --undo`
+ * and `roadmap` build the new note by adding managed frontmatter, so a source
+ * note a few hundred bytes under the cap can be written over the cap — the
+ * command reports success and the topic then disappears from every later read.
+ * Measured on the adopt path: 265 bytes of PALEE keys, so the vulnerable band is
+ * the last ~265 bytes below the ceiling.
+ *
+ * `Buffer.byteLength`, not `content.length`: the cap is counted in bytes on disk
+ * and a note with any multi-byte character would otherwise be under-estimated.
+ */
+function noteContentExceedsReadCap(content: string): boolean {
+  return Buffer.byteLength(content, 'utf8') > MAX_NOTE_SOURCE_BYTES;
+}
+
+/**
+ * Builds the diagnostic for a write that would cross the ceiling.
+ *
+ * @param sizeInBytes - UTF-8 length the write would have produced
+ * @returns A message naming the result, the ceiling, and what it would cost
+ */
+function oversizedWriteDiagnostic(sizeInBytes: number): string {
+  return (
+    `Oversized result: the managed keys would grow this note to ${sizeInBytes} bytes, past the ` +
+    `${MAX_NOTE_SOURCE_BYTES} byte note read cap, so every reader would skip it`
+  );
+}
+
+export {
+  MAX_NOTE_SOURCE_BYTES,
+  noteContentExceedsReadCap,
+  noteExceedsReadCap,
+  oversizedNoteDiagnostic,
+  oversizedWriteDiagnostic,
+};

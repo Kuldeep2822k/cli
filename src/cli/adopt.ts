@@ -24,7 +24,7 @@ import {
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
-import { noteExceedsReadCap, oversizedNoteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
+import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
@@ -464,6 +464,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
+
+      // #565 P1-10 review: the source was under the cap, but the managed keys are about
+      // to be added to it. Writing a result no reader will load would report success and
+      // then hide the topic forever, so refuse before the write.
+      if (noteContentExceedsReadCap(updatedContent)) {
+        const writtenBytes = Buffer.byteLength(updatedContent, 'utf8');
+        console.error(`Error: ${targetPath} ${oversizedWriteDiagnostic(writtenBytes)}; nothing was adopted.`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
 
       await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
 
@@ -1426,6 +1436,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
     const preparedBatch: PreparedBatchItem[] = [];
     /**
+     * #565 P1-10 review — notes whose managed keys would push the file past the read
+     * cap. They are dropped here rather than written, because a note no reader will load
+     * is worse than a note that was not adopted: the topic would vanish silently.
+     */
+    const oversizedResults: Array<{ relativePath: string; reason: string }> = [];
+    /**
      * Notes whose identity moved after the scan. The scan only stages notes with
      * no `palee_id` of their own (frontmatter check above), so a truthy id on the
      * Phase-1 re-read is another process's adoption landing inside the TOCTOU
@@ -1545,6 +1561,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       const updatedContent = updateFrontmatter(freshContent, paleeData);
+      // #565 P1-10 review: the scan bounded the source bytes, not the result. A note
+      // within a few hundred bytes of the cap crosses it once its PALEE keys are added,
+      // so it is dropped here — never written — and reported by name below.
+      if (noteContentExceedsReadCap(updatedContent)) {
+        oversizedResults.push({
+          relativePath: note.relativePath,
+          reason: oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')),
+        });
+        continue;
+      }
       preparedBatch.push({
         absolutePath: note.absolutePath,
         relativePath: note.relativePath,
@@ -1552,6 +1578,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         fingerprint: freshFingerprint,
         updatedContent,
       });
+    }
+
+    if (oversizedResults.length > 0) {
+      console.error(
+        `Skipped ${oversizedResults.length} note(s) that would have crossed the ${MAX_NOTE_SOURCE_BYTES} byte read cap:`
+      );
+      for (const { relativePath, reason } of oversizedResults.slice(0, 5)) {
+        console.error(`  • ${formatDiagnosticPath(relativePath)} (${reason})`);
+      }
+      if (oversizedResults.length > 5) {
+        console.error(`  • … and ${oversizedResults.length - 5} more`);
+      }
     }
 
     if (driftedDuringRun.length > 0) {

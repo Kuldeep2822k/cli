@@ -16,8 +16,10 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import {
   MAX_NOTE_SOURCE_BYTES,
+  noteContentExceedsReadCap,
   noteExceedsReadCap,
   oversizedNoteDiagnostic,
+  oversizedWriteDiagnostic,
 } from '../src/storage/source-cap';
 
 describe('Note source size cap (Issue #332)', () => {
@@ -62,6 +64,33 @@ describe('Note source size cap (Issue #332)', () => {
 
     test('an empty note is readable', () => {
       assert.strictEqual(noteExceedsReadCap(0), false);
+    });
+  });
+
+  // #565 P1-10 review: bounding the source is not enough. The write paths add managed
+  // frontmatter, so the *result* needs the same two-sided check.
+  describe('the result a write would produce (#565 P1-10 review)', () => {
+    test('content of exactly the ceiling is still writable', () => {
+      assert.strictEqual(noteContentExceedsReadCap('x'.repeat(MAX_NOTE_SOURCE_BYTES)), false);
+    });
+
+    test('one byte past the ceiling is refused', () => {
+      assert.strictEqual(noteContentExceedsReadCap('x'.repeat(MAX_NOTE_SOURCE_BYTES + 1)), true);
+    });
+
+    test('the check counts bytes, not characters, so multi-byte text is not under-counted', () => {
+      // One 'é' is two bytes in UTF-8, so a string of `MAX / 2 + 1` of them is over the
+      // cap while its `.length` still looks under it.
+      const content = 'é'.repeat(MAX_NOTE_SOURCE_BYTES / 2 + 1);
+      assert.ok(content.length <= MAX_NOTE_SOURCE_BYTES, 'the string length alone would pass');
+      assert.strictEqual(noteContentExceedsReadCap(content), true, 'the byte length must decide');
+    });
+
+    test('the write diagnostic names the size it would have produced and the ceiling', () => {
+      const message = oversizedWriteDiagnostic(MAX_NOTE_SOURCE_BYTES + 217);
+      assert.ok(message.includes(String(MAX_NOTE_SOURCE_BYTES + 217)), message);
+      assert.ok(message.includes(String(MAX_NOTE_SOURCE_BYTES)), message);
+      assert.match(message, /read cap/);
     });
   });
 });
