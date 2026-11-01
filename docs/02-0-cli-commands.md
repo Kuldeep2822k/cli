@@ -120,7 +120,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee roadmap` | 0 | Curriculum parsed, validated, and all topics created/updated on disk. |
 | `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
 | `palee roadmap` | 2 | Missing `--from` argument, roadmap file not found, a `--from` path that is not a regular file (e.g. a directory), malformed structure (missing `topics`), or non-interactive stdin without `-y`. |
-| `palee roadmap` | 3 | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected). |
+| `palee roadmap` | 3 | Roadmap validation failed (missing ID/title/path, duplicate ID/path, invalid difficulty/order, a placeholder (all-zero) topic ID, missing dependency, cycle detected); or the pre-write graph check refused the import because a note it will skip — unreadable, or one whose composed result would cross the 512 KiB read cap — would have left a cycle on disk (nothing written). |
 | `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
 | `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
 | `palee migrate` | 0 | All notes verified to be on current schema (`palee_schema: 1`). |

@@ -1432,6 +1432,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       originalContent: string;
       fingerprint: string;
       updatedContent: string;
+      /** The `depends_on` list this write carries, before any dropped note is severed */
+      plannedDeps: string[];
     }
 
     const preparedBatch: PreparedBatchItem[] = [];
@@ -1441,6 +1443,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      * is worse than a note that was not adopted: the topic would vanish silently.
      */
     const oversizedResults: Array<{ relativePath: string; reason: string }> = [];
+    /**
+     * Ids minted for notes this run drops. A planned edge naming one of them is an
+     * edge the plan promised and the vault will not get, so the survivors carrying
+     * it are re-rendered without it.
+     */
+    const droppedIds = new Set<string>();
+    /** The note each dropped id was minted for, so the severed edge can name both sides */
+    const droppedPathById = new Map<string, string>();
     /**
      * Notes whose identity moved after the scan. The scan only stages notes with
      * no `palee_id` of their own (frontmatter check above), so a truthy id on the
@@ -1569,6 +1579,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           relativePath: note.relativePath,
           reason: oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')),
         });
+        droppedIds.add(topicId);
+        droppedPathById.set(topicId, note.relativePath);
         continue;
       }
       preparedBatch.push({
@@ -1577,7 +1589,41 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         originalContent: freshContent,
         fingerprint: freshFingerprint,
         updatedContent,
+        plannedDeps,
       });
+    }
+
+    // A planned edge naming a note this run will not write is an edge the plan
+    // promised and the vault will not get: the dependent note would be written with
+    // a `depends_on` pointing at nothing and drop out of `palee plan` with only a
+    // `validate` warning to say why. Strip those ids from every survivor and
+    // re-render, so what is written is the plan minus the notes that could not be.
+    // Filtered here rather than in the loop because a declared prerequisite may name
+    // a note prepared after it — a running "dropped so far" set would miss that edge.
+    const severedEdges: { relativePath: string; droppedPath: string }[] = [];
+    if (droppedIds.size > 0) {
+      for (const item of preparedBatch) {
+        const kept = item.plannedDeps.filter((id) => !droppedIds.has(id));
+        if (kept.length === item.plannedDeps.length) continue;
+        for (const id of item.plannedDeps) {
+          if (droppedIds.has(id)) {
+            severedEdges.push({
+              relativePath: item.relativePath,
+              droppedPath: droppedPathById.get(id) ?? id,
+            });
+          }
+        }
+        item.plannedDeps = kept;
+        // Re-rendering the note updateFrontmatter already produced is the same
+        // parse/set/stringify pass that made it, and the list can only shrink here,
+        // so the cap verdict above still holds. An emptied list drops its provenance
+        // label too — `depends_on_source` only ever describes edges that exist.
+        item.updatedContent = updateFrontmatter(
+          item.updatedContent,
+          { depends_on: kept },
+          kept.length === 0 ? ['depends_on_source'] : []
+        );
+      }
     }
 
     if (oversizedResults.length > 0) {
@@ -1589,6 +1635,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
       if (oversizedResults.length > 5) {
         console.error(`  • … and ${oversizedResults.length - 5} more`);
+      }
+    }
+
+    if (severedEdges.length > 0) {
+      console.error(
+        `  ${severedEdges.length} planned dependency edge(s) named a skipped note and were removed:`
+      );
+      for (const { relativePath, droppedPath } of severedEdges.slice(0, 5)) {
+        console.error(`  • ${formatDiagnosticPath(relativePath)} → ${formatDiagnosticPath(droppedPath)}`);
+      }
+      if (severedEdges.length > 5) {
+        console.error(`  • … and ${severedEdges.length - 5} more`);
       }
     }
 
@@ -1632,9 +1690,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
       if (options.autoChain) {
+        // Counted from what was written, not from the plan: a note dropped for
+        // crossing the cap never carried its edges, and the survivors carry the
+        // severed remainder.
+        const preparedPaths = new Set(preparedBatch.map((item) => item.relativePath));
         let edges = 0;
-        for (const deps of chainDependsOn.values()) {
-          edges += deps.length;
+        for (const [relativePath, deps] of chainDependsOn) {
+          if (!preparedPaths.has(relativePath)) continue;
+          edges += deps.filter((id) => !droppedIds.has(id)).length;
         }
         console.log(`  Auto-chained: ${edges} dependency edges wired across ${journal.length} notes.`);
       }

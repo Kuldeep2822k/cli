@@ -453,7 +453,7 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | `palee roadmap` | 0 | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. |
 | `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
 | `palee roadmap` | 2 | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. |
-| `palee roadmap` | 3 | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`. |
+| `palee roadmap` | 3 | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`; or an import refused before its first write because a note it would skip (unreadable, or one whose composed result would cross the 512 KiB read cap) would leave a cycle on disk. |
 | `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
 | `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
 | `palee migrate` | 0 | All notes verified to be schema v1. |
