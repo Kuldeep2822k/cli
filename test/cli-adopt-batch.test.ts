@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { execSync, spawnSync } from 'node:child_process';
+import { PALEE_CMD, PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import { resolveNoteTitle } from '../src/storage/note-title';
 
@@ -72,6 +72,38 @@ describe('CLI Adopt Batch Integration Tests', () => {
     } catch (e: any) {
       return { status: e.status ?? 1, stdout: e.stdout || '', stderr: e.stderr || '' };
     }
+  }
+
+  /**
+   * Runs the CLI through `spawnSync`, which keeps stderr when the child exits 0.
+   *
+   * @remarks
+   * `execSync` hands back stdout only on a successful run, and the result-cap
+   * skips are disclosed on stderr while the run still succeeds — so a test that
+   * has to see both streams spawns directly, the way the `--auto-chain`
+   * severing cases do. A child that never started, or ran out of its timeout,
+   * would otherwise arrive as a bare exit `1` with empty streams and leave the
+   * assertion reader no cause; `spawnError` carries it into the failure detail.
+   */
+  function runCLIBothStreams(args: string[]): {
+    status: number;
+    stdout: string;
+    stderr: string;
+    spawnError: string;
+  } {
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    return {
+      status: result.status ?? 1,
+      stdout: result.stdout ?? '',
+      stderr: result.stderr ?? '',
+      spawnError: result.error ? `spawn failed: ${result.error.message}\n` : '',
+    };
   }
 
   test('resolveNoteTitle helper extracts title from frontmatter, H1 heading, or filename', () => {
@@ -397,6 +429,55 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(fs.readFileSync(edgePath, 'utf8'), edgeBody, 'the over-cap result was never written');
     const safe = parseFrontmatter(fs.readFileSync(safePath, 'utf8'));
     assert.ok(safe.frontmatter?.palee_id, 'the rest of the batch still adopted');
+  });
+
+  // #565 P1-10 review: the projection decided which notes would not be written, but the
+  // preview, the verbose list, the empty-batch check and the confirmation count all read
+  // the unfiltered batch — so `Ready to Adopt` promised a note that never lands, and a
+  // batch of nothing but projected notes still reached the confirmation gate.
+  test('the preview promises only the notes the projection will write', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_PREVIEW');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'edge.md'), `# Edge\n\n${'x'.repeat(524240)}`, 'utf8');
+    fs.writeFileSync(path.join(dir, 'safe.md'), '# Safe\n\n' + 'y'.repeat(4000), 'utf8');
+
+    const result = runCLIBothStreams(['adopt', 'SOURCE_CAP_EDGE_PREVIEW', '--dry-run', '--verbose']);
+    const output = result.spawnError + result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /Ready to Adopt:\s+1 notes/, 'the projected note is not part of the promised batch');
+    assert.match(
+      output,
+      /Oversized result: the managed keys would grow this note to/,
+      'but the skip is still named, not hidden'
+    );
+    assert.match(output, /\+\s+SOURCE_CAP_EDGE_PREVIEW\/safe\.md/, 'the note that will be written is listed');
+    assert.doesNotMatch(
+      output,
+      /\+\s+SOURCE_CAP_EDGE_PREVIEW\/edge\.md/,
+      'and the note that will not be is absent from the list'
+    );
+  });
+
+  test('a batch whose every note is projected out asks for nothing', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_ALL');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'edge.md'), `# Edge\n\n${'x'.repeat(524240)}`, 'utf8');
+
+    // No `--yes`, and the runner gives the child a pipe rather than a TTY. Before the
+    // fix this reached the confirmation gate with a non-empty list and died as a usage
+    // error (2) — for a batch that was going to write nothing at all.
+    const result = runCLIBothStreams(['adopt', 'SOURCE_CAP_EDGE_ALL']);
+    const output = result.spawnError + result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 0, `an all-projected batch is not a usage error: ${output}`);
+    assert.match(output, /No new notes matched the criteria to adopt\./);
+    assert.doesNotMatch(output, /Non-interactive environment/, 'the learner is never asked to confirm zero notes');
+    assert.match(
+      output,
+      /Oversized result: the managed keys would grow this note to/,
+      'with the reason still disclosed'
+    );
   });
 
   test('a note just under the read cap still adopts', () => {

@@ -164,6 +164,36 @@ describe('a roadmap result that crosses the read cap cannot leave a cycle', () =
     );
   });
 
+  // #565 P1-10 review: that refusal ran only inside `doImport`, so the dry run for the very
+  // same bytes printed a two-note plan and exited `0`. `--dry-run` promises the plan an
+  // import would carry (#309), which makes a plan the import refuses worse than no plan.
+  test('a dry run refuses the plan its own import would refuse', () => {
+    const aBefore = noteAtTheCapEdge('T-alpha', 'One', ['T-bravo']);
+    const bBefore = adoptedNote('T-bravo', 'Two');
+
+    const { base, vault, yaml } = makeVault('cycle-dry', { 'n/a.md': aBefore, 'n/b.md': bBefore }, [
+      'topics:',
+      '  - id: T-alpha',
+      '    title: One',
+      '    path: n/a.md',
+      '    depends_on: []',
+      '  - id: T-bravo',
+      '    title: Two',
+      '    path: n/b.md',
+      '    depends_on: [T-alpha]',
+      '',
+    ]);
+
+    const dry = runCLI(base, ['roadmap', '--from', yaml, '--dry-run']);
+
+    assert.strictEqual(dry.status, 3, `the dry run must predict the refusal, not the plan: ${dry.out}`);
+    assert.match(dry.out, /refusing to import/, 'with the same refusal the import reports');
+    assert.match(dry.out, /T-alpha \(would be written past the read cap\)/, 'naming the same blocked note');
+    assert.doesNotMatch(dry.out, /Dry-run complete/, 'and no plan printed for an import that cannot proceed');
+    assert.strictEqual(fs.readFileSync(path.join(vault, 'n/a.md'), 'utf8'), aBefore, 'a refused dry run writes nothing');
+    assert.strictEqual(fs.readFileSync(path.join(vault, 'n/b.md'), 'utf8'), bBefore, 'still nothing');
+  });
+
   test('a cap-refused topic that closes no loop still costs only its own topic', () => {
     // The boundary of the fix: the pre-write check refuses only when the graph
     // that would land is cyclic. A cap-refused note nothing depends on still

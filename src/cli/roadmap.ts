@@ -746,6 +746,12 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     // derived through `resolveTopicUpdates`, the single source of truth the
     // writeback consumes, so the printed list is the list an import would write.
     if (options.dryRun) {
+      // #565 P1-10 review: this branch used to print the plan and exit `0` for the very
+      // bytes the import refuses with exit `3`, because the skipped-note graph check ran
+      // only inside `doImport`. `--dry-run` promises the plan an import would carry (#309),
+      // and that promise has to include the refusal — otherwise the learner approves an
+      // import that cannot proceed and hears about it only when they run it for real.
+      if (!planSurvivesSkippedNotes()) return;
       let createCount = 0;
       let updateCount = 0;
       console.log('Dry-run plan (no files were written):');

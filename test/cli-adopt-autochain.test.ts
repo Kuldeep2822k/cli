@@ -1742,4 +1742,210 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'an emptied list carries no provenance label'
     );
   });
+
+  // The other half of the same pruning: a note may plan several edges — here two
+  // declared prerequisites — and only the ones naming a skipped note go. The
+  // pruner used to rewrite *every* severed entry as a chain head, so a note that
+  // kept an edge was previewed twice (once of them as a "(chain head)" whose
+  // `depends_on` "stays empty") and `Unchained:` counted a note the approved plan
+  // does gate.
+  test('a severed declared edge does not turn a note with a surviving edge into a head', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    assert.ok(Buffer.byteLength(overCapBody, 'utf8') < 524288, 'the fixture must start under the cap');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-anchor.md': '# Anchor\n\nanchor\n',
+      'MODULES/04-chained.md': [
+        '# Four',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/03-anchor]]',
+        '- [[MODULES/02-big]]',
+      ].join('\n'),
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    // Pin the precondition the rest of this test reads: the pruner really ran on
+    // this note, and left the surviving edge alone. Without it, a fixture whose
+    // second wikilink simply failed to resolve would print the same plan and pass.
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/02-big\.md/,
+      `the declared edge onto the skipped note is disclosed: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/03-anchor\.md/,
+      `the surviving declared edge is not severed: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /2 planned dependency edge\(s\) named a skipped note and were removed/,
+      `the successor's numbered edge and this one: ${dryOut}`
+    );
+
+    const edges = plannedEdges(dryOut);
+    assert.deepStrictEqual(
+      edges.filter((e) => e.path === 'MODULES/04-chained.md'),
+      [{ path: 'MODULES/04-chained.md', dependsOn: 'MODULES/03-anchor.md' }],
+      `the surviving declared edge is listed once and the note is not also a head:\n${dryOut}`
+    );
+    // 01-first opens the chain; 03-anchor lost its only edge to the skipped note.
+    assert.deepStrictEqual(
+      edges.filter((e) => e.dependsOn === null).map((e) => e.path).sort(),
+      ['MODULES/01-first.md', 'MODULES/03-anchor.md'],
+      `only the notes left with no edge are heads:\n${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Unchained:\s+2 note\(s\)/,
+      `two ungated notes, not three:\n${dryOut}`
+    );
+
+    // The committed graph is the plan the preview printed.
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+    const anchorId = [...idToPath(vaultDir)].find(([, p]) => p === 'MODULES/03-anchor.md')?.[0];
+    assert.ok(anchorId, 'the surviving prerequisite was adopted');
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/04-chained.md'),
+      [anchorId],
+      'the note keeps its surviving gate, severed from the skipped one alone'
+    );
+    assert.strictEqual(dependsOnSource(vaultDir, 'MODULES/04-chained.md'), 'declared');
+  });
+
+  // The other half of the pruner's predicate: a note whose *whole* declared list is
+  // severed. Each severed entry used to become its own `{ dependsOnPath: null }`,
+  // so the note was listed once per dropped prerequisite — as many chain heads as
+  // it had lost edges — and `Unchained:` counted one note several times.
+  test('a note whose every declared edge is severed is previewed as one head', () => {
+    // Both prerequisites sit in the band where the source fits and only the
+    // composed result does not, so the projection drops both before the plan prints.
+    const overCapA = `# Two\n\n${'x'.repeat(524240)}`;
+    const overCapB = `# Three\n\n${'y'.repeat(524240)}`;
+    assert.ok(Buffer.byteLength(overCapA, 'utf8') < 524288, 'the fixture must start under the cap');
+    assert.ok(Buffer.byteLength(overCapB, 'utf8') < 524288, 'the fixture must start under the cap');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapA,
+      'MODULES/03-huge.md': overCapB,
+      'MODULES/04-chained.md': [
+        '# Four',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/02-big]]',
+        '- [[MODULES/03-huge]]',
+      ].join('\n'),
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 2 note\(s\) that would have crossed the 524288 byte read cap/,
+      `both prerequisites must be the projection's, not the scan's: ${dryOut}`
+    );
+    // Both of the note's declared edges went, and they are the reason it is a head.
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/02-big\.md/,
+      `the first declared edge was severed: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/03-huge\.md/,
+      `the second was too: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /3 planned dependency edge\(s\) named a skipped note and were removed/,
+      `the two declared edges plus the middle note's numbered one: ${dryOut}`
+    );
+
+    const edges = plannedEdges(dryOut);
+    assert.deepStrictEqual(
+      edges.filter((e) => e.path === 'MODULES/04-chained.md'),
+      [{ path: 'MODULES/04-chained.md', dependsOn: null }],
+      `one head entry, whatever the number of severed edges:\n${dryOut}`
+    );
+    assert.deepStrictEqual(
+      edges.filter((e) => e.dependsOn === null).map((e) => e.path).sort(),
+      ['MODULES/01-first.md', 'MODULES/04-chained.md'],
+      `the head count is a count of notes:\n${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Planned dependency chain \(0 edges to write\)/,
+      `no edge of theirs survives:\n${dryOut}`
+    );
+    assert.match(dryOut, /Unchained:\s+2 note\(s\)/, `two ungated notes, not three:\n${dryOut}`);
+
+    // And the write agrees with the single head the plan printed.
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/04-chained.md'),
+      [],
+      'a severed whole list stays empty and is not restored from the note'
+    );
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/04-chained.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'),
+      overCapA,
+      'the skipped prerequisite was never written'
+    );
+  });
 });

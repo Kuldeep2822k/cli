@@ -1287,13 +1287,37 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         }
         chainDependsOn.set(relativePath, kept);
       }
-      const keptPlan = chainWritePlan
-        .filter((edge) => !droppedPaths.has(edge.path))
-        .map((edge) =>
-          edge.dependsOnPath !== null && droppedPaths.has(edge.dependsOnPath)
-            ? { path: edge.path, dependsOnPath: null }
-            : edge
-        );
+      const planned = chainWritePlan.filter((edge) => !droppedPaths.has(edge.path));
+      // Notes that keep at least one edge whose target this run still writes.
+      const surviving = new Set(
+        planned
+          .filter((edge) => edge.dependsOnPath !== null && !droppedPaths.has(edge.dependsOnPath))
+          .map((edge) => edge.path)
+      );
+      const keptPlan: { path: string; dependsOnPath: string | null }[] = [];
+      const headPlanned = new Set<string>();
+      for (const edge of planned) {
+        if (edge.dependsOnPath === null || !droppedPaths.has(edge.dependsOnPath)) {
+          // A real head claims the slot too. Unreachable with today's builders,
+          // which give a note one shape or the other, but it keeps "one head entry
+          // per note" the pruner's own guarantee rather than a consequence of how
+          // the plan was assembled upstream.
+          if (edge.dependsOnPath === null) headPlanned.add(edge.path);
+          keptPlan.push(edge);
+          continue;
+        }
+        // A note may plan several edges — its own declared prerequisites or its
+        // hand-written gates. Severing one of them leaves the others, and a note
+        // with a surviving edge is not a chain head: converting the severed entry
+        // printed that note twice in the preview, once of them a head whose
+        // `depends_on` "stays empty", and made `Unchained:` count a note the plan
+        // does gate. The entry goes. Only a note whose last planned edge went
+        // becomes the head the write will hand it — and once, however many of its
+        // edges went.
+        if (surviving.has(edge.path) || headPlanned.has(edge.path)) continue;
+        headPlanned.add(edge.path);
+        keptPlan.push({ path: edge.path, dependsOnPath: null });
+      }
       chainWritePlan.splice(0, chainWritePlan.length, ...keptPlan);
       return severed;
     }
@@ -1337,6 +1361,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       projectedDropped.set(topicId, note.relativePath);
     }
     const projectedSevered = severPlannedBatchEdges(projectedDropped);
+    // #565 P1-10 review: the preview, the verbose list, the empty-batch check and the
+    // confirmation count all read `toAdopt`, and a projected note is one Phase 1 will
+    // not write. Leaving it in promised a note that never lands — and when every
+    // candidate projected out, the run still asked the learner to confirm an empty
+    // batch. They are removed from the batch here, and named by `printOversizedResults`
+    // below, so the skip is disclosed rather than hidden.
+    for (let i = toAdopt.length - 1; i >= 0; i -= 1) {
+      const note = toAdopt[i];
+      if (note !== undefined && projectedOversizedPaths.has(note.relativePath)) toAdopt.splice(i, 1);
+    }
 
     // #312 — measure each supplied pattern against the whole scanned scope before
     // reporting on it. `matchesPattern` OR-folds, so the run could only ever print
@@ -1672,9 +1706,6 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      */
     const driftedDuringRun: Array<{ relativePath: string; reason: string }> = [];
     for (const note of toAdopt) {
-      // Projected out for its result size before the plan was printed: the approved
-      // plan already excludes it, so re-deciding it here would only contradict it.
-      if (projectedOversizedPaths.has(note.relativePath)) continue;
       // #565 P1-10: the scan refused oversized notes; this re-read is the same write path
       // one step later, so a note that grew past the cap joins the drift list — refused,
       // named, and the whole batch aborts before a single write (exit 4), exactly like the
