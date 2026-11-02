@@ -168,12 +168,20 @@ jobs:
         run: node scripts/verify-tarball.js
 
       - name: Install CLI globally from packed tarball
-        run: npm install -g --ignore-scripts ${{ steps.pack.outputs.filename }}
+        # #565 P1-06: `$TARBALL` is a POSIX-shell reference, and this job's Windows
+        # legs default to pwsh, where a bare `$NAME` expands to nothing. Pin the shell
+        # rather than switching to `$env:TARBALL`, which would break the other two.
+        shell: bash
+        env:
+          TARBALL: ${{ steps.pack.outputs.filename }}
+        run: npm install -g --ignore-scripts "$TARBALL"
 
       - name: Verify Exact Version Match
         shell: bash
+        env:
+          VERSION: ${{ steps.pack.outputs.version }}
         run: |
-          EXPECTED="${{ steps.pack.outputs.version }}"
+          EXPECTED="$VERSION"
           ACTUAL=$(palee --version | tr -d '\r\n ')
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "❌ Version mismatch! Expected $EXPECTED, got $ACTUAL"

@@ -84,7 +84,11 @@ The publishing job uses the `npm-release` environment and requires `id-token: wr
 
 To ensure the pipeline is idempotent (safe to re-run), it performs a pre-check using `npm view`. It queries the registry for the specific version being released; if the version already exists, the publish step is skipped to avoid "cannot modify existing version" errors [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)
 
-Sources: [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)
+#### Manifest values are data, never shell syntax (ADR-0037)
+
+Every value this pipeline reads from `package.json` — the version and the tarball filename — reaches its `run:` block through `env:` and is quoted at the point of use, never interpolated. `scripts/release-manifest.js` validates both before `scripts/pack-package.js` writes the `GITHUB_OUTPUT` lines every downstream job consumes, so a version that is not a release semver, or a name the registry would not accept, fails the pack job instead of reaching a credentialed runner. `scripts/verify-tarball.js` passes the filename to `tar` as a single argv element (`execFileSync`), so there is no shell to parse it.
+
+Sources: [scripts/release-manifest.js](https://github.com/Kuldeep2822k/cli/blob/main/scripts/release-manifest.js), [docs/adr/0037-manifest-values-are-data.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0037-manifest-values-are-data.md), [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)
 
 ### 3. GitHub Release Creation (`github-release`)
 

@@ -59,3 +59,4 @@ Page titles and content headings use Title Case. ADR titles follow the same conv
 - [ADR-0034: Reclaiming a Killed Writer's Temporary File](./0034-abandoned-temp-file-reclaim.md)
 - [ADR-0035: `--fix` Mastery Repair and Partial Pillar Eligibility](./0035-validate-fix-partial-pillar-eligibility.md)
 - [ADR-0036: Bounded Lock Acquisition — A Non-Empty Lockdir Is Not a Retry Signal](./0036-bounded-lock-acquisition.md)
+- [ADR-0037: Manifest Values Reach the Shell as Data, Never as Interpolation](./0037-manifest-values-are-data.md)
