@@ -836,6 +836,23 @@ describe('TOC tier engine (PAL-205-C3)', () => {
         /invariant violated/
       );
     });
+
+    // The stem fell back to '' for any basename not ending in `.md`, so the
+    // README, phase and assignment checks all missed and those files ranked 3.
+    it('ranks an extensionless README first', () => {
+      const plan = planTocChain(['d/01-a.md', 'd/README']);
+      assert.deepStrictEqual(plan.orderedPaths, ['d/README', 'd/01-a.md']);
+    });
+
+    it('ranks a non-.md assignment file last', () => {
+      const plan = planTocChain(['d/assignment.txt', 'd/notes.md']);
+      assert.deepStrictEqual(plan.orderedPaths, ['d/notes.md', 'd/assignment.txt']);
+    });
+
+    it('gives a non-.md phase file its phase rank', () => {
+      const plan = planTocChain(['d/notes.md', 'd/lab-x.txt']);
+      assert.deepStrictEqual(plan.orderedPaths, ['d/lab-x.txt', 'd/notes.md']);
+    });
   });
 
   describe('isInNumberedTree (C2 gate)', () => {
