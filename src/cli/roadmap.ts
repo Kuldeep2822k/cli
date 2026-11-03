@@ -890,39 +890,54 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
 
     /**
-     * Ids whose import would be written past the read cap.
+     * The ids whose note this import will not write, each with the reason it will not.
      *
-     * @returns Every roadmap id whose composed note would cross
-     *   `MAX_NOTE_SOURCE_BYTES`, decided from the bytes on disk
+     * @returns Every roadmap id the write loop will skip, mapped to the reason it
+     *   will skip it, decided from the bytes on disk
      *
      * @remarks
      * The write loop fails such a topic per topic rather than storing a file every
      * reader then skips (#565 P1-10). A topic that fails keeps the `depends_on` it
      * already carries, so the graph that lands is not the graph validation cleared —
-     * the same hole the pass below closes for unreadable notes. The verdict is
-     * computed here, before the first write, through the very composer the loop
-     * uses, so the two cannot disagree about which notes those are.
+     * the hole the pass below closes. The verdict is computed here, before the first
+     * write, through the very inspection and the very composer the loop uses, so the
+     * two cannot disagree about which notes those are.
+     *
+     * Three causes, tested in the order the loop reaches them: the target is not a
+     * note this command may write, the target is a regular in-vault file whose bytes
+     * cannot be opened, or the composed result crosses `MAX_NOTE_SOURCE_BYTES`. The
+     * middle one is the failure no metadata or size probe predicts — an over-cap
+     * *target* is refused by validation and a non-regular target is the first cause —
+     * so leaving it out of this set was the case where the documentation promised
+     * all-or-nothing for an unreadable note while the check did not model it.
      *
      * A target that does not exist composes the skeleton the loop would create and
-     * cannot trip the cap; a target this pass cannot read is the survival pass's own
-     * case. Nothing here creates a directory or writes a byte — a preflight that did
-     * either would make its own verdict stale.
+     * cannot trip the cap. A note whose managed block will not parse is deliberately
+     * absent: the same malformed YAML keeps `loadTopics` from indexing it, so the
+     * edges it holds are in no reading command's graph and modeling it could only ever
+     * remove edges from the projected graph. Nothing here creates a directory or
+     * writes a byte — a preflight that did either would make its own verdict stale.
      */
-    function oversizedWriteIds(): Set<string> {
-      const ids = new Set<string>();
+    function blockedWriteIds(): Map<string, string> {
+      const blocked = new Map<string, string>();
       for (const topic of roadmap.topics) {
         const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
         if (!isWithinVault(resolvedVault, absolutePath)) continue;
         const { stat, blocker } = inspectExistingNote(absolutePath);
-        // Not an existing regular in-vault file: the write loop skips it for that
-        // reason, which is the other cause the survival pass models.
-        if (blocker !== null || stat === null) continue;
+        if (blocker !== null) {
+          blocked.set(topic.id, 'cannot be read');
+          continue;
+        }
+        // No existing file: the loop creates the note from a skeleton, which cannot
+        // cross the cap.
+        if (stat === null) continue;
         let content: string;
         try {
           content = readBoundNote(absolutePath, stat);
         } catch {
-          // Grew past the cap between validation and here. The loop isolates it the
-          // same way it would mid-run, so the graph check is not where that is decided.
+          // A regular in-vault note the loop will not be able to open either. It keeps
+          // the `depends_on` it holds, so this is the graph check's own case.
+          blocked.set(topic.id, 'its content could not be read');
           continue;
         }
         const parsed = parseFrontmatter(content);
@@ -935,9 +950,11 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // turn one unparseable note into a refused batch.
           continue;
         }
-        if (noteContentExceedsReadCap(updatedContent)) ids.add(topic.id);
+        if (noteContentExceedsReadCap(updatedContent)) {
+          blocked.set(topic.id, 'would be written past the read cap');
+        }
       }
-      return ids;
+      return blocked;
     }
 
     /**
@@ -948,8 +965,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
      * land; `false` when it does not and nothing has been written
      *
      * @remarks
-     * A topic whose existing note cannot be read, or whose composed result would cross
-     * the read cap, is skipped by the write loop, and a skipped note keeps whatever
+     * A topic whose existing note this command cannot use — one it may not write over,
+     * one whose bytes it cannot open, or one whose composed result would cross the
+     * read cap — is skipped by the write loop, and a skipped note keeps whatever
      * `depends_on` it already carries — not the list the roadmap declared for it, and
      * not what the validator ran with. One stored backward hop closes a loop the check
      * never saw: the import writes, exits `1`, and leaves the vault in exactly the
@@ -963,22 +981,16 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
      * the edge-integrity report still names whatever dangles. Refusing every skipped
      * note would have been the simpler rule and the worse one — it throws away a
      * partial import the user can act on.
+     *
+     * A skipped note the loader could not read either is modeled with no edges at all,
+     * which is the honest reading: the `depends_on` on its disk is in no reading
+     * command's graph, so it cannot close a loop `palee validate` would ever report.
+     * The skips this refusal catches are the ones whose bytes were readable when the
+     * vault was scanned and cannot be opened on the write path — which is why
+     * {@link blockedWriteIds} asks the read itself and not only the target's metadata.
      */
     function planSurvivesSkippedNotes(): boolean {
-      // Projected write failures come first: a note can cross the cap without its
-      // bytes on disk changing, so no read check can predict it.
-      const blocked = new Map<string, string>();
-      for (const id of oversizedWriteIds()) blocked.set(id, 'would be written past the read cap');
-      for (const topic of roadmap.topics) {
-        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
-        // An escaping path is reported per topic by the loop, and validation has
-        // already refused the file for it.
-        if (!isWithinVault(resolvedVault, absolutePath)) continue;
-        // An over-cap *target* never reaches this pass: validation refuses it before
-        // the import starts. A note that grows past the cap mid-run is skipped per
-        // topic by the write loop, exactly like any other note it cannot read.
-        if (inspectExistingNote(absolutePath).blocker !== null) blocked.set(topic.id, 'cannot be read');
-      }
+      const blocked = blockedWriteIds();
       if (blocked.size === 0) return true;
 
       const effectiveIfSkipped = new Map(topicsMap);
@@ -1091,6 +1103,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
             try {
               content = readBoundNote(resolvedTargetPath, targetStat);
             } catch (e: unknown) {
+              // The pre-write graph check models this skip too and proceeds when the
+              // edges the note holds cannot close a loop, so arriving here is the
+              // expected outcome for such a topic: the skip costs this topic alone.
               console.error(`Skipped ${topic.id}: ${(e as Error).message}`);
               failed++;
               continue;
@@ -1111,7 +1126,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           const { paleeData, updatedContent } = composeTopicWrite(topic, content, existingData);
           // #565 P1-10 review: validation bounded the note that was there, not the note
           // this write produces. The pre-write graph check predicts this verdict from
-          // the bytes on disk (`oversizedWriteIds`), so reaching it means the note
+          // the bytes on disk (`blockedWriteIds`), so reaching it means the note
           // changed between that look and this one — the race no layer here can close.
           // It still fails this topic rather than writing a file every reader then skips.
           if (noteContentExceedsReadCap(updatedContent)) {
