@@ -962,9 +962,10 @@ function hasKeywordPrefix(stem: string, kw: string): boolean {
  * states for the same three names.
  */
 function tocLessonRank(basename: string): TocLessonRank {
-  const stem = basename.toLowerCase().endsWith('.md') ? basename.slice(0, -3).toLowerCase() : '';
+  const lower = basename.toLowerCase();
+  const stem = lower.endsWith('.md') ? lower.slice(0, -3) : lower;
   if (stem === 'readme' || stem === 'summary') return { rank: 0, n: -1, phase: -1 };
-  const prefix = parseNumericPrefix(basename);
+  const prefix = parseNumericPrefix(stem);
   if (prefix !== null) return { rank: 1, n: prefix.n, phase: -1 };
   for (let i = 0; i < TOC_PHASE_PREFIXES.length; i++) {
     // `i` is in bounds, so this exists; the guard keeps the type honest
