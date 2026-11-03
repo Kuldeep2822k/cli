@@ -1142,6 +1142,8 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      *   pre-write re-read for the commit
      * @param frontmatter - That text's parsed frontmatter
      * @param topicId - The id this write stores
+     * @param droppedIds - Ids to omit from the planned list, for a projection
+     *   deciding whether a note it has already dropped still fits
      * @returns The rendered note and the dependency list it was rendered with
      *
      * @remarks
@@ -1149,12 +1151,19 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      * produces is what decides whether the note is written at all, so a preview
      * measuring its own spelling of the same frontmatter would promise edges the
      * commit then severs.
+     *
+     * `droppedIds` lets the projection measure a note against a plan it has pruned
+     * without mutating that plan first, so the verdict it reaches is taken from the
+     * bytes {@link severPlannedBatchEdges} will actually land. It is scoped to the
+     * planned branch for the same reason the severing is: a note with no plan entry
+     * keeps its own frontmatter list, which no drop of this run's touches.
      */
     function composeAdoptedNote(
       note: (typeof toAdopt)[number],
       content: string,
       frontmatter: Record<string, unknown> | null,
-      topicId: string
+      topicId: string,
+      droppedIds?: ReadonlySet<string>
     ): { updatedContent: string; plannedDeps: string[] } {
       const title = resolveNoteTitle(content, note.absolutePath, frontmatter);
 
@@ -1190,7 +1199,10 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const hasPlan = chainDependsOn.has(note.relativePath);
       const chainDeps = chainDependsOn.get(note.relativePath) ?? [];
       const preservedOwnDeps = !hasPlan && ownDeps.length > 0;
-      const plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
+      let plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
+      if (!preservedOwnDeps && droppedIds !== undefined && droppedIds.size > 0) {
+        plannedDeps = plannedDeps.filter((id) => !droppedIds.has(id));
+      }
       const paleeData: Record<string, unknown> = {
         palee_id: topicId,
         palee_schema: 1,
@@ -1332,35 +1344,81 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // approves edges that never land. Phase 1 re-checks the same verdict against the
     // pre-write re-read; a note that only changed since then is dropped there and
     // reported on the same banner.
+
+    /**
+     * Measures every candidate against the plan the notes in `dropped` imply.
+     *
+     * @param dropped - Ids this projection has decided not to write, as minted here
+     * @returns Each candidate that still crosses the cap, keyed by its minted id and
+     *   carrying the note it was minted for and the size it measured
+     *
+     * @remarks
+     * A planned edge to a note that lands in `dropped` is severed before the write,
+     * so a dependent's committed content is one `- T-…` line shorter than the same
+     * note measured whole. Deciding it from that pre-pruning size refused a note the
+     * pruned plan can after all write, and named a byte count that would never have
+     * landed. Filtering `dropped` out here is the removal
+     * {@link severPlannedBatchEdges} makes on the surviving plan, applied before the
+     * severing rather than after it.
+     *
+     * A dropped note is re-measured too, not only the notes that depended on it: a
+     * pair of neighbours each inside the ceiling by one edge's width crosses it only
+     * because of the other, so pruning one can bring the other back under.
+     */
+    function projectDropsAgainst(
+      dropped: ReadonlySet<string>
+    ): Map<string, { relativePath: string; byteLength: number }> {
+      const found = new Map<string, { relativePath: string; byteLength: number }>();
+      for (const note of toAdopt) {
+        // One id per note, minted here rather than in Phase 1, so the preview and the
+        // write measure the same frontmatter. `--auto-chain` already minted it.
+        const topicId = note.topicId ?? generateTopicId();
+        note.topicId = topicId;
+        const { frontmatter: scannedFrontmatter, error } = parseFrontmatter(note.content);
+        // The scan already moved an unparseable block to its own bucket, which names
+        // the note; deciding it here would take that away from it.
+        if (error) continue;
+        let updatedContent: string;
+        try {
+          ({ updatedContent } = composeAdoptedNote(note, note.content, scannedFrontmatter, topicId, dropped));
+        } catch {
+          // A block `updateFrontmatter` refuses is the pre-write re-read's to refuse.
+          continue;
+        }
+        if (!noteContentExceedsReadCap(updatedContent)) continue;
+        found.set(topicId, {
+          relativePath: note.relativePath,
+          byteLength: Buffer.byteLength(updatedContent, 'utf8'),
+        });
+      }
+      return found;
+    }
+
+    // The skip set settled to a fixed point. Each note's verdict depends only on
+    // which of *its* prerequisites are in the set, and a plan that reached here is
+    // acyclic — the pre-write cycle gate refuses the rest — so a note's verdict stops
+    // changing once the notes behind it have, which takes at most as many passes as
+    // the chain is deep. The bound below is that depth, not a retry allowance: a plan
+    // that arrived cyclic some other way would otherwise spin here forever.
+    let projectedDropped = projectDropsAgainst(new Set());
+    for (let pass = 0; pass < toAdopt.length && projectedDropped.size > 0; pass += 1) {
+      const next = projectDropsAgainst(new Set(projectedDropped.keys()));
+      const settled =
+        next.size === projectedDropped.size && [...next.keys()].every((id) => projectedDropped.has(id));
+      projectedDropped = next;
+      if (settled) break;
+    }
+
     const projectedOversized: Array<{ relativePath: string; reason: string }> = [];
     const projectedOversizedPaths = new Set<string>();
     /** Each projected id, mapped to the note it was minted for, for the severing */
-    const projectedDropped = new Map<string, string>();
-    for (const note of toAdopt) {
-      // One id per note, minted here rather than in Phase 1, so the preview and the
-      // write measure the same frontmatter. `--auto-chain` already minted it.
-      const topicId = note.topicId ?? generateTopicId();
-      note.topicId = topicId;
-      const { frontmatter: scannedFrontmatter, error } = parseFrontmatter(note.content);
-      // The scan already moved an unparseable block to its own bucket, which names
-      // the note; deciding it here would take that away from it.
-      if (error) continue;
-      let updatedContent: string;
-      try {
-        ({ updatedContent } = composeAdoptedNote(note, note.content, scannedFrontmatter, topicId));
-      } catch {
-        // A block `updateFrontmatter` refuses is the pre-write re-read's to refuse.
-        continue;
-      }
-      if (!noteContentExceedsReadCap(updatedContent)) continue;
-      projectedOversized.push({
-        relativePath: note.relativePath,
-        reason: oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')),
-      });
-      projectedOversizedPaths.add(note.relativePath);
-      projectedDropped.set(topicId, note.relativePath);
+    const projectedDropPaths = new Map<string, string>();
+    for (const [id, { relativePath, byteLength }] of projectedDropped) {
+      projectedOversized.push({ relativePath, reason: oversizedWriteDiagnostic(byteLength) });
+      projectedOversizedPaths.add(relativePath);
+      projectedDropPaths.set(id, relativePath);
     }
-    const projectedSevered = severPlannedBatchEdges(projectedDropped);
+    const projectedSevered = severPlannedBatchEdges(projectedDropPaths);
     // #565 P1-10 review: the preview, the verbose list, the empty-batch check and the
     // confirmation count all read `toAdopt`, and a projected note is one Phase 1 will
     // not write. Leaving it in promised a note that never lands — and when every

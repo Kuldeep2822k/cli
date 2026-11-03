@@ -1948,4 +1948,132 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       'the skipped prerequisite was never written'
     );
   });
+
+  // The projection measured a dependent with the whole planned list in it and then
+  // severed the entry it had just dropped, so a note sized inside the ceiling by one
+  // edge's width was skipped on bytes its own committed content never carried — and
+  // when that note was the only other candidate, the run offered nothing at all. The
+  // skip set is now re-taken against the pruned plan before any note leaves `toAdopt`.
+  test('a dependent that fits once its oversized prerequisite is dropped is adopted', () => {
+    // `01-big.md`: source fits, the managed block does not — the projection drops it.
+    const overCapPrereq = `# Two\n\n${'x'.repeat(524240)}`;
+    // `02-dep.md`: 524027 bytes of source. The managed block of a note planned as a
+    // chain head is 260 bytes, which lands one byte under the 524288 ceiling; the
+    // `- T-…` line and the `numbered` label a planned edge adds are 56 more, past it.
+    const fitsOnlySevered = `# Dep\n\n${'x'.repeat(524020)}`;
+    assert.ok(Buffer.byteLength(overCapPrereq, 'utf8') < 524288, 'the prerequisite must start under the cap');
+    assert.ok(Buffer.byteLength(fitsOnlySevered, 'utf8') < 524288, 'and so must the dependent');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-big.md': overCapPrereq,
+      'MODULES/02-dep.md': fitsOnlySevered,
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 1 note\(s\) that would have crossed the 524288 byte read cap/,
+      `only the prerequisite is over the ceiling once its edge is gone: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /MODULES\/02-dep\.md \(Oversized result/,
+      'the dependent is not named on the skip banner'
+    );
+    assert.match(
+      dryOut,
+      /Ready to Adopt:\s+1 notes/,
+      `the promised batch is the one that lands: ${dryOut}`
+    );
+    assert.match(dryOut, /MODULES\/02-dep\.md \(chain head\)/, 'the dependent is previewed as a head');
+    assert.match(
+      dryOut,
+      /1 planned dependency edge\(s\) named a skipped note and were removed/,
+      `and the edge it lost is disclosed: ${dryOut}`
+    );
+
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+
+    const depPath = path.join(vaultDir, 'MODULES/02-dep.md');
+    const committed = fs.readFileSync(depPath, 'utf8');
+    assert.ok(
+      Buffer.byteLength(committed, 'utf8') <= 524288,
+      `the committed note is readable by every command: ${Buffer.byteLength(committed, 'utf8')} bytes`
+    );
+    assert.match(committed, /palee_id: T-/, 'the dependent was adopted, not skipped');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/02-dep.md'), [], 'with the severed list it was previewed with');
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/02-dep.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/01-big.md'), 'utf8'),
+      overCapPrereq,
+      'the oversized prerequisite is still left byte-identical'
+    );
+  });
+
+  // The boundary of the re-measure: pruning an edge rescues a note only when that
+  // edge was what crossed the ceiling. A dependent over it on its own bytes stays
+  // skipped, so the second pass cannot talk the run into writing a note no reader
+  // will load.
+  test('pruning an edge does not rescue a dependent that is over on its own', () => {
+    const overCapPrereq = `# Two\n\n${'x'.repeat(524240)}`;
+    // 524100 + 7 of heading + 260 of head-shaped block is already 79 bytes past the
+    // ceiling, before any planned edge is counted.
+    const overOnItsOwn = `# Dep\n\n${'x'.repeat(524100)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-big.md': overCapPrereq,
+      'MODULES/02-dep.md': overOnItsOwn,
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 2 note\(s\) that would have crossed the 524288 byte read cap/,
+      `the dependent keeps its own skip: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Ready to Adopt:\s+0 notes/,
+      `and nothing is promised for it: ${dryOut}`
+    );
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'MODULES/02-dep.md'), 'utf8'), overOnItsOwn);
+  });
 });
