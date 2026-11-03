@@ -337,8 +337,19 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
     );
     assert.equal(exit, 4, `expected the OCC exit code, logged: ${logged.join(' | ')}`);
     assert.ok(
-      logged.some((line) => /OCC conflict: 1 note\(s\) were modified while this run was planning; nothing was un-adopted\./.test(line)),
+      logged.some((line) =>
+        /OCC conflict: 1 note\(s\) were modified while this run was planning, or grew past the note read cap; nothing was un-adopted\./.test(
+          line,
+        ),
+      ),
       logged.join(' | '),
+    );
+    // #565 P1-10 review: the banner is shared, so each refused note names its own reason.
+    // Without this, a note that merely crossed the read cap was reported as a concurrent
+    // edit and a re-run then skipped it under `Oversized:` with no hint why.
+    assert.ok(
+      logged.some((line) => /• alpha\.md \(the bytes changed\)/.test(line)),
+      `the refused note must name its reason: ${logged.join(' | ')}`,
     );
     assert.ok(logged.some((line) => /Re-run to plan against the current bytes\./.test(line)), logged.join(' | '));
     // The decisive part: neither note moved, including the one that was never touched.

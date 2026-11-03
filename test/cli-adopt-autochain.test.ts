@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { execSync, spawnSync } from 'node:child_process';
+import { PALEE_CMD, PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
@@ -1615,5 +1615,548 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       !entry.waiting_on.some((w) => w.includes(String(midId))),
       'the inferred predecessor must not have been written at all'
     );
+  });
+
+  // #565 P1-10 review: under `--auto-chain` a note receives its id and joins the
+  // chain before its composed content is checked, so a note in the ~265-byte band
+  // below the read cap is dropped *after* its successor was planned to depend on
+  // it. The successor was then written with a `depends_on` naming an id no file
+  // carries — a success report over a topic that had just left `palee plan`.
+  //
+  // Both streams are needed here: the skip and the severed edges are reported on
+  // stderr while the run still exits 0, and `execSync` keeps stderr only for a
+  // failed command.
+  test('an over-cap predecessor is severed from the note that chained onto it', () => {
+    // 524240 bytes of body: under the 524288 ceiling, inside the band the managed
+    // keys need, so the source is adoptable and only the result is not.
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    assert.ok(Buffer.byteLength(overCapBody, 'utf8') < 524288, 'the fixture must start under the cap');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-third.md': '# Three\n\nthird\n',
+    });
+
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    const output = (result.stdout ?? '') + (result.stderr ?? '');
+    assert.strictEqual(result.status, 0, `a skipped note must not fail the batch: ${output}`);
+
+    // The over-cap note is left exactly as it was: no id, no managed keys.
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'),
+      overCapBody,
+      'the over-cap result was never written'
+    );
+    assert.match(output, /would have crossed the 524288 byte read cap/, 'the skip is named as before');
+
+    // The successor is written without the id it can never resolve.
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/03-third.md'),
+      [],
+      'a planned edge naming a skipped note must be severed before the write'
+    );
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/03-third.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+    assert.match(
+      output,
+      /planned dependency edge\(s\) named a skipped note and were removed/,
+      `the severed edge must be disclosed: ${output}`
+    );
+    assert.match(
+      output,
+      /Auto-chained: 0 dependency edges wired across 2 notes\./,
+      `the edge tally must count what was written, not what was planned: ${output}`
+    );
+  });
+
+  // The boundary of the severing: a skipped note nothing points at still costs
+  // only its own adoption, exactly as it did before the fix.
+  test('an over-cap tail is skipped without severing anything', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+    });
+
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    const output = (result.stdout ?? '') + (result.stderr ?? '');
+    assert.strictEqual(result.status, 0, output);
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'), overCapBody);
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/01-first.md'), [], 'the head keeps no edge');
+    assert.doesNotMatch(
+      output,
+      /named a skipped note/,
+      'nothing depended on the skipped note, so nothing was severed'
+    );
+  });
+
+  // The other half of the same defect: the plan is printed and confirmed before the
+  // write, so a result-cap verdict taken only at write time approves edges that never
+  // land. The verdict is now projected from the scanned bytes before the plan prints.
+  test('the dry-run plan drops an over-cap predecessor before it is confirmed', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-third.md': '# Three\n\nthird\n',
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 1 note\(s\) that would have crossed the 524288 byte read cap/,
+      `the skip must be disclosed before the plan is approved: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /03-third\.md depends on 02-big\.md/,
+      `the approved plan must not promise an edge the write severs: ${dryOut}`
+    );
+    assert.match(dryOut, /03-third\.md \(chain head\)/, 'the successor is previewed as a head');
+    assert.match(
+      dryOut,
+      /Planned dependency chain \(0 edges to write\)/,
+      `and the plan says so: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Auto-chain:\s+enabled \(strict tier .* 0 edge\(s\) written: 0 numbered, 0 toc\)/,
+      `the pre-gate count must be the written count, not the planned one: ${dryOut}`
+    );
+    // A dry run writes nothing, and the commit that follows agrees with the plan.
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'),
+      overCapBody,
+      'the dry run wrote nothing'
+    );
+
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    assert.strictEqual(commit.status, 0, (commit.stdout ?? '') + (commit.stderr ?? ''));
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/03-third.md'),
+      [],
+      'the committed graph is the one the dry run printed'
+    );
+  });
+
+  // A severed list is still a planned list. A prose declaration outranks the note's
+  // own frontmatter `depends_on` (#258's precedence), so once the declared target is
+  // projected out the plan for that note is empty — and a composer that treats empty
+  // as "no plan" would write back a gate the approved plan had just removed.
+  test('an emptied chain does not resurrect the note frontmatter depends_on', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-third.md': [
+        '---',
+        'depends_on: [T-hand-authored]',
+        '---',
+        '',
+        '# Three',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/02-big]]',
+        '',
+        'third',
+      ].join('\n'),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const output = (result.stdout ?? '') + (result.stderr ?? '');
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /03-third\.md" → "MODULES\/02-big\.md/, 'the severed edge is disclosed');
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/03-third.md'),
+      [],
+      'the severed list stays empty; the frontmatter gate is not a fallback'
+    );
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/03-third.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+  });
+
+  // The other half of the same pruning: a note may plan several edges — here two
+  // declared prerequisites — and only the ones naming a skipped note go. The
+  // pruner used to rewrite *every* severed entry as a chain head, so a note that
+  // kept an edge was previewed twice (once of them as a "(chain head)" whose
+  // `depends_on` "stays empty") and `Unchained:` counted a note the approved plan
+  // does gate.
+  test('a severed declared edge does not turn a note with a surviving edge into a head', () => {
+    const overCapBody = `# Two\n\n${'x'.repeat(524240)}`;
+    assert.ok(Buffer.byteLength(overCapBody, 'utf8') < 524288, 'the fixture must start under the cap');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapBody,
+      'MODULES/03-anchor.md': '# Anchor\n\nanchor\n',
+      'MODULES/04-chained.md': [
+        '# Four',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/03-anchor]]',
+        '- [[MODULES/02-big]]',
+      ].join('\n'),
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    // Pin the precondition the rest of this test reads: the pruner really ran on
+    // this note, and left the surviving edge alone. Without it, a fixture whose
+    // second wikilink simply failed to resolve would print the same plan and pass.
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/02-big\.md/,
+      `the declared edge onto the skipped note is disclosed: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/03-anchor\.md/,
+      `the surviving declared edge is not severed: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /2 planned dependency edge\(s\) named a skipped note and were removed/,
+      `the successor's numbered edge and this one: ${dryOut}`
+    );
+
+    const edges = plannedEdges(dryOut);
+    assert.deepStrictEqual(
+      edges.filter((e) => e.path === 'MODULES/04-chained.md'),
+      [{ path: 'MODULES/04-chained.md', dependsOn: 'MODULES/03-anchor.md' }],
+      `the surviving declared edge is listed once and the note is not also a head:\n${dryOut}`
+    );
+    // 01-first opens the chain; 03-anchor lost its only edge to the skipped note.
+    assert.deepStrictEqual(
+      edges.filter((e) => e.dependsOn === null).map((e) => e.path).sort(),
+      ['MODULES/01-first.md', 'MODULES/03-anchor.md'],
+      `only the notes left with no edge are heads:\n${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Unchained:\s+2 note\(s\)/,
+      `two ungated notes, not three:\n${dryOut}`
+    );
+
+    // The committed graph is the plan the preview printed.
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+    const anchorId = [...idToPath(vaultDir)].find(([, p]) => p === 'MODULES/03-anchor.md')?.[0];
+    assert.ok(anchorId, 'the surviving prerequisite was adopted');
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/04-chained.md'),
+      [anchorId],
+      'the note keeps its surviving gate, severed from the skipped one alone'
+    );
+    assert.strictEqual(dependsOnSource(vaultDir, 'MODULES/04-chained.md'), 'declared');
+  });
+
+  // The other half of the pruner's predicate: a note whose *whole* declared list is
+  // severed. Each severed entry used to become its own `{ dependsOnPath: null }`,
+  // so the note was listed once per dropped prerequisite — as many chain heads as
+  // it had lost edges — and `Unchained:` counted one note several times.
+  test('a note whose every declared edge is severed is previewed as one head', () => {
+    // Both prerequisites sit in the band where the source fits and only the
+    // composed result does not, so the projection drops both before the plan prints.
+    const overCapA = `# Two\n\n${'x'.repeat(524240)}`;
+    const overCapB = `# Three\n\n${'y'.repeat(524240)}`;
+    assert.ok(Buffer.byteLength(overCapA, 'utf8') < 524288, 'the fixture must start under the cap');
+    assert.ok(Buffer.byteLength(overCapB, 'utf8') < 524288, 'the fixture must start under the cap');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-first.md': '# One\n\nfirst\n',
+      'MODULES/02-big.md': overCapA,
+      'MODULES/03-huge.md': overCapB,
+      'MODULES/04-chained.md': [
+        '# Four',
+        '',
+        '## Prerequisites',
+        '',
+        '- [[MODULES/02-big]]',
+        '- [[MODULES/03-huge]]',
+      ].join('\n'),
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 2 note\(s\) that would have crossed the 524288 byte read cap/,
+      `both prerequisites must be the projection's, not the scan's: ${dryOut}`
+    );
+    // Both of the note's declared edges went, and they are the reason it is a head.
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/02-big\.md/,
+      `the first declared edge was severed: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /"MODULES\/04-chained\.md" → "MODULES\/03-huge\.md/,
+      `the second was too: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /3 planned dependency edge\(s\) named a skipped note and were removed/,
+      `the two declared edges plus the middle note's numbered one: ${dryOut}`
+    );
+
+    const edges = plannedEdges(dryOut);
+    assert.deepStrictEqual(
+      edges.filter((e) => e.path === 'MODULES/04-chained.md'),
+      [{ path: 'MODULES/04-chained.md', dependsOn: null }],
+      `one head entry, whatever the number of severed edges:\n${dryOut}`
+    );
+    assert.deepStrictEqual(
+      edges.filter((e) => e.dependsOn === null).map((e) => e.path).sort(),
+      ['MODULES/01-first.md', 'MODULES/04-chained.md'],
+      `the head count is a count of notes:\n${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Planned dependency chain \(0 edges to write\)/,
+      `no edge of theirs survives:\n${dryOut}`
+    );
+    assert.match(dryOut, /Unchained:\s+2 note\(s\)/, `two ungated notes, not three:\n${dryOut}`);
+
+    // And the write agrees with the single head the plan printed.
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+    assert.deepStrictEqual(
+      dependsOn(vaultDir, 'MODULES/04-chained.md'),
+      [],
+      'a severed whole list stays empty and is not restored from the note'
+    );
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/04-chained.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/02-big.md'), 'utf8'),
+      overCapA,
+      'the skipped prerequisite was never written'
+    );
+  });
+
+  // The projection measured a dependent with the whole planned list in it and then
+  // severed the entry it had just dropped, so a note sized inside the ceiling by one
+  // edge's width was skipped on bytes its own committed content never carried — and
+  // when that note was the only other candidate, the run offered nothing at all. The
+  // skip set is now re-taken against the pruned plan before any note leaves `toAdopt`.
+  test('a dependent that fits once its oversized prerequisite is dropped is adopted', () => {
+    // `01-big.md`: source fits, the managed block does not — the projection drops it.
+    const overCapPrereq = `# Two\n\n${'x'.repeat(524240)}`;
+    // `02-dep.md`: 524027 bytes of source. The managed block of a note planned as a
+    // chain head is 260 bytes, which lands one byte under the 524288 ceiling; the
+    // `- T-…` line and the `numbered` label a planned edge adds are 56 more, past it.
+    const fitsOnlySevered = `# Dep\n\n${'x'.repeat(524020)}`;
+    assert.ok(Buffer.byteLength(overCapPrereq, 'utf8') < 524288, 'the prerequisite must start under the cap');
+    assert.ok(Buffer.byteLength(fitsOnlySevered, 'utf8') < 524288, 'and so must the dependent');
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-big.md': overCapPrereq,
+      'MODULES/02-dep.md': fitsOnlySevered,
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 1 note\(s\) that would have crossed the 524288 byte read cap/,
+      `only the prerequisite is over the ceiling once its edge is gone: ${dryOut}`
+    );
+    assert.doesNotMatch(
+      dryOut,
+      /MODULES\/02-dep\.md \(Oversized result/,
+      'the dependent is not named on the skip banner'
+    );
+    assert.match(
+      dryOut,
+      /Ready to Adopt:\s+1 notes/,
+      `the promised batch is the one that lands: ${dryOut}`
+    );
+    assert.match(dryOut, /MODULES\/02-dep\.md \(chain head\)/, 'the dependent is previewed as a head');
+    assert.match(
+      dryOut,
+      /1 planned dependency edge\(s\) named a skipped note and were removed/,
+      `and the edge it lost is disclosed: ${dryOut}`
+    );
+
+    const commit = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '-y'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const commitOut = (commit.stdout ?? '') + (commit.stderr ?? '');
+    assert.strictEqual(commit.status, 0, commitOut);
+
+    const depPath = path.join(vaultDir, 'MODULES/02-dep.md');
+    const committed = fs.readFileSync(depPath, 'utf8');
+    assert.ok(
+      Buffer.byteLength(committed, 'utf8') <= 524288,
+      `the committed note is readable by every command: ${Buffer.byteLength(committed, 'utf8')} bytes`
+    );
+    assert.match(committed, /palee_id: T-/, 'the dependent was adopted, not skipped');
+    assert.deepStrictEqual(dependsOn(vaultDir, 'MODULES/02-dep.md'), [], 'with the severed list it was previewed with');
+    assert.strictEqual(
+      dependsOnSource(vaultDir, 'MODULES/02-dep.md'),
+      undefined,
+      'an emptied list carries no provenance label'
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(vaultDir, 'MODULES/01-big.md'), 'utf8'),
+      overCapPrereq,
+      'the oversized prerequisite is still left byte-identical'
+    );
+  });
+
+  // The boundary of the re-measure: pruning an edge rescues a note only when that
+  // edge was what crossed the ceiling. A dependent over it on its own bytes stays
+  // skipped, so the second pass cannot talk the run into writing a note no reader
+  // will load.
+  test('pruning an edge does not rescue a dependent that is over on its own', () => {
+    const overCapPrereq = `# Two\n\n${'x'.repeat(524240)}`;
+    // 524100 + 7 of heading + 260 of head-shaped block is already 79 bytes past the
+    // ceiling, before any planned edge is counted.
+    const overOnItsOwn = `# Dep\n\n${'x'.repeat(524100)}`;
+    const { vaultDir, configDir } = freshVault({
+      'MODULES/01-big.md': overCapPrereq,
+      'MODULES/02-dep.md': overOnItsOwn,
+    });
+
+    const dry = spawnSync(
+      process.execPath,
+      [...PALEE_ARGV, 'adopt', 'MODULES', '--auto-chain', '--dry-run'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
+      }
+    );
+    const dryOut = (dry.stdout ?? '') + (dry.stderr ?? '');
+    assert.strictEqual(dry.status, 0, dryOut);
+    assert.match(
+      dryOut,
+      /Skipped 2 note\(s\) that would have crossed the 524288 byte read cap/,
+      `the dependent keeps its own skip: ${dryOut}`
+    );
+    assert.match(
+      dryOut,
+      /Ready to Adopt:\s+0 notes/,
+      `and nothing is promised for it: ${dryOut}`
+    );
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'MODULES/02-dep.md'), 'utf8'), overOnItsOwn);
   });
 });

@@ -25,6 +25,7 @@ import {
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
+import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
@@ -341,6 +342,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         return;
       }
 
+      // #565 P1-10: a note this large is declined by every reading command forever, so
+      // adopting it would mint an identity onto a file `palee plan` can never surface.
+      // Stat before the read rather than measuring the string: the cap exists to bound
+      // the read, not the parse.
+      const { size: sourceSize } = fs.statSync(absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(sourceSize)}; nothing was adopted.`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       const content = fs.readFileSync(absolutePath, 'utf8');
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
 
@@ -470,6 +482,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const updatedContent = updateFrontmatter(content, paleeData);
       const fingerprint = computeFingerprint(content);
 
+      // #565 P1-10 review: the source was under the cap, but the managed keys are about
+      // to be added to it. Writing a result no reader will load would report success and
+      // then hide the topic forever, so refuse before the write.
+      if (noteContentExceedsReadCap(updatedContent)) {
+        const writtenBytes = Buffer.byteLength(updatedContent, 'utf8');
+        console.error(`Error: ${targetPath} ${oversizedWriteDiagnostic(writtenBytes)}; nothing was adopted.`);
+        process.exitCode = ExitCode.Usage;
+        return;
+      }
+
       await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
 
       console.log(`✓ Adopted as topic ${topicId}`);
@@ -567,6 +589,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const skippedInvalidId: string[] = [];
     /** Notes whose frontmatter block will not parse, and why: neither adopted nor rewritten */
     const skippedUnreadable = new Map<string, string>();
+    /**
+     * #565 P1-10 — notes over the read ceiling, and their diagnostic. Kept apart from
+     * `skippedUnreadable` because the remedy differs: a malformed block is the learner's
+     * to repair, an oversized file is not a note at all, and the shared label promises
+     * "frontmatter will not parse" — which would be false here.
+     */
+    const skippedOversized = new Map<string, string>();
     /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
     const adoptedPaleeId = new Map<string, unknown>();
     /**
@@ -599,6 +628,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // for an unreadable frontmatter or an unusable `palee_id` is still a file the
       // pattern could name, and a pattern that reached one of them is not dead.
       scannedPaths.push(relPath);
+      // #565 P1-10: the read commands decline a note over the cap and will keep doing so,
+      // so a batch must not adopt one. It joins the oversized bucket the summary reports
+      // by name — the note is refused and the rest of the batch proceeds.
+      const { size: sourceSize } = fs.statSync(filePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        skippedOversized.set(relPath, oversizedNoteDiagnostic(sourceSize));
+        continue;
+      }
       const content = fs.readFileSync(filePath, 'utf8');
       const { frontmatter, body, error: frontmatterError } = parseFrontmatter(content);
 
@@ -1123,6 +1160,303 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       );
     }
 
+    /**
+     * Builds the exact text adoption writes for one note, and the `depends_on` it
+     * carries.
+     *
+     * @param note - The scanned candidate this write is for
+     * @param content - The note's text: the scanned bytes for the preview, the
+     *   pre-write re-read for the commit
+     * @param frontmatter - That text's parsed frontmatter
+     * @param topicId - The id this write stores
+     * @param droppedIds - Ids to omit from the planned list, for a projection
+     *   deciding whether a note it has already dropped still fits
+     * @returns The rendered note and the dependency list it was rendered with
+     *
+     * @remarks
+     * One composer for the preview and the commit (#565 P1-10 review). The size it
+     * produces is what decides whether the note is written at all, so a preview
+     * measuring its own spelling of the same frontmatter would promise edges the
+     * commit then severs.
+     *
+     * `droppedIds` lets the projection measure a note against a plan it has pruned
+     * without mutating that plan first, so the verdict it reaches is taken from the
+     * bytes {@link severPlannedBatchEdges} will actually land. It is scoped to the
+     * planned branch for the same reason the severing is: a note with no plan entry
+     * keeps its own frontmatter list, which no drop of this run's touches.
+     */
+    function composeAdoptedNote(
+      note: (typeof toAdopt)[number],
+      content: string,
+      frontmatter: Record<string, unknown> | null,
+      topicId: string,
+      droppedIds?: ReadonlySet<string>
+    ): { updatedContent: string; plannedDeps: string[] } {
+      const title = resolveNoteTitle(content, note.absolutePath, frontmatter);
+
+      const topicMastery = resolveTopicMastery({
+        conceptual: frontmatter?.conceptual,
+        practical: frontmatter?.practical,
+        debug: frontmatter?.debug,
+        feynman: frontmatter?.feynman,
+        existing: frontmatter?.topic_mastery,
+        precedence: 'existing-first',
+      });
+
+      // Same rule as single-file adoption: `--difficulty` overrides, absence
+      // preserves what the note's own frontmatter declares.
+      const effectiveDifficulty =
+        options.difficulty === undefined ? normalizeDifficulty(frontmatter?.difficulty) : difficulty;
+
+      // #258 — `depends_on` a note already states is not adoption's to clear. The
+      // planned edge wins when the chain authored one for this note; otherwise the
+      // note's own list is what gets written back. Under a plain `adopt --all` the
+      // plan is empty for every note, so this is what stops that invocation — the
+      // commonest one — from flattening a hand-written gate to `[]`. A note the
+      // planner visited keeps the ids the planner chose for it, which for a
+      // hand-authored note are the same ids (see `handAuthoredDeps`).
+      //
+      // `chainDependsOn` carries an entry for every note the planner visited, even
+      // when it planned nothing for it, so *presence* is what tells "no plan" from
+      // "a plan that selects nothing". The distinction is load-bearing once the
+      // result-cap projection severs a planned edge: an emptied list is a decision
+      // this run made and the plan it printed shows, so falling back to the note's
+      // own frontmatter here would write a gate that was just removed.
+      const ownDeps = normalizeDependencies(frontmatter?.depends_on);
+      const hasPlan = chainDependsOn.has(note.relativePath);
+      const chainDeps = chainDependsOn.get(note.relativePath) ?? [];
+      const preservedOwnDeps = !hasPlan && ownDeps.length > 0;
+      let plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
+      if (!preservedOwnDeps && droppedIds !== undefined && droppedIds.size > 0) {
+        plannedDeps = plannedDeps.filter((id) => !droppedIds.has(id));
+      }
+      const paleeData: Record<string, unknown> = {
+        palee_id: topicId,
+        palee_schema: 1,
+        title,
+        difficulty: effectiveDifficulty,
+        depends_on: plannedDeps,
+        topic_mastery: topicMastery,
+        assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
+        ...carriedPillarScores(frontmatter),
+        ease_factor: 2.5,
+        interval_days: 1,
+        repetition: 0,
+        lapses: 0,
+        last_quality: null,
+        last_reviewed_at: null,
+        due_at: null,
+      };
+
+      // C5 (PAL-205-C): additive provenance label. Only notes whose chain
+      // edge was actually written carry it; old PALEE builds parse the file
+      // unchanged (unknown frontmatter keys are preserved, never rejected),
+      // and gating behavior is untouched by this field.
+      if (plannedDeps.length > 0) {
+        const edgeSource = chainSourceOf.get(note.relativePath);
+        if (edgeSource) {
+          paleeData.depends_on_source = edgeSource;
+        } else if (preservedOwnDeps) {
+          // Same label the prose branch uses for a list the author wrote, so both
+          // adopt paths describe a preserved hand-written gate the same way rather
+          // than one labelling it and the other leaving it absent.
+          paleeData.depends_on_source = 'declared';
+        }
+      }
+
+      return { updatedContent: updateFrontmatter(content, paleeData), plannedDeps };
+    }
+
+    /** Reports notes dropped for crossing the read cap, by path and reason. */
+    function printOversizedResults(list: Array<{ relativePath: string; reason: string }>): void {
+      if (list.length === 0) return;
+      console.error(
+        `Skipped ${list.length} note(s) that would have crossed the ${MAX_NOTE_SOURCE_BYTES} byte read cap:`
+      );
+      for (const { relativePath, reason } of list.slice(0, 5)) {
+        console.error(`  • ${formatDiagnosticPath(relativePath)} (${reason})`);
+      }
+      if (list.length > 5) {
+        console.error(`  • … and ${list.length - 5} more`);
+      }
+    }
+
+    /** Reports planned edges removed because the note they named is not written. */
+    function printSeveredEdges(list: Array<{ relativePath: string; droppedPath: string }>): void {
+      if (list.length === 0) return;
+      console.error(
+        `  ${list.length} planned dependency edge(s) named a skipped note and were removed:`
+      );
+      for (const { relativePath, droppedPath } of list.slice(0, 5)) {
+        console.error(`  • ${formatDiagnosticPath(relativePath)} → ${formatDiagnosticPath(droppedPath)}`);
+      }
+      if (list.length > 5) {
+        console.error(`  • … and ${list.length - 5} more`);
+      }
+    }
+
+    /**
+     * Removes every planned edge that names a note this run will not write.
+     *
+     * @param dropped - Each skipped id, mapped to the note it was minted for
+     * @returns The edges removed, as `survivor → skipped note`
+     *
+     * @remarks
+     * An edge to a note that is never written is an edge the plan promised and the
+     * vault will not get: the dependent note would be written with a `depends_on`
+     * pointing at nothing and drop out of `palee plan` with only a `validate`
+     * warning to say why. Both the id map the write reads (`chainDependsOn`) and the
+     * path plan the preview prints (`chainWritePlan`) are rewritten, so the plan a
+     * learner approves is the plan that lands. The skipped note's own entry leaves
+     * the plan too — it is not an unchained note, it is not being adopted.
+     */
+    function severPlannedBatchEdges(
+      dropped: ReadonlyMap<string, string>
+    ): { relativePath: string; droppedPath: string }[] {
+      const severed: { relativePath: string; droppedPath: string }[] = [];
+      if (dropped.size === 0) return severed;
+      const droppedPaths = new Set(dropped.values());
+      for (const [relativePath, deps] of chainDependsOn) {
+        const kept = deps.filter((id) => !dropped.has(id));
+        if (kept.length === deps.length) continue;
+        for (const id of deps) {
+          if (dropped.has(id)) {
+            severed.push({ relativePath, droppedPath: dropped.get(id) ?? id });
+          }
+        }
+        chainDependsOn.set(relativePath, kept);
+      }
+      const planned = chainWritePlan.filter((edge) => !droppedPaths.has(edge.path));
+      // Notes that keep at least one edge whose target this run still writes.
+      const surviving = new Set(
+        planned
+          .filter((edge) => edge.dependsOnPath !== null && !droppedPaths.has(edge.dependsOnPath))
+          .map((edge) => edge.path)
+      );
+      const keptPlan: { path: string; dependsOnPath: string | null }[] = [];
+      const headPlanned = new Set<string>();
+      for (const edge of planned) {
+        if (edge.dependsOnPath === null || !droppedPaths.has(edge.dependsOnPath)) {
+          // A real head claims the slot too. Unreachable with today's builders,
+          // which give a note one shape or the other, but it keeps "one head entry
+          // per note" the pruner's own guarantee rather than a consequence of how
+          // the plan was assembled upstream.
+          if (edge.dependsOnPath === null) headPlanned.add(edge.path);
+          keptPlan.push(edge);
+          continue;
+        }
+        // A note may plan several edges — its own declared prerequisites or its
+        // hand-written gates. Severing one of them leaves the others, and a note
+        // with a surviving edge is not a chain head: converting the severed entry
+        // printed that note twice in the preview, once of them a head whose
+        // `depends_on` "stays empty", and made `Unchained:` count a note the plan
+        // does gate. The entry goes. Only a note whose last planned edge went
+        // becomes the head the write will hand it — and once, however many of its
+        // edges went.
+        if (surviving.has(edge.path) || headPlanned.has(edge.path)) continue;
+        headPlanned.add(edge.path);
+        keptPlan.push({ path: edge.path, dependsOnPath: null });
+      }
+      chainWritePlan.splice(0, chainWritePlan.length, ...keptPlan);
+      return severed;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Projected result-cap drops (#565 P1-10 review)
+    // ─────────────────────────────────────────────────────────────────
+    // The scan bounded the source bytes, not the result. Which notes cross the
+    // ceiling once their managed keys are added is decided here, from the scanned
+    // bytes, *before* the plan is printed and confirmed — otherwise the dry-run and
+    // the confirmation screen promise a gate that the write drops, and a learner
+    // approves edges that never land. Phase 1 re-checks the same verdict against the
+    // pre-write re-read; a note that only changed since then is dropped there and
+    // reported on the same banner.
+
+    /**
+     * Measures every candidate against the plan the notes in `dropped` imply.
+     *
+     * @param dropped - Ids this projection has decided not to write, as minted here
+     * @returns Each candidate that still crosses the cap, keyed by its minted id and
+     *   carrying the note it was minted for and the size it measured
+     *
+     * @remarks
+     * A planned edge to a note that lands in `dropped` is severed before the write,
+     * so a dependent's committed content is one `- T-…` line shorter than the same
+     * note measured whole. Deciding it from that pre-pruning size refused a note the
+     * pruned plan can after all write, and named a byte count that would never have
+     * landed. Filtering `dropped` out here is the removal
+     * {@link severPlannedBatchEdges} makes on the surviving plan, applied before the
+     * severing rather than after it.
+     *
+     * A dropped note is re-measured too, not only the notes that depended on it: a
+     * pair of neighbours each inside the ceiling by one edge's width crosses it only
+     * because of the other, so pruning one can bring the other back under.
+     */
+    function projectDropsAgainst(
+      dropped: ReadonlySet<string>
+    ): Map<string, { relativePath: string; byteLength: number }> {
+      const found = new Map<string, { relativePath: string; byteLength: number }>();
+      for (const note of toAdopt) {
+        // One id per note, minted here rather than in Phase 1, so the preview and the
+        // write measure the same frontmatter. `--auto-chain` already minted it.
+        const topicId = note.topicId ?? generateTopicId();
+        note.topicId = topicId;
+        const { frontmatter: scannedFrontmatter, error } = parseFrontmatter(note.content);
+        // The scan already moved an unparseable block to its own bucket, which names
+        // the note; deciding it here would take that away from it.
+        if (error) continue;
+        let updatedContent: string;
+        try {
+          ({ updatedContent } = composeAdoptedNote(note, note.content, scannedFrontmatter, topicId, dropped));
+        } catch {
+          // A block `updateFrontmatter` refuses is the pre-write re-read's to refuse.
+          continue;
+        }
+        if (!noteContentExceedsReadCap(updatedContent)) continue;
+        found.set(topicId, {
+          relativePath: note.relativePath,
+          byteLength: Buffer.byteLength(updatedContent, 'utf8'),
+        });
+      }
+      return found;
+    }
+
+    // The skip set settled to a fixed point. Each note's verdict depends only on
+    // which of *its* prerequisites are in the set, and a plan that reached here is
+    // acyclic — the pre-write cycle gate refuses the rest — so a note's verdict stops
+    // changing once the notes behind it have, which takes at most as many passes as
+    // the chain is deep. The bound below is that depth, not a retry allowance: a plan
+    // that arrived cyclic some other way would otherwise spin here forever.
+    let projectedDropped = projectDropsAgainst(new Set());
+    for (let pass = 0; pass < toAdopt.length && projectedDropped.size > 0; pass += 1) {
+      const next = projectDropsAgainst(new Set(projectedDropped.keys()));
+      const settled =
+        next.size === projectedDropped.size && [...next.keys()].every((id) => projectedDropped.has(id));
+      projectedDropped = next;
+      if (settled) break;
+    }
+
+    const projectedOversized: Array<{ relativePath: string; reason: string }> = [];
+    const projectedOversizedPaths = new Set<string>();
+    /** Each projected id, mapped to the note it was minted for, for the severing */
+    const projectedDropPaths = new Map<string, string>();
+    for (const [id, { relativePath, byteLength }] of projectedDropped) {
+      projectedOversized.push({ relativePath, reason: oversizedWriteDiagnostic(byteLength) });
+      projectedOversizedPaths.add(relativePath);
+      projectedDropPaths.set(id, relativePath);
+    }
+    const projectedSevered = severPlannedBatchEdges(projectedDropPaths);
+    // #565 P1-10 review: the preview, the verbose list, the empty-batch check and the
+    // confirmation count all read `toAdopt`, and a projected note is one Phase 1 will
+    // not write. Leaving it in promised a note that never lands — and when every
+    // candidate projected out, the run still asked the learner to confirm an empty
+    // batch. They are removed from the batch here, and named by `printOversizedResults`
+    // below, so the skip is disclosed rather than hidden.
+    for (let i = toAdopt.length - 1; i >= 0; i -= 1) {
+      const note = toAdopt[i];
+      if (note !== undefined && projectedOversizedPaths.has(note.relativePath)) toAdopt.splice(i, 1);
+    }
+
     // #312 — measure each supplied pattern against the whole scanned scope before
     // reporting on it. `matchesPattern` OR-folds, so the run could only ever print
     // one aggregate number; this keeps the accounting per pattern, in the order the
@@ -1172,6 +1506,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         `Unreadable:         ${skippedUnreadable.size} notes (frontmatter will not parse; not adopted, not rewritten)`
       );
     }
+    if (skippedOversized.size > 0) {
+      console.log(
+        `Oversized:          ${skippedOversized.size} notes (over the ${MAX_NOTE_SOURCE_BYTES} byte read cap; not adopted, not rewritten)`
+      );
+    }
     // Without `--difficulty` each note keeps the difficulty its own frontmatter
     // declares, so one number here would over-claim the run.
     console.log(
@@ -1185,6 +1524,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     for (const [relPath, reason] of skippedUnreadable) {
       console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
     }
+    for (const [relPath, reason] of skippedOversized) {
+      console.error(`Skipped ${relPath}: ${reason}`);
+    }
+    // Reported before the plan and the confirmation gate, so what is approved is
+    // what is written.
+    printOversizedResults(projectedOversized);
+    printSeveredEdges(projectedSevered);
     if (options.autoChain) {
       if (chainRefused) {
         // C4 honest refusal: nothing in scope was chainable under this tier —
@@ -1334,6 +1680,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           console.log(`  ? ${relPath}`);
         }
       }
+      if (skippedOversized.size > 0) {
+        console.log(`\nSkipped: over the ${MAX_NOTE_SOURCE_BYTES} byte read cap (not adopted):`);
+        for (const relPath of skippedOversized.keys()) {
+          console.log(`  ? ${relPath}`);
+        }
+      }
       for (const [reason, list] of skippedByHygiene) {
         console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
         list.forEach((f) => console.log(`  ! ${f}`));
@@ -1408,9 +1760,25 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       originalContent: string;
       fingerprint: string;
       updatedContent: string;
+      /** The `depends_on` list this write carries, before any dropped note is severed */
+      plannedDeps: string[];
     }
 
     const preparedBatch: PreparedBatchItem[] = [];
+    /**
+     * #565 P1-10 review — notes whose managed keys would push the file past the read
+     * cap. They are dropped here rather than written, because a note no reader will load
+     * is worse than a note that was not adopted: the topic would vanish silently.
+     */
+    const oversizedResults: Array<{ relativePath: string; reason: string }> = [];
+    /**
+     * Ids minted for notes this run drops. A planned edge naming one of them is an
+     * edge the plan promised and the vault will not get, so the survivors carrying
+     * it are re-rendered without it.
+     */
+    const droppedIds = new Set<string>();
+    /** The note each dropped id was minted for, so the severed edge can name both sides */
+    const droppedPathById = new Map<string, string>();
     /**
      * Notes whose identity moved after the scan. The scan only stages notes with
      * no `palee_id` of their own (frontmatter check above), so a truthy id on the
@@ -1423,6 +1791,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      */
     const driftedDuringRun: Array<{ relativePath: string; reason: string }> = [];
     for (const note of toAdopt) {
+      // #565 P1-10: the scan refused oversized notes; this re-read is the same write path
+      // one step later, so a note that grew past the cap joins the drift list — refused,
+      // named, and the whole batch aborts before a single write (exit 4), exactly like the
+      // identity and opener drifts it is listed beside.
+      const { size: sourceSize } = fs.statSync(note.absolutePath);
+      if (noteExceedsReadCap(sourceSize)) {
+        driftedDuringRun.push({ relativePath: note.relativePath, reason: oversizedNoteDiagnostic(sourceSize) });
+        continue;
+      }
       // Re-read fresh content to minimize TOCTOU window
       const freshContent = fs.readFileSync(note.absolutePath, 'utf8');
       const freshFingerprint = computeFingerprint(freshContent);
@@ -1460,76 +1837,71 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       const topicId = note.topicId ?? generateTopicId();
-      const title = resolveNoteTitle(freshContent, note.absolutePath, frontmatter);
-
-      const topicMastery = resolveTopicMastery({
-        conceptual: frontmatter?.conceptual,
-        practical: frontmatter?.practical,
-        debug: frontmatter?.debug,
-        feynman: frontmatter?.feynman,
-        existing: frontmatter?.topic_mastery,
-        precedence: 'existing-first',
-      });
-
-      // Same rule as single-file adoption: `--difficulty` overrides, absence
-      // preserves what the note's own frontmatter declares.
-      const effectiveDifficulty =
-        options.difficulty === undefined ? normalizeDifficulty(frontmatter?.difficulty) : difficulty;
-
-      // #258 — `depends_on` a note already states is not adoption's to clear. The
-      // planned edge wins when the chain authored one for this note; otherwise the
-      // note's own list is what gets written back. Under a plain `adopt --all` the
-      // plan is empty for every note, so this is what stops that invocation — the
-      // commonest one — from flattening a hand-written gate to `[]`. A note the
-      // planner visited keeps the ids the planner chose for it, which for a
-      // hand-authored note are the same ids (see `handAuthoredDeps`).
-      const ownDeps = normalizeDependencies(frontmatter?.depends_on);
-      const chainDeps = chainDependsOn.get(note.relativePath) ?? [];
-      const preservedOwnDeps = chainDeps.length === 0 && ownDeps.length > 0;
-      const plannedDeps = preservedOwnDeps ? ownDeps : chainDeps;
-      const paleeData: Record<string, unknown> = {
-        palee_id: topicId,
-        palee_schema: 1,
-        title,
-        difficulty: effectiveDifficulty,
-        depends_on: plannedDeps,
-        topic_mastery: topicMastery,
-        assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
-        ...carriedPillarScores(frontmatter),
-        ease_factor: 2.5,
-        interval_days: 1,
-        repetition: 0,
-        lapses: 0,
-        last_quality: null,
-        last_reviewed_at: null,
-        due_at: null,
-      };
-
-      // C5 (PAL-205-C): additive provenance label. Only notes whose chain
-      // edge was actually written carry it; old PALEE builds parse the file
-      // unchanged (unknown frontmatter keys are preserved, never rejected),
-      // and gating behavior is untouched by this field.
-      if (plannedDeps.length > 0) {
-        const edgeSource = chainSourceOf.get(note.relativePath);
-        if (edgeSource) {
-          paleeData.depends_on_source = edgeSource;
-        } else if (preservedOwnDeps) {
-          // Same label the prose branch uses for a list the author wrote, so both
-          // adopt paths describe a preserved hand-written gate the same way rather
-          // than one labelling it and the other leaving it absent.
-          paleeData.depends_on_source = 'declared';
-        }
+      const { updatedContent, plannedDeps } = composeAdoptedNote(
+        note,
+        freshContent,
+        frontmatter,
+        topicId
+      );
+      // #565 P1-10 review: the scan bounded the source bytes, not the result. A note
+      // within a few hundred bytes of the cap crosses it once its PALEE keys are added,
+      // so it is dropped here — never written — and reported by name below. The plan
+      // printed above was severed for the projected drops; this branch is the re-check
+      // against the bytes actually read.
+      if (noteContentExceedsReadCap(updatedContent)) {
+        oversizedResults.push({
+          relativePath: note.relativePath,
+          reason: oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')),
+        });
+        droppedIds.add(topicId);
+        droppedPathById.set(topicId, note.relativePath);
+        continue;
       }
-
-      const updatedContent = updateFrontmatter(freshContent, paleeData);
       preparedBatch.push({
         absolutePath: note.absolutePath,
         relativePath: note.relativePath,
         originalContent: freshContent,
         fingerprint: freshFingerprint,
         updatedContent,
+        plannedDeps,
       });
     }
+
+    // A planned edge naming a note this run will not write is an edge the plan
+    // promised and the vault will not get: the dependent note would be written with
+    // a `depends_on` pointing at nothing and drop out of `palee plan` with only a
+    // `validate` warning to say why. Strip those ids from every survivor and
+    // re-render, so what is written is the plan minus the notes that could not be.
+    // Filtered here rather than in the loop because a declared prerequisite may name
+    // a note prepared after it — a running "dropped so far" set would miss that edge.
+    const severedEdges: { relativePath: string; droppedPath: string }[] = [];
+    if (droppedIds.size > 0) {
+      for (const item of preparedBatch) {
+        const kept = item.plannedDeps.filter((id) => !droppedIds.has(id));
+        if (kept.length === item.plannedDeps.length) continue;
+        for (const id of item.plannedDeps) {
+          if (droppedIds.has(id)) {
+            severedEdges.push({
+              relativePath: item.relativePath,
+              droppedPath: droppedPathById.get(id) ?? id,
+            });
+          }
+        }
+        item.plannedDeps = kept;
+        // Re-rendering the note updateFrontmatter already produced is the same
+        // parse/set/stringify pass that made it, and the list can only shrink here,
+        // so the cap verdict above still holds. An emptied list drops its provenance
+        // label too — `depends_on_source` only ever describes edges that exist.
+        item.updatedContent = updateFrontmatter(
+          item.updatedContent,
+          { depends_on: kept },
+          kept.length === 0 ? ['depends_on_source'] : []
+        );
+      }
+    }
+
+    printOversizedResults(oversizedResults);
+    printSeveredEdges(severedEdges);
 
     if (driftedDuringRun.length > 0) {
       // Refused before a single write, mirroring `adopt --undo`'s drift refusal:
@@ -1547,6 +1919,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.error(`  • … and ${driftedDuringRun.length - 5} more`);
       }
       console.error('  Re-run to plan against the current bytes.');
+      // A note that merely grew past the read cap reaches this same refusal. The banner
+      // above talks about modification because that is the common case; the per-note
+      // reason is what names the oversized one.
       process.exitCode = ExitCode.Conflict;
       return;
     }
@@ -1568,9 +1943,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       console.log(`\n✓ Successfully adopted ${journal.length} notes into PALEE.`);
       if (options.autoChain) {
+        // Counted from what was written, not from the plan: a note dropped for
+        // crossing the cap never carried its edges, and the survivors carry the
+        // severed remainder.
+        const preparedPaths = new Set(preparedBatch.map((item) => item.relativePath));
         let edges = 0;
-        for (const deps of chainDependsOn.values()) {
-          edges += deps.length;
+        for (const [relativePath, deps] of chainDependsOn) {
+          if (!preparedPaths.has(relativePath)) continue;
+          edges += deps.filter((id) => !droppedIds.has(id)).length;
         }
         console.log(`  Auto-chained: ${edges} dependency edges wired across ${journal.length} notes.`);
       }

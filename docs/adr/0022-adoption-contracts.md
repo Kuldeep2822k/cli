@@ -21,6 +21,8 @@ A note that declares its own prerequisites in frontmatter before it has ever bee
 
 A hand-written list is the same claim a `## Prerequisites` section makes, so it takes the `declared` label and survives. `--depends-on` still outranks the note: passing it in the same invocation *is* the learner overriding what the frontmatter said.
 
+What survives is decided by whether a plan *exists* for the note, not by whether that plan is empty. A note the planner visited always has one — its own list, the chain's predecessor, or the `## Prerequisites` names that outrank both — and a list a later step emptied stays empty. The case that matters is the result-cap projection severing an edge to a note this run will not write (#565): falling back to the frontmatter there would write a gate the approved plan had just removed, so the same argument that protects the learner's list also forbids resurrecting it behind the plan's back.
+
 ### Batch filters are refused in single-file mode
 
 `--include`, `--exclude` and `--tag` select notes out of a directory walk, and single-file mode has no walk — the learner already named the one note. Validating their syntax upstream and then dropping them meant `palee adopt "a/fresh.md" --exclude 'a/*.md'` exited 0 having adopted exactly the note the flag excluded. An explicit path plus a filter is a contradiction, and silently writing is the one outcome the user cannot detect after the fact, so it exits 2 naming the flag and the mode.

@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { execSync, spawnSync } from 'node:child_process';
+import { PALEE_CMD, PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import { resolveNoteTitle } from '../src/storage/note-title';
 
@@ -72,6 +72,38 @@ describe('CLI Adopt Batch Integration Tests', () => {
     } catch (e: any) {
       return { status: e.status ?? 1, stdout: e.stdout || '', stderr: e.stderr || '' };
     }
+  }
+
+  /**
+   * Runs the CLI through `spawnSync`, which keeps stderr when the child exits 0.
+   *
+   * @remarks
+   * `execSync` hands back stdout only on a successful run, and the result-cap
+   * skips are disclosed on stderr while the run still succeeds — so a test that
+   * has to see both streams spawns directly, the way the `--auto-chain`
+   * severing cases do. A child that never started, or ran out of its timeout,
+   * would otherwise arrive as a bare exit `1` with empty streams and leave the
+   * assertion reader no cause; `spawnError` carries it into the failure detail.
+   */
+  function runCLIBothStreams(args: string[]): {
+    status: number;
+    stdout: string;
+    stderr: string;
+    spawnError: string;
+  } {
+    const result = spawnSync(process.execPath, [...PALEE_ARGV, ...args], {
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    return {
+      status: result.status ?? 1,
+      stdout: result.stdout ?? '',
+      stderr: result.stderr ?? '',
+      spawnError: result.error ? `spawn failed: ${result.error.message}\n` : '',
+    };
   }
 
   test('resolveNoteTitle helper extracts title from frontmatter, H1 heading, or filename', () => {
@@ -320,5 +352,144 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.deepStrictEqual(frontmatter?.depends_on, ['T-earlier-note']);
     assert.strictEqual(frontmatter?.depends_on_source, 'declared',
       'a preserved list carries the same label the prose branch uses');
+  });
+
+  // #565 P1-10: a note over the 512 KiB read cap is declined by every reading command,
+  // so adopting one minted an identity onto a file `palee plan` could never surface. The
+  // boundary is asserted from both sides: one-sided cases also pass against a zero cap.
+  test('a note over the read cap is skipped by name and left unadopted', () => {
+    const oversizedPath = path.join(vaultDir, 'SOURCE_CAP', 'too-big.md');
+    fs.mkdirSync(path.dirname(oversizedPath), { recursive: true });
+    // 513 KiB of body, comfortably over the 524288-byte ceiling.
+    const body = `# Too Big\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(oversizedPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP', '--yes', '--verbose']);
+    const output = result.stdout + result.stderr;
+
+    assert.match(output, /Oversized:\s+1 notes/, 'the summary must count it separately');
+    assert.match(output, /Skipped: over the 524288 byte read cap \(not adopted\):/);
+    assert.match(output, /\? SOURCE_CAP\/too-big\.md/, 'and name the note it left alone');
+    assert.doesNotMatch(output, /frontmatter will not parse/, 'an oversized note is not a malformed one');
+    assert.strictEqual(result.status, 0, `a skipped note must not fail the batch: ${output}`);
+    assert.strictEqual(
+      fs.readFileSync(oversizedPath, 'utf8'),
+      body,
+      'a refused note keeps its bytes, frontmatter included'
+    );
+  });
+
+  test('a note over the read cap named on its own is refused with exit 2 and no write', () => {
+    const oversizedPath = path.join(vaultDir, 'SOURCE_CAP_SINGLE', 'solo.md');
+    fs.mkdirSync(path.dirname(oversizedPath), { recursive: true });
+    const body = `# Solo\n\n${'x'.repeat(513 * 1024)}\n`;
+    fs.writeFileSync(oversizedPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_SINGLE/solo.md', '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 2, `a single oversized note is invalid usage: ${output}`);
+    assert.match(output, /Oversized source: \d+ bytes exceeds the 524288 byte note read cap/);
+    assert.strictEqual(fs.readFileSync(oversizedPath, 'utf8'), body, 'nothing was written');
+  });
+
+  // #565 P1-10 review: a source note under the cap can still produce an over-cap file
+  // once the managed keys are added — measured at 265 bytes of `palee_*` frontmatter, so
+  // the band is the last ~265 bytes below the ceiling. Writing that result would report
+  // success and then hide the topic from every reader.
+  test('a note whose managed keys would cross the cap is refused, not written past it', () => {
+    const edgePath = path.join(vaultDir, 'SOURCE_CAP_EDGE', 'edge.md');
+    fs.mkdirSync(path.dirname(edgePath), { recursive: true });
+    // Under the 524288 ceiling, but within the ~265-byte band the frontmatter needs.
+    const body = `# Edge\n\n${'x'.repeat(524240)}`;
+    fs.writeFileSync(edgePath, body, 'utf8');
+    assert.ok(Buffer.byteLength(body, 'utf8') < 524288, 'the fixture must start under the cap');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_EDGE/edge.md', '--yes']);
+    const output = result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 2, `a write past the cap is invalid usage: ${output}`);
+    assert.match(output, /Oversized result: the managed keys would grow this note to \d+ bytes/);
+    assert.strictEqual(fs.readFileSync(edgePath, 'utf8'), body, 'the note was left byte-identical');
+  });
+
+  test('a batch skips the note whose managed keys would cross the cap', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_BATCH');
+    fs.mkdirSync(dir, { recursive: true });
+    const edgePath = path.join(dir, 'edge.md');
+    const safePath = path.join(dir, 'safe.md');
+    const edgeBody = `# Edge\n\n${'x'.repeat(524240)}`;
+    const safeBody = '# Safe\n\n' + 'y'.repeat(4000);
+    fs.writeFileSync(edgePath, edgeBody, 'utf8');
+    fs.writeFileSync(safePath, safeBody, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_EDGE_BATCH', '--yes']);
+
+    assert.strictEqual(result.status, 0, `the batch must survive one over-cap result: ${result.stderr}`);
+    assert.strictEqual(fs.readFileSync(edgePath, 'utf8'), edgeBody, 'the over-cap result was never written');
+    const safe = parseFrontmatter(fs.readFileSync(safePath, 'utf8'));
+    assert.ok(safe.frontmatter?.palee_id, 'the rest of the batch still adopted');
+  });
+
+  // #565 P1-10 review: the projection decided which notes would not be written, but the
+  // preview, the verbose list, the empty-batch check and the confirmation count all read
+  // the unfiltered batch — so `Ready to Adopt` promised a note that never lands, and a
+  // batch of nothing but projected notes still reached the confirmation gate.
+  test('the preview promises only the notes the projection will write', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_PREVIEW');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'edge.md'), `# Edge\n\n${'x'.repeat(524240)}`, 'utf8');
+    fs.writeFileSync(path.join(dir, 'safe.md'), '# Safe\n\n' + 'y'.repeat(4000), 'utf8');
+
+    const result = runCLIBothStreams(['adopt', 'SOURCE_CAP_EDGE_PREVIEW', '--dry-run', '--verbose']);
+    const output = result.spawnError + result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 0, output);
+    assert.match(output, /Ready to Adopt:\s+1 notes/, 'the projected note is not part of the promised batch');
+    assert.match(
+      output,
+      /Oversized result: the managed keys would grow this note to/,
+      'but the skip is still named, not hidden'
+    );
+    assert.match(output, /\+\s+SOURCE_CAP_EDGE_PREVIEW\/safe\.md/, 'the note that will be written is listed');
+    assert.doesNotMatch(
+      output,
+      /\+\s+SOURCE_CAP_EDGE_PREVIEW\/edge\.md/,
+      'and the note that will not be is absent from the list'
+    );
+  });
+
+  test('a batch whose every note is projected out asks for nothing', () => {
+    const dir = path.join(vaultDir, 'SOURCE_CAP_EDGE_ALL');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'edge.md'), `# Edge\n\n${'x'.repeat(524240)}`, 'utf8');
+
+    // No `--yes`, and the runner gives the child a pipe rather than a TTY. Before the
+    // fix this reached the confirmation gate with a non-empty list and died as a usage
+    // error (2) — for a batch that was going to write nothing at all.
+    const result = runCLIBothStreams(['adopt', 'SOURCE_CAP_EDGE_ALL']);
+    const output = result.spawnError + result.stdout + result.stderr;
+
+    assert.strictEqual(result.status, 0, `an all-projected batch is not a usage error: ${output}`);
+    assert.match(output, /No new notes matched the criteria to adopt\./);
+    assert.doesNotMatch(output, /Non-interactive environment/, 'the learner is never asked to confirm zero notes');
+    assert.match(
+      output,
+      /Oversized result: the managed keys would grow this note to/,
+      'with the reason still disclosed'
+    );
+  });
+
+  test('a note just under the read cap still adopts', () => {
+    const underPath = path.join(vaultDir, 'SOURCE_CAP_UNDER', 'just-fits.md');
+    fs.mkdirSync(path.dirname(underPath), { recursive: true });
+    const body = `# Just Fits\n\n${'x'.repeat(511 * 1024)}\n`;
+    fs.writeFileSync(underPath, body, 'utf8');
+
+    const result = runCLI(['adopt', 'SOURCE_CAP_UNDER', '--yes']);
+    assert.strictEqual(result.status, 0, `Command failed: ${result.stdout}${result.stderr}`);
+
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(underPath, 'utf8'));
+    assert.ok(frontmatter?.palee_id, 'a note under the ceiling is still adopted');
   });
 });

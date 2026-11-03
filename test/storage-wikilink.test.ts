@@ -648,6 +648,26 @@ describe('Wikilink Resolution (Issue #73, INV-48)', () => {
       }
     });
 
+    it('refuses to load a roadmap target over the note read cap', () => {
+      // #565 P1-10: `resolveWikilinkRoadmap` pre-reads a target that `loadTopics` did not
+      // surface (an unadopted note, or one whose id the loader could not use). Nothing
+      // capped that read, so a link to a multi-megabyte document was loaded whole before
+      // the roadmap writer's own cap could refuse it.
+      const huge = path.join(vaultPath, 'huge.md');
+      fs.writeFileSync(huge, `# Huge\n\n${'x'.repeat(513 * 1024)}\n`, 'utf8');
+      try {
+        assert.throws(
+          () =>
+            resolveWikilinkRoadmap(vaultPath, [
+              { track: '', links: [link('[[huge]]')] },
+            ]),
+          /Cannot read roadmap target huge\.md: Oversized source: \d+ bytes exceeds/
+        );
+      } finally {
+        fs.rmSync(huge, { force: true });
+      }
+    });
+
     it('refuses to mint an id over a note whose palee_id is an empty list', () => {
       // `String([])` is the empty string, so a value-check written as
       // `String(declared).trim() === ''` read this as "no id declared" and minted

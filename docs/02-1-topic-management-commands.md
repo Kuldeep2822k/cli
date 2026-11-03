@@ -172,8 +172,11 @@ flowchart TD
     FilterCheck -->|"Has palee_id"| SkipAdopted["Status (=): Already Adopted"]
     FilterCheck -->|"Matches --exclude / Fails --include"| SkipPattern["Status (-): Skipped by Pattern"]
     FilterCheck -->|"Fails --tag"| SkipTag["Status (~): Skipped by Tag"]
-    FilterCheck -->|"Passes All Filters"| Staged["Status (+): Ready to Adopt"]
+    FilterCheck -->|"Passes All Filters"| Project{"Result-cap projection:<br/>note with the managed keys added fits 512 KiB?"}
+    Project -->|"No"| SkipOversized["Named on stderr: not staged, and<br/>planned edges pointing at it are removed"]
+    Project -->|"Yes"| Staged["Status (+): Ready to Adopt"]
     
+    Staged -->|"Nothing left staged"| EmptyBatch["'No new notes matched the criteria'<br/>(Exit 0, the gate is never reached)"]
     Staged --> DryCheck{"--dry-run ?"}
     DryCheck -->|"Yes"| PrintDry["Print Summary Preview & Exit 0"]
     DryCheck -->|"No"| ConfirmCheck{"-y / --yes OR Interactive (y/N)?"}
@@ -295,7 +298,7 @@ The following table lists all options for `palee roadmap` [src/types.ts `Roadmap
 | :--- | :--- | :---: | :--- | :--- |
 | `--from <file>` | `string` | **Yes** | Path to the roadmap definition file (`.yaml`, `.yml`, or `.md`). | `palee roadmap --from "curricula/devops.yaml"` |
 | `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. The chain head receives nothing, so its note keeps its existing on-disk dependencies (#322). | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
-| `--dry-run` | `boolean` | No | Run the full pre-write validation, then print the per-note plan — each topic's id, target path, resolved `depends_on` (synthesized chain edges and preserved on-disk edges are labeled), and whether the note would be created or updated — and exit `0` without writing a single byte (#309). A plan the validator rejects still exits `3`; validation runs identically with or without this flag. | `palee roadmap --from "curricula/devops.yaml" --auto-chain --dry-run` |
+| `--dry-run` | `boolean` | No | Run the full pre-write validation, then print the per-note plan — each topic's id, target path, resolved `depends_on` (synthesized chain edges and preserved on-disk edges are labeled), and whether the note would be created or updated — and exit `0` without writing a single byte (#309). A plan the validator rejects still exits `3`, and so does the pre-write skipped-note check, which this branch runs before the plan is printed: a run that check would refuse never shows a plan to approve. That check models every note the import will not write — one it may not write over, one whose bytes it cannot open, or one whose composed result would cross the 512 KiB read cap — and rebuilds the graph with each such note contributing the `depends_on` it already holds. Other refusals an import can still reach — the confirmation gate, a per-topic write failure, an OCC conflict — are decided after the plan, so `--dry-run` reports no such outcome. Validation runs identically with or without this flag. | `palee roadmap --from "curricula/devops.yaml" --auto-chain --dry-run` |
 | `-y, --yes` | `boolean` | No | Automatically confirm creation/update of notes without interactive prompt. | `palee roadmap --from "curricula/devops.yaml" -y` |
 
 ---
@@ -310,6 +313,7 @@ Before performing file creation or modification, `roadmapCommand` executes a com
 4. **Identity Preservation**: A topic entry may not name a different `palee_id` for a note the vault already adopted. Writing a new id over that path retires the id every existing edge names, and a dependent note whose prerequisite resolves to nothing stays out of `palee plan` for good while `palee validate` counts a missing dependency only as a warning and exits `0`. Such an entry is rejected here with both ids and the note path named, and nothing is written; re-importing a roadmap under the ids its notes already carry is unaffected.
 5. **Dependency Resolution**: Checks that every prerequisite ID in `depends_on` exists either in the roadmap or within existing vault notes.
 6. **SCC Cycle Detection**: Runs cycle detection (`detectCycle`) to guarantee that the prerequisite graph forms a strict Directed Acyclic Graph (DAG). If a circular dependency exists (e.g. $A \to B \to C \to A$), the command rejects the import and exits with code `3`.
+7. **Skipped-Note Graph Check** (#267, #565): Predicts, from the bytes on disk, every topic the write loop will skip — a target it may not write over, a regular in-vault note whose bytes it cannot open, or a note whose composed result would cross the 512 KiB read cap — and rebuilds the declared graph with each skipped topic contributing the `depends_on` its note *holds* instead of the one the roadmap declared. A cycle that appears only under that reading refuses the run with exit `3` and zero writes, naming each skipped id and its reason; when nothing closes, the import proceeds and the skip costs its own topic alone.
 
 ### Idempotent Updates, Safe Directory Management & Batch Resilience
 
@@ -340,13 +344,17 @@ flowchart TD
     GraphBuild --> CycleCheck{"detectCycle() Check"}
     
     CycleCheck -->|"Cycle Found / Missing Dep"| ErrCycle["Exit Code 3 (Cycle/Validation Error)"]
-    CycleCheck -->|"Graph Valid (DAG)"| DryRun{"--dry-run?"}
+    CycleCheck -->|"Graph Valid (DAG)"| SkippedCheck{"Skipped-note check:<br/>would a note this run skips — unwritable,<br/>bytes unopenable, or result past the read cap — leave a cycle?"}
+    SkippedCheck -->|"Yes — a skipped note keeps the depends_on it holds"| ErrCycle
+    SkippedCheck -->|"No"| DryRun{"--dry-run?"}
     DryRun -->|"Yes"| PlanPrint["Print per-note plan<br/>(Exit 0, zero writes)"]
     DryRun -->|"No"| PromptCheck{"-y / --yes OR User Confirms (y/N)?"}
     
     PromptCheck -->|"Non-TTY without -y"| ErrTTY["Exit Code 2 (Non-interactive)"]
     PromptCheck -->|"Declined (N)"| Abort["Print 'Aborted.' & Exit 0"]
-    PromptCheck -->|"Confirmed"| ImportLoop["Iterate Roadmap Topics<br/>(Per-Topic try/catch)"]
+    PromptCheck -->|"Confirmed"| SkippedRecheck{"Skipped-note check again,<br/>before the first write"}
+    SkippedRecheck -->|"Yes"| ErrCycle
+    SkippedRecheck -->|"No"| ImportLoop["Iterate Roadmap Topics<br/>(Per-Topic try/catch)"]
     
     ImportLoop --> DirCheck["ensureVaultDirectory() (Vault Boundary & Symlink Guard)"]
     DirCheck --> PathCheck{"Target Note Exists?"}
@@ -446,14 +454,14 @@ Only exits a command can produce are listed; codes it never returns are omitted.
 | Command | Exit | Behavior |
 | :--- | :---: | :--- |
 | `palee adopt` | 0 | Note(s) adopted, dry-run rendered, or user declined confirmation (`N`). |
-| `palee adopt` | 2 | Missing vault, note already adopted, path escapes vault, invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. |
+| `palee adopt` | 2 | Missing vault, note already adopted, path escapes vault, a note over the 512 KiB read cap named on its own (nothing written), invalid `--difficulty`, invalid glob pattern, a batch filter (`--include`/`--exclude`/`--tag`) passed with a single note path, missing path without `--all`, or non-interactive stdin without `-y`. |
 | `palee adopt` | 3 | `--auto-chain` planned dependency graph contains a cycle (or enumeration truncated) — exits before any write. |
-| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it) or left with an unclosed frontmatter opener, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
+| `palee adopt` | 4 | OCC conflict: the pre-write re-read found a batch note now declaring a `palee_id` (another process adopted it), left with an unclosed frontmatter opener, or grown past the 512 KiB read cap, and refused the batch with nothing written; or the atomic write's fingerprint check failed (`isConflictError`). |
 | `palee adopt` | 5 | Batch rollback error or unhandled file system exception. |
-| `palee roadmap` | 0 | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed the validated plan and wrote nothing. |
+| `palee roadmap` | 0 | All roadmap topics created/updated successfully (`failed === 0`), or `--dry-run` printed a plan the pre-write checks cleared and wrote nothing. |
 | `palee roadmap` | 1 | Partial batch import failure (`failed > 0` topic notes failed due to corrupt files/write errors). |
 | `palee roadmap` | 2 | Missing `--from`, file not found, malformed structure, path escapes vault, or non-interactive stdin without `-y`. |
-| `palee roadmap` | 3 | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`. |
+| `palee roadmap` | 3 | Roadmap validation error (missing ID/title/path, duplicate ID/path, invalid difficulty, a declared path no other command can see, missing dependency, an entry whose target note is already adopted under a different ID, cycle detected) — raised identically under `--dry-run`; or a run refused before its first write, an import or a `--dry-run` of it alike, because a note it would skip (one it may not write over, one whose bytes it cannot open, or one whose composed result would cross the 512 KiB read cap) would leave a cycle on disk — `--dry-run` prints no plan when it refuses. |
 | `palee roadmap` | 4 | OCC conflict during atomic note write (`isConflictError`). |
 | `palee roadmap` | 5 | Unexpected runtime / I/O exception. |
 | `palee migrate` | 0 | All notes verified to be schema v1. |

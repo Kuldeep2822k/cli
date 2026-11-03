@@ -488,6 +488,48 @@ describe('palee adopt --undo reverses adoption without touching authored content
     assert.doesNotMatch(readNote(healthy), /palee_id/, 'the readable note was still reversed');
   });
 
+  // #565 P1-10: un-adopting a note over the read cap would rewrite a file the rest of the
+  // CLI can never load again. The boundary is asserted from both sides.
+  test('a note over the read cap is named under its own heading and left untouched', () => {
+    const oversized = writeNote(
+      'oversized.md',
+      `---\npalee_id: T-huge\ntitle: Huge\n---\n# Huge\n\n${'x'.repeat(513 * 1024)}\n`
+    );
+    const before = readNote(oversized);
+
+    const undo = runCLI(['adopt', '--all', '--undo', '--yes', '--verbose']);
+    const output = undo.stdout + undo.stderr;
+    assert.strictEqual(undo.status, 0, `one oversized note must not fail the run: ${output}`);
+    assert.match(output, /Oversized:\s+1 notes/, 'counted under its own heading');
+    assert.match(output, /oversized\.md/, 'and named');
+    assert.doesNotMatch(output, /frontmatter will not parse/, 'an oversized note is not a malformed one');
+    assert.strictEqual(readNote(oversized), before, 'its bytes are untouched');
+  });
+
+  test('a note over the read cap named on its own is refused with exit 2 and no write', () => {
+    const oversized = writeNote(
+      'oversized-single.md',
+      `---\npalee_id: T-solo\ntitle: Solo\n---\n# Solo\n\n${'x'.repeat(513 * 1024)}\n`
+    );
+    const before = readNote(oversized);
+
+    const undo = runCLI(['adopt', oversized, '--undo', '--yes']);
+    assert.strictEqual(undo.status, 2, `a single oversized note is invalid usage: ${undo.stdout}${undo.stderr}`);
+    assert.match(undo.stdout + undo.stderr, /Oversized source: \d+ bytes exceeds/);
+    assert.strictEqual(readNote(oversized), before, 'nothing was written');
+  });
+
+  test('a note just under the read cap is still reversed', () => {
+    const underCap = writeNote('under-cap.md', `---\ntitle: Under Cap\n---\n# Under Cap\n\n${'x'.repeat(510 * 1024)}\n`);
+    const adopt = runCLI(['adopt', underCap, '--yes']);
+    assert.strictEqual(adopt.status, 0, adopt.stdout + adopt.stderr);
+    assert.match(readNote(underCap), /palee_id/, 'the note was adopted, so undo has work to do');
+
+    const undo = runCLI(['adopt', underCap, '--undo', '--yes']);
+    assert.strictEqual(undo.status, 0, undo.stdout + undo.stderr);
+    assert.doesNotMatch(readNote(underCap), /palee_id/, 'a note under the ceiling is still reversed');
+  });
+
   test('a non-string palee_id is left alone rather than guessed at', () => {
     // `loadTopics` requires a non-empty string, so `palee_id: 12345` names no topic
     // anywhere in the CLI. Undo mirrors adoption's B7 rule: name it, count it, and
