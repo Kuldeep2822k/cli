@@ -775,4 +775,43 @@ describe('update: the network boundary is unchanged (INV-29)', () => {
       assert.strictEqual(options.cwd, os.homedir(), 'npm runs from home, never from the caller directory');
     });
   });
+
+  test('npm child processes never receive PALEE_API_KEY (#565)', () => {
+    withTempConfigDir(() => {
+      const PALEE_SECRET = 'supersensitive-token-12345';
+      const PALEE_OTHER = 'should-be-preserved';
+      const NPM_REGISTRY = 'https://custom.registry.example.com/';
+      const priorPaleyKey = process.env.PALEE_API_KEY;
+      const priorPaleeOther = process.env.PALEE_OTHER;
+      const priorNpmRegistry = process.env.npm_config_registry;
+      try {
+        process.env.PALEE_API_KEY = PALEE_SECRET;
+        process.env.PALEE_OTHER = PALEE_OTHER;
+        process.env.npm_config_registry = NPM_REGISTRY;
+        const seen: unknown[] = [];
+        withSpawnStub(
+          (...args: unknown[]) => {
+            seen.push(args[2]);
+            return spawnResult({ stdout: '99.0.0\n' });
+          },
+          () => {
+            evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
+          }
+        );
+        assert.strictEqual(seen.length, 1, 'the forced probe spawns npm exactly once');
+        const options = seen[0] as { env?: NodeJS.ProcessEnv; encoding?: string };
+        assert.strictEqual(options.env?.PALEE_API_KEY, undefined, 'PALEE_API_KEY is stripped');
+        assert.strictEqual(options.env?.PALEE_OTHER, PALEE_OTHER, 'PALEE_OTHER is preserved');
+        assert.strictEqual(options.env?.npm_config_registry, NPM_REGISTRY, 'npm_config_registry is preserved');
+        assert.strictEqual(options.encoding, 'utf8', 'caller options are passed through');
+      } finally {
+        if (priorPaleyKey === undefined) delete process.env.PALEE_API_KEY;
+        else process.env.PALEE_API_KEY = priorPaleyKey;
+        if (priorPaleeOther === undefined) delete process.env.PALEE_OTHER;
+        else process.env.PALEE_OTHER = priorPaleeOther;
+        if (priorNpmRegistry === undefined) delete process.env.npm_config_registry;
+        else process.env.npm_config_registry = priorNpmRegistry;
+      }
+    });
+  });
 });

@@ -48,6 +48,31 @@ export interface NpmInvocation {
 }
 
 /**
+ * Strips PALEE_API_KEY from a child process environment.
+ *
+ * @param env - The environment to sanitize
+ * @returns A copy with PALEE_API_KEY removed (case variant on Windows)
+ *
+ * @remarks
+ * On win32 environment variable names are case-insensitive at the OS level.
+ * Node.js maps Windows environment variables to uppercase in process.env, so
+ * deleting sanitized.PALEE_API_KEY removes all case variants in practice. We
+ * still enumerate lowercase here to handle any edge case where the env object
+ * might have been mutated before reaching this function. All other PALEE_*
+ * variables, PATH, HOME, proxy settings, and npm_config_* variables are preserved.
+ */
+function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sanitized = { ...env };
+  // Delete PALEE_API_KEY - works on all platforms
+  delete sanitized.PALEE_API_KEY;
+  // Additional deletion on Windows for safety against case-variant keys
+  if (process.platform === 'win32') {
+    delete sanitized.palee_api_key;
+  }
+  return sanitized;
+}
+
+/**
  * Runs one npm invocation.
  *
  * @param invocation - The platform decision from {@link npmInvocationFor}
@@ -67,6 +92,11 @@ export interface NpmInvocation {
  * would print Node's DEP0190, and `process.noDeprecation` is consulted when
  * that warning is emitted, so it is set around the spawn only — npm's own
  * output is never silenced by it.
+ *
+ * We explicitly strip `PALEE_API_KEY` from the environment to prevent the npm
+ * child process or any install scripts it runs from accessing the AI provider
+ * credential. This covers both call sites (`npm view` and `npm install`) and
+ * future callers without requiring each to manually remove the key.
  */
 function spawnNpm(
   invocation: NpmInvocation,
@@ -75,11 +105,8 @@ function spawnNpm(
   const previous = process.noDeprecation;
   process.noDeprecation = true;
   try {
-    return spawnSync(invocation.command, invocation.args, {
-      ...options,
-      shell: invocation.shell,
-      cwd: os.homedir(),
-    });
+    const env = sanitizeEnv({ ...process.env, ...options.env });
+    return spawnSync(invocation.command, invocation.args, { ...options, env, shell: invocation.shell, cwd: os.homedir() });
   } finally {
     if (previous === undefined) delete process.noDeprecation;
     else process.noDeprecation = previous;
