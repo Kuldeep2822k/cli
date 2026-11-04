@@ -292,6 +292,12 @@ async function readApiKey(
  * @param output - Stream receiving the prompt and its trailing newline. JSON mode
  * passes `stderr`, keeping stdout free for the emitted document.
  * @returns The text the user typed.
+ *
+ * @remarks
+ * EOF closes the readline interface without invoking the question callback, which
+ * would leave the caller waiting on a promise that cannot settle. The close
+ * handler answers the same way an empty keystroke does — no text — so
+ * {@link readApiKey} refuses and nothing is stored.
  */
 function promptHidden(query: string, output: NodeJS.WritableStream = process.stdout): Promise<string> {
   return new Promise((resolve) => {
@@ -305,7 +311,15 @@ function promptHidden(query: string, output: NodeJS.WritableStream = process.std
     (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => {
       if (!muted) output.write(s);
     };
+    let answered = false;
+    rl.once('close', () => {
+      if (answered) return;
+      answered = true;
+      output.write('\n');
+      resolve('');
+    });
     rl.question(query, (answer) => {
+      answered = true;
       output.write('\n');
       rl.close();
       resolve(answer);

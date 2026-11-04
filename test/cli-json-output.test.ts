@@ -965,6 +965,8 @@ depends_on: []
         });
       };
 
+      const prevIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
       process.stdout.write = capture((text) => { stdout += text; });
       process.stderr.write = capture((text) => { stderr += text; });
       try {
@@ -972,6 +974,8 @@ depends_on: []
         await configCommand('set-api-key', undefined, { json: true });
         assert.strictEqual(stdout, '', `the prompt reached stdout under --json: ${JSON.stringify(stdout)}`);
         assert.match(stderr, /API key: /, 'the prompt belongs on stderr under --json');
+        assert.match(stderr, /API key: [^\n]*\n$/u, 'the answer closes the prompt line exactly once');
+        assert.doesNotMatch(stderr, /API key: [^\n]*\n\n/u, 'the close after an answered prompt emits no second newline (#565)');
         assertStdoutIsDocumentsOnly();
         assert.strictEqual(loadConfig().apiKey, 'testkey-prompt-4f4e', 'the typed key is what reached disk');
 
@@ -981,12 +985,62 @@ depends_on: []
         answer();
         await configCommand('set-api-key', undefined, { json: false });
         assert.match(stdout, /API key: /, 'human mode keeps the prompt on stdout');
+        assert.match(stdout, /API key: [^\n]*\n$/u, 'and the answer closes the prompt line exactly once');
+        assert.doesNotMatch(stdout, /API key: [^\n]*\n\n/u, 'the close after an answered prompt emits no second newline (#565)');
         assert.ok(!stderr.includes('API key: '), `human mode must not move the prompt to stderr: ${JSON.stringify(stderr)}`);
       } finally {
         process.stdout.write = realStdoutWrite;
         process.stderr.write = realStderrWrite;
         Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
       }
+    });
+
+    test('the hidden API-key prompt settles on EOF instead of hanging (#565)', { timeout: 15000 }, async () => {
+      // Ctrl+D at the prompt closes the readline interface without ever calling the
+      // question callback, so the key was neither stored nor refused: the run simply
+      // ended, exit 0, indistinguishable from a successful `set-api-key`.
+      const { Readable } = await import('node:stream');
+      const stored = 'testkey-stored-7c13';
+      saveConfig({ vaultPath: tmpDir, apiKey: stored });
+
+      const realStdin = process.stdin;
+      const realStdoutWrite = process.stdout.write;
+      const realStderrWrite = process.stderr.write;
+      let stdout = '';
+      let stderr = '';
+      const capture = (sink: (text: string) => void) =>
+        ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+          void rest;
+          sink(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+          return true;
+        }) as typeof process.stdout.write;
+
+      const prevIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      process.stdout.write = capture((text) => { stdout += text; });
+      process.stderr.write = capture((text) => { stderr += text; });
+      Object.defineProperty(process, 'stdin', {
+        value: Object.assign(Readable.from([]), { isTTY: true }),
+        configurable: true,
+        writable: true,
+      });
+      try {
+        await configCommand('set-api-key', undefined, { json: true });
+      } finally {
+        process.stdout.write = realStdoutWrite;
+        process.stderr.write = realStderrWrite;
+        Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+      }
+
+      assert.match(stderr, /API key: /, 'the run really reached the prompt');
+      assert.ok(stderr.endsWith('\n'), 'EOF closes the line the prompt left open');
+      assert.strictEqual(stdout, '', 'and the prompt still stays off stdout under --json');
+      assert.strictEqual(process.exitCode, 2, 'EOF is a refusal with an exit code, not a silent success');
+      assert.strictEqual(getLastParsedJsonError().error, 'no API key entered', 'the refusal says why');
+      assert.strictEqual(loggedOutputs.length, 0, 'an aborted run emits no document');
+      assert.strictEqual(loadConfig().apiKey, stored, 'the stored key survives the aborted prompt');
     });
 
     test('session start answers one document and suppresses the rebuild notice', async () => {

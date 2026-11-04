@@ -63,6 +63,8 @@ Every batch mode runs the Tier-0 hygiene pass before staging notes (#298). Notes
 
 A plain batch additionally skips short README/SUMMARY navigation docs (#442, #545), unless the scan explicitly names them with `--include`. "Short" is measured on the note body: a README under 200 words is a title and a link list, while a README carrying a lesson-sized body is the lesson itself and is adopted — the case on curricula such as `microsoft/Web-Dev-For-Beginners`, where every module's lesson is its `README.md`. `--auto-chain` keeps README/SUMMARY as curriculum backbone notes, so it can adopt them and use their listing as order input; that is a chaining decision, not a different hygiene scope.
 
+A batch that reaches its gate without `-y` asks on the terminal — `Proceed with adoption? (y/N): ` for adoption, `Proceed with un-adoption? (y/N): ` for `--undo` — and EOF there, Ctrl+D on a terminal whose input ends, settles as a decline: the run takes exactly the path of answering `N` (`Aborted.`, exit `0`, nothing written) instead of ending in silence with the question never answered (#565).
+
 ---
 
 ### Options Reference for `palee adopt`
@@ -300,6 +302,8 @@ The following table lists all options for `palee roadmap` [src/types.ts `Roadmap
 | `--auto-chain` | `boolean` | No | Chain YAML/frontmatter/codeblock topics by their `order` field (unordered topics keep file order, appended after ordered ones). Explicit non-empty `depends_on` wins. The chain head receives nothing, so its note keeps its existing on-disk dependencies (#322). | `palee roadmap --from "curricula/devops.yaml" --auto-chain -y` |
 | `--dry-run` | `boolean` | No | Run the full pre-write validation, then print the per-note plan — each topic's id, target path, resolved `depends_on` (synthesized chain edges and preserved on-disk edges are labeled), and whether the note would be created or updated — and exit `0` without writing a single byte (#309). A plan the validator rejects still exits `3`, and so does the pre-write skipped-note check, which this branch runs before the plan is printed: a run that check would refuse never shows a plan to approve. That check models every note the import will not write — one it may not write over, one whose bytes it cannot open, or one whose composed result would cross the 512 KiB read cap — and rebuilds the graph with each such note contributing the `depends_on` it already holds. Other refusals an import can still reach — the confirmation gate, a per-topic write failure, an OCC conflict — are decided after the plan, so `--dry-run` reports no such outcome. Validation runs identically with or without this flag. | `palee roadmap --from "curricula/devops.yaml" --auto-chain --dry-run` |
 | `-y, --yes` | `boolean` | No | Automatically confirm creation/update of notes without interactive prompt. | `palee roadmap --from "curricula/devops.yaml" -y` |
+
+An import that reaches its gate without `-y` asks `Proceed? (y/N): ` on the terminal, and EOF there — Ctrl+D on a terminal whose input ends — settles as a decline, taking exactly the path of an answered `N` (`Aborted.`, exit `0`, nothing imported) rather than ending with the question never answered (#565).
 
 ---
 

@@ -155,7 +155,9 @@ interface DerivedViewRef {
  * Prompts for confirmation on stdin, exactly as batch adoption does.
  *
  * @param message - Question to display
- * @returns `true` only when the answer is `y` or `yes`
+ * @returns `true` only when the answer is `y` or `yes`; `false` when stdin reaches
+ * EOF before an answer, so a run that cannot be confirmed declines rather than
+ * waiting on a promise readline will never settle.
  */
 async function promptConfirmation(message: string): Promise<boolean> {
   const rl = readline.createInterface({
@@ -164,7 +166,15 @@ async function promptConfirmation(message: string): Promise<boolean> {
   });
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.once('close', () => {
+      if (answered) return;
+      answered = true;
+      process.stdout.write('\n');
+      resolve(false);
+    });
     rl.question(message, (answer) => {
+      answered = true;
       rl.close();
       const normalized = answer.trim().toLowerCase();
       resolve(normalized === 'y' || normalized === 'yes');

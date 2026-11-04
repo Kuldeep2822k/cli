@@ -60,7 +60,10 @@ argument is refused so the secret never enters `argv`. `palee config unset-api-k
 `PALEE_API_KEY` in the environment outranks the stored key, for anyone who would rather never write it to
 disk. If you change `set-base-url` to a different origin while a key is stored, PALEE asks for confirmation on a
 terminal; pass `--keep-key` to skip the prompt. A non-interactive or `--json` run refuses without that flag, so
-run `palee config unset-api-key` first if the stored key should not follow the new endpoint.
+run `palee config unset-api-key` first if the stored key should not follow the new endpoint. EOF (Ctrl+D) settles
+either prompt instead of leaving the run waiting, and the two outcomes differ deliberately: at the `set-base-url`
+confirmation it takes the same path as answering `N` (exit `0`, nothing written), while `set-api-key` reads it as
+no key entered and refuses at exit `2` (#565).
 
 Confirm the whole path with `palee config test-connection`, which sends one short prompt and prints the URL
 it called, which key source was used, the latency and the token counts. It is the only command that reaches

@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { Readable } from 'node:stream';
 import { execSync, spawnSync } from 'node:child_process';
 import { PALEE_CMD, PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
@@ -174,6 +175,128 @@ describe('CLI Adopt Batch Integration Tests', () => {
     const result = runCLI(['adopt', '--all']);
     assert.strictEqual(result.status, 2);
     assert.match(result.stderr, /Non-interactive environment\. Use -y or --yes/);
+  });
+
+  test('answering the batch confirmation with no writes nothing', { timeout: 15000 }, async () => {
+    // The answered half of the gate, and the place the `answered` guard shows
+    // itself: the question callback calls `rl.close()`, which emits 'close' too, so an
+    // unguarded close handler writes its newline between the prompt and the decline.
+    // Here stdin is a fake TTY and stdout a pipe, so readline echoes nothing and the
+    // only shape separating the two is that handler's newline — what the guard removes.
+    const original = '# Answered Gate\n\nA note that must stay unadopted.\n';
+    const dir = path.join(vaultDir, 'ANSWERGATE');
+    const note = path.join(dir, 'answered-gate.md');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(note, original, 'utf8');
+
+    const prevIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    const realStdin = process.stdin;
+    const realConfigDir = process.env.PALEE_CONFIG_DIR;
+    const realWrite = process.stdout.write.bind(process.stdout);
+    let printed = '';
+    process.env.PALEE_CONFIG_DIR = tempDir;
+    Object.defineProperty(process, 'stdin', {
+      value: Object.assign(Readable.from(['n\n']), { isTTY: true }),
+      configurable: true,
+      writable: true,
+    });
+    process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      void rest;
+      return true;
+    }) as typeof process.stdout.write;
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    let noteAfter: string;
+    try {
+      const { default: adoptEntry } = await import('../src/cli/adopt');
+      await adoptEntry(undefined, { all: true });
+    } finally {
+      noteAfter = fs.existsSync(note) ? fs.readFileSync(note, 'utf8') : '<deleted>';
+      process.stdout.write = realWrite as typeof process.stdout.write;
+      Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      if (realConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = realConfigDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+    }
+    const exitCode = process.exitCode;
+    process.exitCode = previousExitCode;
+
+    assert.match(printed, /Proceed with adoption\? \(y\/N\): /, printed);
+    assert.match(printed, /Aborted\./, printed);
+    assert.match(
+      printed,
+      /Proceed with adoption\? \(y\/N\): Aborted\./,
+      'the decline follows the prompt directly; the close after an answered prompt inserts no newline'
+    );
+    assert.doesNotMatch(
+      printed,
+      /Proceed with adoption\? \(y\/N\): \n/,
+      'no newline lands between the prompt and the decline — unguarded, the close handler writes one'
+    );
+    assert.strictEqual(exitCode, undefined, 'declining is a clean exit 0, not an error');
+    assert.strictEqual(noteAfter, original, 'and the note keeps its unadopted bytes');
+  });
+
+  test('EOF at the batch confirmation declines instead of never settling', { timeout: 15000 }, async () => {
+    // The exit-2 refusal two tests up is what a pipe sees. A terminal whose input ends
+    // — Ctrl+D, or a heredoc that runs out — is the other half: readline closes the
+    // interface without calling the question callback, so the run waited on a promise
+    // that could never settle and exited 0 with every note left unadopted (#565).
+    const original = '# EOF Gate\n\nA note that must stay unadopted.\n';
+    const dir = path.join(vaultDir, 'EOFGATE');
+    const note = path.join(dir, 'eof-gate.md');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(note, original, 'utf8');
+
+    const prevIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    const realStdin = process.stdin;
+    const realConfigDir = process.env.PALEE_CONFIG_DIR;
+    // Captured at the stream, not by stubbing `console.log`: readline writes the
+    // question straight to `process.stdout`, and `console.log` travels through it.
+    const realWrite = process.stdout.write.bind(process.stdout);
+    let printed = '';
+    process.env.PALEE_CONFIG_DIR = tempDir;
+    Object.defineProperty(process, 'stdin', {
+      value: Object.assign(Readable.from([]), { isTTY: true }),
+      configurable: true,
+      writable: true,
+    });
+    process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      void rest;
+      return true;
+    }) as typeof process.stdout.write;
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    let noteAfter: string;
+    try {
+      const { default: adoptEntry } = await import('../src/cli/adopt');
+      await adoptEntry(undefined, { all: true });
+    } finally {
+      noteAfter = fs.existsSync(note) ? fs.readFileSync(note, 'utf8') : '<deleted>';
+      process.stdout.write = realWrite as typeof process.stdout.write;
+      Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      if (realConfigDir === undefined) delete process.env.PALEE_CONFIG_DIR;
+      else process.env.PALEE_CONFIG_DIR = realConfigDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+    }
+    const exitCode = process.exitCode;
+    process.exitCode = previousExitCode;
+
+    assert.match(printed, /Proceed with adoption\? \(y\/N\): /, printed);
+    assert.match(printed, /Aborted\./, 'EOF is a decline, the same answer an empty line gives');
+    assert.match(
+      printed,
+      /Proceed with adoption\? \(y\/N\): \n/,
+      'EOF leaves a clean line after the prompt'
+    );
+    assert.strictEqual(exitCode, undefined, 'an aborted prompt is a clean exit 0, not an error');
+    assert.strictEqual(noteAfter, original, 'and the note keeps its unadopted bytes');
   });
 
   test('palee adopt rejects path escaping vault with code 2', () => {

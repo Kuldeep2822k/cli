@@ -79,6 +79,10 @@ const README_LESSON_MIN_WORDS = 200;
  *
  * @remarks
  * Creates a standard readline interface on `process.stdin` and `process.stdout`.
+ * EOF — Ctrl+D on a TTY whose input ends — closes that interface without invoking
+ * the question callback, so the close handler settles the promise as a "No" — an
+ * aborted run declines instead of hanging, and `rl.close()` inside the callback
+ * cannot report a second answer.
  *
  * @example
  * ```typescript
@@ -92,7 +96,15 @@ async function promptConfirmation(message: string): Promise<boolean> {
   });
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.once('close', () => {
+      if (answered) return;
+      answered = true;
+      process.stdout.write('\n');
+      resolve(false);
+    });
     rl.question(message, (answer) => {
+      answered = true;
       rl.close();
       const normalized = answer.trim().toLowerCase();
       resolve(normalized === 'y' || normalized === 'yes');
