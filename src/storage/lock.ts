@@ -489,6 +489,24 @@ function createLock(lockDir: string, targetPath: string): LockData {
       if (err.code !== 'EEXIST') throw err;
 
       // The lock directory exists. We must inspect it to see if we can recover it.
+      // Check if the lockdir itself is a symlink or not a directory — a planted symlink
+      // pointing outside the vault would let stale recovery delete or rename files there.
+      // Use lstatSync (like the lstat-based probe at ~line 332-338) so we stat the link
+      // itself, not its target. Before any readdir/unlink/rename happens.
+      try {
+        const lockStat = fs.lstatSync(lockDir);
+        if (!lockStat.isDirectory() || lockStat.isSymbolicLink()) {
+          throw lockConflict(`${targetPath} has an invalid lock directory`);
+        }
+      } catch (lstatErr: unknown) {
+        const code = (lstatErr as NodeError).code;
+        if (code === 'ENOENT') {
+          // Directory was removed, retry mkdir
+          continue;
+        }
+        throw lstatErr;
+      }
+
       let files: string[];
       try {
         files = fs.readdirSync(lockDir);
