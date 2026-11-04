@@ -201,9 +201,14 @@ describe('CLI Adopt Batch Integration Tests', () => {
       configurable: true,
       writable: true,
     });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
     process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
-      void rest;
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
       return true;
     }) as typeof process.stdout.write;
     const previousExitCode = process.exitCode;
@@ -265,9 +270,14 @@ describe('CLI Adopt Batch Integration Tests', () => {
       configurable: true,
       writable: true,
     });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
     process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
-      void rest;
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
       return true;
     }) as typeof process.stdout.write;
     const previousExitCode = process.exitCode;

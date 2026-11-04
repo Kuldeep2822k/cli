@@ -951,12 +951,19 @@ depends_on: []
       const realStderrWrite = process.stderr.write;
       let stdout = '';
       let stderr = '';
-      const capture = (sink: (text: string) => void) =>
-        ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-          void rest;
-          sink(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      const capture = (stream: NodeJS.WriteStream, sink: (text: string) => void) => {
+        const realWrite = stream.write.bind(stream);
+        // Node 22's `node --test` child reports through this stream with Buffer
+        // chunks; forward those to the real stream and capture only the CLI's
+        // string writes, so runner frames cannot land inside a captured line.
+        return ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+          if (typeof chunk !== 'string') {
+            return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+          }
+          sink(chunk);
           return true;
-        }) as typeof process.stdout.write;
+        }) as typeof stream.write;
+      };
       const answer = (): void => {
         Object.defineProperty(process, 'stdin', {
           value: Object.assign(Readable.from(['testkey-prompt-4f4e\n']), { isTTY: true }),
@@ -967,8 +974,8 @@ depends_on: []
 
       const prevIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-      process.stdout.write = capture((text) => { stdout += text; });
-      process.stderr.write = capture((text) => { stderr += text; });
+      process.stdout.write = capture(process.stdout, (text) => { stdout += text; });
+      process.stderr.write = capture(process.stderr, (text) => { stderr += text; });
       try {
         answer();
         await configCommand('set-api-key', undefined, { json: true });
@@ -1009,17 +1016,24 @@ depends_on: []
       const realStderrWrite = process.stderr.write;
       let stdout = '';
       let stderr = '';
-      const capture = (sink: (text: string) => void) =>
-        ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-          void rest;
-          sink(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      const capture = (stream: NodeJS.WriteStream, sink: (text: string) => void) => {
+        const realWrite = stream.write.bind(stream);
+        // Node 22's `node --test` child reports through this stream with Buffer
+        // chunks; forward those to the real stream and capture only the CLI's
+        // string writes, so runner frames cannot land inside a captured line.
+        return ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+          if (typeof chunk !== 'string') {
+            return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+          }
+          sink(chunk);
           return true;
-        }) as typeof process.stdout.write;
+        }) as typeof stream.write;
+      };
 
       const prevIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-      process.stdout.write = capture((text) => { stdout += text; });
-      process.stderr.write = capture((text) => { stderr += text; });
+      process.stdout.write = capture(process.stdout, (text) => { stdout += text; });
+      process.stderr.write = capture(process.stderr, (text) => { stderr += text; });
       Object.defineProperty(process, 'stdin', {
         value: Object.assign(Readable.from([]), { isTTY: true }),
         configurable: true,

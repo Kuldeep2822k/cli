@@ -649,9 +649,14 @@ describe('palee adopt --undo reverses adoption without touching authored content
     const prevIsTTY = process.stdout.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process, 'stdin', { value: answered, configurable: true, writable: true });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
     process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
-      void rest;
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
       return true;
     }) as typeof process.stdout.write;
     const previousExitCode = process.exitCode;
@@ -700,9 +705,14 @@ describe('palee adopt --undo reverses adoption without touching authored content
     const prevIsTTY = process.stdout.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process, 'stdin', { value: exhausted, configurable: true, writable: true });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
     process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
-      void rest;
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
       return true;
     }) as typeof process.stdout.write;
     const previousExitCode = process.exitCode;
