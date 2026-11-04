@@ -41,6 +41,7 @@ describe('Session CLI Coverage', () => {
       'T-corrupt-draft',
       'T-future-test',
       'T-ongoing-topic',
+      'T-stale-marker-test',
     ]) {
       seedTopic(id);
     }
@@ -764,5 +765,79 @@ describe('Session CLI Coverage', () => {
     assert.strictEqual(payload.session_id, sessionId);
     assert.strictEqual(payload.topic_id, topicId);
     assert.strictEqual(fs.existsSync(markerFile), false);
+  });
+
+  test('session start reuses active marker only if session is not completed (#565)', async () => {
+    // Positive control: repeated start of an in-progress session still reuses its ID
+    const inProgressTopic = 'T-ongoing-topic';
+    const inProgressSessionId = 'S-inprogress-control';
+    
+    await updateHotMemory(vaultDir, null, inProgressTopic, 'In progress notes', new Date(Date.now() - 60000).toISOString());
+    const activeMarkerPath = path.join(vaultDir, '.palee', 'active-session.md');
+    fs.writeFileSync(activeMarkerPath, `---\npalee_schema: 1\nsession_id: ${inProgressSessionId}\ntopic_id: ${inProgressTopic}\nstarted_at: "${new Date(Date.now() - 60000).toISOString()}"\n---\n# Active\n`, 'utf8');
+    
+    process.exitCode = undefined;
+    await sessionCommand('start', { topic: inProgressTopic });
+    const freshMarkerResult = parseFrontmatter(fs.readFileSync(activeMarkerPath, 'utf8'));
+    assert.strictEqual(process.exitCode, undefined);
+    assert.strictEqual(freshMarkerResult?.frontmatter?.session_id, inProgressSessionId, 'Repeated start on in-progress session must reuse same ID');
+
+    // Negative control: complete a session and create a stale marker referencing that completed ID
+    const completedTopic = 'T-stale-marker-test';
+    const completedSessionId = 'S-completed-stale-id';
+    const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+    
+    // Create completed session note
+    fs.writeFileSync(
+      path.join(sessionsDir, `${completedSessionId}.md`),
+      `---\npalee_schema: 1\nsession_id: ${completedSessionId}\ntopic_id: ${completedTopic}\nstatus: completed\nstarted_at: "2026-10-14T00:00:00.000Z"\nended_at: "2026-10-14T00:30:00.000Z"\nduration_minutes: 30\n---\n# Completed Session\n`,
+      'utf8'
+    );
+    
+    // Seed hot.md with active_topic pointing to completedTopic
+    const hotPath = path.join(vaultDir, '.palee', 'hot.md');
+    const originalHotResult = parseFrontmatter(fs.readFileSync(hotPath, 'utf8'));
+    const lastSessionValue = originalHotResult?.frontmatter?.last_session as string | undefined;
+    await updateHotMemory(vaultDir, lastSessionValue ?? null, completedTopic, 'Stale marker test notes', new Date(Date.now() - 60000).toISOString());
+    
+    // Manually craft a stale active-session marker that survived lock conflict
+    // (simulating the lock-contention case from src/storage/memory.ts ~lines 505-520)
+    fs.writeFileSync(
+      activeMarkerPath,
+      `---\npalee_schema: 1\nsession_id: ${completedSessionId}\ntopic_id: ${completedTopic}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Stale Active\n`,
+      'utf8'
+    );
+    
+    // Verify hasCompletedSession returns true for the marker's session_id
+    const { hasCompletedSession } = await import('../src/storage');
+    assert.ok(hasCompletedSession(vaultDir, completedSessionId), 'fixture setup: session must be completed');
+    
+    // Run session start on the same topic
+    const logsBefore: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => { logsBefore.push(String(msg ?? '')); };
+    try {
+      process.exitCode = undefined;
+      await sessionCommand('start', { topic: completedTopic });
+    } finally {
+      console.log = origLog;
+    }
+    
+    assert.strictEqual(process.exitCode, undefined, 'session start must succeed');
+    
+    // Read back the active-session marker after the start
+    const updatedMarkerResult = parseFrontmatter(fs.readFileSync(activeMarkerPath, 'utf8'));
+    
+    // CRITICAL FIX VERIFICATION: a NEW session ID must be issued
+    const newSessionId = updatedMarkerResult?.frontmatter?.session_id as string | undefined;
+    assert.ok(newSessionId !== undefined && newSessionId.length > 0, 'new session_id must exist and be non-empty');
+    assert.notStrictEqual(newSessionId, completedSessionId, 
+      'session start must NOT reuse a completed session ID; a fresh ID should be generated');
+    assert.ok(/^S-[\w-]+$/.test(newSessionId), 'the new session_id must match the S-* pattern');
+    
+    // The subsequent end must record the new session successfully (not print already-recorded)
+    // We use a test seam by checking the marker now points to the new ID and hasCompletedSession will return false
+    assert.ok(!hasCompletedSession(vaultDir, newSessionId!), 
+      'the new session ID must not yet be completed so that end can record it');
   });
 });

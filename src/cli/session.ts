@@ -486,7 +486,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           throw new Error('.palee/hot.md disappeared after session start write');
         }
         await writeActiveSession(vaultPath, {
-          session_id: activeSession?.topic_id === resolvedTopic
+          session_id: (activeSession?.topic_id === resolvedTopic && !hasCompletedSession(vaultPath, activeSession.session_id))
             ? activeSession.session_id
             : generateSessionId(),
           topic_id: resolvedTopic,
