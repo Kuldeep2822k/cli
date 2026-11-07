@@ -9,6 +9,9 @@ import { isConflictError } from '../src/storage/atomic-write';
 import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
 import { NodeError } from '../src/types';
 
+/** Symlink type that works on both POSIX and Windows without elevated rights. */
+const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
+
 function getLockData(lockDir: string) {
   if (!fs.existsSync(lockDir)) return null;
   try {
@@ -1691,6 +1694,100 @@ describe('File Locking', () => {
       await assert.doesNotReject(
         async () => await lock2.acquire()
       );
+    } finally {
+      lock1.release();
+      lock2.release();
+    }
+  });
+
+  test('refuses a symlinked .lockdir that points outside the vault (#565 P2-03)', async (t) => {
+    // Test that when a .lockdir is pre-planted as a symlink to an external directory,
+    // createLock refuses it during recovery instead of following and deleting files there.
+    const tempOutside = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-symlink-target-'));
+    const maliciousFile = path.join(tempOutside, 'protected-file.md');
+    fs.writeFileSync(maliciousFile, 'this should not be deleted', 'utf8');
+    
+    const faultVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-symlink-'));
+    const faultFile = path.join(faultVault, 'symlink-target-' + Math.random().toString(36).slice(2) + '.md');
+    fs.writeFileSync(faultFile, '# Symlink Target', 'utf8');
+    
+    // Plant the lock directory as a link pointing outside the vault. LINK_TYPE is
+    // 'junction' on Windows — creatable without elevated rights — so the refusal
+    // under test runs on every CI leg instead of being skipped; the constant is
+    // lifted from the prior art in test/storage-relative-path.test.ts.
+    const lockObj = new Lock(faultVault, faultFile);
+    try {
+      fs.symlinkSync(tempOutside, lockObj.lockPath, LINK_TYPE);
+    } catch (e: any) {
+      if (e.code === 'EPERM' || e.code === 'ENOTSUP') {
+        // The selected link type itself cannot be created in this environment
+        // (e.g. junctions disallowed in a sandbox); the skip must be visible,
+        // never a silent pass (test/platform-guard-census.test.ts).
+        fs.rmSync(tempOutside, { recursive: true, force: true });
+        fs.rmSync(faultVault, { recursive: true, force: true });
+        t.skip('directory link creation is not permitted in this environment');
+        return;
+      }
+      throw e;
+    }
+    
+    // Attempting to acquire should fail with a conflict error about invalid lock dir
+    const acquirer = new Lock(faultVault, faultFile);
+    try {
+      await assert.rejects(
+        () => acquirer.acquire(),
+        (err: Error & { code?: string }) => {
+          assert.strictEqual(err.code, 'ECONFLICT', 'expected a lock conflict error');
+          assert.match(err.message, /invalid lock directory/, 'must mention invalid lock directory');
+          return true;
+        },
+        'should refuse symlinked lockdir with ECONFLICT'
+      );
+    } finally {
+      acquirer.release();
+      // Verify the file outside was NOT touched/deleted by stale recovery
+      assert.ok(fs.existsSync(maliciousFile), 'file in symlink target must not be deleted');
+      assert.strictEqual(
+        fs.readFileSync(maliciousFile, 'utf8'),
+        'this should not be deleted',
+        'content in symlink target must remain unchanged'
+      );
+      fs.rmSync(tempOutside, { recursive: true, force: true });
+      fs.rmSync(faultVault, { recursive: true, force: true });
+    }
+  });
+
+  test('genuine directory lockdir is still recovered normally after symlinks are refused', async () => {
+    // Positive control: ensure normal stale recovery still works for real directories
+    const lock1 = new Lock(testVaultPath, testFilePath);
+    await lock1.acquire();
+    const lockPath = lock1.lockPath;
+    
+    // Make the lock stale
+    const files = fs.readdirSync(lockPath).filter(f => f.endsWith('.json'));
+    const [lockFileName] = files;
+    assert.ok(lockFileName !== undefined);
+    const lockFile = path.join(lockPath, lockFileName);
+    
+    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 1000);
+    fs.utimesSync(lockFile, staleTime, staleTime);
+    
+    // Stop heartbeat so lock doesn't refresh
+    const seedTimer = (lock1 as unknown as { heartbeatTimer: ReturnType<typeof setInterval> | null }).heartbeatTimer;
+    if (seedTimer) clearInterval(seedTimer);
+    
+    // Capture the first lock's ID before the second acquisition
+    const firstLockId = getLockData(lockPath)?.lock_id;
+    assert.ok(typeof firstLockId === 'string' && firstLockId.length > 0, 'should have a valid first lock ID');
+    
+    // A second acquisition should succeed via stale recovery
+    const lock2 = new Lock(testVaultPath, testFilePath);
+    try {
+      await lock2.acquire();
+      
+      const newLockData = getLockData(lockPath);
+      assert.notStrictEqual(newLockData?.lock_id, firstLockId, 'should have new lock id');
+      assert.strictEqual(newLockData?.pid, process.pid, 'should record our pid');
     } finally {
       lock1.release();
       lock2.release();
