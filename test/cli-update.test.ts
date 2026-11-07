@@ -814,4 +814,44 @@ describe('update: the network boundary is unchanged (INV-29)', () => {
       }
     });
   });
+
+  test('a mixed-case PALEE_API_KEY never reaches the npm child on win32 (#565)', { skip: process.platform !== 'win32' }, () => {
+    withTempConfigDir(() => {
+      const PALEE_SECRET = 'supersensitive-token-12345';
+      const PALEE_OTHER = 'should-be-preserved';
+      const priorMixedKey = process.env['Palee_Api_Key'];
+      const priorPaleyKey = process.env.PALEE_API_KEY;
+      const priorPaleeOther = process.env.PALEE_OTHER;
+      try {
+        // win32 keeps the first spelling a name was set under, so the
+        // mixed-case seed is authoritative only when no exact key pre-exists;
+        // that case is the test above.
+        delete process.env.PALEE_API_KEY;
+        process.env['Palee_Api_Key'] = PALEE_SECRET;
+        process.env.PALEE_OTHER = PALEE_OTHER;
+        const seen: unknown[] = [];
+        withSpawnStub(
+          (...args: unknown[]) => {
+            seen.push(args[2]);
+            return spawnResult({ stdout: '99.0.0\n' });
+          },
+          () => {
+            evaluateUpdate('1.0.0', { force: true, timeoutMs: 5000 });
+          }
+        );
+        assert.strictEqual(seen.length, 1, 'the forced probe spawns npm exactly once');
+        const options = seen[0] as { env?: NodeJS.ProcessEnv };
+        const leaked = Object.keys(options.env ?? {}).filter((k) => k.toUpperCase() === 'PALEE_API_KEY');
+        assert.deepStrictEqual(leaked, [], 'no case variant of PALEE_API_KEY reaches the child env');
+        assert.strictEqual(options.env?.PALEE_OTHER, PALEE_OTHER, 'PALEE_OTHER is preserved');
+      } finally {
+        if (priorMixedKey === undefined) delete process.env['Palee_Api_Key'];
+        else process.env['Palee_Api_Key'] = priorMixedKey;
+        if (priorPaleyKey === undefined) delete process.env.PALEE_API_KEY;
+        else process.env.PALEE_API_KEY = priorPaleyKey;
+        if (priorPaleeOther === undefined) delete process.env.PALEE_OTHER;
+        else process.env.PALEE_OTHER = priorPaleeOther;
+      }
+    });
+  });
 });
