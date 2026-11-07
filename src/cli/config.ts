@@ -85,6 +85,23 @@ function isConfigDirStorableForKey(dir: string, roots: string[]): boolean {
 }
 
 /**
+ * Decides whether the Windows profile-location refusal is overridden.
+ *
+ * @param value - The raw `PALEE_ALLOW_INSECURE_CONFIG_DIR` value.
+ * @returns `true` only for `1` and `true` (trimmed, case-insensitive).
+ *
+ * @remarks
+ * Truthiness used to be the whole test, so `=0` and `=false` — the conventional
+ * false spellings — disarmed the guard and stored the key outside the profile.
+ * Only `1` and `true` opt in; every other value, including an empty one, keeps
+ * the refusal active.
+ */
+function isInsecureConfigDirAllowed(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true';
+}
+
+/**
  * Canonicalizes a path for the containment check: collapses 8.3 short names
  * (`RUNNER~1` → `runneradmin`) and symlinks. Only `fs.realpathSync.native`
  * (GetFinalPathNameByHandle) does this — the JS `fs.realpathSync` preserves the
@@ -653,7 +670,7 @@ async function configCommand(
       // to write the key there rather than store it where another principal can
       // read it (#316). The override is for a directory the user has secured by
       // other means, which this location heuristic cannot see.
-      if (process.platform === 'win32' && !process.env.PALEE_ALLOW_INSECURE_CONFIG_DIR) {
+      if (process.platform === 'win32' && !isInsecureConfigDirAllowed(process.env.PALEE_ALLOW_INSECURE_CONFIG_DIR)) {
         const dir = path.dirname(getConfigPath());
         const roots = profileRoots();
         if (!isConfigDirStorableForKey(dir, roots)) {
@@ -776,5 +793,5 @@ async function configCommand(
   }
 }
 
-export { loadConfig, saveConfig, isConfigDirStorableForKey, getConfigPath };
+export { loadConfig, saveConfig, isConfigDirStorableForKey, isInsecureConfigDirAllowed, getConfigPath };
 export default configCommand;
