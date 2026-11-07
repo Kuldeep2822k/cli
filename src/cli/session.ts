@@ -218,6 +218,28 @@ function reportNoActiveSession(jsonMode: boolean): void {
 }
 
 /**
+ * Whether a start may reuse the active marker's session ID.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param sessionId - Session ID carried by the active-session marker
+ * @returns `true` only when the ID's session note proves it is not completed
+ * @remarks
+ * {@link hasCompletedSession} rethrows every read failure except ENOENT so `session end`
+ * never mistakes an unreadable note for an unrecorded one. A start has nothing to protect,
+ * but it also has no proof: an unreadable note at the marker's ID could be a completed
+ * session whose reuse would revive the silent-loss collision #565 fixed, so an unreadable
+ * ID is treated as spent and the start mints a fresh one instead of failing.
+ */
+function markerIdReusable(vaultPath: string, sessionId: string): boolean {
+  try {
+    return !hasCompletedSession(vaultPath, sessionId);
+  } catch {
+    // The marker's note cannot be read, so reuse is unprovable.
+    return false;
+  }
+}
+
+/**
  * CLI command handler for managing learning session lifecycle and working memory.
  *
  * @param action - Session action: `'start'`, `'end'`, `'draft'`, or `'list'`
@@ -486,7 +508,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           throw new Error('.palee/hot.md disappeared after session start write');
         }
         await writeActiveSession(vaultPath, {
-          session_id: activeSession?.topic_id === resolvedTopic
+          session_id: (activeSession?.topic_id === resolvedTopic && markerIdReusable(vaultPath, activeSession.session_id))
             ? activeSession.session_id
             : generateSessionId(),
           topic_id: resolvedTopic,
