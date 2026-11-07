@@ -77,6 +77,12 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const activeTopics = Array.from(topics.values()).filter(t => t.status !== 'archived');
     const archivedCount = topics.size - activeTopics.length;
 
+    // Quarantine the graph once per run (#565 P2-08): the prerequisite gate
+    // consumes the acyclic subgraph and the sections below consume the cycle
+    // list, and both used to rebuild adjacency and re-run Tarjan on their own.
+    // Cycle enumeration is the most expensive pass in this command.
+    const quarantined = quarantineCyclicTopics(topics);
+
     // The one prerequisite gate, shared with `next` and `dashboard` through the
     // `get-next-topics` use-case: a topic is blocked when it is active, not yet
     // mastered, and holds a prerequisite below `MASTERY_THRESHOLD` (or a
@@ -84,7 +90,11 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // included, so a mastered archived prereq keeps satisfying its dependents —
     // and drives BOTH sections below, which is what keeps a blocked note out of
     // "Reviews Due" (#306) instead of listing it twice.
-    const blockedGate = findPrerequisiteBlocked(Array.from(topics.values()), MASTERY_THRESHOLD);
+    const blockedGate = findPrerequisiteBlocked(
+      Array.from(topics.values()),
+      MASTERY_THRESHOLD,
+      quarantined.acyclic
+    );
 
     // `next`/`plan` treat a never-scheduled topic as actionable now, so the due
     // list is both elapsed reviews and never-reviewed topics (see partitionDue),
@@ -126,7 +136,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     // ready-to-learn list is computed over the acyclic subgraph only. Reviews
     // due (SM-2 state) stay on the full map — a quarantined topic's review
     // schedule is still real.
-    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantineCyclicTopics(topics);
+    const { acyclic: acyclicTopics, cycles: quarantinedCycles, truncated: cyclesTruncated } = quarantined;
 
     // Quarantine counter covers learnable topics only (BUG-002).
     const quarantinedActiveCount = activeTopics.filter(t => !acyclicTopics.has(t.palee_id)).length;
