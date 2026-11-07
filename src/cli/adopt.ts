@@ -8,6 +8,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
+import { sanitizeForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
@@ -482,7 +483,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       if (options.dryRun) {
         console.log(`Dry run: would adopt ${targetPath} as a new topic`);
-        console.log(`  Title: ${title}`);
+        console.log(`  Title: ${sanitizeForDisplay(title)}`);
         console.log(`  Difficulty: ${effectiveDifficulty}`);
         if (dependsOn.length > 0) {
           console.log(`  Dependencies: ${dependsOn.join(', ')}`);
@@ -507,7 +508,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
 
       console.log(`✓ Adopted as topic ${topicId}`);
-      console.log(`  Title: ${title}`);
+      console.log(`  Title: ${sanitizeForDisplay(title)}`);
       console.log(`  Path: ${targetPath}`);
       console.log(`  Difficulty: ${effectiveDifficulty}`);
       if (dependsOn.length > 0) {

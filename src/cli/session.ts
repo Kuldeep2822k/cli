@@ -2,6 +2,7 @@ import readline from 'readline';
 import { loadConfig } from './config';
 import { isJsonOutput, emitError } from './onboarding';
 import { resolveVaultTarget, vaultTargetFields } from './vault-echo';
+import { sanitizeForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
@@ -180,7 +181,7 @@ function reportUnresolvedSessionTopic(outcome: SessionTopicFailure, jsonMode: bo
     } else {
       console.error(`Error: Multiple topics match "${outcome.query}":`);
       for (const candidate of outcome.candidates) {
-        console.error(`  - ${candidate.palee_id}: ${candidate.title}`);
+        console.error(`  - ${sanitizeForDisplay(candidate.palee_id)}: ${sanitizeForDisplay(candidate.title)}`);
       }
       console.error('Please provide a more specific query.');
     }
