@@ -393,16 +393,20 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
     const originalOpen = fs.openSync;
     const originalFsync = fs.fsyncSync;
     const dirFds = new Set<number>();
+    let dirOpenAttempted = false;
     let refusalRaised = false;
     try {
       Object.defineProperty(fs, 'openSync', {
         configurable: true,
         writable: true,
         value: (target: fs.PathLike, flags: fs.OpenMode, mode?: number | string): number => {
+          // Only the post-rename durability open uses 'r' on the vault directory.
+          // Recorded before the delegation so a platform that refuses the open
+          // itself (win32 raises EPERM on a directory handle) still pins the attempt.
+          if (flags === 'r' && target.toString() === realVault) dirOpenAttempted = true;
           const fd = mode === undefined
             ? originalOpen.call(fs, target, flags)
             : originalOpen.call(fs, target, flags, mode);
-          // Only the post-rename durability open uses 'r' on the vault directory.
           if (flags === 'r' && target.toString() === realVault) dirFds.add(fd);
           return fd;
         },
@@ -424,12 +428,13 @@ describe('atomic write mode preservation and durability (#318, #333)', () => {
       await atomicWrite(vaultPath, file, '# rewritten');
 
       assert.strictEqual(fs.readFileSync(file, 'utf8'), '# rewritten');
-      if (process.platform === 'win32') {
-        // Locally the directory fsync genuinely raises EPERM (the swallow branch fires
-        // for real); whether the forced refusal also ran is platform detail.
-        assert.ok(true);
-      } else {
-        assert.ok(refusalRaised, 'the forced refusal never reached the directory fd');
+      // The pin is the attempt, not the outcome: win32 may refuse the open itself
+      // (EPERM on a directory handle), POSIX yields an fd. Either way the
+      // post-rename durability pass must have been tried, and an fd that did
+      // exist must have reached the forced refusal.
+      assert.ok(dirOpenAttempted, 'the post-rename directory fsync was never attempted');
+      if (dirFds.size > 0) {
+        assert.ok(refusalRaised, 'a directory fd was obtained but the forced refusal never reached it');
       }
     } finally {
       Object.defineProperty(fs, 'openSync', { configurable: true, writable: true, value: originalOpen });
