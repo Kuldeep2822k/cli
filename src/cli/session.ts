@@ -542,7 +542,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       if (frontmatter) {
         console.log(`Active Topic: ${sanitizeForDisplay(String(frontmatter.active_topic || '(none)'))}`);
         console.log(`Last Session: ${sanitizeForDisplay(String(frontmatter.last_session || '(none)'))}`);
-        console.log(`Last Updated: ${frontmatter.updated_at || '(none)'}`);
+        console.log(`Last Updated: ${sanitizeForDisplay(String(frontmatter.updated_at || '(none)'))}`);
         console.log();
       }
 
