@@ -735,8 +735,9 @@ async function regenerateIndex(vaultPath: string, scanned?: SessionScan): Promis
   const indexPath = path.join(paleeDir, 'index.md');
   const { sessions, skippedCount } = scanned ?? scanSessions(getSessionsDir(vaultPath));
 
-  // Sort newest first with NaN protection
-  sessions.sort((a, b) => {
+  // Sort a copy newest first with NaN protection: `scanned` is shared with the
+  // hot-memory view, and the scan's own contract is ascending filename order.
+  const sortedSessions = [...sessions].sort((a, b) => {
     const timeA = a.started_at ? new Date(a.started_at).getTime() : 0;
     const timeB = b.started_at ? new Date(b.started_at).getTime() : 0;
     const safeA = Number.isNaN(timeA) ? 0 : timeA;
@@ -745,11 +746,11 @@ async function regenerateIndex(vaultPath: string, scanned?: SessionScan): Promis
   });
 
   let indexBody = '# PALEE Session Index\n\n';
-  if (sessions.length === 0) {
+  if (sortedSessions.length === 0) {
     indexBody += 'No confirmed sessions recorded.\n';
   } else {
-    indexBody += `Total Sessions: ${sessions.length}\n\n`;
-    for (const s of sessions) {
+    indexBody += `Total Sessions: ${sortedSessions.length}\n\n`;
+    for (const s of sortedSessions) {
       const dateStr = s.started_at ? s.started_at.split('T')[0] : 'Unknown date';
       indexBody += `- [[${s.fileStem}]] - Topic: ${s.topic_id} (${dateStr})\n`;
     }
