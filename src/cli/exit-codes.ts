@@ -1,12 +1,11 @@
 /**
- * CLI Exit Code Constants and Conflict Classification
+ * CLI Exit Code Classification
  *
  * @remarks
- * Single source of truth for the documented CLI exit-code contract
- * (see `docs/02-0-cli-commands.md`). Import `ExitCode` instead of
- * hard-coding numeric literals, and route conflict-vs-unexpected
- * classification through `exitCodeFor()` so every handler maps
- * OCC/lock conflicts identically.
+ * The documented exit-code values live in `./exit-code-values` — a leaf module
+ * the entry point can import without the storage and AI layers — and are
+ * re-exported here. Route conflict-vs-unexpected classification through
+ * `exitCodeFor()` so every handler maps OCC/lock conflicts identically.
  */
 
 import { isConflictError, isContainmentError } from '../storage';

@@ -297,7 +297,7 @@ program.hook('postAction', (_thisCommand, actionCommand) => {
 
 /**
  * Whether `PALEE_DEBUG` opts the user into a raw stack trace. Read as an env
- * var, the same way `src/cli/config.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
+ * var, the same way `src/cli/config-path.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
  * flag is added to the documented option surface (#338).
  */
 function isDebugEnabled(): boolean {

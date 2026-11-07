@@ -15,15 +15,6 @@ import { getConfigPath } from './config-path';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
- * Resolves the platform-specific path to the PALEE config JSON file.
- *
- * @remarks
- * Defined in `./config-path` and re-exported here: the leaf is what
- * `update-check` and `vault-echo` import, so they no longer pull this whole
- * handler (and the AI layer) into their module graph (#565 P2-12).
- */
-
-/**
  * The directories a Windows user's own files live under — the roots a
  * credential-bearing config may safely sit inside. Env-reading is kept here, at
  * the edge, so {@link isConfigDirStorableForKey} stays a pure function the tests
