@@ -754,11 +754,21 @@ describe('config dir guard (#316)', () => {
     }
   });
 
-  test('a false spelling of the override does not disarm the refusal (#565)', { skip: process.platform !== 'win32' }, () => {
+  test('a false spelling of the override does not disarm the refusal (#565)', { skip: process.platform !== 'win32' }, (t) => {
     // Live counterpart of the table above: with the old truthiness test, each of
-    // these values stored the key outside the profile and exited 0. Its own
-    // fixture directory, so a regression here cannot poison the refusal test below.
-    const outside = 'C:\\Users\\Public\\palee-fixture-565';
+    // these values stored the key outside the profile and exited 0.
+    let outside: string;
+    try {
+      // A unique directory this run owns: the refusal needs a location outside
+      // the profile, and the cleanup below must never delete a file it did not
+      // create.
+      outside = fs.mkdtempSync('C:\\Users\\Public\\palee-fixture-565-');
+    } catch {
+      // A hardened runner with no writable shared location cannot host this
+      // fixture; the predicate table above stays the cross-platform pin.
+      t.skip('no writable directory outside the user profile');
+      return;
+    }
     try {
       for (const value of ['0', 'false']) {
         let status = 0;
