@@ -1231,8 +1231,16 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         output: process.stdout,
       });
 
-      const answer = await new Promise<string>(resolve => {
-        rl.question('', resolve);
+      // readline stops calling the question callback once stdin reaches EOF, so a
+      // run whose input ends here would wait on a promise that never settles and
+      // exit 0 having written nothing. An empty answer already means "Aborted."
+      const answer = await new Promise<string>((resolve) => {
+        const onEof = (): void => resolve('');
+        rl.once('close', onEof);
+        rl.question('', (text) => {
+          rl.off('close', onEof);
+          resolve(text);
+        });
       });
       rl.close();
       if (answer.trim().toLowerCase() !== 'y') {

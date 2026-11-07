@@ -630,6 +630,10 @@ describe('palee adopt --undo reverses adoption without touching authored content
     // The prompt is the batch gate `adopt` already has, and a piped stdin is not a
     // TTY, so the refusal above is what a CI run sees. To exercise the branch that
     // actually asks, `process.stdin` is replaced with a readable that answers `n`.
+    // The newline shape is the only observable of the `answered` guard (#565 review):
+    // the callback's own `rl.close()` emits 'close', and a handler that did not check
+    // `answered` would write its newline between the prompt and the decline. stdout is
+    // a pipe here, so readline echoes no answer and nothing else closes that line.
     const note = writeNote('recursion.md', HUMAN_NOTE);
     runCLI(['adopt', note, '--yes']);
     const before = readNote(note);
@@ -642,10 +646,17 @@ describe('palee adopt --undo reverses adoption without touching authored content
     // miss the one line this test exists to prove.
     const realWrite = process.stdout.write.bind(process.stdout);
     let printed = '';
+    const prevIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process, 'stdin', { value: answered, configurable: true, writable: true });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
     process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
-      printed += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
-      void rest;
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
       return true;
     }) as typeof process.stdout.write;
     const previousExitCode = process.exitCode;
@@ -656,14 +667,76 @@ describe('palee adopt --undo reverses adoption without touching authored content
     } finally {
       process.stdout.write = realWrite as typeof process.stdout.write;
       Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
     }
     const exitCode = process.exitCode;
     process.exitCode = previousExitCode;
 
     assert.match(printed, /Proceed with un-adoption\? \(y\/N\): /, printed);
     assert.match(printed, /Aborted\./, printed);
+    assert.match(
+      printed,
+      /Proceed with un-adoption\? \(y\/N\): Aborted\./,
+      'the decline follows the prompt directly; the close after an answered prompt inserts no newline'
+    );
+    assert.doesNotMatch(
+      printed,
+      /Proceed with un-adoption\? \(y\/N\): \n/,
+      'no newline lands between the prompt and the decline — unguarded, the close handler writes one'
+    );
     assert.strictEqual(exitCode, undefined, 'declining is a clean exit 0, not an error');
     assert.strictEqual(readNote(note), before, 'and the note keeps every key it had');
+  });
+
+  test('EOF at the confirmation prompt declines instead of never settling', { timeout: 15000 }, async () => {
+    // Ctrl+D is the answer readline never delivers: it closes the interface and
+    // leaves the question callback uncalled, so the pending promise emptied the
+    // event loop and the run exited 0 having written nothing — an aborted
+    // un-adoption that looked exactly like a completed one (#565).
+    const note = writeNote('recursion.md', HUMAN_NOTE);
+    runCLI(['adopt', note, '--yes']);
+    const before = readNote(note);
+
+    const { Readable } = await import('node:stream');
+    const exhausted = Object.assign(Readable.from([]), { isTTY: true });
+    const realStdin = process.stdin;
+    const realWrite = process.stdout.write.bind(process.stdout);
+    let printed = '';
+    const prevIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process, 'stdin', { value: exhausted, configurable: true, writable: true });
+    // `node --test` on Node 22 tunnels its own V8-serialized test report through
+    // the child's stdout as Buffer chunks. Capture the CLI's string writes only and
+    // pass the runner's frames through, so they cannot split the prompt line.
+    process.stdout.write = ((chunk: Uint8Array | string, ...rest: unknown[]): boolean => {
+      if (typeof chunk !== 'string') {
+        return (realWrite as unknown as (...args: unknown[]) => boolean)(chunk, ...rest);
+      }
+      printed += chunk;
+      return true;
+    }) as typeof process.stdout.write;
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      const { default: adoptEntry } = await import('../src/cli/adopt');
+      await adoptEntry(undefined, { undo: true, all: true });
+    } finally {
+      process.stdout.write = realWrite as typeof process.stdout.write;
+      Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+    }
+    const exitCode = process.exitCode;
+    process.exitCode = previousExitCode;
+
+    assert.match(printed, /Proceed with un-adoption\? \(y\/N\): /, printed);
+    assert.match(printed, /Aborted\./, 'EOF is a decline, the same answer an empty line gives');
+    assert.match(
+      printed,
+      /Proceed with un-adoption\? \(y\/N\): \n/,
+      'EOF leaves a clean line after the prompt'
+    );
+    assert.strictEqual(exitCode, undefined, 'an aborted prompt is a clean exit 0, not an error');
+    assert.strictEqual(readNote(note), before, 'and no tracked key is removed');
   });
 
   test('a missing vault stops the reversal at exit 2', () => {

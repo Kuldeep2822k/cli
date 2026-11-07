@@ -577,6 +577,58 @@ describe('CLI Command In-Process Exit Codes & Coverage', () => {
       assert.strictEqual(process.exitCode, 2);
     });
 
+    test('roadmapCommand settles its confirmation prompt on EOF instead of hanging', { timeout: 15000 }, async () => {
+      // A TTY whose input ends is the case the non-interactive guard above never
+      // reaches: readline closes the interface without calling the question
+      // callback, so the run waited on a promise that could not settle and exited 0
+      // with nothing imported and nothing said about why (#565).
+      saveConfig({ vaultPath: vaultDir });
+      const eofRoadmap = path.join(tempDir, 'eof-roadmap.yaml');
+      fs.writeFileSync(
+        eofRoadmap,
+        'topics:\n  - id: T-eof-prompt\n    title: EOF Prompt\n    path: eof-prompt.md\n'
+      );
+
+      const { Readable } = await import('node:stream');
+      const realStdin = process.stdin;
+      const realLog = console.log;
+      const lines: string[] = [];
+      const prevIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process, 'stdin', {
+        value: Object.assign(Readable.from([]), { isTTY: true }),
+        configurable: true,
+        writable: true,
+      });
+      console.log = (...args: unknown[]) => {
+        lines.push(args.map((a) => String(a)).join(' '));
+      };
+      try {
+        await roadmapCommand({ from: eofRoadmap });
+      } finally {
+        console.log = realLog;
+        Object.defineProperty(process, 'stdin', { value: realStdin, configurable: true, writable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: prevIsTTY, configurable: true });
+      }
+
+      assert.match(lines.join('\n'), /Proceed\? \(y\/N\): /, 'the run really reached the question');
+      assert.match(lines.join('\n'), /Aborted\./, 'EOF declines, the same way an empty answer does');
+      // The opposite of the adopt and adopt-undo EOF pins (#565 review): this prompt
+      // path writes no newline of its own, so within the captured output the decline
+      // follows the prompt line directly and nothing blank is left after it.
+      assert.match(
+        lines.join('\n'),
+        /Proceed\? \(y\/N\): \nAborted\./,
+        'the prompt line is followed by the decline, with nothing written between them'
+      );
+      assert.strictEqual(lines[lines.length - 1], 'Aborted.', 'and the run ends on the decline line');
+      assert.strictEqual(process.exitCode, undefined, 'a declined import leaves the exit code untouched');
+      assert.ok(
+        !fs.existsSync(path.join(vaultDir, 'eof-prompt.md')),
+        'and the aborted import writes no note'
+      );
+    });
+
     test('with valid roadmap and --yes succeeds', async () => {
       saveConfig({ vaultPath: vaultDir });
       const validRoadmap = path.join(tempDir, 'valid-roadmap.yaml');
