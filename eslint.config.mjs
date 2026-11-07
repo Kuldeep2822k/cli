@@ -12,7 +12,9 @@ export default tseslint.config(
     // scratch clone — brings its own `eslint.config.mjs`, which ESLint discovers and
     // merges. Two configs then ask for a TS program from different roots and every file
     // in the run fails to parse (217 main-tree files, measured), not just the copy.
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'docs/.vitepress/dist/**', 'docs/.vitepress/cache/**', '.agents/**', '.claude/**', '.qoder/**']
+    // The dynamic-workflow harness drops generated scripts under `.zcode/` too
+    // (drafts and run transcripts, regenerated per run): machine output, not repo code.
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'docs/.vitepress/dist/**', 'docs/.vitepress/cache/**', '.agents/**', '.claude/**', '.qoder/**', '.zcode/**']
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
