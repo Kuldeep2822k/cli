@@ -6,7 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { resolveSessionTopic, sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex } from '../src/storage';
+import { parseFrontmatter, updateHotMemory, rebuildHotAndIndex, hasCompletedSession } from '../src/storage';
 import { PALEE_DIST_ARGV, withoutCoverage, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 
 describe('Session CLI Coverage', () => {
@@ -809,7 +809,6 @@ describe('Session CLI Coverage', () => {
     );
     
     // Verify hasCompletedSession returns true for the marker's session_id
-    const { hasCompletedSession } = await import('../src/storage');
     assert.ok(hasCompletedSession(vaultDir, completedSessionId), 'fixture setup: session must be completed');
     
     // Run session start on the same topic
@@ -835,9 +834,93 @@ describe('Session CLI Coverage', () => {
       'session start must NOT reuse a completed session ID; a fresh ID should be generated');
     assert.ok(/^S-[\w-]+$/.test(newSessionId), 'the new session_id must match the S-* pattern');
     
-    // The subsequent end must record the new session successfully (not print already-recorded)
-    // We use a test seam by checking the marker now points to the new ID and hasCompletedSession will return false
-    assert.ok(!hasCompletedSession(vaultDir, newSessionId!), 
+    // The reissued ID must not merely exist in the marker — the end that follows the
+    // start has to actually record it, or a fresh ID that mishandles the end path
+    // would still pass every assertion above.
+    assert.ok(!hasCompletedSession(vaultDir, newSessionId!),
       'the new session ID must not yet be completed so that end can record it');
+
+    const endLogs: string[] = [];
+    const endOrigLog = console.log;
+    console.log = (msg?: unknown) => { endLogs.push(String(msg ?? '')); };
+    try {
+      process.exitCode = undefined;
+      await sessionCommand('end', { topic: completedTopic });
+    } finally {
+      console.log = endOrigLog;
+    }
+
+    assert.strictEqual(process.exitCode, undefined, 'session end must record the reissued ID');
+    assert.ok(endLogs.some((l) => l.includes(`✓ Session recorded: ${newSessionId}`)),
+      'end must record the reissued ID, not report it already recorded');
+    const endedNotePath = path.join(sessionsDir, `${newSessionId}.md`);
+    assert.ok(fs.existsSync(endedNotePath), 'end must write the completed note for the reissued ID');
+    const endedNote = parseFrontmatter(fs.readFileSync(endedNotePath, 'utf8'));
+    assert.strictEqual(endedNote?.frontmatter?.session_id, newSessionId);
+    assert.strictEqual(endedNote?.frontmatter?.status, 'completed');
+    assert.ok(hasCompletedSession(vaultDir, newSessionId!), 'the reissued ID counts as completed after the end');
+  });
+
+  test('session start issues a fresh ID when the marker names an unreadable session note (#565)', async () => {
+    const topicId = 'T-stale-marker-test';
+    const unreadableSessionId = 'S-unreadable-note';
+    const sessionsDir = path.join(vaultDir, '.palee', 'sessions');
+    const activeMarkerPath = path.join(vaultDir, '.palee', 'active-session.md');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    await updateHotMemory(vaultDir, null, topicId, 'Unreadable marker notes', new Date(Date.now() - 60000).toISOString());
+
+    // The note at the marker's session ID is a directory: reading it fails with a
+    // non-ENOENT error, which hasCompletedSession rethrows — start must not inherit
+    // that throw.
+    fs.mkdirSync(path.join(sessionsDir, `${unreadableSessionId}.md`));
+    fs.writeFileSync(
+      activeMarkerPath,
+      `---\npalee_schema: 1\nsession_id: ${unreadableSessionId}\ntopic_id: ${topicId}\nstarted_at: "2026-10-14T00:00:00.000Z"\n---\n# Unreadable marker\n`,
+      'utf8'
+    );
+
+    assert.throws(
+      () => hasCompletedSession(vaultDir, unreadableSessionId),
+      'fixture setup: reading the marker\'s session note must throw'
+    );
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => { logs.push(String(msg ?? '')); };
+    try {
+      process.exitCode = undefined;
+      await sessionCommand('start', { topic: topicId });
+    } finally {
+      console.log = origLog;
+    }
+
+    assert.strictEqual(process.exitCode, undefined, 'session start must succeed despite the unreadable note');
+
+    const updatedMarker = parseFrontmatter(fs.readFileSync(activeMarkerPath, 'utf8'));
+    const freshId = updatedMarker?.frontmatter?.session_id as string | undefined;
+    assert.ok(freshId !== undefined && freshId.length > 0, 'the marker must carry a session_id after start');
+    assert.notStrictEqual(freshId, unreadableSessionId,
+      'an unreadable note cannot prove the marker ID is safe to reuse, so start must issue a fresh one');
+    assert.ok(/^S-[\w-]+$/.test(freshId!), 'the fresh session_id must match the S-* pattern');
+
+    // The reissued ID must be a usable session: end records it as completed.
+    const endLogs: string[] = [];
+    const endOrigLog = console.log;
+    console.log = (msg?: unknown) => { endLogs.push(String(msg ?? '')); };
+    try {
+      process.exitCode = undefined;
+      await sessionCommand('end', { topic: topicId });
+    } finally {
+      console.log = endOrigLog;
+    }
+
+    assert.strictEqual(process.exitCode, undefined, 'session end must record the reissued ID');
+    assert.ok(endLogs.some((l) => l.includes(`✓ Session recorded: ${freshId}`)),
+      'end must record the reissued ID, not report it already recorded');
+    const endedNote = parseFrontmatter(fs.readFileSync(path.join(sessionsDir, `${freshId}.md`), 'utf8'));
+    assert.strictEqual(endedNote?.frontmatter?.session_id, freshId);
+    assert.strictEqual(endedNote?.frontmatter?.status, 'completed');
+    assert.ok(hasCompletedSession(vaultDir, freshId!), 'the reissued ID counts as completed after the end');
   });
 });
