@@ -1700,7 +1700,7 @@ describe('File Locking', () => {
     }
   });
 
-  test('refuses a symlinked .lockdir that points outside the vault (#565 P2-03)', async () => {
+  test('refuses a symlinked .lockdir that points outside the vault (#565 P2-03)', async (t) => {
     // Test that when a .lockdir is pre-planted as a symlink to an external directory,
     // createLock refuses it during recovery instead of following and deleting files there.
     const tempOutside = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-symlink-target-'));
@@ -1713,17 +1713,19 @@ describe('File Locking', () => {
     
     // Plant the lock directory as a link pointing outside the vault. LINK_TYPE is
     // 'junction' on Windows — creatable without elevated rights — so the refusal
-    // under test runs on every CI leg instead of being skipped out of (the prior
-    // art in test/storage-relative-path.test.ts).
+    // under test runs on every CI leg instead of being skipped; the constant is
+    // lifted from the prior art in test/storage-relative-path.test.ts.
     const lockObj = new Lock(faultVault, faultFile);
     try {
       fs.symlinkSync(tempOutside, lockObj.lockPath, LINK_TYPE);
     } catch (e: any) {
       if (e.code === 'EPERM' || e.code === 'ENOTSUP') {
         // The selected link type itself cannot be created in this environment
-        // (e.g. junctions disallowed in a sandbox); skip without exercising the refusal.
+        // (e.g. junctions disallowed in a sandbox); the skip must be visible,
+        // never a silent pass (test/platform-guard-census.test.ts).
         fs.rmSync(tempOutside, { recursive: true, force: true });
         fs.rmSync(faultVault, { recursive: true, force: true });
+        t.skip('directory link creation is not permitted in this environment');
         return;
       }
       throw e;
