@@ -48,6 +48,33 @@ export interface NpmInvocation {
 }
 
 /**
+ * Strips PALEE_API_KEY from a child process environment.
+ *
+ * @param env - The environment to sanitize
+ * @returns A copy with PALEE_API_KEY removed (every case variant on Windows)
+ *
+ * @remarks
+ * win32 matches environment names case-insensitively, but Node preserves each
+ * name's spelling when enumerating `process.env`, so the copy can carry a
+ * mixed-case PALEE_API_KEY that exact-key deletion leaves in place. There the
+ * copy's own keys are enumerated and every name whose uppercase form is
+ * `PALEE_API_KEY` is deleted; elsewhere names are case-sensitive and the exact
+ * spelling is the only one that carries the credential. All other PALEE_*
+ * variables, PATH, HOME, proxy settings, and npm_config_* variables are preserved.
+ */
+function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sanitized = { ...env };
+  if (process.platform === 'win32') {
+    for (const key of Object.keys(sanitized)) {
+      if (key.toUpperCase() === 'PALEE_API_KEY') delete sanitized[key];
+    }
+  } else {
+    delete sanitized.PALEE_API_KEY;
+  }
+  return sanitized;
+}
+
+/**
  * Runs one npm invocation.
  *
  * @param invocation - The platform decision from {@link npmInvocationFor}
@@ -67,6 +94,11 @@ export interface NpmInvocation {
  * would print Node's DEP0190, and `process.noDeprecation` is consulted when
  * that warning is emitted, so it is set around the spawn only — npm's own
  * output is never silenced by it.
+ *
+ * We explicitly strip `PALEE_API_KEY` from the environment to prevent the npm
+ * child process or any install scripts it runs from accessing the AI provider
+ * credential. This covers both call sites (`npm view` and `npm install`) and
+ * future callers without requiring each to manually remove the key.
  */
 function spawnNpm(
   invocation: NpmInvocation,
@@ -75,11 +107,8 @@ function spawnNpm(
   const previous = process.noDeprecation;
   process.noDeprecation = true;
   try {
-    return spawnSync(invocation.command, invocation.args, {
-      ...options,
-      shell: invocation.shell,
-      cwd: os.homedir(),
-    });
+    const env = sanitizeEnv({ ...process.env, ...options.env });
+    return spawnSync(invocation.command, invocation.args, { ...options, env, shell: invocation.shell, cwd: os.homedir() });
   } finally {
     if (previous === undefined) delete process.noDeprecation;
     else process.noDeprecation = previous;
