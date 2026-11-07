@@ -120,11 +120,15 @@ function describeUnmetDependencies(
  *
  * @param topics - Loaded topics — the vault graph as one read model sees it
  * @param threshold - Mastery a prerequisite must reach to stop gating
+ * @param acyclic - The same graph's quarantined subgraph, when the caller has
+ *   already computed it (plan needs the cycle list too); omitted, this gate
+ *   quarantines the graph itself
  * @returns Map of blocked `palee_id` to blocker details, in graph order
  */
 export function findPrerequisiteBlocked(
   topics: readonly TopicNode[],
-  threshold: number = MASTERY_THRESHOLD
+  threshold: number = MASTERY_THRESHOLD,
+  acyclic?: ReadonlyMap<string, TopicNode>
 ): Map<string, BlockedNextTopic> {
   const blocked = new Map<string, BlockedNextTopic>();
 
@@ -138,9 +142,12 @@ export function findPrerequisiteBlocked(
   // needs edges) cannot find a cycle either. Skip both passes.
   if (!hasEdges) return blocked;
 
-  const { acyclic } = quarantineCyclicTopics(graph);
+  // Cycle enumeration builds adjacency and runs Tarjan over every component,
+  // and `plan` used to pay for it here and again for its own sections (#565
+  // P2-08). A caller that already holds the answer passes it in.
+  const quarantined = acyclic ?? quarantineCyclicTopics(graph).acyclic;
 
-  for (const [id, topic] of acyclic) {
+  for (const [id, topic] of quarantined) {
     if (topic.status === 'archived') continue;
     const mastery = topic.topic_mastery ?? 0;
     if (mastery >= threshold) continue;
