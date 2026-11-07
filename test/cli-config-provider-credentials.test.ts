@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { PALEE_CMD, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
-import configCommand, { loadConfig, saveConfig, isConfigDirStorableForKey } from '../src/cli/config';
+import configCommand, { loadConfig, saveConfig, isConfigDirStorableForKey, isInsecureConfigDirAllowed } from '../src/cli/config';
 
 /**
  * The invoking shell's environment minus `PALEE_JSON`: an exported env var must
@@ -733,6 +733,62 @@ describe('config dir guard (#316)', () => {
 
   test('empty roots refuses rather than assuming the location is safe', () => {
     assert.strictEqual(isConfigDirStorableForKey('C:\\Users\\fixture-alice\\palee', []), false);
+  });
+
+  test('only an affirmative override disarms the Windows guard (#565)', () => {
+    // The audit finding: the guard tested truthiness, so the conventional false
+    // spellings opted the user out of a refusal they never meant to disable.
+    for (const value of ['1', 'true', 'TRUE', ' true ']) {
+      assert.strictEqual(
+        isInsecureConfigDirAllowed(value),
+        true,
+        `${JSON.stringify(value)} must enable the override`
+      );
+    }
+    for (const value of [undefined, '', '0', 'false', 'FALSE', 'no', 'off']) {
+      assert.strictEqual(
+        isInsecureConfigDirAllowed(value),
+        false,
+        `${JSON.stringify(value)} must keep the guard active`
+      );
+    }
+  });
+
+  test('a false spelling of the override does not disarm the refusal (#565)', { skip: process.platform !== 'win32' }, () => {
+    // Live counterpart of the table above: with the old truthiness test, each of
+    // these values stored the key outside the profile and exited 0. Its own
+    // fixture directory, so a regression here cannot poison the refusal test below.
+    const outside = 'C:\\Users\\Public\\palee-fixture-565';
+    try {
+      for (const value of ['0', 'false']) {
+        let status = 0;
+        let stderr = '';
+        try {
+          execSync(`${PALEE_CMD} config set-api-key --from-env PALEE_TEST_KEY`, {
+            cwd: path.resolve(__dirname, '..'),
+            timeout: CLI_SPAWN_TIMEOUT_MS,
+            env: paleeEnv({
+              PALEE_CONFIG_DIR: outside,
+              PALEE_TEST_KEY: 'testkey-win-acl-check',
+              PALEE_ALLOW_INSECURE_CONFIG_DIR: value,
+            }),
+            encoding: 'utf8',
+            stdio: 'pipe',
+            input: '',
+          });
+        } catch (e: unknown) {
+          const err = e as { status?: number; stderr?: string };
+          status = err.status ?? 1;
+          stderr = err.stderr ?? '';
+        }
+        assert.strictEqual(status, 2, `PALEE_ALLOW_INSECURE_CONFIG_DIR=${value} must keep the refusal active`);
+        assert.match(stderr, /outside your user profile/);
+        assert.ok(!fs.existsSync(path.join(outside, 'config.json')), 'the refused key must not reach disk');
+      }
+    } finally {
+      // A regressed run stores a live credential here; leave nothing behind.
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   test('set-api-key refuses a config dir outside the profile on Windows', { skip: process.platform !== 'win32' }, () => {
