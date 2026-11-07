@@ -9,6 +9,9 @@ import { isConflictError } from '../src/storage/atomic-write';
 import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
 import { NodeError } from '../src/types';
 
+/** Symlink type that works on both POSIX and Windows without elevated rights. */
+const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
+
 function getLockData(lockDir: string) {
   if (!fs.existsSync(lockDir)) return null;
   try {
@@ -1708,13 +1711,17 @@ describe('File Locking', () => {
     const faultFile = path.join(faultVault, 'symlink-target-' + Math.random().toString(36).slice(2) + '.md');
     fs.writeFileSync(faultFile, '# Symlink Target', 'utf8');
     
-    // Plant the lock directory as a symlink pointing outside the vault
+    // Plant the lock directory as a link pointing outside the vault. LINK_TYPE is
+    // 'junction' on Windows — creatable without elevated rights — so the refusal
+    // under test runs on every CI leg instead of being skipped out of (the prior
+    // art in test/storage-relative-path.test.ts).
     const lockObj = new Lock(faultVault, faultFile);
     try {
-      fs.symlinkSync(tempOutside, lockObj.lockPath);
+      fs.symlinkSync(tempOutside, lockObj.lockPath, LINK_TYPE);
     } catch (e: any) {
       if (e.code === 'EPERM' || e.code === 'ENOTSUP') {
-        // Clean up and skip on platforms without symlink support
+        // The selected link type itself cannot be created in this environment
+        // (e.g. junctions disallowed in a sandbox); skip without exercising the refusal.
         fs.rmSync(tempOutside, { recursive: true, force: true });
         fs.rmSync(faultVault, { recursive: true, force: true });
         return;
