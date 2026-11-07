@@ -7,6 +7,7 @@ description: "This section serves as a central index for the planning/ directory
 ::: details Relevant Source Files
 
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
+- [planning/product_validation.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/product_validation.md?plain=1)
 - [docs/adr/0008-validation-framework-decisions.md](https://github.com/Kuldeep2822k/cli/blob/main/docs/adr/0008-validation-framework-decisions.md)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)
 - [planning/example_workflows.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/example_workflows.md?plain=1)
@@ -53,6 +54,18 @@ Phase 2 introduces the "Personal Active Learning" aspect via Large Language Mode
 Future iterations will support guided interviews to generate personalized learning paths. This mode will collect learner goals, constraints, and time availability to propose a Topic DAG (Directed Acyclic Graph) [planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)
 
 For details, see [Future: AI Module and Phase 2 Design](./08-2-future-ai-module-and-phase-2-design.md)
+
+---
+
+## 8.3 Product Validation
+
+The lightweight product-validation loop records whether a person can install PALEE,
+adopt a representative vault, reach a useful recommendation, and complete a first
+session. It remains manual and privacy-preserving: run records capture outcomes and
+friction, never vault contents or telemetry. Review those findings before major Phase 2
+expansion; reproducible blockers become focused GitHub issues.
+
+See [planning/product_validation.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/product_validation.md?plain=1) for the reusable checklist and the first recorded run.
 
 ---
 
@@ -138,6 +151,7 @@ Sources:[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/mai
 | `ai_module_design.md` | AI Integration | `Tool-Calling Loop`, `Assessment Proposal` |
 | `memory_design.md` | Continuity | `hot.md`, `DRAFT-S-*`, `250-word cap` |
 | `roadmap_design.md` | Curriculum | `Topic DAG`, `R-` prefix, `Guided Interview` |
+| `product_validation.md` | Product feedback | first-run checklist, friction triage, return check |
 | ~~`PHASE_1_ISSUES.md`~~ (removed) | Bug Tracking | Superseded by the GitHub issue tracker and closed-issue history |
 
 Sources:[planning/invariants.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/invariants.md?plain=1)[planning/storage_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/storage_design.md?plain=1)[planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)[planning/memory_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/memory_design.md?plain=1)[planning/roadmap_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/roadmap_design.md?plain=1)[planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
