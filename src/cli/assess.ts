@@ -104,13 +104,13 @@ function printAssessmentEffect(
   }
 
   if (unlocked.length > 0) {
-    const listed = unlocked.slice(0, 3).join(', ');
+    const listed = sanitizeForDisplay(unlocked.slice(0, 3).join(', '));
     console.log(
       `  ${unlocked.length} topic(s) newly offered by palee plan: ${listed}` +
         (unlocked.length > 3 ? `, +${unlocked.length - 3} more` : '')
     );
   } else if (newlyBlocked.length > 0) {
-    const listed = newlyBlocked.slice(0, 3).join(', ');
+    const listed = sanitizeForDisplay(newlyBlocked.slice(0, 3).join(', '));
     console.log(
       `  ${newlyBlocked.length} topic(s) are no longer offered by palee plan: ${listed}` +
         (newlyBlocked.length > 3 ? `, +${newlyBlocked.length - 3} more` : '')

@@ -486,7 +486,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log(`  Title: ${sanitizeForDisplay(title)}`);
         console.log(`  Difficulty: ${effectiveDifficulty}`);
         if (dependsOn.length > 0) {
-          console.log(`  Dependencies: ${dependsOn.join(', ')}`);
+          console.log(`  Dependencies: ${sanitizeForDisplay(dependsOn.join(', '))}`);
         }
         console.log('\nDry-run complete. No files were modified.');
         return;
@@ -512,7 +512,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       console.log(`  Path: ${targetPath}`);
       console.log(`  Difficulty: ${effectiveDifficulty}`);
       if (dependsOn.length > 0) {
-        console.log(`  Dependencies: ${dependsOn.join(', ')}`);
+        console.log(`  Dependencies: ${sanitizeForDisplay(dependsOn.join(', '))}`);
       }
 
       return;

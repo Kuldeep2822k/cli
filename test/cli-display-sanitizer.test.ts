@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { planCommand } from '../src/cli/plan';
 import { nextCommand } from '../src/cli/next';
+import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
 import { sanitizeForDisplay } from '../src/cli/display-safety';
 
@@ -22,6 +23,7 @@ const ESC = '\u001b';
 const BEL = '\u0007';
 const SEED_TITLE = `Disk${ESC}]52;c;cGF3bg==${BEL}`;
 const VISIBLE_TITLE = 'Disk]52;c;cGF3bg==';
+const SEED_ID = `T-esc${ESC}${BEL}`;
 // The identifier is interpolated beside the title at every one of these sinks
 // and is equally vault-controlled: the loader accepts any non-empty string.
 // With the control bytes removed the id closes right after `T-esc`; with them
@@ -149,5 +151,54 @@ depends_on: ["T-missing\\x1b\\a"]
       SEED_TITLE,
       'machine output carries the stored title, not the rendered one'
     );
+  });
+
+  test('plan prints cycle identifiers sanitised too', async () => {
+    // A cycle is reported as `ids.join(' → ')`, a path the title/id lines do not
+    // cover; both ids carry the same OSC 52 sequence.
+    fs.writeFileSync(
+      path.join(tmpDir, 'cycle-a.md'),
+      `---
+palee_schema: 1
+palee_id: "T-cyc-a\\x1b\\a"
+title: CycleA
+difficulty: beginner
+topic_mastery: 0
+depends_on: ["T-cyc-b\\x1b\\a"]
+---
+# Body
+`,
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'cycle-b.md'),
+      `---
+palee_schema: 1
+palee_id: "T-cyc-b\\x1b\\a"
+title: CycleB
+difficulty: beginner
+topic_mastery: 0
+depends_on: ["T-cyc-a\\x1b\\a"]
+---
+# Body
+`,
+      'utf8'
+    );
+
+    await planCommand({});
+    const output = loggedOutputs.join('\n');
+    assert.match(output, /Dependency cycle quarantined/);
+    assert.ok(!output.includes(ESC), 'the cycle line must not carry ESC');
+    assert.ok(!output.includes(BEL), 'the cycle line must not carry BEL');
+    assert.match(output, /Dependency cycle quarantined: T-cyc-a → T-cyc-b/);
+  });
+
+  test('session start prints the active topic sanitised', async () => {
+    await sessionCommand('start', { topic: SEED_ID });
+    const output = loggedOutputs.join('\n');
+    assert.match(output, /Session Started/);
+    assert.ok(!output.includes(ESC), 'the session banner must not carry ESC');
+    assert.ok(!output.includes(BEL), 'the session banner must not carry BEL');
+    assert.match(output, /Active Topic: T-esc/);
   });
 });
