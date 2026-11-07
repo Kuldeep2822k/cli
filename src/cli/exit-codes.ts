@@ -11,22 +11,14 @@
 
 import { isConflictError, isContainmentError } from '../storage';
 import { ProviderError } from '../ai';
+import { ExitCode } from './exit-code-values';
 
-/** Documented CLI exit codes */
-export const ExitCode = {
-  /** Command completed successfully */
-  Success: 0,
-  /** Partial failure: the note landed, but sub-items did not (roadmap skips, session cleanup) */
-  PartialImport: 1,
-  /** Invalid usage: missing/invalid arguments, unconfigured vault */
-  Usage: 2,
-  /** Validation failure: unrecognized schemas, vault integrity errors */
-  Validation: 3,
-  /** OCC detected a mid-air collision or an active file lock is held */
-  Conflict: 4,
-  /** Unexpected runtime exception */
-  Unexpected: 5,
-} as const;
+/**
+ * Re-exported for the handlers: the values live in a leaf module so the entry
+ * point can read them without pulling the storage and AI layers in (#565
+ * P2-12).
+ */
+export { ExitCode };
 
 /**
  * Maps an error caught by a command handler to the documented exit code.

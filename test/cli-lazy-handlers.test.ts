@@ -36,7 +36,7 @@ const HANDLERS = [
 const STATIC_ALLOWLIST = [
   'commander',
   '../package.json',
-  '../src/cli/exit-codes',
+  '../src/cli/exit-code-values',
   '../src/cli/onboarding',
   '../src/cli/program-name',
   '../src/cli/update-check',

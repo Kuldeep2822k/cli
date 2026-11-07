@@ -7,7 +7,7 @@
 
 import { program } from 'commander';
 import packageJson from '../package.json';
-import { ExitCode } from '../src/cli/exit-codes';
+import { ExitCode } from '../src/cli/exit-code-values';
 import { isJsonOutput } from '../src/cli/onboarding';
 import { deriveProgramName } from '../src/cli/program-name';
 import { maybeNotifyUpdate } from '../src/cli/update-check';
@@ -23,7 +23,11 @@ import { maybeNotifyUpdate } from '../src/cli/update-check';
  * the whole command graph — the vault scanner, the engine, storage, and the
  * one command's own dependencies — before Commander had even parsed argv
  * (#565 P2-12). Commander itself stays static: it owns parsing, the help text
- * and the error mapping below, and is needed on every path anyway. Handlers are
+ * and the error mapping below, and is needed on every path anyway. The one
+ * thing the error mapping needs beyond Commander is the exit-code values, so
+ * those live in a leaf module rather than beside `exitCodeFor` — otherwise
+ * `--help` would still load the storage barrel and the provider layer.
+ * Handlers are
  * pulled in inside their own actions, so `--help`, `--version` and a run of
  * some other command load only what they use. `maybeNotifyUpdate` stays static
  * because the post-action hook needs it on every successful run; the module it
