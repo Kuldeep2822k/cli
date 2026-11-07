@@ -11,37 +11,17 @@ import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import { isJsonOutput, emitError } from './onboarding';
+import { getConfigPath } from './config-path';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
  * Resolves the platform-specific path to the PALEE config JSON file.
  *
- * @returns The absolute file path to config.json.
- * @throws {Error} If LOCALAPPDATA environment variable is missing on Windows.
- *
  * @remarks
- * Checks `PALEE_CONFIG_DIR`, defaulting to `%LOCALAPPDATA%/palee` on Windows or `~/.config/palee` on POSIX.
- *
- * @example
- * ```typescript
- * const configPath = getConfigPath();
- * ```
+ * Defined in `./config-path` and re-exported here: the leaf is what
+ * `update-check` and `vault-echo` import, so they no longer pull this whole
+ * handler (and the AI layer) into their module graph (#565 P2-12).
  */
-function getConfigPath(): string {
-  if (process.env.PALEE_CONFIG_DIR) {
-    return path.join(process.env.PALEE_CONFIG_DIR, 'config.json');
-  }
-
-  if (process.platform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (!localAppData) {
-      throw new Error('LOCALAPPDATA environment variable not set');
-    }
-    return path.join(localAppData, 'palee', 'config.json');
-  } else {
-    return path.join(os.homedir(), '.config', 'palee', 'config.json');
-  }
-}
 
 /**
  * The directories a Windows user's own files live under — the roots a
