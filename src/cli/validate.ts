@@ -13,6 +13,7 @@ import { formatHuman, formatJson } from '../validation/format';
 import { VALIDATION_RULES } from '../validation';
 import { repairReviewFields } from '../validation/rules/valid-review-fields';
 import { toJsonSafeValue } from '../validation/rules/diagnostic-value';
+import { sanitizeForDisplay } from './display-safety';
 import type { ValidationContext, ValidationIssue, ValidationRule } from '../validation/types';
 import {
   updateFrontmatter,
@@ -227,7 +228,7 @@ async function applyReviewFieldRepairs(
       }
     } catch (e: unknown) {
       if (isConflictError(e)) {
-        conflicts.push(`${topic.path}: ${(e as Error).message}`);
+        conflicts.push(`${sanitizeForDisplay(topic.path)}: ${sanitizeForDisplay((e as Error).message)}`);
         continue;
       }
       throw e;
@@ -305,7 +306,7 @@ async function applyMasteryRepairs(
       });
     } catch (e: unknown) {
       if (isConflictError(e)) {
-        conflicts.push(`${topic.path}: ${(e as Error).message}`);
+        conflicts.push(`${sanitizeForDisplay(topic.path)}: ${sanitizeForDisplay((e as Error).message)}`);
         continue;
       }
       throw e;

@@ -30,3 +30,34 @@ export function sanitizeForDisplay(value: string): string {
     .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
     .replace(/\p{Cc}/gu, '');
 }
+
+/**
+ * Sanitises multi-line vault text (a session's working memory) for the terminal.
+ *
+ * @param value - Text that is meant to be read line by line
+ * @returns The text with line breaks and tabs preserved, everything else dropped
+ *
+ * @remarks
+ * The single-line sanitizer collapses every whitespace control to a space, which
+ * is right for a title and wrong for a body: it would flatten the working-memory
+ * block into one paragraph. Line endings are normalised to `\n`, tabs are kept,
+ * and every other Cc character — escape, BEL, the C1 range — is removed, as are
+ * bidi overrides. A body still cannot emit a terminal command, but it keeps the
+ * shape the learner wrote.
+ */
+export function sanitizeMultilineForDisplay(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+    .replace(/\p{Cc}/gu, (ch) => (ch === '\n' || ch === '\t' ? ch : ''));
+}
+
+/**
+ * Renders a possibly-absent vault path for display.
+ *
+ * @param value - A vault-relative path that may be missing on the topic
+ * @returns The path with terminal-actionable characters removed
+ */
+export function sanitizePathForDisplay(value: string | undefined): string {
+  return sanitizeForDisplay(value ?? '');
+}

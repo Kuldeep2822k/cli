@@ -151,7 +151,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
           : 'Never reviewed';
         console.log(`  ${sanitizeForDisplay(topic.id)} - ${sanitizeForDisplay(topic.title)}`);
         console.log(`    Due: ${dueStr} | Mastery: ${(topic.mastery * 100).toFixed(1)}% | Reps: ${topic.repetition}`);
-        console.log(`    Path: ${topic.path}`);
+        console.log(`    Path: ${sanitizeForDisplay(String(topic.path ?? ''))}`);
         console.log();
       }
     } else {
@@ -172,7 +172,7 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
       console.log(`  Due: ${dueStr}`);
       console.log(`  Mastery: ${(next.mastery * 100).toFixed(1)}%`);
       console.log(`  Repetitions: ${next.repetition}`);
-      console.log(`  Path: ${next.path}`);
+      console.log(`  Path: ${sanitizeForDisplay(String(next.path ?? ''))}`);
       console.log();
     }
 

@@ -7,7 +7,7 @@ import { planCommand } from '../src/cli/plan';
 import { nextCommand } from '../src/cli/next';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { sanitizeForDisplay } from '../src/cli/display-safety';
+import { sanitizeForDisplay, sanitizeMultilineForDisplay } from '../src/cli/display-safety';
 
 /**
  * A cloned or shared vault can carry ANSI/OSC escape sequences in a note's
@@ -120,6 +120,16 @@ depends_on: ["T-missing\\x1b\\a"]
     assert.strictEqual(sanitizeForDisplay('safe\u202Eevil'), 'safeevil');
   });
 
+  test('the multi-line variant keeps line shape and drops terminal commands', () => {
+    const body = `Line one\nLine two\t${ESC}]52;c;cGF3bg==${BEL}\nLine three`;
+    const safe = sanitizeMultilineForDisplay(body);
+    assert.strictEqual(safe, 'Line one\nLine two\t]52;c;cGF3bg==\nLine three');
+    assert.ok(!safe.includes(ESC));
+    assert.ok(!safe.includes(BEL));
+    // CRLF normalises; a lone CR becomes a line break rather than joining lines.
+    assert.strictEqual(sanitizeMultilineForDisplay('a\r\nb\rc'), 'a\nb\nc');
+  });
+
   test('plan and next print the visible title and no escape byte', async () => {
     await planCommand({});
     assert.ok(loggedOutputs.length > 0, 'plan printed nothing');
@@ -200,5 +210,62 @@ depends_on: ["T-cyc-a\\x1b\\a"]
     assert.ok(!output.includes(ESC), 'the session banner must not carry ESC');
     assert.ok(!output.includes(BEL), 'the session banner must not carry BEL');
     assert.match(output, /Active Topic: T-esc/);
+  });
+
+  test('session start keeps the working-memory line shape but drops escape bytes', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.palee'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.palee', 'hot.md'),
+      `---
+palee_schema: 1
+last_session: S-old
+active_topic: T-plain
+started_at: 2026-01-01T00:00:00.000Z
+updated_at: 2026-01-01
+---
+Line one
+Line two ${ESC}]52;c;cGF3bg==${BEL}
+`,
+      'utf8'
+    );
+
+    await sessionCommand('start', { topic: SEED_ID });
+    const output = loggedOutputs.join('\n');
+    assert.ok(output.includes('Line one\nLine two '), `the body must keep its lines:\n${output}`);
+    assert.ok(!output.includes(ESC), 'the working-memory body must not carry ESC');
+    assert.ok(!output.includes(BEL), 'the working-memory body must not carry BEL');
+  });
+
+  test('a vault path carrying a control byte is printed sanitised', { skip: process.platform === 'win32' }, async () => {
+    // Windows forbids control bytes in filenames; POSIX allows them, so the
+    // real-byte case runs there and the census below covers every platform.
+    fs.writeFileSync(
+      path.join(tmpDir, `esc${ESC}path.md`),
+      `---\npalee_schema: 1\npalee_id: T-path\ntitle: PathNote\ndifficulty: beginner\ntopic_mastery: 0\ndue_at: 2020-01-01\ndepends_on: []\n---\n# Body\n`,
+      'utf8'
+    );
+    await nextCommand({});
+    const output = loggedOutputs.join('\n');
+    assert.ok(!output.includes(ESC), 'the Path line must not carry ESC');
+    assert.match(output, /Path: escpath\.md/);
+  });
+
+  test('every human path print in the vault-facing commands is guarded', () => {
+    // A census, because most of these lines cannot be driven to a
+    // control-bearing filename on Windows and an unwrapped print re-opens the
+    // forgery window silently.
+    const files = ['next.ts', 'progress.ts', 'adopt.ts', 'adopt-undo.ts', 'roadmap.ts', 'validate.ts'];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = fs.readFileSync(path.resolve(__dirname, '../src/cli', file), 'utf8');
+      source.split(/\r?\n/).forEach((line, index) => {
+        if (!/console\.(log|error)\(|conflicts\.push\(/.test(line)) return;
+        const printsPath = /\$\{[^}]*\b(?:[A-Za-z_$][\w$]*\.)?(?:relativePath|droppedPath|path|targetPath)\b/.test(line);
+        if (!printsPath) return;
+        if (line.includes('sanitizeForDisplay') || line.includes('sanitizePathForDisplay') || line.includes('formatDiagnosticPath')) return;
+        offenders.push(`${file}:${index + 1}: ${line.trim()}`);
+      });
+    }
+    assert.deepStrictEqual(offenders, [], 'these lines print a vault-derived path unsanitised');
   });
 });
