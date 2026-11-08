@@ -1,3 +1,5 @@
+import { TERMINAL_ACTIVE_CHARACTERS } from '../text-safety';
+
 /**
  * Display sanitisation for vault-derived text.
  *
@@ -8,14 +10,14 @@
  * output. An escape sequence there can recolor or hide warnings, retitle the
  * window, or set the clipboard via OSC 52 (#565 P2-06).
  *
- * The character class is `\p{Cc}` — C0, DEL and the C1 range, which is what a
- * terminal acts on. Whitespace-shaped controls (tab, newline, vertical tab,
+ * The character class is shared with the AI provider boundary
+ * (`TERMINAL_ACTIVE_CHARACTERS`): C0 except tab/newline/carriage return, DEL,
+ * the C1 range, and the bidi overrides and isolates that can reorder a rendered
+ * line without being Cc. Whitespace-shaped controls (tab, newline, vertical tab,
  * form feed, carriage return) become a single space first: the loader trims a
  * title but does not collapse its interior newlines, and deleting them would
- * join words. Bidi overrides and isolates are removed explicitly — they are not
- * terminal commands, but U+202E and friends can reorder the rendered line —
- * while `\p{Cf}` characters that shape legitimate text (ZWJ, ZWNJ) are kept, so
- * accented titles and emoji sequences survive.
+ * join words. `\p{Cf}` characters that shape legitimate text (ZWJ, ZWNJ) are
+ * kept, so accented titles and emoji sequences survive.
  *
  * JSON output is unaffected: machine consumers are entitled to the stored value,
  * and `JSON.stringify` escapes the C0 characters that matter for the ANSI/OSC
@@ -27,8 +29,7 @@
 export function sanitizeForDisplay(value: string): string {
   return value
     .replace(/[\t\n\v\f\r]+/g, ' ')
-    .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-    .replace(/\p{Cc}/gu, '');
+    .replace(TERMINAL_ACTIVE_CHARACTERS, '');
 }
 
 /**
@@ -48,8 +49,7 @@ export function sanitizeForDisplay(value: string): string {
 export function sanitizeMultilineForDisplay(value: string): string {
   return value
     .replace(/\r\n?/g, '\n')
-    .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-    .replace(/\p{Cc}/gu, (ch) => (ch === '\n' || ch === '\t' ? ch : ''));
+    .replace(TERMINAL_ACTIVE_CHARACTERS, '');
 }
 
 /**
