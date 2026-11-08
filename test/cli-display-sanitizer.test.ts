@@ -259,7 +259,7 @@ Line two ${ESC}]52;c;cGF3bg==${BEL}
     for (const file of files) {
       const source = fs.readFileSync(path.resolve(__dirname, '../src/cli', file), 'utf8');
       source.split(/\r?\n/).forEach((line, index) => {
-        if (!/console\.(log|error)\(|conflicts\.push\(/.test(line)) return;
+        if (!/console\.(log|error)\(/.test(line)) return;
         const printsPath = /\$\{[^}]*\b(?:[A-Za-z_$][\w$]*\.)?(?:relativePath|droppedPath|path|targetPath)\b/.test(line);
         if (!printsPath) return;
         if (line.includes('sanitizeForDisplay') || line.includes('sanitizePathForDisplay') || line.includes('formatDiagnosticPath')) return;
@@ -267,5 +267,19 @@ Line two ${ESC}]52;c;cGF3bg==${BEL}
       });
     }
     assert.deepStrictEqual(offenders, [], 'these lines print a vault-derived path unsanitised');
+
+    // validate keeps the stored bytes in `repair_conflicts[]` for --json and
+    // sanitises only the human printer, so the two halves are asserted apart.
+    const validateSource = fs.readFileSync(path.resolve(__dirname, '../src/cli/validate.ts'), 'utf8');
+    assert.match(
+      validateSource,
+      /console\.error\(`⚠ Skipped repair: \$\{sanitizeForDisplay\(conflict\)\}`\)/,
+      'the human repair-conflict line must sanitise'
+    );
+    assert.doesNotMatch(
+      validateSource,
+      /conflicts\.push\(`\$\{sanitizeForDisplay/,
+      'conflicts[] must keep the stored value for --json'
+    );
   });
 });

@@ -228,7 +228,8 @@ async function applyReviewFieldRepairs(
       }
     } catch (e: unknown) {
       if (isConflictError(e)) {
-        conflicts.push(`${sanitizeForDisplay(topic.path)}: ${sanitizeForDisplay((e as Error).message)}`);
+        // Machine output keeps the stored bytes; the human printer sanitises.
+        conflicts.push(`${topic.path}: ${(e as Error).message}`);
         continue;
       }
       throw e;
@@ -306,7 +307,8 @@ async function applyMasteryRepairs(
       });
     } catch (e: unknown) {
       if (isConflictError(e)) {
-        conflicts.push(`${sanitizeForDisplay(topic.path)}: ${sanitizeForDisplay((e as Error).message)}`);
+        // Machine output keeps the stored bytes; the human printer sanitises.
+        conflicts.push(`${topic.path}: ${(e as Error).message}`);
         continue;
       }
       throw e;
@@ -509,7 +511,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
         console.log(formatRepair(repair));
       }
       for (const conflict of conflicts) {
-        console.error(`⚠ Skipped repair: ${conflict}`);
+        console.error(`⚠ Skipped repair: ${sanitizeForDisplay(conflict)}`);
       }
       if (repairs.length === 0 && conflicts.length === 0) {
         console.log('Nothing to repair: --fix found no fixable issues.');
