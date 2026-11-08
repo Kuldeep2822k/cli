@@ -11,6 +11,7 @@ import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import { isJsonOutput, emitError } from './onboarding';
+import { isAffirmativeEnvFlag } from './env-flag';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
 
 /**
@@ -97,8 +98,7 @@ function isConfigDirStorableForKey(dir: string, roots: string[]): boolean {
  * the refusal active.
  */
 function isInsecureConfigDirAllowed(value: string | undefined): boolean {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true';
+  return isAffirmativeEnvFlag(value, { trim: true });
 }
 
 /**
