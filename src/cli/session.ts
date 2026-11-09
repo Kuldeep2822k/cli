@@ -2,6 +2,7 @@ import readline from 'readline';
 import { loadConfig } from './config';
 import { isJsonOutput, emitError } from './onboarding';
 import { resolveVaultTarget, vaultTargetFields } from './vault-echo';
+import { sanitizeForDisplay, sanitizeMultilineForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
@@ -180,7 +181,7 @@ function reportUnresolvedSessionTopic(outcome: SessionTopicFailure, jsonMode: bo
     } else {
       console.error(`Error: Multiple topics match "${outcome.query}":`);
       for (const candidate of outcome.candidates) {
-        console.error(`  - ${candidate.palee_id}: ${candidate.title}`);
+        console.error(`  - ${sanitizeForDisplay(candidate.palee_id)}: ${sanitizeForDisplay(candidate.title)}`);
       }
       console.error('Please provide a more specific query.');
     }
@@ -472,10 +473,10 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       ) {
         const sameTopic = resolvedTopic === existingActive;
         warn(
-          `⚠ Warning: a session is already active for ${existingActive} (started ${existingStarted}). ` +
+          `⚠ Warning: a session is already active for ${sanitizeForDisplay(existingActive)} (started ${existingStarted}). ` +
             (sameTopic
               ? 'Starting again continues it.'
-              : `Starting "${resolvedTopic}" will replace that active topic; run "palee session end" first to keep the two separate.`)
+              : `Starting "${sanitizeForDisplay(resolvedTopic)}" will replace that active topic; run "palee session end" first to keep the two separate.`)
         );
       }
 
@@ -539,15 +540,15 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         console.log('No AI provider configured.\n');
       }
       if (frontmatter) {
-        console.log(`Active Topic: ${frontmatter.active_topic || '(none)'}`);
-        console.log(`Last Session: ${frontmatter.last_session || '(none)'}`);
-        console.log(`Last Updated: ${frontmatter.updated_at || '(none)'}`);
+        console.log(`Active Topic: ${sanitizeForDisplay(String(frontmatter.active_topic || '(none)'))}`);
+        console.log(`Last Session: ${sanitizeForDisplay(String(frontmatter.last_session || '(none)'))}`);
+        console.log(`Last Updated: ${sanitizeForDisplay(String(frontmatter.updated_at || '(none)'))}`);
         console.log();
       }
 
       console.log('Working Memory (hot.md):');
       console.log('─────────────────────────────────────────────────────────────');
-      console.log(body.trim());
+      console.log(sanitizeMultilineForDisplay(body.trim()));
       console.log('─────────────────────────────────────────────────────────────');
       return;
     }

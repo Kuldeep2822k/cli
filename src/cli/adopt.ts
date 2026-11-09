@@ -8,6 +8,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
+import { sanitizeForDisplay, sanitizePathForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
@@ -170,7 +171,7 @@ async function rollbackBatch(vaultPath: string, journal: RollbackRecord[]): Prom
       );
     } catch (err: unknown) {
       const e = err as Error;
-      console.error(`  Failed to revert ${item.relativePath}: ${e.message}`);
+      console.error(`  Failed to revert ${sanitizeForDisplay(item.relativePath)}: ${sanitizeForDisplay(e.message)}`);
     }
   }
 }
@@ -349,7 +350,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const realPath = fs.realpathSync(absolutePath);
 
       if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
-        console.error(`Error: Path escapes vault: ${targetPath}`);
+        console.error(`Error: Path escapes vault: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -360,7 +361,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // the read, not the parse.
       const { size: sourceSize } = fs.statSync(absolutePath);
       if (noteExceedsReadCap(sourceSize)) {
-        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(sourceSize)}; nothing was adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} ${oversizedNoteDiagnostic(sourceSize)}; nothing was adopted.`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -373,12 +374,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // `updateFrontmatter` would either throw mid-batch or prepend a minted id
       // over the learner's own.
       if (frontmatterError !== undefined) {
-        console.error(`Error: ${targetPath} has malformed frontmatter (${frontmatterError}); nothing was adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} has malformed frontmatter (${frontmatterError}); nothing was adopted.`);
         process.exitCode = ExitCode.Usage;
         return;
       }
       if (hasUnclosedFrontmatterOpener(content)) {
-        console.error(`Error: ${targetPath} opens a frontmatter block but never closes it; nothing was adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} opens a frontmatter block but never closes it; nothing was adopted.`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -481,11 +482,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       if (options.dryRun) {
-        console.log(`Dry run: would adopt ${targetPath} as a new topic`);
-        console.log(`  Title: ${title}`);
+        console.log(`Dry run: would adopt ${sanitizePathForDisplay(targetPath)} as a new topic`);
+        console.log(`  Title: ${sanitizeForDisplay(title)}`);
         console.log(`  Difficulty: ${effectiveDifficulty}`);
         if (dependsOn.length > 0) {
-          console.log(`  Dependencies: ${dependsOn.join(', ')}`);
+          console.log(`  Dependencies: ${sanitizeForDisplay(dependsOn.join(', '))}`);
         }
         console.log('\nDry-run complete. No files were modified.');
         return;
@@ -499,7 +500,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       // then hide the topic forever, so refuse before the write.
       if (noteContentExceedsReadCap(updatedContent)) {
         const writtenBytes = Buffer.byteLength(updatedContent, 'utf8');
-        console.error(`Error: ${targetPath} ${oversizedWriteDiagnostic(writtenBytes)}; nothing was adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} ${oversizedWriteDiagnostic(writtenBytes)}; nothing was adopted.`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -507,11 +508,11 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       await atomicWrite(vaultPath, absolutePath, updatedContent, fingerprint);
 
       console.log(`✓ Adopted as topic ${topicId}`);
-      console.log(`  Title: ${title}`);
-      console.log(`  Path: ${targetPath}`);
+      console.log(`  Title: ${sanitizeForDisplay(title)}`);
+      console.log(`  Path: ${sanitizePathForDisplay(targetPath)}`);
       console.log(`  Difficulty: ${effectiveDifficulty}`);
       if (dependsOn.length > 0) {
-        console.log(`  Dependencies: ${dependsOn.join(', ')}`);
+        console.log(`  Dependencies: ${sanitizeForDisplay(dependsOn.join(', '))}`);
       }
 
       return;
@@ -530,13 +531,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     if (targetPath) {
       const candidatePath = path.resolve(vaultPath, targetPath);
       if (!fs.existsSync(candidatePath)) {
-        console.error(`Error: Target directory not found: ${targetPath}`);
+        console.error(`Error: Target directory not found: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
       const realCandidate = fs.realpathSync(candidatePath);
       if (!realCandidate.startsWith(resolvedVault + path.sep) && realCandidate !== resolvedVault) {
-        console.error(`Error: Path escapes vault: ${targetPath}`);
+        console.error(`Error: Path escapes vault: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -550,17 +551,17 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         if (candidateStat.isFile()) {
           if (options.all) {
             console.error(
-              `Error: ${targetPath} is a file, but --all adopts every note under a directory — pass a directory, or drop --all to adopt a single .md note`
+              `Error: ${sanitizePathForDisplay(targetPath)} is a file, but --all adopts every note under a directory — pass a directory, or drop --all to adopt a single .md note`
             );
           } else {
             console.error(
-              `Error: Not a markdown note: ${targetPath} — pass a .md file or a directory to adopt`
+              `Error: Not a markdown note: ${sanitizePathForDisplay(targetPath)} — pass a .md file or a directory to adopt`
             );
           }
           process.exitCode = ExitCode.Usage;
           return;
         }
-        console.error(`Error: Expected directory path for batch adoption: ${targetPath}`);
+        console.error(`Error: Expected directory path for batch adoption: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -1662,7 +1663,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     if (options.verbose) {
       if (toAdopt.length > 0) {
         console.log('\nNotes to adopt:');
-        toAdopt.forEach((n) => console.log(`  + ${n.relativePath}`));
+        toAdopt.forEach((n) => console.log(`  + ${sanitizeForDisplay(n.relativePath)}`));
       }
       if (alreadyAdopted.length > 0) {
         console.log('\nAlready adopted:');
@@ -1726,9 +1727,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log(`\nPlanned dependency chain (${edgeCount} edges to write):`);
         for (const edge of chainWritePlan) {
           if (edge.dependsOnPath) {
-            console.log(`  • ${edge.path} depends on ${edge.dependsOnPath}`);
+            console.log(`  • ${sanitizeForDisplay(edge.path)} depends on ${sanitizeForDisplay(edge.dependsOnPath)}`);
           } else {
-            console.log(`  • ${edge.path} (chain head)`);
+            console.log(`  • ${sanitizeForDisplay(edge.path)} (chain head)`);
           }
         }
         if (chainBridgedPaths.length > 0) {
