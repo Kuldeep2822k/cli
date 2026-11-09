@@ -185,7 +185,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
 
       console.log(`Progress for: ${sanitizeForDisplay(match.title)}`);
       console.log(`ID: ${sanitizeForDisplay(match.id)}`);
-      console.log(`Path: ${match.path}`);
+      console.log(`Path: ${sanitizeForDisplay(String(match.path ?? ''))}`);
       console.log();
       console.log(`Mastery: ${(match.mastery * 100).toFixed(1)}%`);
       console.log(`Difficulty: ${match.difficulty}`);

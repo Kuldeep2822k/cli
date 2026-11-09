@@ -2,7 +2,7 @@ import readline from 'readline';
 import { loadConfig } from './config';
 import { isJsonOutput, emitError } from './onboarding';
 import { resolveVaultTarget, vaultTargetFields } from './vault-echo';
-import { sanitizeForDisplay } from './display-safety';
+import { sanitizeForDisplay, sanitizeMultilineForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 /**
  * Session Command Handler
@@ -548,7 +548,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
       console.log('Working Memory (hot.md):');
       console.log('─────────────────────────────────────────────────────────────');
-      console.log(body.trim());
+      console.log(sanitizeMultilineForDisplay(body.trim()));
       console.log('─────────────────────────────────────────────────────────────');
       return;
     }
