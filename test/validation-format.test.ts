@@ -50,6 +50,16 @@ const MISSING_DEP_ISSUE: ValidationIssue = {
   details: { missing: 'T-x' },
 };
 
+const ESC = '\u001b';
+const BEL = '\u0007';
+const HOSTILE_PATH_ISSUE: ValidationIssue = {
+  ruleId: 'no-duplicate-topic-id',
+  severity: 'error',
+  message: `Duplicate topic ID in ${ESC}]52;c;clipboard${BEL}`,
+  topicId: 'T-dup',
+  details: { files: [`first${ESC}path.md`, `second${BEL}path.md`] },
+};
+
 describe('Human formatter (#25)', () => {
   test('reports pass with no issues', () => {
     const out = formatHuman([]);
@@ -91,10 +101,22 @@ describe('Human formatter (#25)', () => {
     assert.match(out, /⚠ Found 1 validation warning\(s\)/);
   });
 
-  test('no ANSI color codes in output', () => {
-    const out = formatHuman([ERROR_ISSUE]);
-    assert.ok(!out.includes('\u001b['), 'expected no ANSI escapes');
+  test('sanitises terminal controls only for human output', () => {
+    const original = structuredClone(HOSTILE_PATH_ISSUE);
+    const human = formatHuman([HOSTILE_PATH_ISSUE]);
+
+    assert.ok(!human.includes(ESC));
+    assert.ok(!human.includes(BEL));
+    assert.match(human, /Duplicate topic ID in \]52;c;clipboard/);
+    assert.match(human, /Files: firstpath\.md, secondpath\.md/);
+    assert.deepStrictEqual(HOSTILE_PATH_ISSUE, original, 'human formatting must not mutate issue data');
+
+    const json = JSON.parse(formatJson([HOSTILE_PATH_ISSUE], { topicCount: 1, fileCount: 2 }));
+    assert.strictEqual(json.errors[0].message, HOSTILE_PATH_ISSUE.message);
+    assert.deepStrictEqual(json.errors[0].details.files, HOSTILE_PATH_ISSUE.details?.files);
+    assert.deepStrictEqual(json.errors[0].files, HOSTILE_PATH_ISSUE.details?.files);
   });
+
 });
 
 describe('JSON formatter (#25)', () => {
