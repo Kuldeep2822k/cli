@@ -712,7 +712,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
       if (frontmatterError !== undefined) {
         console.error(
-          `Error: ${sanitizePathForDisplay(targetPath)} has malformed frontmatter (${frontmatterError}); nothing was un-adopted.`
+          `Error: ${sanitizePathForDisplay(targetPath)} has malformed frontmatter (${sanitizeForDisplay(frontmatterError)}); nothing was un-adopted.`
         );
         process.exitCode = ExitCode.Usage;
         return;
@@ -928,7 +928,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       }
     }
 
-    const scanLabel = targetPath ? targetPath.replace(/\\/g, '/') : '(Entire Vault)';
+    const scanLabel = targetPath ? sanitizePathForDisplay(targetPath.replace(/\\/g, '/')) : '(Entire Vault)';
     console.log('=== PALEE Batch Un-adoption ===');
     console.log(`Scope:            ${scanLabel}`);
     console.log(`Total Scanned:    ${allFiles.length} files`);
@@ -974,10 +974,10 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     }
     console.log('Owned keys only:  every other frontmatter key, comment and body byte is preserved');
     for (const [relPath, reason] of skippedUnreadable) {
-      console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
+      console.error(`Skipped ${sanitizeForDisplay(relPath)}: frontmatter will not parse (${sanitizeForDisplay(reason)})`);
     }
     for (const [relPath, reason] of skippedOversized) {
-      console.error(`Skipped ${relPath}: ${reason}`);
+      console.error(`Skipped ${sanitizeForDisplay(relPath)}: ${sanitizeForDisplay(reason)}`);
     }
 
     if (options.verbose) {
@@ -987,38 +987,38 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       }
       if (notAdopted.length > 0) {
         console.log('\nNot adopted:');
-        notAdopted.forEach((f) => console.log(`  = ${f}`));
+        notAdopted.forEach((f) => console.log(`  = ${sanitizeForDisplay(f)}`));
       }
       if (skippedByPattern.length > 0) {
         console.log('\nSkipped by pattern filter:');
-        skippedByPattern.forEach((f) => console.log(`  - ${f}`));
+        skippedByPattern.forEach((f) => console.log(`  - ${sanitizeForDisplay(f)}`));
       }
       if (skippedByTag.length > 0) {
         console.log('\nSkipped by tag filter:');
-        skippedByTag.forEach((f) => console.log(`  ~ ${f}`));
+        skippedByTag.forEach((f) => console.log(`  ~ ${sanitizeForDisplay(f)}`));
       }
       if (unusableId.length > 0) {
         console.log('\nSkipped: palee_id is not a usable string (left alone):');
-        unusableId.forEach((f) => console.log(`  ! ${f}`));
+        unusableId.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (orphanOwnedKeys.length > 0) {
         console.log('\nSkipped: PALEE-owned keys with no topic id (left alone):');
-        orphanOwnedKeys.forEach((f) => console.log(`  ! ${f}`));
+        orphanOwnedKeys.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (unterminated.length > 0) {
         console.log('\nSkipped: the frontmatter block is never closed (left alone):');
-        unterminated.forEach((f) => console.log(`  ! ${f}`));
+        unterminated.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (skippedUnreadable.size > 0) {
         console.log('\nSkipped: frontmatter will not parse (not rewritten):');
         for (const relPath of skippedUnreadable.keys()) {
-          console.log(`  ? ${relPath}`);
+          console.log(`  ? ${sanitizeForDisplay(relPath)}`);
         }
       }
       if (skippedOversized.size > 0) {
         console.log(`\nSkipped: over the ${MAX_NOTE_SOURCE_BYTES} byte read cap (not rewritten):`);
         for (const relPath of skippedOversized.keys()) {
-          console.log(`  ? ${relPath}`);
+          console.log(`  ? ${sanitizeForDisplay(relPath)}`);
         }
       }
     }
