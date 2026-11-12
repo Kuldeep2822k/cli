@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { programName } from './program-name';
 import { ExitCode } from './exit-codes';
+import { isAffirmativeEnvFlag } from './env-flag';
 
 export interface VaultValidationOptions {
   json?: boolean;
@@ -41,7 +42,9 @@ export function isJsonOutput(options?: { json?: boolean }): boolean {
   if (options?.json === false) return false;
   if (options?.json === true) return true;
   const env = process.env.PALEE_JSON;
-  return env === '1' || env?.toLowerCase() === 'true';
+  // Exact spellings only: `PALEE_JSON=' true '` has never been JSON mode, and
+  // the shared predicate keeps that contract rather than widening it.
+  return isAffirmativeEnvFlag(env);
 }
 
 /**
