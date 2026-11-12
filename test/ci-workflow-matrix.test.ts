@@ -219,6 +219,22 @@ describe('CI workflow matrix parity (#269 release health)', () => {
     return suiteFiles.filter((file) => patterns.some((pattern) => path.matchesGlob(file, pattern)));
   }
 
+  test('every shortcut whose selection this block reads parses something', () => {
+    // `selection()` sees one quoting style, so a script that re-quotes its
+    // arguments — or is renamed out of `package.json` — parses to an empty list.
+    // The family and named-suite checks below would then report "missing suites" and
+    // blame the shortcut for files it never had a chance to run, the two absence
+    // assertions would pass on a selection of nothing, and `test:e2e` and `test:fuzz`
+    // would go unexamined entirely. A parse failure has to surface as itself
+    // (#504 review).
+    for (const name of ['test', 'test:unit', 'test:fast', 'test:e2e', 'test:fuzz', 'test:coverage']) {
+      assert.ok(
+        selection(shortcutScripts[name]).length > 0,
+        `${name}: no quoted .test.ts argument parsed from the script`
+      );
+    }
+  });
+
   test('unit and fast both select the application, validation and AI families', () => {
     // The families are named by the prefixes the tree actually carries — the
     // issue's proposed names did not exist, and a pattern that matches nothing
@@ -262,6 +278,35 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       const selected = expandsTo(selection(shortcutScripts[name]));
       const missing = suites.filter((file) => !selected.includes(file));
       assert.deepStrictEqual(missing, [], `${name} must still run these suites`);
+    }
+  });
+
+  test('neither shortcut dropped a family it already ran', () => {
+    // One example per family is not the family. The check above names
+    // test/engine-dependency.test.ts, so replacing `test:unit`'s engine-* glob with
+    // that one file keeps every named entry selected while the other eight engine
+    // suites silently stop running (#504 review). The remaining families of the
+    // contract in docs/06-0-testing.md are therefore required as their full on-disk
+    // expansion; the ai-, application- and validation- families are already expanded
+    // by the check above and are not repeated here.
+    const families: Record<string, string[]> = {
+      'test:unit': ['test/engine-*.test.ts', 'test/storage-*.test.ts', 'test/types-*.test.ts'],
+      'test:fast': [
+        'test/cli-*.test.ts',
+        'test/engine-*.test.ts',
+        'test/session-*.test.ts',
+        'test/storage-*.test.ts',
+        'test/types-*.test.ts',
+      ],
+    };
+    for (const [name, patterns] of Object.entries(families)) {
+      const selected = expandsTo(selection(shortcutScripts[name]));
+      for (const family of patterns) {
+        const members = expandsTo([family]);
+        assert.ok(members.length > 0, `precondition: ${family} matches a suite on disk`);
+        const dropped = members.filter((file) => !selected.includes(file));
+        assert.deepStrictEqual(dropped, [], `${name} must run every ${family} suite`);
+      }
     }
   });
 

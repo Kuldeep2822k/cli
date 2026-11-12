@@ -124,14 +124,22 @@ function singleSessionFile(lockDir: string): string {
  * purpose.
  *
  * @remarks
- * Both are module-private there and stay that way (the #131 census keeps the storage
+ * All are module-private there and stay that way (the #131 census keeps the storage
  * barrel small), so a test can only mirror them numerically. A local that shares a
  * production constant's name hides the difference when the value moves; these do not,
  * and a changed budget in `src/` stops matching what the acquisition actually does,
  * which reddens the tests below rather than quietly re-deriving their expectations
  * from the implementation (ADR-0026).
+ *
+ * The two budgets are separate mirrors even though `src/` declares the same number
+ * for both, because they bound different loops: {@link WINDOWS_RETRY_BUDGET} bounds
+ * the transient-handle retries an `EPERM`/`EBUSY` from `rmdirSync` spends (INV-09),
+ * {@link RESIDUE_RETRY_BUDGET} bounds the `ENOTEMPTY` residue retries. A Windows
+ * assertion that read the residue mirror would move when the residue budget moved,
+ * and send the reader to the wrong constant.
  */
 const RESIDUE_RETRY_BUDGET = 5; // ENOTEMPTY_RETRY_ATTEMPTS
+const WINDOWS_RETRY_BUDGET = 5; // WINDOWS_RETRY_ATTEMPTS
 const ACQUISITION_ITERATION_CAP = 20; // MAX_ACQUISITION_ITERATIONS
 
 /**
@@ -151,6 +159,18 @@ const PARK_BANDS: ReadonlyArray<readonly [min: number, max: number]> = [
   [300, 300],
   [300, 300],
 ];
+
+/**
+ * The bands a fully-spent transient-handle retry budget asks for, in order: attempt
+ * `n` doubles `n` times, so it parks in band `n`, and one budget of
+ * {@link WINDOWS_RETRY_BUDGET} retries spends exactly that many parks. Widening the
+ * budget past {@link PARK_BANDS} fails as "has no documented band" rather than as a
+ * truncated schedule.
+ */
+const WINDOWS_PARK_SCHEDULE: readonly number[] = Array.from(
+  { length: WINDOWS_RETRY_BUDGET },
+  (_, index) => index
+);
 
 /** An `fs` method the fault patches below replace. */
 type PatchableFsMethod = 'readdirSync' | 'renameSync' | 'rmdirSync' | 'statSync' | 'unlinkSync';
@@ -878,9 +898,10 @@ describe('File Locking', () => {
         }
       );
       if (process.platform === 'win32') {
-        // One initial removal plus the five retries the transient-handle arm spends.
-        assert.strictEqual(removals.calls, RESIDUE_RETRY_BUDGET + 1, 'one attempt plus the five-retry budget');
-        assertParkedSchedule(parks.calls, [0, 1, 2, 3, 4], 'the Windows transient-handle retries');
+        // One initial removal plus the retries the transient-handle arm spends
+        // (INV-09) — its own budget, not the `ENOTEMPTY` residue one.
+        assert.strictEqual(removals.calls, WINDOWS_RETRY_BUDGET + 1, 'one attempt plus the transient-handle retry budget');
+        assertParkedSchedule(parks.calls, WINDOWS_PARK_SCHEDULE, 'the Windows transient-handle retries');
       } else {
         assert.strictEqual(removals.calls, 1, 'the non-Windows platform gate must rethrow after one attempt');
         assert.deepStrictEqual(parks.calls, [] as number[], 'a permanent condition must never park');
@@ -898,7 +919,6 @@ describe('File Locking', () => {
     // visibly off Windows: the retry budget is reached through
     // `isTransientHandleCode`, which only answers true on win32. A bare `return`
     // here would report PASS while asserting nothing.
-    const RETRY_BUDGET = 5; // mirrors WINDOWS_RETRY_ATTEMPTS in src/storage/lock.ts
     const staleId = 'L-20260101T000000-beefbeef';
     const fx = residueVault('last', (lockDir, target) => {
       fs.writeFileSync(
@@ -913,12 +933,12 @@ describe('File Locking', () => {
     });
     agePastStale(fx.entry(`${staleId}.json`));
     const parks = watchParks(fx);
-    // Throw EPERM for the initial removal plus the first four retries; the next
+    // Throw EPERM for the initial removal plus every retry but the last; the next
     // call — the final permitted attempt — lets the real rmdirSync run and
     // succeed on the now-empty directory.
     const removals = watchRmdir(fx, fx.lockDir, call => {
       spinGuard(call, ACQUISITION_ITERATION_CAP * 2, 'rmdirSync calls on one stale lock directory');
-      if (call <= RETRY_BUDGET) {
+      if (call <= WINDOWS_RETRY_BUDGET) {
         throw fsErrorWith('EPERM', `EPERM: operation not permitted, rmdir '${fx.lockDir}'`);
       }
     });
@@ -927,8 +947,8 @@ describe('File Locking', () => {
     try {
       await acquirer.acquire();
       // The final permitted attempt clears the handle instead of rethrowing.
-      assert.strictEqual(removals.calls, RETRY_BUDGET + 1, 'the final permitted attempt must clear the handle');
-      assertParkedSchedule(parks.calls, [0, 1, 2, 3, 4], 'the retries before the handle cleared');
+      assert.strictEqual(removals.calls, WINDOWS_RETRY_BUDGET + 1, 'the final permitted attempt must clear the handle');
+      assertParkedSchedule(parks.calls, WINDOWS_PARK_SCHEDULE, 'the retries before the handle cleared');
       const newLockData = getLockData(fx.lockDir);
       assert.ok(newLockData, 'expected a live lock after recovery');
       assert.notStrictEqual(newLockData.lock_id, staleId, 'recovery must mint a new lock identity');
