@@ -85,11 +85,15 @@ describe('npm publish build guard (#336)', () => {
       '${{ needs.verify-and-pack.outputs.package-filename }}',
       'and it is the filename the verify-and-pack job produced',
     );
-    assert.ok(publishStep.env?.NODE_AUTH_TOKEN, 'the publish step still carries the registry token');
     assert.strictEqual(
       publishStep.env?.NODE_AUTH_TOKEN,
-      '${{ secrets.NPM_TOKEN }}',
-      'and it is the release token, not some other secret',
+      undefined,
+      'the publish step uses tokenless OIDC trusted publishing instead of a static token',
+    );
+    assert.strictEqual(
+      (releaseJobs['publish-npm'] as { permissions?: Record<string, string> })?.permissions?.['id-token'],
+      'write',
+      'publish-npm holds id-token: write for OIDC trusted publishing',
     );
   });
 
