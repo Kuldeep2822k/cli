@@ -22,7 +22,7 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import type { SpawnSyncOptions, SpawnSyncReturns } from 'child_process';
-import { getConfigPath } from './config';
+import { getConfigPath } from './config-path';
 import { programName } from './program-name';
 
 /** The published package the update surface talks about. */

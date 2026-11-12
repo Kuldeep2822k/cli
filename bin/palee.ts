@@ -7,25 +7,40 @@
 
 import { program } from 'commander';
 import packageJson from '../package.json';
-import { ExitCode } from '../src/cli/exit-codes';
+import { ExitCode } from '../src/cli/exit-code-values';
 import { isJsonOutput } from '../src/cli/onboarding';
 import { deriveProgramName } from '../src/cli/program-name';
-
-// Command handlers
-import configCommand from '../src/cli/config';
-import adoptCommand from '../src/cli/adopt';
-import nextCommand from '../src/cli/next';
-import planCommand from '../src/cli/plan';
-import progressCommand from '../src/cli/progress';
-import reviewCommand from '../src/cli/review';
-import assessCommand from '../src/cli/assess';
-import validateCommand from '../src/cli/validate';
-import roadmapCommand from '../src/cli/roadmap';
-import migrateCommand from '../src/cli/migrate';
-import sessionCommand from '../src/cli/session';
-import dashboardCommand from '../src/cli/dashboard';
-import updateCommand from '../src/cli/update';
 import { maybeNotifyUpdate } from '../src/cli/update-check';
+
+/**
+ * Defers a command handler's module until its command is dispatched.
+ *
+ * @param load - Dynamic import of the handler module
+ * @returns An action that imports the module, then runs its default export
+ *
+ * @remarks
+ * All thirteen command handlers were imported statically, so every invocation paid for
+ * the whole command graph — the vault scanner, the engine, storage, and the
+ * one command's own dependencies — before Commander had even parsed argv
+ * (#565 P2-12). Commander itself stays static: it owns parsing, the help text
+ * and the error mapping below, and is needed on every path anyway. The one
+ * thing the error mapping needs beyond Commander is the exit-code values, so
+ * those live in a leaf module rather than beside `exitCodeFor` — otherwise
+ * `--help` would still load the storage barrel and the provider layer.
+ * Handlers are
+ * pulled in inside their own actions, so `--help`, `--version` and a run of
+ * some other command load only what they use. `maybeNotifyUpdate` stays static
+ * because the post-action hook needs it on every successful run; the module it
+ * pulls in is the config-path leaf and the cached check, not a handler.
+ */
+function lazyHandler<T extends (...args: never[]) => unknown>(
+  load: () => Promise<{ default: T }>
+): (...args: Parameters<T>) => Promise<void> {
+  return async (...args: Parameters<T>): Promise<void> => {
+    const handler = (await load()).default;
+    await handler(...args);
+  };
+}
 
 program
   // The name the process was invoked as, not the published bin: a parallel or
@@ -73,7 +88,7 @@ program
   .option('--from-env <var>', 'environment variable to read the API key from (set-api-key)')
   .option('--keep-key', 'keep the stored API key when set-base-url changes the endpoint origin')
   .option('--json', 'Output in JSON format (every config action, not only show)')
-  .action(configCommand);
+  .action(lazyHandler(() => import('../src/cli/config')));
 
 // palee adopt
 
@@ -141,7 +156,7 @@ Prerequisite format for --auto-chain (a note's own declared prerequisites):
   • A hedged item is skipped, not gated: negation ('does not require [[x]]'), disjunction ('[[x]] or [[y]]'), and reversal ('a prerequisite for [[x]]') contribute no edge.
 `
   )
-  .action(adoptCommand);
+  .action(lazyHandler(() => import('../src/cli/adopt')));
 
 // palee next
 program
@@ -149,14 +164,14 @@ program
   .description('Show the next topic due for review')
   .option('--all', 'Show all due topics')
   .option('--json', 'Output in JSON format')
-  .action(nextCommand);
+  .action(lazyHandler(() => import('../src/cli/next')));
 
 // palee plan
 program
   .command('plan')
   .description('Show learning plan for the day')
   .option('--json', 'Output in JSON format')
-  .action(planCommand);
+  .action(lazyHandler(() => import('../src/cli/plan')));
 
 // palee progress
 program
@@ -164,7 +179,7 @@ program
   .description('Show learning progress summary')
   .option('--topic <id>', 'Show progress for specific topic')
   .option('--json', 'Output in JSON format')
-  .action(progressCommand);
+  .action(lazyHandler(() => import('../src/cli/progress')));
 
 // palee review
 program
@@ -173,7 +188,7 @@ program
   .argument('<topic>', 'Topic ID or unique name fragment')
   .argument('<quality>', 'Quality rating (0-5)')
   .option('--force', 'Record a review before the topic is due without printing the early-review warning')
-  .action(reviewCommand);
+  .action(lazyHandler(() => import('../src/cli/review')));
 
 // palee assess
 program
@@ -186,7 +201,7 @@ program
   .option('--feynman <score>', 'Feynman articulation score (0-1)')
   .option('--force', 'Record an assessment that lowers mastery and re-hides dependents without printing the warning')
   .option('--dry-run', 'Report the mastery change and what it does to dependent notes, without modifying files')
-  .action(assessCommand);
+  .action(lazyHandler(() => import('../src/cli/assess')));
 
 // palee validate
 program
@@ -195,7 +210,7 @@ program
   .option('--fix', 'Repair corrupted SM-2 review fields to adopt defaults')
   .option('--json', 'Output in JSON format')
   .option('--strict', 'Exit non-zero on warnings as well as errors')
-  .action(validateCommand);
+  .action(lazyHandler(() => import('../src/cli/validate')));
 
 // palee roadmap
 program
@@ -205,7 +220,7 @@ program
   .option('--auto-chain', 'Chain imported topics onto the previous one - ordered by ascending order field, topics without one follow in file order after all ordered ones; an explicit non-empty depends_on wins')
   .option('--dry-run', 'Print the full per-note import plan (ids, paths, resolved depends_on, creates/updates) and write nothing')
   .option('-y, --yes', 'Skip confirmation prompt')
-  .action(roadmapCommand);
+  .action(lazyHandler(() => import('../src/cli/roadmap')));
 
 // palee migrate
 program
@@ -215,7 +230,7 @@ program
   .option('--relabel-ties', 'Store an alphabetical tiebreak as `tie` rather than `numbered` on notes whose stored label says `numbered`, so they stop gating; depends_on is never changed. Notes carrying no depends_on_source key at all - the ones adopted before that label existed - are NOT reached by this flag; they need --include-unlabeled-ties')
   .option('--include-unlabeled-ties', 'With --relabel-ties, also relabel notes that carry no depends_on_source key at all, which is what notes adopted before that label existed were left in. Opt-in because an unlabeled note is byte-identical whether the chain or a person wrote its depends_on: only the label is written, never the list, and only for a single backward edge to a same-rank sibling in the same directory with no same-rank sibling still between them. Combine with --dry-run to preview every note it would touch')
   .option('--dry-run', 'Preview without writing files: with --fix, lists the notes that would be upgraded to Schema v1; with --relabel-ties, lists the notes that would be relabelled. Writes nothing in both cases')
-  .action(migrateCommand);
+  .action(lazyHandler(() => import('../src/cli/migrate')));
 
 // palee session
 program
@@ -225,14 +240,14 @@ program
   .option('-i, --interactive', 'Run in interactive mode')
   .option('--topic <id>', 'Topic ID for session')
   .option('--json', 'Output in JSON format')
-  .action(sessionCommand);
+  .action(lazyHandler(() => import('../src/cli/session')));
 
 // palee dashboard
 program
   .command('dashboard')
   .description('Show a learning dashboard summary')
   .option('--json', 'Output in JSON format')
-  .action(dashboardCommand);
+  .action(lazyHandler(() => import('../src/cli/dashboard')));
 
 // palee update
 program
@@ -246,7 +261,7 @@ program
 • On an interactive terminal, other commands check at most once per 24 hours and announce a newer release at most once per published version on stderr. Nothing is printed after a failed command, when stdout is piped, when --json is requested, when the check fails for any reason, or when PALEE_NO_UPDATE_CHECK is set.
 `
   )
-  .action(updateCommand);
+  .action(lazyHandler(() => import('../src/cli/update')));
 
 /**
  * The raw options commander parsed for the command that is about to run, or
@@ -282,7 +297,7 @@ program.hook('postAction', (_thisCommand, actionCommand) => {
 
 /**
  * Whether `PALEE_DEBUG` opts the user into a raw stack trace. Read as an env
- * var, the same way `src/cli/config.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
+ * var, the same way `src/cli/config-path.ts` reads `PALEE_CONFIG_DIR`, so no new CLI
  * flag is added to the documented option surface (#338).
  */
 function isDebugEnabled(): boolean {

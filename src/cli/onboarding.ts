@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { programName } from './program-name';
-import { ExitCode } from './exit-codes';
+import { ExitCode } from './exit-code-values';
 import { isAffirmativeEnvFlag } from './env-flag';
 
 export interface VaultValidationOptions {
