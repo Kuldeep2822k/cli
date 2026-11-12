@@ -150,6 +150,33 @@ describe('palee adopt --undo discloses every refusal and skip (#299)', () => {
     assert.match(res.stderr, /Skipped bracket\.md: frontmatter will not parse/);
   });
 
+  test('batch --undo sanitizes control-bearing scope and skipped paths', () => {
+    const ESC = '\u001b';
+    const BEL = '\u0007';
+    const scope = `unsafe‮-scope`;
+    const fileName = `broken‮-note.md`;
+    const scopePath = path.join(vaultDir, scope);
+    fs.mkdirSync(scopePath, { recursive: true });
+    fs.writeFileSync(
+      path.join(scopePath, fileName),
+      `---\npalee_id: [T-broken${ESC}]52;bad${BEL}\n---\n# Broken\n`,
+      'utf8'
+    );
+
+    try {
+      const res = runCLI(['adopt', '--undo', '--yes', '--verbose', '--dry-run', scope]);
+      const output = res.stdout + res.stderr;
+
+      assert.equal(res.status, 0, output);
+      assert.ok(!output.includes('\u001b'), 'the batch report must not emit ESC');
+      assert.ok(!output.includes('\u0007'), 'the batch report must not emit BEL');
+      assert.match(output, /Scope:\s+unsafe-scope/);
+      assert.match(output, /broken-note\.md/, 'the sanitized filename should remain identifiable');
+    } finally {
+      fs.rmSync(scopePath, { recursive: true, force: true });
+    }
+  });
+
   test('--undo --verbose reports the pattern and tag filters that excluded notes', () => {
     write('alpha.md', ADOPTED);
     write('keep.md', ADOPTED.replace('T-alpha', 'T-keep'));

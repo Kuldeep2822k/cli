@@ -141,6 +141,26 @@ describe('CLI Adopt Batch Integration Tests', () => {
     assert.strictEqual(parseFrontmatter(fs.readFileSync(note, 'utf8')).frontmatter?.palee_id, undefined);
   });
 
+  test('batch skip diagnostics sanitize control-bearing filenames', () => {
+    const ESC = '\u001b';
+    const BEL = '\u0007';
+    const fileName = `unsafe‮name.md`;
+    const notePath = path.join(vaultDir, fileName);
+    fs.writeFileSync(notePath, `---\npalee_id: [T-broken${ESC}]52;bad${BEL}\n---\n# Broken\n`, 'utf8');
+
+    try {
+      const result = runCLIBothStreams(['adopt', '--all', '--dry-run', '--verbose']);
+      const output = result.stdout + result.stderr;
+
+      assert.strictEqual(result.status, 0, `${result.spawnError}${output}`);
+      assert.ok(!output.includes('\u001b'), 'the batch report must not emit ESC');
+      assert.ok(!output.includes('\u0007'), 'the batch report must not emit BEL');
+      assert.match(output, /unsafename\.md/, 'the sanitized filename should remain identifiable');
+    } finally {
+      fs.rmSync(notePath, { force: true });
+    }
+  });
+
   test('palee adopt <note> --dry-run leaves the note byte-for-byte alone', () => {
     // The batch branch guarded on `options.dryRun`; the single-file branch did not,
     // so the command a cautious user runs *before* trusting it minted an id,
