@@ -218,17 +218,39 @@ describe('Draft recovery transaction ordering (#328)', () => {
     }
   });
 
-  test('recovery still retires the draft when a stale one is re-run after the 24h clamp', async () => {
+  test('recovery still retires the draft when a stale one is re-run after the 24h clamp', async (t) => {
     const vaultPath = freshVault('stale-retry');
     try {
       // A draft older than 24h clamps its start to `now - 24h`, i.e. to a value that
       // moves with the clock, so a retry has to accept the earlier clamp.
+      //
+      // The draft is deliberately parked just SHORT of the 24h rule, so the clock
+      // advance below — not the fixture — is what makes it stale. A draft that is
+      // already days stale is clamped no matter what the clock says, and its start
+      // then becomes the window's own lower anchor
+      // (`min(draftStart, parsedStart, draftMtime) - 60s`), which spans days: every
+      // tick value, 0 and 50 included, lands inside it and the advance proves nothing.
+      const clampEpoch = Date.now();
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const STALE_MARGIN_MS = 800;
+      const draftStartedAt = new Date(clampEpoch - DAY_MS + STALE_MARGIN_MS).toISOString();
       const staleDraft = await writeDraftCheckpoint(
         vaultPath,
         'DRAFT-S-eeee5555',
-        { topic_id: 'T-stale-retry', started_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+        { topic_id: 'T-stale-retry', started_at: draftStartedAt },
         'Stale draft that has to survive one clamped save.'
       );
+
+      // Only `Date` is mocked, and only for the recovery passes: the clamp is the
+      // clock this test moves, while filesystem mtimes and the unlink fault stay
+      // real. `apis: ['Date']` mocks the constructor and `Date.now()` together —
+      // mocking `Date.now` alone would leave `new Date().toISOString()` on the real
+      // clock.
+      t.mock.timers.enable({ apis: ['Date'], now: clampEpoch });
+      // 1100ms > the 800ms the draft is short of the rule, so this is the advance
+      // that pushes it over 24h and makes the first pass clamp at all.
+      t.mock.timers.tick(1100);
+
       const originalUnlinkSync = fs.unlinkSync;
       try {
         fs.unlinkSync = ((target: fs.PathLike | string) => {
@@ -246,11 +268,105 @@ describe('Draft recovery transaction ordering (#328)', () => {
 
       const firstSession = sessionFiles(vaultPath);
       assert.strictEqual(firstSession.length, 1);
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      // The first pass clamped to `mockNow - 24h`; pin that it did, so the retry is
+      // proven to accept a clamp that moved rather than an identical one.
+      const [firstSessionFile] = firstSession;
+      assert.ok(firstSessionFile !== undefined);
+      const firstFrontmatter = parseFrontmatter(
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', firstSessionFile), 'utf8')
+      ).frontmatter;
+      // Read off the same mocked clock the pass ran on: the recovery clamp is
+      // `now - 24h`, and a `now` past the draft's staleness margin is only reachable
+      // through the tick above.
+      const expectedClamp = new Date(Date.now() - DAY_MS).toISOString();
+      assert.strictEqual(
+        firstFrontmatter?.started_at,
+        expectedClamp,
+        `the clock advance must make the draft stale enough for the recovery clamp: the first pass must save started_at = now - 24h (draft started_at ${draftStartedAt}, saved ${String(firstFrontmatter?.started_at)})`
+      );
+
+      // Advance the mocked clock past the first clamp without sleeping, so the retry
+      // has to accept a clamp that moved rather than an identical one.
+      t.mock.timers.tick(1100);
       await recoverDraft(vaultPath, staleDraft, 'save');
 
       assert.deepStrictEqual(sessionFiles(vaultPath), firstSession, 'a clamped retry must recognise the session the first clamp wrote');
       assert.deepStrictEqual(draftFiles(vaultPath), []);
+    } finally {
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
+
+  test('recovery retires a long-stale draft (3 days old) after the 24h clamp', async (t) => {
+    const vaultPath = freshVault('long-stale');
+    try {
+      // The original #328 fixture, kept as its own case: a draft checkpointed days
+      // ago, stale by a margin no clock jitter can explain. Recovery clamps its start
+      // to `now - 24h`, so the clamp moves with the clock — and a retry a day or more
+      // later lands outside the ±60s skew band around the previous clamp. Only a
+      // window that also reaches back to the draft's own start can recognise it.
+      //
+      // The advance is deliberately NOT what makes this draft stale — it is already
+      // past the rule on its own. Proving that the clock crosses the 24h rule stays
+      // the near-threshold case's job; what this case owns is the multi-day gap that
+      // case traded away, which is what anchors `acceptedStartLow` on the draft start.
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const baseEpoch = Date.now();
+      const draftStartedAt = new Date(baseEpoch - 3 * DAY_MS).toISOString();
+      const staleDraft = await writeDraftCheckpoint(
+        vaultPath,
+        'DRAFT-S-ffff6666',
+        { topic_id: 'T-long-stale', started_at: draftStartedAt },
+        'Long-stale draft that has to survive one clamped save.'
+      );
+
+      t.mock.timers.enable({ apis: ['Date'], now: baseEpoch });
+
+      // Same injected retire fault as the other passes: the canonical note lands, the
+      // draft survives, and only the retry can tell that the note stands for it.
+      const originalUnlinkSync = fs.unlinkSync;
+      try {
+        fs.unlinkSync = ((target: fs.PathLike | string) => {
+          if (String(target).includes('DRAFT-S-ffff6666')) {
+            const err: NodeJS.ErrnoException = new Error(`EACCES: permission denied, unlink '${target}'`);
+            err.code = 'EACCES';
+            throw err;
+          }
+          return originalUnlinkSync(target);
+        }) as typeof fs.unlinkSync;
+        await assert.rejects(() => recoverDraft(vaultPath, staleDraft, 'save'), /EACCES/);
+      } finally {
+        fs.unlinkSync = originalUnlinkSync;
+      }
+
+      const firstSession = sessionFiles(vaultPath);
+      assert.strictEqual(firstSession.length, 1);
+      const [firstSessionFile] = firstSession;
+      assert.ok(firstSessionFile !== undefined);
+      const firstFrontmatter = parseFrontmatter(
+        fs.readFileSync(path.join(vaultPath, '.palee', 'sessions', firstSessionFile), 'utf8')
+      ).frontmatter;
+      // `now - 24h`, not the draft's 3-day-old start: the clamp has to overwrite the
+      // fixture's own timestamp, otherwise nothing stale was recovered at all.
+      const expectedClamp = new Date(Date.now() - DAY_MS).toISOString();
+      assert.strictEqual(
+        firstFrontmatter?.started_at,
+        expectedClamp,
+        `a 3-day-old draft must save started_at = now - 24h (draft started_at ${draftStartedAt}, saved ${String(firstFrontmatter?.started_at)})`
+      );
+
+      // Advance a whole day without sleeping: the retry's clamp is now ~74h past the
+      // draft's start and a day past the first clamp, i.e. far outside any skew band.
+      // A retry that rejects the earlier clamp would mint a second session here.
+      t.mock.timers.tick(DAY_MS);
+      await recoverDraft(vaultPath, staleDraft, 'save');
+
+      assert.deepStrictEqual(
+        sessionFiles(vaultPath),
+        firstSession,
+        'the long-stale retry must reuse the session the first clamp wrote'
+      );
+      assert.deepStrictEqual(draftFiles(vaultPath), [], 'the long-stale retry must retire the draft');
     } finally {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }
