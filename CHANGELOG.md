@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-12
+
 ### Added
 
 - **Document and pin read-path trade-offs** ([#427](https://github.com/Kuldeep2822k/cli/issues/427), [#582](https://github.com/Kuldeep2822k/cli/pull/582)): ADR-0018 and storage docs explicitly document accepted limitations on the unclosed-frontmatter heuristic and the 512 KiB silent note-skip limit, pinned with regression tests.
