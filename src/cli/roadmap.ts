@@ -8,6 +8,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
+import { sanitizeForDisplay, sanitizePathForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   updateFrontmatter,
@@ -340,7 +341,7 @@ export function readBoundNote(targetPath: string, expected: fs.Stats): string {
   try {
     const opened = fs.fstatSync(fd);
     if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
-      throw new Error(`${targetPath} changed between validation and read`);
+      throw new Error(`${sanitizePathForDisplay(targetPath)} changed between validation and read`);
     }
     // #565 P1-10: the cap is applied to the descriptor's own byte count. A second
     // `stat` on the path would reopen the check-then-use window this function exists to
@@ -727,7 +728,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     console.log();
     console.log('This will create/update the following files:');
     for (const topic of roadmap.topics) {
-      console.log(`  • ${topic.path}`);
+      console.log(`  • ${sanitizeForDisplay(topic.path)}`);
     }
     console.log();
 
@@ -769,7 +770,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           createCount++;
         }
         const noteState = exists ? 'update existing note' : 'create new note';
-        console.log(`  • ${topic.id} → ${topic.path} (${noteState})`);
+        console.log(`  • ${sanitizeForDisplay(topic.id)} → ${sanitizeForDisplay(topic.path)} (${noteState})`);
 
         const deps = effectiveDepsMap.get(topic.id) ?? [];
         const shown = deps.map((dep) =>
@@ -1063,7 +1064,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
 
         if (!isWithinVault(resolvedVault, absolutePath)) {
-          console.error(`Roadmap path escapes vault: ${topic.path}`);
+          console.error(`Roadmap path escapes vault: ${sanitizeForDisplay(topic.path)}`);
           failed++;
           continue;
         }
@@ -1077,7 +1078,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           const canonicalDir = ensureVaultDirectory(vaultPath, absolutePath);
           resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
         } catch (e) {
-          console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
+          console.error(`Error creating directory for ${sanitizeForDisplay(topic.path)}: ${sanitizeForDisplay((e as Error).message)}`);
           failed++;
           continue;
         }
@@ -1094,7 +1095,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           // See {@link inspectExistingNote} for why the existence test is `lstat`.
           const { stat: targetStat, blocker } = inspectExistingNote(resolvedTargetPath);
           if (blocker !== null) {
-            console.error(`Skipped ${topic.id}: ${topic.path} ${blocker}`);
+            console.error(`Skipped ${sanitizeForDisplay(topic.id)}: ${sanitizeForDisplay(topic.path)} ${sanitizeForDisplay(String(blocker))}`);
             failed++;
             continue;
           }
@@ -1158,9 +1159,9 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
           const isConflict = isConflictError(err);
           if (isConflict) {
             conflicts++;
-            console.error(`  - Failed ${topic.id} (${targetPath}): OCC conflict (file locked or concurrently modified)`);
+            console.error(`  - Failed ${sanitizeForDisplay(topic.id)} (${sanitizePathForDisplay(targetPath)}): OCC conflict (file locked or concurrently modified)`);
           } else {
-            console.error(`  - Failed ${topic.id} (${targetPath}): ${(err as Error).message}`);
+            console.error(`  - Failed ${sanitizeForDisplay(topic.id)} (${sanitizePathForDisplay(targetPath)}): ${sanitizeForDisplay((err as Error).message)}`);
           }
           failed++;
           continue;

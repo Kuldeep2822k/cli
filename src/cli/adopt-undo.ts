@@ -11,6 +11,7 @@ import path from 'path';
 import readline from 'readline';
 import { loadConfig } from './config';
 import { validateVaultPath } from './onboarding';
+import { sanitizeForDisplay, sanitizePathForDisplay } from './display-safety';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
   parseFrontmatter,
@@ -441,7 +442,7 @@ async function rollbackBatch(
       const e = err as Error;
       unrestored += 1;
       if (isConflictError(err)) conflicted = true;
-      console.error(`  Failed to restore ${item.relativePath}: ${e.message}`);
+      console.error(`  Failed to restore ${sanitizeForDisplay(item.relativePath)}: ${sanitizeForDisplay(e.message)}`);
     }
   }
   if (unrestored > 0) {
@@ -509,7 +510,7 @@ async function commitBatch(vaultPath: string, items: PreparedUndoItem[]): Promis
 function reportPlan(targets: UndoTarget[], verbose: boolean | undefined): void {
   console.log('\nKeys PALEE would remove:');
   for (const target of targets) {
-    console.log(`  • ${target.relativePath} (${target.paleeId})`);
+    console.log(`  • ${sanitizeForDisplay(target.relativePath)} (${sanitizeForDisplay(target.paleeId)})`);
     console.log(`      removes: ${target.removals.join(', ')}`);
     if (verbose) {
       const kept = Object.keys(parseFrontmatter(target.content).frontmatter ?? {}).filter(
@@ -693,7 +694,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       const absolutePath = path.resolve(vaultPath, targetPath!);
       const realPath = fs.realpathSync(absolutePath);
       if (!realPath.startsWith(resolvedVault + path.sep) && realPath !== resolvedVault) {
-        console.error(`Error: Path escapes vault: ${targetPath}`);
+        console.error(`Error: Path escapes vault: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -702,7 +703,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       // can ever read would rewrite a file the learner's reports still cannot see.
       const { size: sourceSize } = fs.statSync(absolutePath);
       if (noteExceedsReadCap(sourceSize)) {
-        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(sourceSize)}; nothing was un-adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} ${oversizedNoteDiagnostic(sourceSize)}; nothing was un-adopted.`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -711,7 +712,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       const { frontmatter, error: frontmatterError } = parseFrontmatter(content);
       if (frontmatterError !== undefined) {
         console.error(
-          `Error: ${targetPath} has malformed frontmatter (${frontmatterError}); nothing was un-adopted.`
+          `Error: ${sanitizePathForDisplay(targetPath)} has malformed frontmatter (${sanitizeForDisplay(frontmatterError)}); nothing was un-adopted.`
         );
         process.exitCode = ExitCode.Usage;
         return;
@@ -727,7 +728,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         const why = hasUnclosedFrontmatterOpener(content)
           ? ' — it opens a frontmatter block but never closes it, so no `palee_id` is readable'
           : '';
-        console.log(`${targetPath} is not adopted${why}; nothing to un-adopt.`);
+        console.log(`${sanitizePathForDisplay(targetPath)} is not adopted${why}; nothing to un-adopt.`);
         if (frontmatter && frontmatter.palee_id !== undefined && frontmatter.palee_id !== null) {
           console.log(
             '  Note: its `palee_id` is not a usable topic id, so it was left exactly as it is.'
@@ -752,14 +753,14 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       // a change to the bytes this run read.
       const { size: rereadSize } = fs.statSync(absolutePath);
       if (noteExceedsReadCap(rereadSize)) {
-        console.error(`Error: ${targetPath} ${oversizedNoteDiagnostic(rereadSize)}; nothing was un-adopted.`);
+        console.error(`Error: ${sanitizePathForDisplay(targetPath)} ${oversizedNoteDiagnostic(rereadSize)}; nothing was un-adopted.`);
         process.exitCode = ExitCode.Conflict;
         return;
       }
       const freshContent = fs.readFileSync(absolutePath, 'utf8');
       if (computeFingerprint(freshContent) !== target.fingerprint) {
         console.error(
-          `Error: OCC conflict: ${targetPath} was modified while this run was reading it; ` +
+          `Error: OCC conflict: ${sanitizePathForDisplay(targetPath)} was modified while this run was reading it; ` +
             'nothing was un-adopted.'
         );
         process.exitCode = ExitCode.Conflict;
@@ -768,7 +769,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
 
       const prepared = prepareUndoWrite(target, freshContent);
       if (prepared === null) {
-        console.log(`${targetPath} is not adopted; nothing to un-adopt.`);
+        console.log(`${sanitizePathForDisplay(targetPath)} is not adopted; nothing to un-adopt.`);
         return;
       }
 
@@ -777,7 +778,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       // invisible to every reader afterwards.
       if (noteContentExceedsReadCap(prepared.updatedContent)) {
         console.error(
-          `Error: ${targetPath} ${oversizedWriteDiagnostic(Buffer.byteLength(prepared.updatedContent, 'utf8'))}; nothing was un-adopted.`
+          `Error: ${sanitizePathForDisplay(targetPath)} ${oversizedWriteDiagnostic(Buffer.byteLength(prepared.updatedContent, 'utf8'))}; nothing was un-adopted.`
         );
         process.exitCode = ExitCode.Usage;
         return;
@@ -787,7 +788,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       if (written === null) return;
 
       console.log(`✓ Un-adopted topic ${prepared.paleeId}`);
-      console.log(`  Path: ${targetPath}`);
+      console.log(`  Path: ${sanitizePathForDisplay(targetPath)}`);
       console.log(`  Keys removed: ${prepared.removals.join(', ')}`);
       if (carriesTitle(target)) {
         console.log(options.dropTitle ? TITLE_KEPT_REMOVED : `${TITLE_KEPT_NOTE}\n${TITLE_KEPT_NOTE_2}`);
@@ -817,21 +818,21 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     if (targetPath) {
       const candidatePath = path.resolve(vaultPath, targetPath);
       if (!fs.existsSync(candidatePath)) {
-        console.error(`Error: Target directory not found: ${targetPath}`);
+        console.error(`Error: Target directory not found: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
       const realCandidate = fs.realpathSync(candidatePath);
       if (!realCandidate.startsWith(resolvedVault + path.sep) && realCandidate !== resolvedVault) {
-        console.error(`Error: Path escapes vault: ${targetPath}`);
+        console.error(`Error: Path escapes vault: ${sanitizePathForDisplay(targetPath)}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
       if (!fs.statSync(candidatePath).isDirectory()) {
         console.error(
           targetPath.toLowerCase().endsWith('.md')
-            ? `Error: ${targetPath} is a file — drop --undo's directory scan by passing it alone, or pass a directory`
-            : `Error: Not a markdown note: ${targetPath} — pass a .md file or a directory to un-adopt`
+            ? `Error: ${sanitizePathForDisplay(targetPath)} is a file — drop --undo's directory scan by passing it alone, or pass a directory`
+            : `Error: Not a markdown note: ${sanitizePathForDisplay(targetPath)} — pass a .md file or a directory to un-adopt`
         );
         process.exitCode = ExitCode.Usage;
         return;
@@ -927,7 +928,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       }
     }
 
-    const scanLabel = targetPath ? targetPath.replace(/\\/g, '/') : '(Entire Vault)';
+    const scanLabel = targetPath ? sanitizePathForDisplay(targetPath.replace(/\\/g, '/')) : '(Entire Vault)';
     console.log('=== PALEE Batch Un-adoption ===');
     console.log(`Scope:            ${scanLabel}`);
     console.log(`Total Scanned:    ${allFiles.length} files`);
@@ -973,51 +974,51 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     }
     console.log('Owned keys only:  every other frontmatter key, comment and body byte is preserved');
     for (const [relPath, reason] of skippedUnreadable) {
-      console.error(`Skipped ${relPath}: frontmatter will not parse (${reason})`);
+      console.error(`Skipped ${sanitizeForDisplay(relPath)}: frontmatter will not parse (${sanitizeForDisplay(reason)})`);
     }
     for (const [relPath, reason] of skippedOversized) {
-      console.error(`Skipped ${relPath}: ${reason}`);
+      console.error(`Skipped ${sanitizeForDisplay(relPath)}: ${sanitizeForDisplay(reason)}`);
     }
 
     if (options.verbose) {
       if (toUndo.length > 0) {
         console.log('\nNotes to un-adopt:');
-        toUndo.forEach((n) => console.log(`  • ${n.relativePath} (${n.paleeId})`));
+        toUndo.forEach((n) => console.log(`  • ${sanitizeForDisplay(n.relativePath)} (${sanitizeForDisplay(n.paleeId)})`));
       }
       if (notAdopted.length > 0) {
         console.log('\nNot adopted:');
-        notAdopted.forEach((f) => console.log(`  = ${f}`));
+        notAdopted.forEach((f) => console.log(`  = ${sanitizeForDisplay(f)}`));
       }
       if (skippedByPattern.length > 0) {
         console.log('\nSkipped by pattern filter:');
-        skippedByPattern.forEach((f) => console.log(`  - ${f}`));
+        skippedByPattern.forEach((f) => console.log(`  - ${sanitizeForDisplay(f)}`));
       }
       if (skippedByTag.length > 0) {
         console.log('\nSkipped by tag filter:');
-        skippedByTag.forEach((f) => console.log(`  ~ ${f}`));
+        skippedByTag.forEach((f) => console.log(`  ~ ${sanitizeForDisplay(f)}`));
       }
       if (unusableId.length > 0) {
         console.log('\nSkipped: palee_id is not a usable string (left alone):');
-        unusableId.forEach((f) => console.log(`  ! ${f}`));
+        unusableId.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (orphanOwnedKeys.length > 0) {
         console.log('\nSkipped: PALEE-owned keys with no topic id (left alone):');
-        orphanOwnedKeys.forEach((f) => console.log(`  ! ${f}`));
+        orphanOwnedKeys.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (unterminated.length > 0) {
         console.log('\nSkipped: the frontmatter block is never closed (left alone):');
-        unterminated.forEach((f) => console.log(`  ! ${f}`));
+        unterminated.forEach((f) => console.log(`  ! ${sanitizeForDisplay(f)}`));
       }
       if (skippedUnreadable.size > 0) {
         console.log('\nSkipped: frontmatter will not parse (not rewritten):');
         for (const relPath of skippedUnreadable.keys()) {
-          console.log(`  ? ${relPath}`);
+          console.log(`  ? ${sanitizeForDisplay(relPath)}`);
         }
       }
       if (skippedOversized.size > 0) {
         console.log(`\nSkipped: over the ${MAX_NOTE_SOURCE_BYTES} byte read cap (not rewritten):`);
         for (const relPath of skippedOversized.keys()) {
-          console.log(`  ? ${relPath}`);
+          console.log(`  ? ${sanitizeForDisplay(relPath)}`);
         }
       }
     }
@@ -1109,7 +1110,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
         preparedBatch.push(prepared);
       } catch (err: unknown) {
         const e = err as Error;
-        console.error(`Skipped ${target.relativePath}: frontmatter will not parse (${e.message})`);
+        console.error(`Skipped ${sanitizeForDisplay(target.relativePath)}: frontmatter will not parse (${sanitizeForDisplay(e.message)})`);
       }
     }
 
@@ -1121,7 +1122,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
           'planning, or grew past the note read cap; nothing was un-adopted.'
       );
       for (const { relativePath, reason } of changedDuringRun.slice(0, 5)) {
-        console.error(`  • ${relativePath} (${reason})`);
+        console.error(`  • ${sanitizeForDisplay(relativePath)} (${sanitizeForDisplay(reason)})`);
       }
       if (changedDuringRun.length > 5) {
         console.error(`  • … and ${changedDuringRun.length - 5} more`);
