@@ -1,5 +1,6 @@
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { sanitizeForDisplay } from './display-safety';
 import { exitCodeFor } from './exit-codes';
 /**
  * Plan Command Handler
@@ -201,7 +202,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     if (quarantinedCycles.length > 0) {
       console.log(`Quarantined Cycles: ${quarantinedCycles.length}${cyclesTruncated ? ' (truncated — more cycles exist)' : ''}`);
       for (const cycle of quarantinedCycles) {
-        console.log(`  ⚠ Dependency cycle quarantined: ${cycle.join(' → ')}`);
+        console.log(`  ⚠ Dependency cycle quarantined: ${sanitizeForDisplay(cycle.join(' → '))}`);
       }
       console.log('  Topics on these cycles (and their dependents) are excluded from Ready to Learn.');
       console.log();
@@ -214,7 +215,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
         const dueStr = topic.due_at
           ? topic.due_at.toISOString().split('T')[0]
           : 'Never reviewed';
-        console.log(`  • ${topic.title} (${topic.palee_id}) - Due: ${dueStr}`);
+        console.log(`  • ${sanitizeForDisplay(topic.title)} (${sanitizeForDisplay(topic.palee_id)}) - Due: ${dueStr}`);
       }
 
       if (sortedDue.length > 5) {
@@ -227,7 +228,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     console.log(`Ready to Learn: ${readyTopics.length}`);
     if (readyTopics.length > 0) {
       for (const topic of sortedReady.slice(0, 5)) {
-        console.log(`  • ${topic.title} (${topic.palee_id}) - ${topic.difficulty}`);
+        console.log(`  • ${sanitizeForDisplay(topic.title)} (${sanitizeForDisplay(topic.palee_id)}) - ${topic.difficulty}`);
       }
 
       if (sortedReady.length > 5) {
@@ -241,7 +242,7 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     if (blocked.length > 0) {
       console.log(`Blocked by prerequisites: ${blocked.length}`);
       for (const item of blocked.slice(0, 5)) {
-        console.log(`  • ${item.title} (${item.id}) — waiting on ${item.waiting_on.join('; ')}`);
+        console.log(`  • ${sanitizeForDisplay(item.title)} (${sanitizeForDisplay(item.id)}) — waiting on ${sanitizeForDisplay(item.waiting_on.join('; '))}`);
       }
 
       if (blocked.length > 5) {
