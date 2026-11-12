@@ -11,6 +11,7 @@ import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { sanitizeForDisplay } from './display-safety';
 import { exitCodeFor } from './exit-codes';
 import { Difficulty, DashboardOptions } from '../types';
 
@@ -193,7 +194,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     // Next review
     if (next) {
       console.log('Next Review:');
-      console.log(`  ${next.title} (${next.id})`);
+      console.log(`  ${sanitizeForDisplay(next.title)} (${sanitizeForDisplay(next.id)})`);
       console.log(`  Mastery: ${(next.mastery * 100).toFixed(1)}% | Reps: ${next.repetition}`);
       console.log();
     }

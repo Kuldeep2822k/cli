@@ -4,6 +4,7 @@ import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import { resolveTopicQuery } from './topic-query';
 import { programName } from './program-name';
+import { sanitizeForDisplay } from './display-safety';
 import {
   loadTopics,
   parseFrontmatter,
@@ -60,7 +61,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
     if (resolution.kind === 'ambiguous') {
       console.error(`Error: Multiple topics match "${topicQuery}":`);
       for (const c of resolution.candidates) {
-        console.error(`  - ${c.palee_id}: ${c.title}`);
+        console.error(`  - ${sanitizeForDisplay(c.palee_id)}: ${sanitizeForDisplay(c.title)}`);
       }
       console.error('Please provide a more specific query.');
       process.exitCode = ExitCode.Usage;
@@ -106,7 +107,7 @@ async function reviewCommand(topicQuery: string, qualityStr: string, options: Re
 
     await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
 
-    console.log(`✓ Review recorded for ${topic.title}`);
+    console.log(`✓ Review recorded for ${sanitizeForDisplay(topic.title)}`);
     console.log(`  Quality: ${quality}`);
     console.log(`  New ease factor: ${newState.ease_factor}`);
     console.log(`  Next interval: ${newState.interval_days} day(s)`);
