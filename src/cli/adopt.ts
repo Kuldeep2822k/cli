@@ -16,15 +16,15 @@ import {
   atomicWrite,
   walkVault,
   relativeVaultPath,
-  matchesPattern,
-  matchesTags,
   validatePattern,
   loadTopics,
   deriveTocEnumeration,
   countWords,
 } from '../storage';
 import { foldIdentity } from '../storage/vault-walker';
-import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
+// P3-11 (#565): the --include/--exclude/--tag decision is one predicate beside the
+// matchers it folds, so the adoption scan and `adopt --undo`'s scan cannot drift.
+import { batchScopeExclusion, tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
 import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
 import { buildTopicScaffold } from '../engine/topic-scaffold';
@@ -689,30 +689,23 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // `planPaths` below, so the next new lesson is given a `depends_on` edge
         // pointing at the very note `--exclude` was written to drop — and that
         // edge is persisted. Same for `--include` and `--tag`.
-        const passesFilters =
-          (!options.include || matchesPattern(relPath, options.include)) &&
-          !(options.exclude && matchesPattern(relPath, options.exclude)) &&
-          !(options.tag && !matchesTags(frontmatter.tags, options.tag));
-        if (passesFilters) {
+        if (batchScopeExclusion(relPath, frontmatter.tags, options) === null) {
           plannableAdopted.push(relPath);
         }
         continue;
       }
 
-      // Check include filter
-      if (options.include && !matchesPattern(relPath, options.include)) {
+      // Batch scope — --include, --exclude and --tag decided by the one shared
+      // predicate (P3-11 of #565), routed into the same counters the separate
+      // checks kept: an include miss or an exclude hit is a pattern exclusion,
+      // a tag miss is a tag exclusion. The predicate's fixed order keeps a note
+      // failing several filters in the bucket the first failing filter claimed.
+      const scopeExclusion = batchScopeExclusion(relPath, frontmatter?.tags, options);
+      if (scopeExclusion === 'include' || scopeExclusion === 'exclude') {
         skippedByPattern.push(relPath);
         continue;
       }
-
-      // Check exclude filter
-      if (options.exclude && matchesPattern(relPath, options.exclude)) {
-        skippedByPattern.push(relPath);
-        continue;
-      }
-
-      // Check tag filter
-      if (options.tag && !matchesTags(frontmatter?.tags, options.tag)) {
+      if (scopeExclusion === 'tag') {
         skippedByTag.push(relPath);
         continue;
       }
