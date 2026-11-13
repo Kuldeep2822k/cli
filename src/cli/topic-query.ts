@@ -1,26 +1,29 @@
-import type { LoadedTopic } from '../storage';
+import type { TopicMetadata } from '../storage';
 
 /**
  * The outcome of resolving one user-supplied topic query against a loaded vault.
  *
  * @remarks Deliberately free of console output and exit codes: each command owns
  * its own wording and JSON shape, and `assess`, `review` and `progress` differ in
- * both. Only the *choice* of topic is shared.
+ * both. Only the *choice* of topic is shared. Generic over the loaded shape so a
+ * metadata-only caller (`progress`, P3-06) resolves `TopicMetadata` while the
+ * body-reading callers (`assess`, `review`) keep resolving `LoadedTopic` — the
+ * resolution logic never touches a note body either way.
  */
-type TopicQueryResolution =
-  | { kind: 'single'; topic: LoadedTopic }
-  | { kind: 'ambiguous'; candidates: LoadedTopic[] }
+type TopicQueryResolution<T extends TopicMetadata = TopicMetadata> =
+  | { kind: 'single'; topic: T }
+  | { kind: 'ambiguous'; candidates: T[] }
   | { kind: 'none' };
 
 /**
  * Normalizes a vault-relative note path for the exact-path comparison below.
  *
- * @param value - A `LoadedTopic.path`, or a learner-supplied query
+ * @param value - A `TopicMetadata.path`, or a learner-supplied query
  * @returns The value with `\` folded to `/`, a leading `./` dropped, and on
  * win32 lowercased
  *
  * @remarks
- * `LoadedTopic.path` is already POSIX-separated (`relativeVaultPath` rewrites
+ * `TopicMetadata.path` is already POSIX-separated (`relativeVaultPath` rewrites
  * every separator), so only the query side normally needs folding — a learner on
  * Windows who copies `Path: w\one.md` out of `session` output gets the same topic
  * as one typing `w/one.md`. Case is folded on win32 only, because only there is
@@ -36,7 +39,7 @@ function normalizeTopicPath(value: string): string {
  * Resolves a topic query — a `palee_id`, a title substring, or the exact vault
  * path the CLI itself printed for a topic — to the topic the learner meant.
  *
- * @param loaded - Topics from {@link loadTopics}, in load order.
+ * @param loaded - Topics from `loadTopics` or `loadTopicMetadata`, in load order.
  * @param query - The raw user argument.
  * @returns The single match, every candidate when more than one matches and none
  * is exact, or `none` when nothing matches.
@@ -47,10 +50,10 @@ function normalizeTopicPath(value: string): string {
  * if (r.kind === 'single') console.log(r.topic.title);
  * ```
  */
-function resolveTopicQuery(
-  loaded: LoadedTopic[],
+function resolveTopicQuery<T extends TopicMetadata>(
+  loaded: T[],
   query: string
-): TopicQueryResolution {
+): TopicQueryResolution<T> {
   // An exact id wins outright: `T-math` is the learner naming a topic, and a
   // neighbour called `T-math-2` matching it by substring must not turn a
   // specific request into an ambiguity error that writes nothing — nor, under

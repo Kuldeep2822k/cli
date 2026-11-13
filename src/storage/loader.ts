@@ -11,7 +11,7 @@ import path from 'path';
 import { walkVault, relativeVaultPath, stemOfNote } from './vault-walker';
 import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
-import { MAX_NOTE_SOURCE_BYTES } from './source-cap';
+import { MAX_NOTE_SOURCE_BYTES, noteExceedsReadCap } from './source-cap';
 import { normalizeDependencies } from './dependencies';
 import { TopicNode, normalizeDifficulty, normalizeAssessedAt, normalizeDependsOnSource } from '../types';
 
@@ -83,9 +83,17 @@ export function getNonTopicCache(): FileCache<NonTopicNote> {
 }
 
 /**
- * Fully materialized in-memory representation of a PALEE topic note loaded from disk.
+ * The normalized view of a PALEE topic note that does not depend on its body.
+ *
+ * @remarks
+ * Everything {@link LoadedTopic} carries except `content` (P3-06): the
+ * metadata-only load path ({@link loadTopicMetadata}) returns this shape for
+ * the read-only commands, which never read `.content`, so their scan costs one
+ * bounded read of the frontmatter head per note instead of a full-body read
+ * plus a SHA-256 pass. Field normalization is identical to the full load —
+ * both paths build through {@link buildTopicMetadata}.
  */
-export interface LoadedTopic extends TopicNode {
+export interface TopicMetadata extends TopicNode {
   /** Canonical topic ID (`palee_id`) */
   id: string;
   /** Topic title */
@@ -94,10 +102,16 @@ export interface LoadedTopic extends TopicNode {
   path: string;
   /** Absolute filesystem path to the Markdown note */
   filePath: string;
-  /** Full raw Markdown text content */
-  content: string;
   /** Parsed YAML frontmatter dictionary */
   frontmatter: Record<string, unknown>;
+}
+
+/**
+ * Fully materialized in-memory representation of a PALEE topic note loaded from disk.
+ */
+export interface LoadedTopic extends TopicMetadata {
+  /** Full raw Markdown text content */
+  content: string;
 }
 
 /**
@@ -255,6 +269,160 @@ function parseNumber(val: unknown, fallback: number = 0): number {
 
 
 /**
+ * Extracts the identity fields both load paths derive from a parsed frontmatter.
+ *
+ * @param frontmatter - Parsed YAML frontmatter, or `null` when the note has none
+ * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param filePath - Absolute path to the Markdown note
+ * @returns The narrowed frontmatter plus the trimmed `palee_id`, vault-relative
+ *   POSIX path, and resolved title — or `null` when the note carries no usable
+ *   `palee_id`
+ *
+ * @remarks
+ * Shared verbatim by {@link loadTopics} and {@link loadTopicMetadata} so the
+ * "is this a topic note" predicate and the title fallback cannot drift between
+ * a full load and a metadata-only load. The narrowed `frontmatter` travels with
+ * the identity so callers never re-narrow the nullable parse result.
+ */
+function resolveTopicIdentity(
+  frontmatter: Record<string, unknown> | null,
+  vaultPath: string,
+  filePath: string
+): { frontmatter: Record<string, unknown>; paleeId: string; relPath: string; title: string } | null {
+  if (!frontmatter) return null;
+  const rawId = frontmatter.palee_id;
+  if (typeof rawId !== 'string' || !rawId.trim()) return null;
+  return {
+    frontmatter,
+    paleeId: rawId.trim(),
+    relPath: relativeVaultPath(vaultPath, filePath),
+    title: typeof frontmatter.title === 'string' && frontmatter.title.trim()
+      ? frontmatter.title.trim()
+      : stemOfNote(path.basename(filePath)),
+  };
+}
+
+/**
+ * Normalizes a topic note's frontmatter into the shared {@link TopicMetadata} shape.
+ *
+ * @param identity - Identity fields from {@link resolveTopicIdentity}
+ * @param filePath - Absolute filesystem path to the Markdown note
+ * @returns The normalized metadata both load paths return
+ *
+ * @remarks
+ * Single source of the normalization rules — fallbacks, score clamping, type
+ * coercion, dependency parsing, SM-2 defaults — so a metadata-only load
+ * observes exactly the field values the full load would for the same note.
+ */
+function buildTopicMetadata(
+  identity: { frontmatter: Record<string, unknown>; paleeId: string; relPath: string; title: string },
+  filePath: string
+): TopicMetadata {
+  const { frontmatter } = identity;
+  const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
+  const dependsOnSource = normalizeDependsOnSource(frontmatter.depends_on_source);
+
+  return {
+    palee_id: identity.paleeId,
+    id: identity.paleeId,
+    title: identity.title,
+    path: identity.relPath,
+    filePath,
+    frontmatter,
+    difficulty: normalizeDifficulty(frontmatter.difficulty),
+    depends_on: dependsOn,
+    // `TopicNode.depends_on_source` does not admit an explicit `undefined`
+    // under `exactOptionalPropertyTypes`, so the key is omitted (not
+    // undefined-valued) when the note declares no source. No consumer
+    // distinguishes an absent key from an undefined one.
+    ...(dependsOnSource === undefined ? {} : { depends_on_source: dependsOnSource }),
+    topic_mastery: parseScore(frontmatter.topic_mastery, 0.0),
+    status: typeof frontmatter.status === 'string' ? frontmatter.status.trim().toLowerCase() : 'not_started',
+    conceptual: parseScore(frontmatter.conceptual, 0.0),
+    practical: parseScore(frontmatter.practical, 0.0),
+    debug: parseScore(frontmatter.debug, 0.0),
+    feynman: parseScore(frontmatter.feynman, 0.0),
+    ease_factor: parseNumber(frontmatter.ease_factor, 2.5),
+    interval_days: parseInteger(frontmatter.interval_days, 1),
+    repetition: parseInteger(frontmatter.repetition, 0),
+    lapses: parseInteger(frontmatter.lapses, 0),
+    last_quality: parseOptionalInteger(frontmatter.last_quality),
+    assessed_at: normalizeAssessedAt(frontmatter.assessed_at),
+    last_reviewed_at: frontmatter.last_reviewed_at ? String(frontmatter.last_reviewed_at) : null,
+    due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
+  };
+}
+
+/**
+ * Byte size of one window in the metadata read (P3-06).
+ *
+ * @remarks
+ * {@link readFrontmatterSlice} stops at the first complete frontmatter block,
+ * so a note with a normal frontmatter head costs a single windowed read no
+ * matter how large its body is; a note whose frontmatter is longer simply
+ * costs one window per 8 KiB of frontmatter.
+ */
+const METADATA_READ_WINDOW_BYTES = 8192;
+
+/**
+ * Reads only the head of a note up to the end of its frontmatter block.
+ *
+ * @param filePath - Absolute path to the Markdown note
+ * @param maxBytes - Upper bound on bytes to pull (the stat'd file size; the
+ *   read cap has already been applied by the caller)
+ * @returns The text read so far, or `null` when the note cannot be opened or read
+ *
+ * @remarks
+ * P3-06: the metadata-only load path must not pay for note bodies, so this
+ * accumulates bounded windows until {@link parseFrontmatter}'s two fence shapes
+ * are complete in the text read so far — the empty `---`/`---` block, or a
+ * populated block closed by a `---` line — and stops there. The stop regexes
+ * mirror `parseFrontmatter`'s anchored fence matches exactly (BOM stripped
+ * first, `\r?\n` breaks, the first `\n---` wins), so the bytes this returns
+ * always let `parseFrontmatter` reach the same `frontmatter` verdict a full
+ * read would: a completed block stays completed in every longer prefix, and a
+ * file with no closing fence is read to `maxBytes` (EOF for an under-cap
+ * note), which parses exactly like the full read. A multi-byte character cut
+ * by a window boundary only mangles the intermediate probe text — continuation
+ * bytes decode to U+FFFD, never to ASCII bytes, so the probe can neither
+ * invent nor miss a fence — while the final parse runs over the whole
+ * accumulated buffer with the block intact.
+ */
+function readFrontmatterSlice(filePath: string, maxBytes: number): string | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (total < maxBytes) {
+      const windowBytes = Math.min(METADATA_READ_WINDOW_BYTES, maxBytes - total);
+      const buf = Buffer.alloc(windowBytes);
+      const bytesRead = fs.readSync(fd, buf, 0, windowBytes, total);
+      if (bytesRead <= 0) break; // EOF — return what we hold
+      chunks.push(buf.subarray(0, bytesRead));
+      total += bytesRead;
+      const text = Buffer.concat(chunks).toString('utf8');
+      const stripped = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+      if (!/^---\r?\n/.test(stripped)) break; // no frontmatter at byte 0
+      if (/^---\r?\n---(?:\r?\n)?/.test(stripped)) break; // empty fence block complete
+      if (/^---\r?\n[\s\S]*?\r?\n---/.test(stripped)) break; // populated block complete
+      if (bytesRead < windowBytes) break; // EOF before any closing fence
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Closing an already-vanished handle — nothing to recover.
+      }
+    }
+  }
+}
+
+/**
  * Scans the vault and parses all Markdown files containing a valid `palee_id`.
  *
  * @remarks
@@ -350,7 +518,8 @@ export function loadTopics(
     }
     const { frontmatter } = parseFrontmatter(content);
 
-    if (!frontmatter || typeof frontmatter.palee_id !== 'string' || !frontmatter.palee_id.trim()) {
+    const identity = resolveTopicIdentity(frontmatter, vaultPath, filePath);
+    if (identity === null) {
       // Record the verdict for the next scan. Snapshot bytes are excluded for
       // the same reason topics are: they are not what the disk holds.
       if (!fromSnapshot) {
@@ -359,47 +528,9 @@ export function loadTopics(
       continue;
     }
 
-    const paleeId = frontmatter.palee_id.trim();
-    const relPath = relativeVaultPath(vaultPath, filePath);
-    const title = typeof frontmatter.title === 'string' && frontmatter.title.trim()
-      ? frontmatter.title.trim()
-      : stemOfNote(path.basename(filePath));
-
-    const dependsOn = normalizeDependencies(frontmatter.depends_on, frontmatter.dependencies);
-    const dependsOnSource = normalizeDependsOnSource(frontmatter.depends_on_source);
-
-    const difficulty = normalizeDifficulty(frontmatter.difficulty);
-    const topicMastery = parseScore(frontmatter.topic_mastery, 0.0);
-
     const topic: LoadedTopic = {
-      palee_id: paleeId,
-      id: paleeId,
-      title,
-      path: relPath,
-      filePath,
+      ...buildTopicMetadata(identity, filePath),
       content,
-      frontmatter,
-      difficulty,
-      depends_on: dependsOn,
-      // `TopicNode.depends_on_source` does not admit an explicit `undefined`
-      // under `exactOptionalPropertyTypes`, so the key is omitted (not
-      // undefined-valued) when the note declares no source. No consumer
-      // distinguishes an absent key from an undefined one.
-      ...(dependsOnSource === undefined ? {} : { depends_on_source: dependsOnSource }),
-      topic_mastery: topicMastery,
-      status: typeof frontmatter.status === 'string' ? frontmatter.status.trim().toLowerCase() : 'not_started',
-      conceptual: parseScore(frontmatter.conceptual, 0.0),
-      practical: parseScore(frontmatter.practical, 0.0),
-      debug: parseScore(frontmatter.debug, 0.0),
-      feynman: parseScore(frontmatter.feynman, 0.0),
-      ease_factor: parseNumber(frontmatter.ease_factor, 2.5),
-      interval_days: parseInteger(frontmatter.interval_days, 1),
-      repetition: parseInteger(frontmatter.repetition, 0),
-      lapses: parseInteger(frontmatter.lapses, 0),
-      last_quality: parseOptionalInteger(frontmatter.last_quality),
-      assessed_at: normalizeAssessedAt(frontmatter.assessed_at),
-      last_reviewed_at: frontmatter.last_reviewed_at ? String(frontmatter.last_reviewed_at) : null,
-      due_at: frontmatter.due_at ? String(frontmatter.due_at) : null,
     };
 
     const fp = computeFingerprint(content);
@@ -409,6 +540,82 @@ export function loadTopics(
       cache.set(filePath, topic, fp);
     }
     topics.push(topic);
+  }
+
+  return topics;
+}
+
+/**
+ * Options for {@link loadTopicMetadata}.
+ */
+export interface LoadTopicMetadataOptions {
+  /** Pre-scanned array of absolute file paths (avoids duplicate vault walks) */
+  files?: string[];
+}
+
+/**
+ * Scans the vault and loads every topic note's metadata — everything
+ * {@link loadTopics} normalizes, minus the body.
+ *
+ * @remarks
+ * P3-06: `next`, `plan`, `dashboard` and `progress` never read a topic's
+ * `.content`, yet the full load paid for every body twice — one
+ * `readFileSync` of the whole note and one SHA-256 fingerprint over it. This
+ * path reads only the frontmatter head ({@link readFrontmatterSlice}) and
+ * hashes nothing, so a scan's IO is bounded by the frontmatter size rather
+ * than the note size, while every field is normalized by the same helpers
+ * ({@link resolveTopicIdentity}, {@link buildTopicMetadata}) — the returned
+ * {@link TopicMetadata} values match {@link loadTopics}' field-for-field.
+ *
+ * Declines mirror the full load exactly: a note over `MAX_NOTE_SOURCE_BYTES`
+ * is skipped stat-first and never opened (ADR-0018's documented decline), an
+ * unreadable or vanished note is skipped silently, and a note without a
+ * usable `palee_id` is not a topic.
+ *
+ * Deliberately uncached: a metadata entry would have to be fingerprinted on
+ * its frontmatter slice, and `FileCache`'s freshness check validates by
+ * re-reading the WHOLE file and re-hashing the full body — the exact IO this
+ * path exists to avoid, on every hit inside the unsettled horizon. A bounded
+ * slice read is already cheap enough that a cache buys nothing measurable,
+ * and keeping the shared topic and non-topic caches exclusive to the full
+ * load keeps their full-content fingerprints meaningful. Repeated in-process
+ * metadata scans therefore re-read the head; correctness never depends on it.
+ *
+ * @param vaultPath - Absolute path to the Obsidian vault root
+ * @param options - Optional loader options (`files`)
+ * @returns Array of parsed and normalized {@link TopicMetadata} instances
+ *
+ * @example
+ * ```typescript
+ * const topics = loadTopicMetadata('/path/to/vault');
+ * console.log(`Loaded ${topics.length} topic summaries`);
+ * ```
+ */
+export function loadTopicMetadata(
+  vaultPath: string,
+  options?: LoadTopicMetadataOptions
+): TopicMetadata[] {
+  const scanFiles = options?.files ?? walkVault(vaultPath);
+  const topics: TopicMetadata[] = [];
+
+  for (const filePath of scanFiles) {
+    let fileSize: number;
+    try {
+      fileSize = fs.statSync(filePath).size;
+    } catch {
+      continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
+    }
+    // Stat first (ADR-0018): the same read-cap decline as the full load —
+    // the file is never opened, so an oversized document costs no IO.
+    if (noteExceedsReadCap(fileSize)) {
+      continue;
+    }
+    const slice = readFrontmatterSlice(filePath, fileSize);
+    if (slice === null) continue;
+    const { frontmatter } = parseFrontmatter(slice);
+    const identity = resolveTopicIdentity(frontmatter, vaultPath, filePath);
+    if (identity === null) continue;
+    topics.push(buildTopicMetadata(identity, filePath));
   }
 
   return topics;
