@@ -12,11 +12,16 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
+import { PILLAR_KEYS } from '../../engine/mastery';
 import { isValidAssessedAt } from './assessed-at';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 
-/** Assessment score fields covered by this rule. */
-const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+/**
+ * Assessment score fields covered by this rule — the engine's `PILLAR_KEYS`
+ * itself, not a local copy, so the rule and the mastery formula can never
+ * disagree on which pillars exist (#565 P3-09).
+ */
+const SCORE_FIELDS = PILLAR_KEYS;
 
 /** Reports assessment fields that are missing range or type validity. */
 export const validAssessmentFieldsRule: ValidationRule = {
