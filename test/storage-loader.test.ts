@@ -1,5 +1,6 @@
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -12,6 +13,7 @@ import {
 } from '../src/storage/loader';
 import { FileCache } from '../src/storage/cache';
 import { MAX_NOTE_SOURCE_BYTES } from '../src/storage/source-cap';
+import * as frontmatterModule from '../src/storage/frontmatter';
 import type { LoadedTopic } from '../src/storage/loader';
 import type { TopicNode } from '../src/types';
 
@@ -1048,3 +1050,146 @@ describe('loadTopics input-size guard (Issue #332)', () => {
 
 
 
+
+// P3-07: collect-vault hands loadTopics both the snapshot bytes and the
+// scan's own frontmatter parse of those bytes. The loader must reuse the
+// shared verdict on the snapshot path — one YAML parse per note, not two —
+// and must not fingerprint injected content at all, since the hash only
+// ever fed the cache entry the snapshot branch skips. Reference identity is
+// the measurement: `parseFrontmatter` builds a fresh object per call, so a
+// topic whose `frontmatter` IS the shared object was not re-parsed.
+describe('loadTopics snapshot parse sharing (P3-07)', () => {
+  let tmpVault: string;
+
+  beforeEach(() => {
+    tmpVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-loader-p307-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+  });
+
+  test('snapshot bytes reuse the caller-supplied parse instead of re-parsing', () => {
+    const note = path.join(tmpVault, 'shared.md');
+    const bytes = '---\npalee_schema: 1\npalee_id: T-shared\n---\n# Shared\n';
+    fs.writeFileSync(note, bytes, 'utf8');
+    const scanned = frontmatterModule.parseFrontmatter(bytes).frontmatter;
+    assert.ok(scanned, 'precondition: the note parses to a frontmatter object');
+    const shared = new Map<string, Record<string, unknown> | null>([[note, scanned]]);
+
+    const topics = loadTopics(tmpVault, {
+      files: [note],
+      contents: new Map([[note, bytes]]),
+      parsedFrontmatter: shared,
+    });
+
+    assert.strictEqual(topics.length, 1);
+    const [topic] = topics;
+    assert.ok(topic !== undefined);
+    assert.strictEqual(topic.palee_id, 'T-shared');
+    // strictEqual on identity: a re-parse builds a deep-equal but distinct
+    // object, so only the shared verdict passes this.
+    assert.strictEqual(topic.frontmatter, scanned);
+  });
+
+  test('a snapshot path absent from the shared map still parses and loads', () => {
+    // collect-vault withholds parse-diagnostic notes; the loader must parse
+    // those bytes itself rather than treat the missing verdict as final.
+    const note = path.join(tmpVault, 'withheld.md');
+    const bytes = '---\npalee_id: T-withheld\n---\n# Withheld\n';
+    fs.writeFileSync(note, bytes, 'utf8');
+
+    const topics = loadTopics(tmpVault, {
+      files: [note],
+      contents: new Map([[note, bytes]]),
+      parsedFrontmatter: new Map<string, Record<string, unknown> | null>(),
+    });
+
+    assert.strictEqual(topics.length, 1);
+    const [topic] = topics;
+    assert.ok(topic !== undefined);
+    assert.strictEqual(topic.palee_id, 'T-withheld');
+  });
+
+  test('a shared null verdict is honored on the snapshot path', () => {
+    const note = path.join(tmpVault, 'plain.md');
+    const bytes = '# No frontmatter\n';
+    fs.writeFileSync(note, bytes, 'utf8');
+
+    const topics = loadTopics(tmpVault, {
+      files: [note],
+      contents: new Map([[note, bytes]]),
+      parsedFrontmatter: new Map<string, Record<string, unknown> | null>([[note, null]]),
+    });
+
+    assert.strictEqual(topics.length, 0);
+  });
+
+  test('shared frontmatter is never trusted for bytes read from disk', () => {
+    // The map's verdict may predate the read: only snapshot-injected bytes
+    // are allowed to skip the parse. A disk path must parse fresh even when
+    // the caller offers an entry.
+    const note = path.join(tmpVault, 'disk.md');
+    const bytes = '---\npalee_id: T-disk\n---\n# Disk\n';
+    fs.writeFileSync(note, bytes, 'utf8');
+    const scanned = frontmatterModule.parseFrontmatter(bytes).frontmatter;
+    assert.ok(scanned);
+
+    const topics = loadTopics(tmpVault, {
+      files: [note],
+      parsedFrontmatter: new Map<string, Record<string, unknown> | null>([[note, scanned]]),
+      cache: new FileCache<LoadedTopic>(),
+    });
+
+    assert.strictEqual(topics.length, 1);
+    const [topic] = topics;
+    assert.ok(topic !== undefined);
+    assert.strictEqual(topic.palee_id, 'T-disk');
+    assert.notStrictEqual(topic.frontmatter, scanned, 'disk bytes parse fresh');
+  });
+
+  test('injected snapshot content is never fingerprinted', () => {
+    const note = path.join(tmpVault, 'hashed.md');
+    const bytes = '---\npalee_id: T-hashed\n---\n# Hashed\n';
+    fs.writeFileSync(note, bytes, 'utf8');
+
+    // Observation seam, same shape as countReads above: `computeFingerprint`
+    // reaches the shared crypto module object at call time, so wrapping
+    // `createHash` for the duration of the body counts the loader's SHA-256
+    // computations, and the `finally` restore keeps a failing assertion from
+    // leaking the patch into later tests.
+    const original = crypto.createHash;
+    let hashes = 0;
+    const holder = crypto as unknown as { createHash: typeof original };
+    holder.createHash = ((algorithm: string) => {
+      if (algorithm === 'sha256') hashes++;
+      return original(algorithm);
+    }) as typeof original;
+    try {
+      // Control: the same note loaded from DISK still costs one hash — the
+      // fingerprint of the cache entry the disk path writes. If this fails,
+      // the spy is not wired into the loader and the assertion below is void.
+      loadTopics(tmpVault, { files: [note], cache: new FileCache<LoadedTopic>() });
+      assert.strictEqual(
+        hashes,
+        1,
+        'control: the disk-path load fingerprints the note for its cache entry'
+      );
+
+      hashes = 0;
+      const topics = loadTopics(tmpVault, {
+        files: [note],
+        contents: new Map([[note, bytes]]),
+      });
+
+      assert.strictEqual(topics.length, 1);
+      assert.strictEqual(
+        hashes,
+        0,
+        'snapshot-injected content is never hashed: the fingerprint only fed the cache entry the snapshot branch skips'
+      );
+    } finally {
+      holder.createHash = original;
+    }
+  });
+});

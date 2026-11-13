@@ -135,6 +135,53 @@ describe('Validation vault collection', () => {
     assert.strictEqual(topic.frontmatter.palee_id, 'T-snap');
   });
 
+  test('the scan parse is shared with the loader: topics carry the scanned frontmatter (P3-07)', () => {
+    fs.writeFileSync(
+      path.join(tmpVault, 'topic.md'),
+      '---\npalee_schema: 1\npalee_id: T-share\n---\n# Share\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    const note = context.notes.find((n) => n.relativePath === 'topic.md');
+    assert.ok(note?.frontmatter);
+    assert.strictEqual(context.topics.length, 1);
+    const [topic] = context.topics;
+    assert.ok(topic !== undefined);
+    assert.strictEqual(topic.palee_id, 'T-share');
+    // Identity, not deep equality: the loader must reuse the scan's parse
+    // object rather than YAML-parse the same snapshot bytes a second time.
+    assert.strictEqual(topic.frontmatter, note.frontmatter);
+  });
+
+  test('a parse-diagnostic note is re-parsed by the loader, keeping its topic verdict (P3-07 guard)', () => {
+    // The unclosed-fence heuristic flags this note (scanner: parseError +
+    // frontmatter null), but the YAML between the fences parses cleanly and
+    // resolves a palee_id — the loader's fresh parse still loads it as a
+    // topic. Parse-sharing must therefore WITHHOLD the scan verdict for
+    // parse-error notes: sharing it would make the topic vanish from the
+    // graph and leave only the warning behind.
+    fs.writeFileSync(
+      path.join(tmpVault, 'flagged.md'),
+      '---\npalee_id: T-flagged\n\n## Details\n---\n# Body\n',
+      'utf8'
+    );
+
+    const context = collectVault(tmpVault, { cache: new FileCache<LoadedTopic>() });
+
+    const note = context.notes.find((n) => n.relativePath === 'flagged.md');
+    assert.ok(note, 'the flagged note survives collection');
+    assert.ok(note.parseError, 'the unclosed-fence heuristic reports it');
+    assert.strictEqual(note.frontmatter, null);
+
+    assert.strictEqual(context.topics.length, 1);
+    const [topic] = context.topics;
+    assert.ok(topic !== undefined);
+    assert.strictEqual(topic.palee_id, 'T-flagged');
+    assert.strictEqual(topic.frontmatter.palee_id, 'T-flagged');
+  });
+
   test('unreadable files are excluded from topic loading but kept in files', () => {
     fs.writeFileSync(
       path.join(tmpVault, 'good.md'),
