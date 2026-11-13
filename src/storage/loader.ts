@@ -129,6 +129,20 @@ export interface LoadTopicsOptions {
    * Unlisted paths fall back to the normal read + cache path.
    */
   contents?: Map<string, string>;
+  /**
+   * Pre-parsed frontmatter keyed by absolute path (P3-07 parse sharing).
+   *
+   * @remarks
+   * Single-read collection seam: when the caller has already parsed the
+   * snapshot bytes it injects via `contents`, the loader reuses that verdict
+   * for injected paths instead of YAML-parsing the same bytes a second time.
+   * Entries are consulted only for paths whose bytes were snapshot-injected
+   * — disk-read bytes always parse fresh, because a shared verdict may
+   * predate the read. A path absent from the map parses exactly as before,
+   * so a caller can withhold any verdict it does not vouch for
+   * (collect-vault omits every note carrying a parse diagnostic).
+   */
+  parsedFrontmatter?: Map<string, Record<string, unknown> | null>;
   /** Cache to read from and populate; defaults to the shared `getTopicCache()` instance */
   cache?: FileCache<LoadedTopic>;
 }
@@ -444,7 +458,8 @@ function readFrontmatterSlice(filePath: string, maxBytes: number): string | null
  *
  * @param vaultPath - Absolute path to the Obsidian vault root
  * @param files - Optional pre-scanned array of absolute file paths (avoids duplicate vault walks)
- * @param options - Optional loader options (`files`, `cache`)
+ * @param options - Optional loader options (`files`, `contents`,
+ *   `parsedFrontmatter`, `cache`)
  * @returns Array of parsed and normalized {@link LoadedTopic} instances
  *
  * @example
@@ -467,6 +482,9 @@ export function loadTopics(
   const isOptions = arg !== undefined && arg !== null && !Array.isArray(arg);
   const files = isOptions ? (arg as LoadTopicsOptions).files : (arg as string[] | undefined);
   const contents = isOptions ? (arg as LoadTopicsOptions).contents : undefined;
+  const parsedFrontmatter = isOptions
+    ? (arg as LoadTopicsOptions).parsedFrontmatter
+    : undefined;
   const cache = isOptions
     ? ((arg as LoadTopicsOptions).cache ?? topicCache)
     : topicCache;
@@ -516,7 +534,25 @@ export function loadTopics(
         continue; // Transient error or file deleted/locked by concurrent writer - skip gracefully
       }
     }
-    const { frontmatter } = parseFrontmatter(content);
+    // P3-07: on the snapshot path, a caller-supplied parse of these exact
+    // bytes replaces the re-parse. Only injected bytes consult the map —
+    // disk-read bytes must parse fresh (a shared verdict may predate the
+    // read) — and an absent entry parses as before, so a caller can
+    // withhold any verdict it does not vouch for (collect-vault omits
+    // every note carrying a parse diagnostic).
+    // P3-07: on the snapshot path, a caller-supplied parse of these exact
+    // bytes replaces the re-parse. Only injected bytes consult the map —
+    // disk-read bytes must parse fresh (a shared verdict may predate the
+    // read) — and an absent entry parses as before, so a caller can
+    // withhold any verdict it does not vouch for (collect-vault omits
+    // every note carrying a parse diagnostic).
+    const sharedFrontmatter = fromSnapshot
+      ? parsedFrontmatter?.get(filePath)
+      : undefined;
+    const frontmatter =
+      sharedFrontmatter !== undefined
+        ? sharedFrontmatter
+        : parseFrontmatter(content).frontmatter;
 
     const identity = resolveTopicIdentity(frontmatter, vaultPath, filePath);
     if (identity === null) {
@@ -533,11 +569,12 @@ export function loadTopics(
       content,
     };
 
-    const fp = computeFingerprint(content);
     // Snapshot-injected content never enters the cache — only bytes read
-    // from disk in THIS call are cache-worthy (see fromSnapshot above).
+    // from disk in THIS call are cache-worthy (see fromSnapshot above) —
+    // and P3-07: it is never fingerprinted either, because the hash only
+    // feeds the cache entry the snapshot branch skips.
     if (!fromSnapshot) {
-      cache.set(filePath, topic, fp);
+      cache.set(filePath, topic, computeFingerprint(content));
     }
     topics.push(topic);
   }
