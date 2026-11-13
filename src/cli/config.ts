@@ -181,6 +181,11 @@ function loadConfig(): PaleeConfig {
  * payload exists, and `renameSync` carries it onto the config path. Windows
  * ignores the mode argument and resolves access through the directory's ACL.
  *
+ * The rename makes one write atomic, not a read-modify-write cycle: a caller
+ * that loads, mutates and saves must hold the config lock ({@link withConfigLock})
+ * across the cycle, or two concurrent commands can each save a snapshot that
+ * predates the other's field (#565).
+ *
  * @example
  * ```typescript
  * saveConfig({ vaultPath: '/vault', aiProvider: 'gemini' });
@@ -231,6 +236,201 @@ function saveConfig(config: PaleeConfig): void {
     if (!success) {
       try { fs.unlinkSync(tempPath); } catch {}
     }
+  }
+}
+
+/**
+ * The lock file that serializes a config read-modify-write cycle, created next
+ * to `config.json`. Nothing scans the config directory, so the name only has to
+ * stay out of `config.json`'s own namespace.
+ */
+const CONFIG_LOCK_FILENAME = 'config.lock';
+
+/**
+ * How long a config lock may sit untouched before it counts as abandoned. The
+ * critical section is a read, a one-field mutation and a rename — milliseconds —
+ * so anything older is a crashed or killed holder, not a slow one. Far above any
+ * legitimate hold and far below {@link CONFIG_LOCK_TIMEOUT_MS}, so a dead holder
+ * is always stolen before a waiter gives up.
+ */
+const CONFIG_LOCK_STALE_MS = 10_000;
+
+/**
+ * How long a config command waits for its turn on the lock before failing. Only
+ * pathological contention (or a paused holder whose lock keeps being stolen and
+ * re-created) can reach this; the error lands in the handler's catch and exits
+ * like any other unexpected failure.
+ */
+const CONFIG_LOCK_TIMEOUT_MS = 30_000;
+
+/** What a lock file carries: who holds it, and the token its release checks. */
+interface ConfigLockPayload {
+  pid: number;
+  /** Random token written once at acquisition; `release` unlinks only on a match. */
+  nonce: string;
+  acquired_at: string;
+}
+
+/** An acquired config lock. `release` is safe to call exactly once. */
+interface ConfigLock {
+  release(): void;
+}
+
+/**
+ * Reads a lock file's payload, or `null` when it is missing, empty, or not the
+ * JSON shape an acquisition writes. An unreadable lock is still stealable via
+ * its mtime; the `null` only matters to `release`, which never unlinks what it
+ * cannot recognize as its own.
+ */
+function readConfigLockPayload(lockPath: string): ConfigLockPayload | null {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const candidate = parsed as ConfigLockPayload;
+    if (typeof candidate.nonce !== 'string') return null;
+    return {
+      pid: typeof candidate.pid === 'number' ? candidate.pid : -1,
+      nonce: candidate.nonce,
+      acquired_at: typeof candidate.acquired_at === 'string' ? candidate.acquired_at : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves after `ms` milliseconds; the acquisition loop's backoff step. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Acquires the config lock, waiting out any other holder.
+ *
+ * @param timeoutMs - Total time to wait before giving up; defaults to {@link CONFIG_LOCK_TIMEOUT_MS}.
+ * @param staleMs - Age at which a foreign lock counts as abandoned; defaults to {@link CONFIG_LOCK_STALE_MS}.
+ * @returns The acquired lock; call `release` when the read-modify-write is done.
+ * @throws {Error} When no turn comes within `timeoutMs`.
+ *
+ * @remarks
+ * The file is created `wx` so exactly one waiter wins, with `0600` in the same
+ * `0700` directory `saveConfig` uses — the payload names the holder but is not a
+ * secret, so the mode only matches house style. A lock older than `staleMs` is
+ * stolen by renaming it aside (quarantined for diagnosis, never blind-deleted,
+ * like the vault lock's recovery) and retried immediately; the thief-vs-stale-
+ * holder race is narrowed by re-statting right before the rename, in one
+ * synchronous step. A holder paused longer than `staleMs` can therefore see its
+ * lock taken; its `release` checks the nonce first and leaves the thief's lock
+ * alone. With `ms`-scale critical sections a 10s pause is the only way to get
+ * there, and the interleaving it permits is the same last-writer-wins the lock
+ * exists to prevent — survivable, and strictly narrower than the vault lock's
+ * 60s/120s stale windows, which back much longer critical sections.
+ */
+async function acquireConfigLock(
+  timeoutMs: number = CONFIG_LOCK_TIMEOUT_MS,
+  staleMs: number = CONFIG_LOCK_STALE_MS
+): Promise<ConfigLock> {
+  const configPath = getConfigPath();
+  const dir = path.dirname(configPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  const lockPath = path.join(dir, CONFIG_LOCK_FILENAME);
+  const payload: ConfigLockPayload = {
+    pid: process.pid,
+    nonce: crypto.randomBytes(8).toString('hex'),
+    acquired_at: new Date().toISOString(),
+  };
+  const deadline = Date.now() + timeoutMs;
+  let backoffMs = 10;
+
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      try {
+        fs.writeSync(fd, JSON.stringify(payload), 0, 'utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
+      return {
+        release(): void {
+          // Unlink only while the file still carries our nonce: if this holder
+          // was paused past the stale window, the lock already belongs to the
+          // process that stole it, and deleting that would open the gate while
+          // the thief still believes it holds the lock.
+          if (readConfigLockPayload(lockPath)?.nonce !== payload.nonce) return;
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {}
+        },
+      };
+    } catch (e: unknown) {
+      if ((e as NodeError).code !== 'EEXIST') throw e;
+    }
+
+    // Someone else holds it. Give up once the wait is exhausted — checked here,
+    // before anything else in the iteration, so no stat/rename quirk below can
+    // turn the loop into a spin that never re-tests the deadline.
+    if (Date.now() >= deadline) {
+      const holderPid = readConfigLockPayload(lockPath)?.pid ?? null;
+      const holder = holderPid === null ? '' : ` (held by pid ${holderPid})`;
+      throw new Error(
+        `timed out waiting for the configuration lock at ${lockPath}${holder}; ` +
+          'another palee config command may be stuck — if no other command is running, remove the lock file and re-run'
+      );
+    }
+
+    // Otherwise read the holder's age and decide: wait, or steal.
+    let ageMs: number;
+    try {
+      ageMs = Math.max(0, Date.now() - fs.statSync(lockPath).mtimeMs);
+    } catch {
+      // The holder released between our failed create and this stat; go
+      // straight back to the create attempt, no backoff.
+      continue;
+    }
+    if (ageMs >= staleMs) {
+      // Re-stat and rename in one synchronous step so a lock re-created after
+      // our age check is almost certainly left standing; a residual race here
+      // costs one displaced acquirer, not data.
+      try {
+        const freshMtime = fs.statSync(lockPath).mtimeMs;
+        if (Date.now() - freshMtime < staleMs) {
+          await sleep(backoffMs);
+          continue;
+        }
+        fs.renameSync(lockPath, `${lockPath}.stale.${process.pid}.${crypto.randomBytes(4).toString('hex')}`);
+      } catch {
+        // Gone already (released or stolen first) — retry the create.
+      }
+      continue;
+    }
+    await sleep(backoffMs);
+    backoffMs = Math.min(backoffMs * 2, 100);
+  }
+}
+
+/**
+ * Runs `fn` while holding the config lock.
+ *
+ * @param fn - The read-modify-write to serialize: its load and its save both
+ * happen inside the lock, so a concurrent command waits instead of writing a
+ * snapshot that predates the other's field.
+ * @param timing - Internal test seam to shorten the timeout/stale windows.
+ * @returns Whatever `fn` returns.
+ * @throws {Error} When the lock cannot be acquired in time; `fn`'s own errors
+ * pass through after the lock is released.
+ */
+async function withConfigLock<T>(
+  fn: () => T | Promise<T>,
+  timing: { timeoutMs?: number; staleMs?: number } = {}
+): Promise<T> {
+  const lock = await acquireConfigLock(timing.timeoutMs, timing.staleMs);
+  try {
+    return await fn();
+  } finally {
+    lock.release();
   }
 }
 
@@ -350,15 +550,19 @@ function originOf(raw: string | undefined): string | null {
 }
 
 /**
- * Resolves the configuration `set-base-url` may write when a stored key would
- * move to a different origin.
+ * Decides how `set-base-url` may write when a stored key would move to a
+ * different origin.
  *
- * @param config - The configuration read before any prompt
+ * @param config - The configuration read before any prompt; the decision input
+ * and, for the recheck outcome, the baseline the caller compares against
  * @param endpoint - The validated endpoint about to be written
  * @param json - Whether machine-readable output is selected
  * @param keepKey - Whether the caller passed `--keep-key`
  * @param promptOutput - Stream receiving the confirmation prompt; defaults to stdout
- * @returns The configuration to write, or `null` when the caller must stop
+ * @returns `'write-current'` when no confirmation was needed and the caller may
+ * write directly, `'recheck'` when a prompt was answered with a keep and the
+ * caller must re-read under the config lock and re-run the drift guard before
+ * writing, or `null` when the caller must stop
  *
  * @remarks
  * The config has one key and one endpoint with no origin binding between them.
@@ -369,9 +573,11 @@ function originOf(raw: string | undefined): string | null {
  * change because there is no origin to compare. An empty stored value is treated
  * as unset, matching `resolveProviderSettings`.
  *
- * Returns `null` for a refusal, a stale snapshot, or a declined prompt; only the
- * first two set `process.exitCode = 2`. A declined prompt writes nothing and
- * keeps the exit code untouched.
+ * Returns `null` for a refusal or a declined prompt; only the refusal sets
+ * `process.exitCode = 2`. A declined prompt writes nothing and keeps the exit
+ * code untouched. The post-prompt drift guard lives in the caller, inside the
+ * config lock: the prompt can stay open indefinitely, so the lock is taken only
+ * after it closes, and the guard and the save then run as one serialized step.
  */
 async function confirmCredentialRetarget(
   config: PaleeConfig,
@@ -379,14 +585,14 @@ async function confirmCredentialRetarget(
   json: boolean,
   keepKey?: boolean,
   promptOutput: NodeJS.WritableStream = process.stdout
-): Promise<PaleeConfig | null> {
+): Promise<'write-current' | 'recheck' | null> {
   const previousOrigin = originOf(config.baseUrl);
   const retargetsKey =
     Boolean(config.apiKey) &&
     Boolean(config.baseUrl) &&
     previousOrigin !== endpoint.origin;
 
-  if (!retargetsKey || keepKey) return config;
+  if (!retargetsKey || keepKey) return 'write-current';
 
   if (!process.stdin.isTTY || !process.stdout.isTTY || json) {
     const why = previousOrigin
@@ -409,17 +615,11 @@ async function confirmCredentialRetarget(
     return null;
   }
 
-  // The prompt can stay open indefinitely. Re-read after it returns so a
-  // concurrent `unset-api-key` (or a new key/endpoint) is not reverted by
-  // writing the snapshot taken before the wait. Other fields are taken from
-  // the fresh read too, so a concurrent model/vault change is kept.
-  const fresh = loadConfig();
-  if (fresh.apiKey !== config.apiKey || fresh.baseUrl !== config.baseUrl) {
-    console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
-    process.exitCode = ExitCode.Usage;
-    return null;
-  }
-  return fresh;
+  // The prompt can stay open indefinitely, so a concurrent `unset-api-key` (or
+  // a new key/endpoint) must not be reverted by writing the snapshot taken
+  // before the wait. The caller re-reads under the config lock and refuses when
+  // the credential fields moved while the prompt was open.
+  return 'recheck';
 }
 
 /**
@@ -498,6 +698,10 @@ function emitStatus(json: boolean, human: string, payload: Record<string, unknow
  * where the text form printed a second guidance line). `show` reports whether a key is
  * stored (`api_key_set`) and never the key itself — no arm echoes a credential, and
  * `set-api-key`'s hidden prompt moves to `stderr` so stdout stays a single document.
+ * Every mutating action holds a lock file (`<config dir>/config.lock`) across its
+ * load-mutate-save cycle, so concurrent config commands serialize instead of
+ * saving snapshots that drop each other's fields (#565); `set-base-url` takes
+ * that lock only after its confirmation prompt closes.
  *
  * @example
  * ```typescript
@@ -559,9 +763,11 @@ async function configCommand(
         return;
       }
 
-      const config = loadConfig();
-      config.vaultPath = absolutePath;
-      saveConfig(config);
+      await withConfigLock(() => {
+        const config = loadConfig();
+        config.vaultPath = absolutePath;
+        saveConfig(config);
+      });
       emitStatus(json, `Vault path set to: ${absolutePath}`, { status: 'set', vault_path: absolutePath });
       return;
     }
@@ -573,9 +779,11 @@ async function configCommand(
         return;
       }
 
-      const config = loadConfig();
-      config.aiProvider = value;
-      saveConfig(config);
+      await withConfigLock(() => {
+        const config = loadConfig();
+        config.aiProvider = value;
+        saveConfig(config);
+      });
       emitStatus(json, `AI provider set to: ${value}`, { status: 'set', ai_provider: value });
       return;
     }
@@ -608,17 +816,37 @@ async function configCommand(
         return;
       }
 
-      const config = await confirmCredentialRetarget(
-        loadConfig(),
+      // The retarget decision is made against a pre-prompt snapshot, but the
+      // write is not: the prompt can sit on a human for minutes, so the config
+      // lock is taken only after it closes. The locked write re-reads what is
+      // on disk now — keeping a concurrent model/vault/provider change — and a
+      // `recheck` outcome re-runs the drift guard inside the same lock, so the
+      // refuse-or-save step is atomic against other config commands.
+      const snapshot = loadConfig();
+      const retarget = await confirmCredentialRetarget(
+        snapshot,
         endpoint,
         json,
         options?.keepKey,
         options?.promptOutput
       );
-      if (!config) return;
-      config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
-      saveConfig(config);
-      emitStatus(json, `AI base URL set to: ${config.baseUrl}`, { status: 'set', base_url: config.baseUrl });
+      if (retarget === null) return;
+      const written = await withConfigLock((): string | null => {
+        const config = loadConfig();
+        if (
+          retarget === 'recheck' &&
+          (config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl)
+        ) {
+          console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
+          process.exitCode = ExitCode.Usage;
+          return null;
+        }
+        config.baseUrl = endpoint.origin + endpoint.pathname.replace(/\/+$/, '');
+        saveConfig(config);
+        return config.baseUrl;
+      });
+      if (written === null) return;
+      emitStatus(json, `AI base URL set to: ${written}`, { status: 'set', base_url: written });
       return;
     }
 
@@ -666,23 +894,27 @@ async function configCommand(
         }
       }
 
-      const config = loadConfig();
-      config.apiKey = key;
-      saveConfig(config);
+      await withConfigLock(() => {
+        const config = loadConfig();
+        config.apiKey = key;
+        saveConfig(config);
+      });
       emitStatus(json, 'API key stored. `palee config show` does not print it.', { status: 'set', api_key_set: true });
       return;
     }
 
     if (action === 'unset-api-key') {
-      const config = loadConfig();
-      if (config.apiKey === undefined) {
-        emitStatus(json, 'No API key is stored.', { status: 'absent', api_key_set: false });
-        return;
-      }
+      await withConfigLock(() => {
+        const config = loadConfig();
+        if (config.apiKey === undefined) {
+          emitStatus(json, 'No API key is stored.', { status: 'absent', api_key_set: false });
+          return;
+        }
 
-      delete config.apiKey;
-      saveConfig(config);
-      emitStatus(json, 'API key removed.', { status: 'unset', api_key_set: false });
+        delete config.apiKey;
+        saveConfig(config);
+        emitStatus(json, 'API key removed.', { status: 'unset', api_key_set: false });
+      });
       return;
     }
 
@@ -752,9 +984,11 @@ async function configCommand(
         return;
       }
 
-      const config = loadConfig();
-      config.model = value;
-      saveConfig(config);
+      await withConfigLock(() => {
+        const config = loadConfig();
+        config.model = value;
+        saveConfig(config);
+      });
       emitStatus(json, `Model set to: ${value}`, { status: 'set', model: value });
       return;
     }
@@ -776,5 +1010,7 @@ async function configCommand(
   }
 }
 
-export { loadConfig, saveConfig, isConfigDirStorableForKey, getConfigPath };
+// `withConfigLock` is exported for the lock's own tests; command handlers reach
+// it through the mutating arms of {@link configCommand}.
+export { loadConfig, saveConfig, isConfigDirStorableForKey, getConfigPath, withConfigLock };
 export default configCommand;
