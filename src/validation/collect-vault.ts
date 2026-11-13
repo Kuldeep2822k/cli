@@ -5,9 +5,12 @@
  * Builds the fully collected {@link ValidationContext} for the rule
  * framework in a single-read snapshot: every file is read exactly once by
  * `scanNotes`, and the same bytes feed both the per-file parse outcomes and
- * the normalized topic loading (via `loadTopics({ contents })`). A note
- * edited concurrently with validation therefore cannot make parse warnings
- * and graph rules observe different versions of the vault.
+ * the normalized topic loading (via `loadTopics({ contents })`). The scan's
+ * own frontmatter parse is shared with the loader
+ * (`loadTopics({ parsedFrontmatter })`, P3-07), so each snapshot note's
+ * YAML is parsed once, not twice. A note edited concurrently with
+ * validation therefore cannot make parse warnings and graph rules observe
+ * different versions of the vault.
  *
  * Collection never throws on malformed notes: parse outcomes are preserved
  * per file so rules can report them as warnings while the rest of the vault
@@ -79,16 +82,29 @@ function collectVault(
   // readIncomplete flag + read-failure rule carry the exclusion signal.
   const readableFiles: string[] = [];
   const contents = new Map<string, string>();
+  // P3-07: the scan's own frontmatter parse travels with the bytes, so the
+  // loader does not YAML-parse the same snapshot a second time. Notes
+  // carrying a parse diagnostic are deliberately left out: the loader then
+  // parses those bytes itself and keeps the exact verdict a fresh parse
+  // produces — including the unclosed-fence heuristic's override, which
+  // nulls `note.frontmatter` while the loader's parse of the same bytes
+  // may still resolve a `palee_id` (a flagged note must not vanish from
+  // the graph just because it is also reported).
+  const parsedFrontmatter = new Map<string, Record<string, unknown> | null>();
   for (const note of notes) {
     if (note.content !== undefined) {
       readableFiles.push(note.absolutePath);
       contents.set(note.absolutePath, note.content);
+      if (note.parseError === undefined) {
+        parsedFrontmatter.set(note.absolutePath, note.frontmatter);
+      }
     }
   }
 
   const topics = loadTopics(vaultPath, {
     files: readableFiles,
     contents,
+    parsedFrontmatter,
     cache: options.cache ?? new FileCache<LoadedTopic>(),
   });
 
