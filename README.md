@@ -307,7 +307,36 @@ PALEE_JSON=1 palee next | jq -r '.next.path'
 3. Make your changes
 4. Submit a pull request
 
-Detailed contribution guidelines will be added with the implementation source.
+PR titles must be [Conventional Commits](https://www.conventionalcommits.org/). Before
+changing code, read [agent.md](agent.md) — the repository conventions document
+(architecture, sacred invariants, on-disk formats, verification loop) that
+[AGENTS.md](AGENTS.md) points every coding agent at.
+
+### Clone to green
+
+Requires Node `>=22.12.0` (the package's `engines` floor; CI runs the suite on Node
+22/24/26 across ubuntu/windows/macos).
+
+```bash
+git clone https://github.com/Kuldeep2822k/cli.git
+cd cli
+npm ci --ignore-scripts --no-workspaces   # exactly what CI installs (--no-workspaces skips the docs workspace)
+npm run check                             # typecheck + lint; strict tsc --noEmit is the real quality gate
+npm test                                  # the pretest hook builds dist/, then the full node:test suite runs
+```
+
+When those exit `0`, the clone is green — `npm run check` is the same gate the CI
+quality job runs, and the CI test matrix runs the same suite under coverage
+(`npm run test:coverage`). If your change touches the build, `package.json`, or
+anything the tarball ships, also exercise the packaging path:
+
+```bash
+npm run build && npm pack && node scripts/verify-tarball.js
+```
+
+Tests use real temp directories (`fs.mkdtempSync`) and spawn the real CLI
+(`dist/bin/palee.js`, or the TypeScript source under `tsx` while coverage collects),
+so no test doubles are needed.
 
 ## License
 
