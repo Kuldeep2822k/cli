@@ -20,13 +20,14 @@ import {
   isConflictError,
   walkVault,
   relativeVaultPath,
-  matchesPattern,
-  matchesTags,
   validatePattern,
   readHotMemory,
   loadSessions,
 } from '../storage';
 import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
+// P3-11 (#565): the --include/--exclude/--tag decision is the same predicate
+// `adopt`'s scan applies, so reversal's scope can never drift from adoption's.
+import { batchScopeExclusion } from '../storage/pattern-matcher';
 // The one owned-key set (P3-10 of audit issue #565): defined in
 // `src/engine/topic-scaffold.ts` beside the scaffold builder both adoption
 // paths write with, so this strip list can never drift from what adoption
@@ -863,15 +864,16 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
 
       // The same three filters over the same vault-relative path, so the scope
       // that adopted a set of notes is a scope that can hand the same set back.
-      if (options.include && !matchesPattern(relPath, options.include)) {
+      // P3-11 (#565): the decision is the one batch-scope predicate `adopt`'s
+      // scan applies, not a second copy; this command keeps its own counters,
+      // routed as the separate checks routed them (include miss or exclude hit
+      // → pattern, tag miss → tag).
+      const scopeExclusion = batchScopeExclusion(relPath, frontmatter?.tags, options);
+      if (scopeExclusion === 'include' || scopeExclusion === 'exclude') {
         skippedByPattern.push(relPath);
         continue;
       }
-      if (options.exclude && matchesPattern(relPath, options.exclude)) {
-        skippedByPattern.push(relPath);
-        continue;
-      }
-      if (options.tag && !matchesTags(frontmatter?.tags, options.tag)) {
+      if (scopeExclusion === 'tag') {
         skippedByTag.push(relPath);
         continue;
       }
