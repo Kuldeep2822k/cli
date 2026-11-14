@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { PALEE_CMD, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import { FileCache, loadTopics, type LoadedTopic } from '../src/storage';
 
@@ -34,6 +34,7 @@ describe('CLI adopt: one judgment for a present-but-unusable palee_id (P3-13, B7
         env: { ...process.env, PALEE_CONFIG_DIR: configDir },
         encoding: 'utf8',
         stdio: 'pipe',
+        timeout: CLI_SPAWN_TIMEOUT_MS,
       });
       return { status: 0, stdout, stderr: '' };
     } catch (e: unknown) {
