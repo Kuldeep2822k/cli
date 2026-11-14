@@ -1196,22 +1196,38 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
 }
 
 /**
- * Deletes all draft checkpoints matching a specific topic ID.
+ * Deletes draft checkpoints matching a specific topic ID.
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
+ * @param draftPaths - Optional allow-list of the exact draft paths to delete — the
+ *   checkpoints the caller's session recorded as consumed
  * @returns Object with `deleted` paths array and `errors` array of `{ path, error }` for any failures
  * @remarks
- * Attempts deletion of all matching draft files. Read errors (ENOENT, EACCES), parse errors,
- * and unlink errors are captured in the returned `errors` array rather than swallowed silently.
+ * When `draftPaths` is supplied, only those files are deleted (#565 P3-02): a
+ * same-topic draft that appeared after the caller's scan — a concurrent
+ * `session draft` on the topic — was never consumed by the caller's session and
+ * must survive for the session that holds it. Without the list the historical
+ * behavior stands: every same-topic draft present now is deleted. Each listed
+ * path is still verified to be a draft of `topicId` before the unlink.
+ *
+ * A draft whose target lock is held by a live writer is left in place
+ * (`deleteSessionNote` yields) and is counted as neither deleted nor errored.
+ * Read errors (ENOENT, EACCES), parse errors, and unlink errors are captured in
+ * the returned `errors` array rather than swallowed silently.
  * @example
  * ```typescript
  * const { deleted, errors } = deleteTopicDrafts('/vault', 'topic-123');
  * if (errors.length > 0) { console.warn('Cleanup warnings:', errors); }
  * ```
  */
-function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
-  const drafts = getDrafts(vaultPath);
+function deleteTopicDrafts(
+  vaultPath: string,
+  topicId: string,
+  draftPaths?: readonly string[]
+): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
+  const scopedPaths = draftPaths ? [...new Set(draftPaths)].sort() : null;
+  const drafts = scopedPaths ?? getDrafts(vaultPath);
   const deleted: string[] = [];
   const errors: Array<{ path: string; error: Error }> = [];
 
@@ -1219,8 +1235,7 @@ function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: strin
     try {
       const content = fs.readFileSync(draftPath, 'utf8');
       const { frontmatter } = parseFrontmatter(content);
-      if (frontmatter && frontmatter.topic_id === topicId) {
-        deleteSessionNote(vaultPath, draftPath);
+      if (frontmatter && frontmatter.topic_id === topicId && deleteSessionNote(vaultPath, draftPath)) {
         deleted.push(draftPath);
       }
     } catch (err: unknown) {
@@ -1236,14 +1251,23 @@ function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: strin
  *
  * @param vaultPath - Vault root path
  * @param targetPath - Path to the session note or draft file
- * @returns Void
+ * @returns `true` when the target is gone (unlinked here, or already absent),
+ *   `false` when the unlink was skipped because another live process holds the
+ *   target's lock
  * @remarks Validates that the target path does not escape `.palee/sessions/` directory.
+ * The unlink runs under the target's lock — the same one `atomicWrite` on this file
+ * takes — so it cannot pull the file out from under a concurrent writer mid-rename
+ * (#565 P3-02). A live lock is not an error: like `clearActiveSession`, the unlink
+ * is skipped and the target left for whoever holds it, reported to the caller as
+ * not-deleted rather than thrown.
  * @example
  * ```typescript
- * deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md');
+ * if (!deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md')) {
+ *   console.warn('Draft is locked by another process; left in place.');
+ * }
  * ```
  */
-function deleteSessionNote(vaultPath: string, targetPath: string): void {
+function deleteSessionNote(vaultPath: string, targetPath: string): boolean {
   const sessionsDir = getSessionsDir(vaultPath);
   const resolvedSessions = fs.realpathSync(sessionsDir);
   let resolvedTarget: string;
@@ -1260,13 +1284,35 @@ function deleteSessionNote(vaultPath: string, targetPath: string): void {
     throw new Error(`Security error: Cannot delete session file outside sessions directory: ${targetPath}`);
   }
 
+  // The unlink takes the target's lock: a concurrent `atomicWrite` on this same
+  // file holds it across its temp-write and rename, and an unguarded unlink raced
+  // that rename — surfacing EPERM/EBUSY on Windows or deleting the file the writer
+  // was about to replace. Contentions yield like `clearActiveSession`/`resetHotMemory`:
+  // a live writer re-creating the target is exactly when deleting it is wrong.
+  const lock = new Lock(vaultPath, resolvedTarget);
+  let lockAcquired = false;
   try {
-    if (fs.existsSync(resolvedTarget)) {
-      fs.unlinkSync(resolvedTarget);
+    try {
+      lock.acquireSync();
+      lockAcquired = true;
+    } catch (err: unknown) {
+      if (isConflictError(err)) return false;
+      throw err;
     }
-  } catch (err: unknown) {
-    const e = err as { code?: string };
-    if (e.code !== 'ENOENT') throw err;
+    try {
+      if (fs.existsSync(resolvedTarget)) {
+        fs.unlinkSync(resolvedTarget);
+      }
+      return true;
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e.code !== 'ENOENT') throw err;
+      return true;
+    }
+  } finally {
+    if (lockAcquired) {
+      lock.release();
+    }
   }
 }
 
