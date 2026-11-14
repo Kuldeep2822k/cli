@@ -32,6 +32,7 @@ import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import {
   classifyNoteForChain,
+  INVALID_PALEE_ID_REPAIR,
   isValidPaleeId,
   README_CLASS_STEMS,
   stemOf,
@@ -385,6 +386,20 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       }
 
       if (frontmatter && frontmatter.palee_id) {
+        // P3-13 (#565): the judgment is the shared predicate, the same one
+        // `loadTopics` applies — a truthy non-string (`palee_id: 12345`) is NOT
+        // an adopted topic, so calling it "already adopted" contradicted every
+        // read command, which sees an unadopted note. PALEE also never rewrites
+        // such a value — its authorship cannot be established, the same rule
+        // `--undo` applies — so adoption refuses and names the one repair path.
+        if (!isValidPaleeId(frontmatter.palee_id)) {
+          console.error(
+            `Error: ${targetPath} has a palee_id that is not a usable string (${JSON.stringify(frontmatter.palee_id)}); nothing was adopted.`
+          );
+          console.error(`  → ${INVALID_PALEE_ID_REPAIR}`);
+          process.exitCode = ExitCode.Usage;
+          return;
+        }
         console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
         process.exitCode = ExitCode.Usage;
         return;
@@ -605,7 +620,12 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
      * "frontmatter will not parse" — which would be false here.
      */
     const skippedOversized = new Map<string, string>();
-    /** Raw parsed `palee_id` per already-adopted path, handed to the planner so it re-derives B7 itself */
+    /**
+     * Raw parsed `palee_id` per already-adopted path, handed to the planner so it
+     * re-derives B7 itself. P3-13: the scan pre-filters, so only ids the shared
+     * predicate accepts travel — the planner's re-derivation stays as the
+     * defense-in-depth any other caller of the API inherits.
+     */
     const adoptedPaleeId = new Map<string, unknown>();
     /**
      * #258 — the non-empty `depends_on` each candidate note already carries in its
@@ -671,14 +691,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
 
       // Check if already adopted
       if (frontmatter && frontmatter.palee_id) {
-        // B7 — a truthy non-string `palee_id` (e.g. `palee_id: 12345`, which YAML
-        // parses as a number) is invisible to `loadTopics`, which requires a
-        // non-empty string. Under `--auto-chain` such a note used to be treated
-        // as an adopted bridge note and then resolve to no id at all, making it
-        // an unsatisfiable predecessor that silently blocked everything chaining
-        // after it. It is now skipped with a counted reason: never rewritten
-        // (the learner's frontmatter is left alone) and never chained.
-        if (options.autoChain && !isValidPaleeId(frontmatter.palee_id)) {
+        // B7 (P3-13) — a present-but-unusable `palee_id` (e.g. `palee_id: 12345`,
+        // which YAML parses as a number) is invisible to `loadTopics`, which
+        // requires a non-empty string. The skip once ran only under `--auto-chain`,
+        // so a plain batch counted such a note as "Already Adopted" — a verdict
+        // the loader contradicts — and handed it to the planner as a bridge note
+        // that resolved to no id, an unsatisfiable predecessor. Every batch now
+        // judges the id with the shared predicate: skipped with a counted reason,
+        // never rewritten (the learner's frontmatter is left alone) and never
+        // chained, with the one repair path reported alongside the count.
+        if (!isValidPaleeId(frontmatter.palee_id)) {
           skippedInvalidId.push(relPath);
           continue;
         }
@@ -1592,7 +1614,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     // remove, so an empty batch must still account for every skipped file.
     // Auto-chain additionally accounts for the notes the planner excluded among
     // already-adopted paths and reports backbone/leaf/phase counts; a plain
-    // batch prints only the per-rule skip counts.
+    // batch prints only the per-rule skip counts. P3-13: the invalid-`palee_id`
+    // count and its repair path are part of every batch's block, not an
+    // `--auto-chain` extra.
     if (
         skippedByHygiene.size > 0 ||
         skippedInvalidId.length > 0 ||
@@ -1626,11 +1650,14 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
           console.log(
             `  Phase subtrees: ${chainPlan ? chainPlan.counts.byReason['phase-subtree'] : 0} notes collapsed to leaves`
           );
-          if (skippedInvalidId.length > 0) {
-            console.log(
-              `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
-            );
-          }
+        }
+        // P3-13: counted in every batch, not only under --auto-chain — the
+        // plain batch used to file these notes under "Already Adopted" instead.
+        if (skippedInvalidId.length > 0) {
+          console.log(
+            `  Invalid palee_id: ${skippedInvalidId.length} notes (not adopted, not chained)`
+          );
+          console.log(`  → ${INVALID_PALEE_ID_REPAIR}`);
         }
         console.log(`  Excluded total: ${excludedTotal} notes`);
         if (options.autoChain && !chainPlan && excludedTotal + skippedInvalidId.length > 0) {
@@ -1688,17 +1715,16 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         console.log(`\nSkipped by Tier-0 hygiene (${reason}):`);
         list.forEach((f) => console.log(`  ! ${f}`));
       }
-      if (options.autoChain) {
-        if (chainPlan && chainPlan.excluded.size > 0) {
-          console.log('\nExcluded from the chain by Tier-0 hygiene:');
-          for (const [relPath, reason] of chainPlan.excluded) {
-            console.log(`  ! ${relPath} (${reason})`);
-          }
+      if (options.autoChain && chainPlan && chainPlan.excluded.size > 0) {
+        console.log('\nExcluded from the chain by Tier-0 hygiene:');
+        for (const [relPath, reason] of chainPlan.excluded) {
+          console.log(`  ! ${relPath} (${reason})`);
         }
-        if (skippedInvalidId.length > 0) {
-          console.log('\nSkipped: palee_id is not a usable string (B7):');
-          skippedInvalidId.forEach((f) => console.log(`  ! ${f}`));
-        }
+      }
+      // P3-13: listed in every batch, not only under --auto-chain.
+      if (skippedInvalidId.length > 0) {
+        console.log('\nSkipped: palee_id is not a usable string (B7):');
+        skippedInvalidId.forEach((f) => console.log(`  ! ${f}`));
       }
     }
 
