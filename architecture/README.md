@@ -31,7 +31,7 @@ this caveat is the bug.
 | [`04-stakeholder-explainer.md`](04-stakeholder-explainer.md) | What is this system, what does one command do, what should a reviewer look at | new to the repo, reviewing it, or explaining it to someone else |
 | [`01-architecture-model.md`](01-architecture-model.md) | What the layers and boundaries actually are, and which edges deliberately do **not** exist | about to change structure, or reconciling docs with code |
 | [`02-dependency-impact.md`](02-dependency-impact.md) | Coupling, blast radius, per-command reach, a change-impact playbook | planning a specific change and needing to know what it can break |
-| [`03-docs-audit-findings.md`](03-docs-audit-findings.md) | 16 evidence-backed doc/diagram defects by severity, plus the Phase-2 items that are **not** defects | updating `agent.md` or the VitePress docs |
+| [`03-docs-audit-findings.md`](03-docs-audit-findings.md) | 16 evidence-backed doc/diagram defects by severity, plus the Phase-2 items that are **not** defects | updating `AGENTS.md` or the VitePress docs |
 | [`palee-architecture.evidence.md`](palee-architecture.evidence.md) | The node/edge evidence register with confidence labels | auditing whether the model is trustworthy |
 
 ## Diagram sources (text is canonical; images are derived)

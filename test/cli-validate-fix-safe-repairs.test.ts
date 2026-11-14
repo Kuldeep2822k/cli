@@ -117,7 +117,7 @@ function writeSession(
 ): string {
   const paleeDir = path.join(vaultPath, '.palee');
   fs.mkdirSync(path.join(paleeDir, 'sessions'), { recursive: true });
-  // `.palee` metadata files quote all strings (agent.md on-disk formats).
+  // `.palee` metadata files quote all strings (AGENTS.md on-disk formats).
   const yaml = [
     'palee_schema: 1',
     `session_id: "${sessionId}"`,

@@ -6,7 +6,7 @@ description: "This page outlines the planned evolution of PALEE (Personal Active
 # Future: AI Module and Phase 2 Design
 ::: details Relevant Source Files
 
-- [agent.md](https://github.com/Kuldeep2822k/cli/blob/main/agent.md?plain=1)
+- [AGENTS.md](https://github.com/Kuldeep2822k/cli/blob/main/AGENTS.md?plain=1)
 - [planning/palee_cli_spec.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/palee_cli_spec.md?plain=1)
 - [planning/PHASE_2_GAPS.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/PHASE_2_GAPS.md?plain=1)
 - [planning/ai_module_design.md](https://github.com/Kuldeep2822k/cli/blob/main/planning/ai_module_design.md?plain=1)

@@ -158,7 +158,7 @@ export function compareLessonOrder(aBasename: string, bBasename: string): number
  * Basename of a `/`-separated path, split on `/` only.
  *
  * Kept instead of `path.basename`: this module is the fs-free engine layer
- * (`agent.md`), and `path.basename` on Windows also splits on `\` and strips a
+ * (`AGENTS.md`), and `path.basename` on Windows also splits on `\` and strips a
  * trailing separator, so it is not a provably identical substitution.
  */
 function baseNameOf(p: string): string {

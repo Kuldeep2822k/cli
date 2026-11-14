@@ -60,4 +60,4 @@ The subtle point the extraction made explicit rather than altered: a note is *du
 3. **Share the whole topic-resolution policy, not just the predicate.**
    - *Why Rejected*: the commands deliberately differ — `review` refuses ambiguity, `progress` tolerates it, and the JSON shapes differ. Sharing the policy would have flattened a deliberate difference to remove a duplication that was not actually a defect.
 4. **Put the use-cases in `src/engine/`** (no new layer).
-   - *Why Rejected*: the engine is fs-free and pure by contract (`agent.md`); the use-cases consume `LoadedTopic` (a storage type) and, for the write cores, frontmatter coercion rules. They are application logic, and the engine's purity is worth keeping sharp.
+   - *Why Rejected*: the engine is fs-free and pure by contract (`AGENTS.md`); the use-cases consume `LoadedTopic` (a storage type) and, for the write cores, frontmatter coercion rules. They are application logic, and the engine's purity is worth keeping sharp.

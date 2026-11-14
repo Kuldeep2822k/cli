@@ -1,28 +1,9 @@
 /**
- * #565 P3-18 — agent instructions must be discoverable.
+ * #565 P3-18 — contributor guidance must be discoverable.
  *
- * `agent.md` was the only conventions document (~20 KB) and nothing pointed at
- * it: no root `AGENTS.md` existed for tooling that expects one, and README's
- * Contributing section still ended on "Detailed contribution guidelines will be
- * added with the implementation source." The fix adds a root `AGENTS.md`
- * pointer to `agent.md` and replaces the placeholder with the real
- * clone-to-green loop. These assertions are the fitness function for that
- * state, so the fix cannot silently rot:
- *
- * - the root `AGENTS.md` pointer exists and links `agent.md` (deleting the
- *   pointer, or unlinking it from its target, fails here);
- * - the conventions document the pointer names still exists and still carries
- *   the verification loop it promises (the pointer cannot outlive its target);
- * - README's Contributing section no longer defers the guidelines to the
- *   future and documents the real clone-to-green steps;
- * - every `npm run <name>` the two docs mention resolves to a script
- *   `package.json` actually defines, and the Node floor the docs state matches
- *   `engines.node` — so a renamed script or a moved floor is a loud
- *   documentation failure instead of silent drift.
- *
- * Modeled on the repo-docs censuses (test/docs-command-matrix.test.ts,
- * test/planning-invariant-ids.test.ts): the docs are read from disk and
- * compared against the artifact that owns the facts (package.json here).
+ * The repository keeps agent conventions in the root AGENTS.md file and contributor
+ * workflow in CONTRIBUTING.md. These checks keep the two entry points present and
+ * make sure the documented npm scripts still exist.
  */
 
 import { describe, it } from 'node:test';
@@ -32,30 +13,17 @@ import path from 'node:path';
 
 const root = path.resolve(__dirname, '..');
 const AGENTS_FILE = path.join(root, 'AGENTS.md');
-const AGENT_MD_FILE = path.join(root, 'agent.md');
+const CONTRIBUTING_FILE = path.join(root, 'CONTRIBUTING.md');
 const README_FILE = path.join(root, 'README.md');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
   engines: { node: string };
 };
 
-/**
- * The Contributing section alone, sliced at the next heading so the Quick
- * Start `npm install -g` line stays outside the predicate.
- */
-function contributingSection(): string {
-  const readme = fs.readFileSync(README_FILE, 'utf8');
-  const start = readme.indexOf('## Contributing');
-  assert.ok(start !== -1, 'README.md no longer has a Contributing section');
-  const next = readme.indexOf('\n## ', start + 1);
-  assert.ok(
-    next !== -1,
-    'the Contributing section is the last in README.md — adjust the slicer in this test',
-  );
-  return readme.slice(start, next);
+function read(file: string): string {
+  return fs.readFileSync(file, 'utf8');
 }
 
-/** The script names the text invokes as `npm run <name>`, in document order. */
 function npmRunNames(text: string): string[] {
   return [...text.matchAll(/npm run ([^\s`|;&"'()]+)/g)].map((match) => {
     const name = match[1];
@@ -64,75 +32,37 @@ function npmRunNames(text: string): string[] {
   });
 }
 
-describe('agent instructions are discoverable (#565 P3-18)', () => {
-  it('the root AGENTS.md pointer exists and points at agent.md', () => {
-    assert.ok(
-      fs.existsSync(AGENTS_FILE),
-      'root AGENTS.md is gone — the agent-instructions pointer (#565 P3-18) was removed',
-    );
-    const text = fs.readFileSync(AGENTS_FILE, 'utf8');
-    assert.match(
-      text,
-      /\[agent\.md\]\(agent\.md\)/,
-      'AGENTS.md no longer links agent.md — the pointer is dangling',
-    );
+describe('contributor guidance is discoverable (#565 P3-18)', () => {
+  it('keeps AGENTS.md as the canonical agent conventions document', () => {
+    assert.ok(fs.existsSync(AGENTS_FILE), 'AGENTS.md is missing');
+    const text = read(AGENTS_FILE);
+    assert.match(text, /^---\r?\n/m, 'AGENTS.md should retain its agent metadata');
+    assert.match(text, /## Verification loop/, 'AGENTS.md lost its verification loop');
+    assert.ok(!fs.readdirSync(root).includes('agent.md'), 'the old agent.md filename still exists');
   });
 
-  it('the conventions document the pointer names still exists', () => {
-    assert.ok(
-      fs.existsSync(AGENT_MD_FILE),
-      'agent.md is gone — AGENTS.md points at nothing',
-    );
-    const text = fs.readFileSync(AGENT_MD_FILE, 'utf8');
-    assert.ok(
-      text.includes('## Verification loop'),
-      'agent.md lost its verification loop — the AGENTS.md pointer promises conventions this file no longer carries',
-    );
+  it('keeps the contributor workflow in CONTRIBUTING.md', () => {
+    assert.ok(fs.existsSync(CONTRIBUTING_FILE), 'CONTRIBUTING.md is missing');
+    const text = read(CONTRIBUTING_FILE);
+    assert.match(text, /^# Contributing/m);
+    assert.match(text, /## Clone to green/);
+    assert.match(text, /npm ci/);
+    assert.match(text, /npm run check/);
+    assert.match(text, /npm test/);
+    assert.ok(text.includes(pkg.engines.node), `CONTRIBUTING.md no longer states ${pkg.engines.node}`);
   });
 
-  it('README Contributing no longer defers the guidelines to the future', () => {
-    const section = contributingSection();
-    assert.doesNotMatch(
-      section,
-      /will be added with the implementation source/i,
-      'the "guidelines will be added" placeholder is back — the clone-to-green steps were reverted',
-    );
+  it('links to the canonical guidance without duplicating the full workflow', () => {
+    const readme = read(README_FILE);
+    assert.match(readme, /\[CONTRIBUTING\.md\]\(CONTRIBUTING\.md\)/);
+    assert.match(readme, /\[AGENTS\.md\]\(AGENTS\.md\)/);
+    assert.doesNotMatch(readme, /git clone https:\/\/github\.com\/Kuldeep2822k\/cli\.git/);
   });
 
-  it('README Contributing documents the real clone-to-green loop', () => {
-    const section = contributingSection();
-    for (const step of ['npm ci', 'npm run check', 'npm test']) {
-      assert.ok(
-        section.includes(step),
-        `README Contributing no longer documents "${step}" — the clone-to-green loop was reverted`,
-      );
-    }
-    assert.ok(
-      Object.hasOwn(pkg.scripts, 'test'),
-      'package.json no longer defines the "test" script the Contributing loop tells people to run',
-    );
-    assert.ok(
-      section.includes(pkg.engines.node),
-      `README Contributing no longer states the Node floor ${pkg.engines.node} — re-sync the docs with package.json engines`,
-    );
-  });
-
-  it('every npm script the docs name actually exists in package.json', () => {
-    const named = [
-      ...npmRunNames(contributingSection()),
-      ...npmRunNames(fs.readFileSync(AGENTS_FILE, 'utf8')),
-    ];
-    assert.ok(
-      named.length >= 3,
-      `the docs name too few scripts (${named.length}) to be a real loop — this census would be asserting over nothing`,
-    );
-    const missing = [...new Set(named)].filter(
-      (name) => !Object.hasOwn(pkg.scripts, name),
-    );
-    assert.deepStrictEqual(
-      missing,
-      [],
-      `npm run names missing from package.json scripts: ${missing.join(', ')}`,
-    );
+  it('keeps every documented npm script defined by package.json', () => {
+    const named = [...npmRunNames(read(CONTRIBUTING_FILE)), ...npmRunNames(read(AGENTS_FILE))];
+    assert.ok(named.length >= 3, `the docs name too few scripts (${named.length})`);
+    const missing = [...new Set(named)].filter((name) => !Object.hasOwn(pkg.scripts, name));
+    assert.deepStrictEqual(missing, [], `missing package.json scripts: ${missing.join(', ')}`);
   });
 });
