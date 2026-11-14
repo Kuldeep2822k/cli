@@ -3,6 +3,13 @@
 // the per-change verification loop or bisect (#565 P3-09: four commits in the
 // remediation branch imported `src/diagnostic-value` before the module that
 // path names existed; every tip-side gate stayed green, the history did not).
+// That failing range is a known, deliberate state until its split lands. One
+// of the four, P3-10, contributed its share as a hunk bundled into unrelated
+// item work: valid-review-fields.ts switched './diagnostic-value' to
+// '../../diagnostic-value'. Repairing it is therefore a split, not a revert —
+// keep './diagnostic-value' in the P3-10 commit and move the specifier switch
+// into the commit that creates src/diagnostic-value.ts (b391af1, the post-gate
+// chore re-landing the P3-12 neutral-module move).
 // Opt-in locally because it runs one full typecheck per commit; CI runs it per
 // pull request over the merge-base range:
 //
