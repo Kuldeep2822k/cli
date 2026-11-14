@@ -24,8 +24,9 @@ import path from 'node:path';
  *
  * A child process is tracked by its import, not its call shape: every spawn must import
  * `child_process` first, and a call-form rule would false-positive on `RegExp.exec`.
- * Import rules accept both the static (`from 'node:net'`) and dynamic (`import('node:net')`)
- * forms — a lazily imported socket module opens just as real a socket.
+ * Import rules accept the static (`from 'node:net'`), dynamic (`import('node:net')`), and
+ * CommonJS (`require('node:net')`) forms — a lazily or conditionally loaded socket module
+ * opens just as real a socket.
  */
 const root = path.resolve(__dirname, '..');
 
@@ -82,11 +83,12 @@ const SOCKET_RULES: Array<Omit<PrimitiveRule, 'allowedIn'>> = [
   { label: 'a UDP socket', pattern: /\bdgram\s*\.\s*createSocket\s*\(/ },
   { label: 'a DNS lookup', pattern: /\bdns\s*\.\s*(lookup|resolve)/ },
   { label: 'a WebSocket', pattern: /\bnew\s+WebSocket\s*\(/ },
+  { label: 'a qualified WebSocket', pattern: /\bnew\s+(?:globalThis|window)\s*\.\s*WebSocket\s*\(/ },
   { label: 'a listening server', pattern: /\.\s*listen\s*\(/ },
   {
     label: 'an import of net/tls/dns/http/https/http2/dgram/undici',
     pattern:
-      /(?:from\s+|import\s*\(\s*)['"](?:node:)?(?:net|tls|dns|http|https|http2|dgram|undici)['"]/,
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](?:node:)?(?:net|tls|dns|http|https|http2|dgram|undici)['"]/,
   },
 ];
 
@@ -99,7 +101,7 @@ const RULES: PrimitiveRule[] = [
   ...SOCKET_RULES.map((rule) => ({ ...rule, allowedIn: PROVIDER_ADAPTER })),
   {
     label: 'an import of child_process (a socket opened by a child)',
-    pattern: /(?:from\s+|import\s*\(\s*)['"](?:node:)?child_process['"]/,
+    pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](?:node:)?child_process['"]/,
     allowedIn: NPM_CHILD,
   },
 ];
@@ -201,10 +203,15 @@ describe('INV-29 network boundary (#24)', () => {
       "import dgram from 'node:dgram';",
       'dgram.createSocket("udp4")',
       'const ws = new WebSocket(url);',
+      'const qualified = new globalThis.WebSocket(url);',
+      'const scoped = new window.WebSocket(url);',
       'server.listen(8080);',
       "import { request } from 'undici';",
+      "const http = require('node:http');",
+      "const net = require('node:net');",
       "const net = await import('node:net');",
       "import { spawnSync } from 'child_process';",
+      "const cp = require('node:child_process');",
       "const child = await import('node:child_process');",
     ];
     const matched = samples.filter((line) => RULES.some((rule) => rule.pattern.test(line)));
@@ -219,6 +226,8 @@ describe('INV-29 network boundary (#24)', () => {
       // boundary is about; the rules match the bare/global call forms only.
       'const fetched = await client.fetch(url);',
       'const listener = createListener();',
+      "const cfg = require('../config');",
+      'const ws = createWebSocket(url);',
       "const types = await import('../types');",
       '// the server could listen (in theory)',
       // `RegExp.exec` is not a child process — which is why the child-process rule is
