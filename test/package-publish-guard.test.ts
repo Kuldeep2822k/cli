@@ -545,12 +545,15 @@ describe('verify-tarball assertions the local publish path runs (#565 P3-15)', (
 
   test('a tarball missing a required file fails the verifier', () => {
     withVerifier((dir) => {
-      packFixtureTarball(dir, REQUIRED_ENTRIES.filter((entry) => entry !== 'dist/src/index.js'));
+      // The fixture must remove the entry the verifier derives from the manifest,
+      // not a path hard-coded here: if `main` moves, the hard-coded path removes
+      // nothing and the verifier correctly passes a complete tarball.
+      packFixtureTarball(dir, REQUIRED_ENTRIES.filter((entry) => entry !== repoPkg.main));
       const run = runVerifier(dir);
       assert.notStrictEqual(
         run.status,
         0,
-        'a tarball missing dist/src/index.js must fail the publish',
+        `a tarball missing ${repoPkg.main} must fail the publish`,
       );
       assert.match(run.stderr, /Missing required tarball file/);
       assert.doesNotMatch(run.stdout, /passed cleanly/);
