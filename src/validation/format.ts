@@ -13,6 +13,7 @@
  * `warning_count`/`warnings[]` additively.
  */
 
+import { sanitizeForDisplay } from '../cli/display-safety';
 import type { ValidationIssue } from './types';
 
 /**
@@ -88,9 +89,9 @@ function formatHuman(issues: ValidationIssue[]): string {
 function formatBlock(block: ValidationIssue[]): string[] {
   const lines: string[] = [];
   for (const issue of block) {
-    lines.push(`  • ${issue.message}`);
+    lines.push(`  • ${sanitizeForDisplay(issue.message)}`);
     if (issue.details && Array.isArray(issue.details.files)) {
-      lines.push(`    Files: ${(issue.details.files as string[]).join(', ')}`);
+      lines.push(`    Files: ${(issue.details.files as string[]).map((file) => sanitizeForDisplay(String(file))).join(', ')}`);
     }
     lines.push(`    Rule: ${issue.ruleId}`);
     lines.push('');

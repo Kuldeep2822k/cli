@@ -124,14 +124,22 @@ function singleSessionFile(lockDir: string): string {
  * purpose.
  *
  * @remarks
- * Both are module-private there and stay that way (the #131 census keeps the storage
+ * All are module-private there and stay that way (the #131 census keeps the storage
  * barrel small), so a test can only mirror them numerically. A local that shares a
  * production constant's name hides the difference when the value moves; these do not,
  * and a changed budget in `src/` stops matching what the acquisition actually does,
  * which reddens the tests below rather than quietly re-deriving their expectations
  * from the implementation (ADR-0026).
+ *
+ * The two budgets are separate mirrors even though `src/` declares the same number
+ * for both, because they bound different loops: {@link WINDOWS_RETRY_BUDGET} bounds
+ * the transient-handle retries an `EPERM`/`EBUSY` from `rmdirSync` spends (INV-09),
+ * {@link RESIDUE_RETRY_BUDGET} bounds the `ENOTEMPTY` residue retries. A Windows
+ * assertion that read the residue mirror would move when the residue budget moved,
+ * and send the reader to the wrong constant.
  */
 const RESIDUE_RETRY_BUDGET = 5; // ENOTEMPTY_RETRY_ATTEMPTS
+const WINDOWS_RETRY_BUDGET = 5; // WINDOWS_RETRY_ATTEMPTS
 const ACQUISITION_ITERATION_CAP = 20; // MAX_ACQUISITION_ITERATIONS
 
 /**
@@ -151,6 +159,18 @@ const PARK_BANDS: ReadonlyArray<readonly [min: number, max: number]> = [
   [300, 300],
   [300, 300],
 ];
+
+/**
+ * The bands a fully-spent transient-handle retry budget asks for, in order: attempt
+ * `n` doubles `n` times, so it parks in band `n`, and one budget of
+ * {@link WINDOWS_RETRY_BUDGET} retries spends exactly that many parks. Widening the
+ * budget past {@link PARK_BANDS} fails as "has no documented band" rather than as a
+ * truncated schedule.
+ */
+const WINDOWS_PARK_SCHEDULE: readonly number[] = Array.from(
+  { length: WINDOWS_RETRY_BUDGET },
+  (_, index) => index
+);
 
 /** An `fs` method the fault patches below replace. */
 type PatchableFsMethod = 'readdirSync' | 'renameSync' | 'rmdirSync' | 'statSync' | 'unlinkSync';
@@ -832,190 +852,108 @@ describe('File Locking', () => {
 
   test('stale-lock recovery retries EPERM/EBUSY up to the budget and rethrows', { timeout: 10000 }, async () => {
     // Pin the bounded-retry contract from `createLock`'s stale-recovery path.
-    // Without this, a future refactor that drops the budget (e.g. back to a
-    // bare `continue` inside `while (true)`) would re-introduce the
-    // unbounded-busy-spin hang this PR was meant to remove, and CI would not
-    // catch it because the existing 11 tests only exercise the happy path.
+    // Without this, a refactor that drops the budget (e.g. back to a bare
+    // `continue`) would re-introduce the unbounded busy-spin this work removed.
     //
-    // We monkey-patch the global `fs.rmdirSync` so that every rmdirSync
-    // `createLock` issues on the lock directory (after quarantining all stale
-    // session files) throws a synthetic `EPERM`. On Windows the bounded retry
-    // loop will spin through its 5-attempt budget and then rethrow the
-    // original error. On non-Windows the platform gate in
-    // `src/storage/lock.ts` skips the retry and rethrows immediately. Either
-    // way the call must surface a thrown error. The setTimeout watchdog below
-    // only detects hangs on the ASYNCHRONOUS path (acquire() is async, so a
-    // hang before the synchronous createLock section can still tick timers);
-    // a regression to an unbounded SYNCHRONOUS spin would freeze the event
-    // loop and bypass the watchdog — the per-test `timeout` above is what
-    // bounds that case, since the test runner supervises each child process
-    // from outside.
-    const isWindows = process.platform === 'win32';
-
-    // Set up a vault + a target file the same way the other stale tests do.
-    const faultVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-fault-'));
-    const faultFile = path.join(faultVault, 'fault-target-' + Math.random().toString(36).slice(2) + '.md');
-    fs.writeFileSync(faultFile, '# Fault Target', 'utf8');
-
-    // Acquire a lock, then age it past the stale threshold so the next
-    // acquisition enters stale-recovery and reaches the rmdirSync call.
-    const seedLock = new Lock(faultVault, faultFile);
-    await seedLock.acquire();
-    const faultLockDir = seedLock.lockPath;
-
-    const files = fs.readdirSync(faultLockDir).filter(f => f.endsWith('.json'));
-    assert.ok(files.length > 0, 'precondition: seed lock should have a session file');
-    const [faultLockFileName] = files;
-    assert.ok(faultLockFileName !== undefined);
-    const faultLockFile = path.join(faultLockDir, faultLockFileName);
-    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 5000);
-    fs.utimesSync(faultLockFile, staleTime, staleTime);
-    // Stop the heartbeat so it cannot refresh the lock mid-test.
-    const seedTimer = (seedLock as unknown as { heartbeatTimer: ReturnType<typeof setInterval> | null }).heartbeatTimer;
-    if (seedTimer) clearInterval(seedTimer);
-
-    // Monkey-patch fs.rmdirSync. The same `fs` module instance is shared by
-    // lock.ts because both files import `fs from 'fs'`, so this intercepts
-    // the rmdirSync call inside `createLock`'s stale-recovery path.
-    const originalRmdirSync = fs.rmdirSync;
-    let rmdirCalls = 0;
-    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function patchedRmdirSync(
-      this: unknown,
-      p: fs.PathLike,
-      ...rest: unknown[]
-    ): void {
-      if (typeof p === 'string' && p === faultLockDir) {
-        rmdirCalls += 1;
-        const e = new Error('simulated EPERM for stale-recovery budget test') as NodeError;
-        e.code = 'EPERM';
-        throw e;
-      }
-      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(
-        this,
-        p as fs.PathLike,
-        ...rest
+    // Every post-sweep `rmdirSync` the recovery issues on this lock directory
+    // throws a synthetic `EPERM`. On Windows the transient-handle arm spends its
+    // five retries and rethrows the original error; elsewhere the platform gate
+    // rethrows after the first attempt. Either way the call must surface EPERM.
+    //
+    // `watchParks` records the delays the code asks for without paying them, so
+    // the assertions are on the requested schedule, not elapsed time (ADR-0026).
+    // Because `createLock` is synchronous, a regressed unbounded retry would
+    // freeze the event loop — a per-test timeout cannot fire while it is blocked
+    // — so `spinGuard` inside the fault is what turns that regression into a
+    // named failure instead of a hung worker.
+    const staleId = 'L-20260101T000000-feedfeed';
+    const fx = residueVault('retry', (lockDir, target) => {
+      fs.writeFileSync(
+        path.join(lockDir, `${staleId}.json`),
+        JSON.stringify(
+          { lock_id: staleId, target, pid: 999999, hostname: 'not-this-host', created_at: new Date(0).toISOString() },
+          null,
+          2
+        ),
+        'utf8'
       );
-    };
-
-    // Wall-clock watchdog. If `acquire` does not throw within `WATCHDOG_MS`,
-    // the bounded-retry contract has regressed to an unbounded busy-spin
-    // and the test must fail loudly. The contract guarantees completion well
-    // under 2s on either platform (5 attempts × max 300ms each on Windows;
-    // immediate rethrow on non-Windows), so 5s is a generous safety margin.
-    const WATCHDOG_MS = 5000;
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const watchdog = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(
-          `stale-recovery hung past ${WATCHDOG_MS}ms watchdog — retry is unbounded`
-        ));
-      }, WATCHDOG_MS);
+    });
+    agePastStale(fx.entry(`${staleId}.json`));
+    const parks = watchParks(fx);
+    const removals = watchRmdir(fx, fx.lockDir, call => {
+      spinGuard(call, ACQUISITION_ITERATION_CAP * 2, 'rmdirSync calls on one stale lock directory');
+      throw fsErrorWith('EPERM', `EPERM: operation not permitted, rmdir '${fx.lockDir}'`);
     });
 
     try {
-      const acquirer = new Lock(faultVault, faultFile);
-      const acquirePromise = acquirer.acquire();
       await assert.rejects(
-        Promise.race([acquirePromise, watchdog]),
-        (err: Error & { code?: string }) => {
-          // Watchdog rejection (no code) signals an unbounded regression.
-          if (!err.code) return false;
-          return err.code === 'EPERM';
-        },
-        'expected stale-recovery to surface EPERM after the retry budget'
+        () => fx.newLock().acquire(),
+        (err: unknown) => {
+          assert.strictEqual(
+            (err as NodeError).code,
+            'EPERM',
+            'expected stale-recovery to surface EPERM after the retry budget'
+          );
+          return true;
+        }
       );
+      if (process.platform === 'win32') {
+        // One initial removal plus the retries the transient-handle arm spends
+        // (INV-09) — its own budget, not the `ENOTEMPTY` residue one.
+        assert.strictEqual(removals.calls, WINDOWS_RETRY_BUDGET + 1, 'one attempt plus the transient-handle retry budget');
+        assertParkedSchedule(parks.calls, WINDOWS_PARK_SCHEDULE, 'the Windows transient-handle retries');
+      } else {
+        assert.strictEqual(removals.calls, 1, 'the non-Windows platform gate must rethrow after one attempt');
+        assert.deepStrictEqual(parks.calls, [] as number[], 'a permanent condition must never park');
+      }
     } finally {
-      if (timer) clearTimeout(timer);
-      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
-      seedLock.release();
-      try { fs.rmSync(faultVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+      fx.dispose();
     }
-
-    // Sanity: the patched rmdirSync must have been entered at least once.
-    // (On non-Windows, rmdirSync is called once before the platform gate
-    // rejects the retry path; on Windows, the bounded retry calls it at
-    // least once and the loop's first attempt may also consume it.)
-    assert.ok(
-      rmdirCalls >= 1,
-      `expected at least one intercepted rmdirSync call on lockDir (got ${rmdirCalls})`
-    );
-    // Cross-platform note (informational; not an assertion):
-    // isWindows === true  -> bounded retry runs; with an always-throwing
-    //   mock the intercepted calls are WINDOWS_RETRY_ATTEMPTS (5) retry
-    //   attempts plus the initial rmdirSync before the retry loop — 6 total.
-    // isWindows === false -> platform gate skips the retry loop, so exactly
-    //   1 rmdirSync call is intercepted.
-    void isWindows;
   });
 
   test('stale-lock recovery succeeds when the final retry attempt clears the handle', { timeout: 10000, skip: process.platform !== 'win32' }, async () => {
-    // Regression pin for the off-by-one Greptile/Kilo flagged on the first
-    // cut of the retry budget: when the last permitted attempt's rmdirSync
-    // succeeds, the loop must fall through to re-acquisition — deriving the
-    // outcome from the attempt count alone made the 5th attempt's success
-    // rethrow the original EPERM anyway. Skipped visibly off Windows: the retry
-    // budget is reached through `isTransientHandleCode`, which only answers true
-    // on win32. A bare `return` here would report PASS while asserting nothing.
-
-    const RETRY_BUDGET = 5; // mirrors WINDOWS_RETRY_ATTEMPTS in src/storage/lock.ts
-
-    const faultVault = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-lock-last-'));
-    const faultFile = path.join(faultVault, 'fault-target-' + Math.random().toString(36).slice(2) + '.md');
-    fs.writeFileSync(faultFile, '# Fault Target', 'utf8');
-
-    const seedLock = new Lock(faultVault, faultFile);
-    await seedLock.acquire();
-    const faultLockDir = seedLock.lockPath;
-    const seedLockData = getLockData(faultLockDir);
-    assert.ok(seedLockData, 'precondition: seed lock should parse');
-
-    const files = fs.readdirSync(faultLockDir).filter(f => f.endsWith('.json'));
-    const [faultLockFileName] = files;
-    assert.ok(faultLockFileName !== undefined);
-    const faultLockFile = path.join(faultLockDir, faultLockFileName);
-    const staleTime = new Date(Date.now() - STALE_TIMEOUT - 5000);
-    fs.utimesSync(faultLockFile, staleTime, staleTime);
-    const seedTimer = (seedLock as unknown as { heartbeatTimer: ReturnType<typeof setInterval> | null }).heartbeatTimer;
-    if (seedTimer) clearInterval(seedTimer);
-
-    // Throw EPERM for the initial rmdirSync plus the first four retry
-    // attempts; the next call — the final permitted attempt — lets the real
-    // rmdirSync run and succeed on the now-empty directory.
-    const originalRmdirSync = fs.rmdirSync;
-    let rmdirCalls = 0;
-    (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = function patchedRmdirSync(
-      this: unknown,
-      p: fs.PathLike,
-      ...rest: unknown[]
-    ): void {
-      if (typeof p === 'string' && p === faultLockDir) {
-        rmdirCalls += 1;
-        if (rmdirCalls <= RETRY_BUDGET) {
-          const e = new Error('simulated EPERM for final-attempt recovery test') as NodeError;
-          e.code = 'EPERM';
-          throw e;
-        }
-      }
-      return (originalRmdirSync as unknown as (...a: unknown[]) => void).call(
-        this,
-        p as fs.PathLike,
-        ...rest
+    // Regression pin for the off-by-one on the retry budget: when the last
+    // permitted attempt's rmdirSync succeeds, the loop must fall through to
+    // re-acquisition — deriving the outcome from the attempt count alone made
+    // the final attempt's success rethrow the original EPERM anyway. Skipped
+    // visibly off Windows: the retry budget is reached through
+    // `isTransientHandleCode`, which only answers true on win32. A bare `return`
+    // here would report PASS while asserting nothing.
+    const staleId = 'L-20260101T000000-beefbeef';
+    const fx = residueVault('last', (lockDir, target) => {
+      fs.writeFileSync(
+        path.join(lockDir, `${staleId}.json`),
+        JSON.stringify(
+          { lock_id: staleId, target, pid: 999999, hostname: 'not-this-host', created_at: new Date(0).toISOString() },
+          null,
+          2
+        ),
+        'utf8'
       );
-    };
+    });
+    agePastStale(fx.entry(`${staleId}.json`));
+    const parks = watchParks(fx);
+    // Throw EPERM for the initial removal plus every retry but the last; the next
+    // call — the final permitted attempt — lets the real rmdirSync run and
+    // succeed on the now-empty directory.
+    const removals = watchRmdir(fx, fx.lockDir, call => {
+      spinGuard(call, ACQUISITION_ITERATION_CAP * 2, 'rmdirSync calls on one stale lock directory');
+      if (call <= WINDOWS_RETRY_BUDGET) {
+        throw fsErrorWith('EPERM', `EPERM: operation not permitted, rmdir '${fx.lockDir}'`);
+      }
+    });
+    const acquirer = fx.hold(fx.newLock());
 
     try {
-      const acquirer = new Lock(faultVault, faultFile);
       await acquirer.acquire();
-      assert.strictEqual(rmdirCalls, RETRY_BUDGET + 1);
-      const newLockData = getLockData(faultLockDir);
+      // The final permitted attempt clears the handle instead of rethrowing.
+      assert.strictEqual(removals.calls, WINDOWS_RETRY_BUDGET + 1, 'the final permitted attempt must clear the handle');
+      assertParkedSchedule(parks.calls, WINDOWS_PARK_SCHEDULE, 'the retries before the handle cleared');
+      const newLockData = getLockData(fx.lockDir);
       assert.ok(newLockData, 'expected a live lock after recovery');
-      assert.notStrictEqual(newLockData.lock_id, seedLockData.lock_id);
-      acquirer.release();
+      assert.notStrictEqual(newLockData.lock_id, staleId, 'recovery must mint a new lock identity');
     } finally {
-      (fs as unknown as { rmdirSync: typeof fs.rmdirSync }).rmdirSync = originalRmdirSync;
-      seedLock.release();
-      try { fs.rmSync(faultVault, { recursive: true, force: true }); } catch { /* best-effort */ }
+      fx.dispose();
     }
   });
 

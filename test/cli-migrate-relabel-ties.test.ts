@@ -3,8 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
-import { PALEE_CMD } from './palee-cli';
+import { runPalee } from './e2e/test-env';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 import migrateCommand, { predecessorIntact, type StoredTie } from '../src/cli/migrate';
 
@@ -32,20 +31,16 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
    * @param args - Arguments after `bin/palee.ts`
    * @param configDir - Value of `PALEE_CONFIG_DIR` for the run
    * @returns The exit status with captured stdout and stderr
+   *
+   * @remarks
+   * The shared helper launches the same dist/tsx entry the other suites use, so
+   * this suite cannot drift onto a different runtime than they do. Arguments
+   * travel as an argv array — a vault path with a space or a glob reaches the
+   * CLI as one word, with nothing to quote or escape — and every spawn carries
+   * the helper's 120 s budget instead of blocking the worker indefinitely.
    */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
-    try {
-      const stdout = execSync(`${PALEE_CMD} ${args.join(' ')}`, {
-        cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-      return { status: 0, stdout, stderr: '' };
-    } catch (e: unknown) {
-      const err = e as { status?: number; stdout?: string; stderr?: string };
-      return { status: err.status ?? 1, stdout: err.stdout || '', stderr: err.stderr || '' };
-    }
+    return runPalee(args, configDir);
   }
 
   /**
@@ -60,7 +55,9 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
    * from a resolved root, so on a machine whose temp dir passes through a
    * symlink (macOS `/var` → `/private/var`) the walked note paths would
    * otherwise never `===` a path joined onto the unresolved temp dir — and
-   * the `fs`-patching tests below compare exactly that.
+   * the `fs`-patching tests below compare exactly that. The config directory
+   * holds the `config.json` fixture directly: pointing the CLI at the vault is
+   * setup, not behaviour under test, so it costs no child process.
    */
   function freshVault(files: Record<string, string>): { vaultDir: string; configDir: string } {
     const vaultDir = fs.realpathSync(fs.mkdtempSync(path.join(tempDir, 'vault-')));
@@ -70,8 +67,11 @@ describe('CLI Migrate stored tie labels (PAL-205 #237)', () => {
       fs.writeFileSync(abs, content);
     }
     const configDir = fs.mkdtempSync(path.join(tempDir, 'cfg-'));
-    const setResult = runCLI(['config', 'set-vault', `"${vaultDir}"`], configDir);
-    assert.strictEqual(setResult.status, 0, `set-vault failed: ${setResult.stderr}`);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ vaultPath: vaultDir }, null, 2),
+      'utf8'
+    );
     return { vaultDir, configDir };
   }
 
