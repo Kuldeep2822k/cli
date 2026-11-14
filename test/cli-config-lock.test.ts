@@ -6,6 +6,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
 import configCommand, { withConfigLock } from '../src/cli/config';
+import { exitCodeFor, ExitCode } from '../src/cli/exit-codes';
+import { NodeError } from '../src/types';
 
 /**
  * Serializes the config read-modify-write (#565 P3-01).
@@ -170,10 +172,39 @@ describe('config lock semantics (in process)', () => {
   test('acquisition times out with an actionable error while a foreign lock is fresh', async () => {
     const configDir = freshConfigDir();
     writeForeignLock(configDir, 'forever-holder');
-    await assert.rejects(
-      withConfigLock(() => 'never', { timeoutMs: 250 }),
+    const error = await withConfigLock(() => 'never', { timeoutMs: 250 }).then(
+      () => {
+        assert.fail('acquisition must not succeed while a fresh foreign lock is held');
+      },
+      (e: unknown) => e
+    );
+    assert.match(
+      (error as Error).message,
       /timed out waiting for the configuration lock/
     );
+  });
+
+  test('a config lock timeout is a conflict, not an unexpected failure', async () => {
+    const configDir = freshConfigDir();
+    writeForeignLock(configDir, 'forever-holder');
+    const error = await withConfigLock(() => 'never', { timeoutMs: 250 }).then(
+      () => {
+        assert.fail('acquisition must not succeed while a fresh foreign lock is held');
+      },
+      (e: unknown) => e
+    );
+    // The contract puts every lock that cannot be taken in the same class as
+    // the vault lock's own contention — `ECONFLICT` — which `isConflictError`
+    // recognises and `exitCodeFor` maps to exit 4. A plain `Error` here was
+    // reported as exit 5 (the unexpected class) while the message said the
+    // command merely lost a race.
+    assert.strictEqual(
+      (error as NodeError).code,
+      'ECONFLICT',
+      'the timeout must carry the conflict code the exit mapping reads'
+    );
+    assert.strictEqual(exitCodeFor(error), ExitCode.Conflict, 'config lock contention exits 4');
+    assert.strictEqual(ExitCode.Conflict, 4);
   });
 
   test('release leaves a lock that was stolen from its owner alone', async () => {

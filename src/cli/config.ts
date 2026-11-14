@@ -246,8 +246,9 @@ const CONFIG_LOCK_STALE_MS = 10_000;
 /**
  * How long a config command waits for its turn on the lock before failing. Only
  * pathological contention (or a paused holder whose lock keeps being stolen and
- * re-created) can reach this; the error lands in the handler's catch and exits
- * like any other unexpected failure.
+ * re-created) can reach this; the error carries `code = 'ECONFLICT'`, so the
+ * handler's `exitCodeFor` reports the documented lock-conflict exit (4) rather
+ * than the unexpected-exception class.
  */
 const CONFIG_LOCK_TIMEOUT_MS = 30_000;
 
@@ -299,7 +300,8 @@ function sleep(ms: number): Promise<void> {
  * @param timeoutMs - Total time to wait before giving up; defaults to {@link CONFIG_LOCK_TIMEOUT_MS}.
  * @param staleMs - Age at which a foreign lock counts as abandoned; defaults to {@link CONFIG_LOCK_STALE_MS}.
  * @returns The acquired lock; call `release` when the read-modify-write is done.
- * @throws {Error} When no turn comes within `timeoutMs`.
+ * @throws {NodeError} `code: 'ECONFLICT'` when no turn comes within `timeoutMs`,
+ * so the documented lock-conflict exit (4) applies instead of exit 5.
  *
  * @remarks
  * The file is created `wx` so exactly one waiter wins, with `0600` in the same
@@ -363,10 +365,16 @@ async function acquireConfigLock(
     if (Date.now() >= deadline) {
       const holderPid = readConfigLockPayload(lockPath)?.pid ?? null;
       const holder = holderPid === null ? '' : ` (held by pid ${holderPid})`;
-      throw new Error(
+      // A lock that could not be taken is the OCC/lock-conflict class the vault
+      // lock already reports, not an unexpected failure: `ECONFLICT` is what
+      // `isConflictError` reads, so `exitCodeFor` maps it to the documented
+      // exit 4 rather than exit 5. The message is the actionable half either way.
+      const timeoutErr = new Error(
         `timed out waiting for the configuration lock at ${lockPath}${holder}; ` +
           'another palee config command may be stuck — if no other command is running, remove the lock file and re-run'
-      );
+      ) as NodeError;
+      timeoutErr.code = 'ECONFLICT';
+      throw timeoutErr;
     }
 
     // Otherwise read the holder's age and decide: wait, or steal.
@@ -407,8 +415,8 @@ async function acquireConfigLock(
  * snapshot that predates the other's field.
  * @param timing - Internal test seam to shorten the timeout/stale windows.
  * @returns Whatever `fn` returns.
- * @throws {Error} When the lock cannot be acquired in time; `fn`'s own errors
- * pass through after the lock is released.
+ * @throws {NodeError} `code: 'ECONFLICT'` when the lock cannot be acquired in
+ * time; `fn`'s own errors pass through after the lock is released.
  */
 async function withConfigLock<T>(
   fn: () => T | Promise<T>,
