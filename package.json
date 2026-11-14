@@ -19,7 +19,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node --max-old-space-size=1024 --max-semi-space-size=4 node_modules/typescript/bin/tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check": "npm run typecheck && npm run lint",

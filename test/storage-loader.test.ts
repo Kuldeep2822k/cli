@@ -1070,9 +1070,10 @@ describe('loadTopics snapshot parse sharing (P3-07)', () => {
   });
 
   test('snapshot bytes reuse the caller-supplied parse instead of re-parsing', () => {
+    // No disk fixture: on the snapshot path the loader skips stat+read and
+    // never walks (files is supplied), so only the injected bytes matter.
     const note = path.join(tmpVault, 'shared.md');
     const bytes = '---\npalee_schema: 1\npalee_id: T-shared\n---\n# Shared\n';
-    fs.writeFileSync(note, bytes, 'utf8');
     const scanned = frontmatterModule.parseFrontmatter(bytes).frontmatter;
     assert.ok(scanned, 'precondition: the note parses to a frontmatter object');
     const shared = new Map<string, Record<string, unknown> | null>([[note, scanned]]);
@@ -1097,7 +1098,6 @@ describe('loadTopics snapshot parse sharing (P3-07)', () => {
     // those bytes itself rather than treat the missing verdict as final.
     const note = path.join(tmpVault, 'withheld.md');
     const bytes = '---\npalee_id: T-withheld\n---\n# Withheld\n';
-    fs.writeFileSync(note, bytes, 'utf8');
 
     const topics = loadTopics(tmpVault, {
       files: [note],
@@ -1112,10 +1112,26 @@ describe('loadTopics snapshot parse sharing (P3-07)', () => {
   });
 
   test('a shared null verdict is honored on the snapshot path', () => {
-    const note = path.join(tmpVault, 'plain.md');
-    const bytes = '# No frontmatter\n';
-    fs.writeFileSync(note, bytes, 'utf8');
+    // The verdict must bind to bytes that are topic-worthy on their own: on
+    // unparseable bytes a 0-topic result passes whether the loader honors
+    // the map, ignores it, or re-parses — all three end in no topic. The
+    // control below proves these bytes resolve a topic without a verdict,
+    // so only the honored null verdict can explain the empty result.
+    const note = path.join(tmpVault, 'null-verdict.md');
+    const bytes = '---\npalee_id: T-null-verdict\n---\n# Null verdict\n';
 
+    // Control: the same injected bytes with NO shared verdict parse and
+    // load normally.
+    const unshared = loadTopics(tmpVault, {
+      files: [note],
+      contents: new Map([[note, bytes]]),
+    });
+    assert.strictEqual(unshared.length, 1, 'control: the bytes alone resolve a topic');
+    assert.strictEqual(unshared[0]?.palee_id, 'T-null-verdict');
+
+    // The same bytes plus a shared null verdict: the loader must honor the
+    // verdict (skip the note) rather than fall through to a fresh parse,
+    // which would resolve the very topic the control just loaded.
     const topics = loadTopics(tmpVault, {
       files: [note],
       contents: new Map([[note, bytes]]),
