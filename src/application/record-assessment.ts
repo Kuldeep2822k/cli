@@ -5,12 +5,21 @@
  * the atomic write, output formatting, and exit-code mapping.
  */
 
-import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../engine/mastery';
+import {
+  computeTopicMastery,
+  normalizeScore,
+  MASTERY_THRESHOLD,
+  PILLAR_KEYS,
+} from '../engine/mastery';
 import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
 import { TopicNode } from '../types';
 
-/** The four pillar flags, in the order they are printed and validated. */
-export const PILLARS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+/**
+ * The four pillar flags, in the order they are printed and validated — the
+ * engine's {@link PILLAR_KEYS} itself, not a local copy, so the write core and
+ * the mastery formula can never disagree on which pillars exist (#565 P3-09).
+ */
+export const PILLARS = PILLAR_KEYS;
 
 export type Pillar = (typeof PILLARS)[number];
 

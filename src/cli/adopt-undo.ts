@@ -27,6 +27,7 @@ import {
   loadSessions,
 } from '../storage';
 import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
+import { PILLAR_KEYS } from '../engine/mastery';
 import { AdoptOptions } from '../types';
 
 /**
@@ -58,6 +59,10 @@ import { AdoptOptions } from '../types';
  * shape and refuses to guess ("only the user can say whether they were adopted or
  * typed by hand"), so this command does the same thing: it leaves the key, says it
  * left it, and hands the judgement back through `--drop-title`.
+ *
+ * The four pillar names are spliced in from the engine's `PILLAR_KEYS`
+ * (`src/engine/mastery.ts`) rather than retyped here, so the removal list can
+ * never drift from the keys the mastery engine itself reads (#565 P3-09).
  */
 const PALEE_OWNED_KEYS: readonly string[] = [
   'palee_id',
@@ -66,10 +71,7 @@ const PALEE_OWNED_KEYS: readonly string[] = [
   'depends_on',
   'topic_mastery',
   'assessed_at',
-  'conceptual',
-  'practical',
-  'debug',
-  'feynman',
+  ...PILLAR_KEYS,
   'ease_factor',
   'interval_days',
   'repetition',
