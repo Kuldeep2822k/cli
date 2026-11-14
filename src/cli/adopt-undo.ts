@@ -36,6 +36,10 @@ import { batchScopeExclusion } from '../storage/pattern-matcher';
 // `title` is deliberately absent, and why removing the scheduling keys is
 // correct even for a note reviewed since adoption: see that module's docs.
 import { PALEE_OWNED_KEYS } from '../engine/topic-scaffold';
+// P3-13 (#565): the "is this adopted" judgment is the engine's shared predicate —
+// the same one `loadTopics` and the adopt scans apply — so reversal cannot drift
+// from them, and its reports name the one repair path they all print.
+import { INVALID_PALEE_ID_REPAIR, isValidPaleeId } from '../engine/tier0-hygiene';
 import { AdoptOptions } from '../types';
 
 /** The display title `adopt` minted but does not own; removed only on request. */
@@ -171,8 +175,9 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
  * @returns The trimmed id, or `null` when the note is not a loaded topic
  *
  * @remarks
- * `loadTopics()` only treats a note as a topic when `palee_id` is a non-empty
- * string, so that is the whole test for "adopted": a numeric `palee_id: 12345`
+ * The judgment is the shared predicate (`isValidPaleeId`, P3-13 of #565):
+ * `loadTopics()`, the adopt scans and this reversal all test "adopted" the same
+ * way, so a numeric `palee_id: 12345` — or any present-but-unusable value —
  * names no topic anywhere in the CLI, and reversal leaves it alone rather than
  * guessing the learner meant it as PALEE's. That is adoption's own B7 rule
  * applied to the inverse operation.
@@ -180,9 +185,8 @@ function hasUnclosedFrontmatterOpener(content: string): boolean {
 function trackedPaleeId(frontmatter: Record<string, unknown> | null): string | null {
   if (!frontmatter) return null;
   const raw = frontmatter.palee_id;
-  if (typeof raw !== 'string') return null;
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (!isValidPaleeId(raw)) return null;
+  return raw.trim();
 }
 
 /**
@@ -690,6 +694,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
           console.log(
             '  Note: its `palee_id` is not a usable topic id, so it was left exactly as it is.'
           );
+          console.log(`  → ${INVALID_PALEE_ID_REPAIR}`);
         }
         return;
       }
@@ -902,6 +907,8 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
       console.log(
         `Unusable palee_id:  ${unusableId.length} notes (not a topic id; left alone, not rewritten)`
       );
+      // P3-13: the same repair path the adopt scans print for this condition.
+      console.log(`  → ${INVALID_PALEE_ID_REPAIR}`);
     }
     if (orphanOwnedKeys.length > 0) {
       console.log(

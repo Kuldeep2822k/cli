@@ -13,6 +13,10 @@ import { computeFingerprint, parseFrontmatter } from './frontmatter';
 import { FileCache } from './cache';
 import { MAX_NOTE_SOURCE_BYTES, noteExceedsReadCap } from './source-cap';
 import { normalizeDependencies } from './dependencies';
+// P3-13 (#565): the "is this a topic" judgment is the engine's shared predicate —
+// the same one the adopt scans and `adopt --undo` apply — so this loader's copy
+// can never silently drift from them again.
+import { isValidPaleeId } from '../engine/tier0-hygiene';
 import { TopicNode, normalizeDifficulty, normalizeAssessedAt, normalizeDependsOnSource } from '../types';
 
 /** Module-level topic file cache */
@@ -305,7 +309,12 @@ function resolveTopicIdentity(
 ): { frontmatter: Record<string, unknown>; paleeId: string; relPath: string; title: string } | null {
   if (!frontmatter) return null;
   const rawId = frontmatter.palee_id;
-  if (typeof rawId !== 'string' || !rawId.trim()) return null;
+  // P3-13 (#565): one predicate judges "is this a topic" everywhere. A note
+  // whose `palee_id` is absent, blank, or not a string is not a topic; the
+  // decline stays silent here by design — a non-topic verdict is cached like
+  // any other — and is reported, with the one repair path, by `palee validate`
+  // (valid-topic-id-format) and by the adopt scans' counted B7 skip.
+  if (!isValidPaleeId(rawId)) return null;
   return {
     frontmatter,
     paleeId: rawId.trim(),
