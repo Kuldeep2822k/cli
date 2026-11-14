@@ -385,22 +385,29 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         return;
       }
 
-      if (frontmatter && frontmatter.palee_id) {
-        // P3-13 (#565): the judgment is the shared predicate, the same one
-        // `loadTopics` applies — a truthy non-string (`palee_id: 12345`) is NOT
-        // an adopted topic, so calling it "already adopted" contradicted every
-        // read command, which sees an unadopted note. PALEE also never rewrites
-        // such a value — its authorship cannot be established, the same rule
-        // `--undo` applies — so adoption refuses and names the one repair path.
-        if (!isValidPaleeId(frontmatter.palee_id)) {
+      // P3-13 (#565): the judgment is the shared predicate, the same one
+      // `loadTopics` applies — a present non-string (`palee_id: 12345`) is NOT
+      // an adopted topic, so calling it "already adopted" contradicted every
+      // read command, which sees an unadopted note. PALEE also never rewrites
+      // such a value — its authorship cannot be established, the same rule
+      // `--undo` applies — so adoption refuses and names the one repair path.
+      //
+      // Presence, not truthiness: `palee_id: 0` and `palee_id: ""` are present
+      // values PALEE does not own, and a bare truthy gate used to fall through
+      // to a fresh adoption that overwrote them with a minted id — the exact
+      // disagreement with `--undo` this fix removes. Only `undefined`/`null`
+      // (no key, or an empty YAML value) means "not adopted yet".
+      const existingPaleeId = frontmatter?.palee_id;
+      if (existingPaleeId !== undefined && existingPaleeId !== null) {
+        if (!isValidPaleeId(existingPaleeId)) {
           console.error(
-            `Error: ${targetPath} has a palee_id that is not a usable string (${JSON.stringify(frontmatter.palee_id)}); nothing was adopted.`
+            `Error: ${targetPath} has a palee_id that is not a usable string (${JSON.stringify(existingPaleeId)}); nothing was adopted.`
           );
           console.error(`  → ${INVALID_PALEE_ID_REPAIR}`);
           process.exitCode = ExitCode.Usage;
           return;
         }
-        console.error(`Error: Note already adopted as topic ${frontmatter.palee_id}`);
+        console.error(`Error: Note already adopted as topic ${existingPaleeId}`);
         process.exitCode = ExitCode.Usage;
         return;
       }
@@ -609,7 +616,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
     const scannedPaths: string[] = [];
     /** B6 - notes Tier-0 hygiene kept out of a batch adoption, by reason */
     const skippedByHygiene = new Map<Tier0SkipReason, string[]>();
-    /** B7 — notes whose `palee_id` is truthy but unusable, so they are neither chained nor adopted */
+    /** B7 — notes whose `palee_id` is present but unusable, so they are neither chained nor adopted */
     const skippedInvalidId: string[] = [];
     /** Notes whose frontmatter block will not parse, and why: neither adopted nor rewritten */
     const skippedUnreadable = new Map<string, string>();
@@ -689,8 +696,13 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         continue;
       }
 
-      // Check if already adopted
-      if (frontmatter && frontmatter.palee_id) {
+      // Check if already adopted. Presence decides the branch, not truthiness:
+      // a falsy value (`palee_id: 0`, `palee_id: ""`) is a value PALEE does not
+      // own, and a bare truthy gate let it fall through to a fresh adoption that
+      // overwrote it — while `--undo` judged the same value unusable and left it
+      // alone. Only `undefined`/`null` means "not adopted yet".
+      const existingPaleeId = frontmatter?.palee_id;
+      if (existingPaleeId !== undefined && existingPaleeId !== null) {
         // B7 (P3-13) — a present-but-unusable `palee_id` (e.g. `palee_id: 12345`,
         // which YAML parses as a number) is invisible to `loadTopics`, which
         // requires a non-empty string. The skip once ran only under `--auto-chain`,
@@ -700,18 +712,18 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         // judges the id with the shared predicate: skipped with a counted reason,
         // never rewritten (the learner's frontmatter is left alone) and never
         // chained, with the one repair path reported alongside the count.
-        if (!isValidPaleeId(frontmatter.palee_id)) {
+        if (!isValidPaleeId(existingPaleeId)) {
           skippedInvalidId.push(relPath);
           continue;
         }
         alreadyAdopted.push(relPath);
-        adoptedPaleeId.set(relPath, frontmatter.palee_id);
+        adoptedPaleeId.set(relPath, existingPaleeId);
         // The scan's filters govern the plan, not just the writes. An adopted
         // note that the user excluded still reaches the planner through
         // `planPaths` below, so the next new lesson is given a `depends_on` edge
         // pointing at the very note `--exclude` was written to drop — and that
         // edge is persisted. Same for `--include` and `--tag`.
-        if (batchScopeExclusion(relPath, frontmatter.tags, options) === null) {
+        if (batchScopeExclusion(relPath, frontmatter?.tags, options) === null) {
           plannableAdopted.push(relPath);
         }
         continue;

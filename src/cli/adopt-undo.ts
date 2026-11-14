@@ -812,7 +812,7 @@ async function adoptUndoCommand(targetPath?: string, options: AdoptOptions = {})
     const notAdopted: string[] = [];
     /** Adopted-looking notes that carry owned keys but no usable id: left alone */
     const orphanOwnedKeys: string[] = [];
-    /** Notes carrying a truthy but unusable `palee_id`: left alone, named, counted */
+    /** Notes carrying a present but unusable `palee_id`: left alone, named, counted */
     const unusableId: string[] = [];
     /** Notes whose `palee_id` sits under an opener that never closes: left alone */
     const unterminated: string[] = [];

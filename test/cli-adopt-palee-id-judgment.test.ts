@@ -120,6 +120,65 @@ describe('CLI adopt: one judgment for a present-but-unusable palee_id (P3-13, B7
     assert.ok(typeof fresh.frontmatter?.palee_id === 'string' && fresh.frontmatter.palee_id.startsWith('T-'));
   });
 
+  /**
+   * Present-but-unusable ids that are falsy in JavaScript. The old truthy gate
+   * fell through to a fresh adoption and overwrote them, while `--undo` already
+   * judged them unusable. `0` is a number, `""` an empty string: neither is an id.
+   */
+  const FALSY_UNUSABLE_IDS = [
+    { yaml: '0', rendered: '0' },
+    { yaml: '""', rendered: '""' },
+  ] as const;
+
+  /** A note carrying the given raw `palee_id` value. */
+  function noteWithPaleeId(raw: string): string {
+    return ['---', `palee_id: ${raw}`, 'palee_schema: 1', 'title: Present', '---', '', '# Present', ''].join('\n');
+  }
+
+  for (const { yaml, rendered } of FALSY_UNUSABLE_IDS) {
+    test(`single-file adoption and --undo agree that palee_id: ${rendered} is unusable and leave it alone`, () => {
+      const { vaultDir, configDir } = freshVault({ 'falsy.md': noteWithPaleeId(yaml) });
+      const before = fs.readFileSync(path.join(vaultDir, 'falsy.md'), 'utf8');
+
+      const adopt = runCLI(['adopt', 'falsy.md'], configDir);
+      assert.strictEqual(adopt.status, 2, `expected exit 2, got ${adopt.status}: ${adopt.stdout}${adopt.stderr}`);
+      assert.ok(
+        adopt.stderr.includes(`has a palee_id that is not a usable string (${rendered})`),
+        `single-file adoption names the value it refused: ${adopt.stderr}`
+      );
+      assert.match(adopt.stderr, REPAIR);
+      assert.doesNotMatch(adopt.stderr, /already adopted/);
+      assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'falsy.md'), 'utf8'), before, 'adoption never rewrites it');
+
+      // The inverse operation already judged this shape unusable; the fix is
+      // that adoption now reaches the same verdict instead of minting over it.
+      const undo = runCLI(['adopt', '--all', '--undo', '--verbose', '--yes'], configDir);
+      assert.strictEqual(undo.status, 0, `${undo.stdout}${undo.stderr}`);
+      assert.match(undo.stdout, /Unusable palee_id:\s+1 notes/);
+      assert.match(undo.stdout, REPAIR);
+      assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'falsy.md'), 'utf8'), before, '--undo leaves it alone too');
+    });
+
+    test(`a plain batch leaves palee_id: ${rendered} untouched and counts the skip`, () => {
+      const { vaultDir, configDir } = freshVault({
+        'MOD/01-falsy.md': noteWithPaleeId(yaml),
+        'MOD/02-fresh.md': '# Fresh\n',
+      });
+      const before = fs.readFileSync(path.join(vaultDir, 'MOD/01-falsy.md'), 'utf8');
+
+      const result = runCLI(['adopt', 'MOD', '--verbose', '-y'], configDir);
+      assert.strictEqual(result.status, 0, `${result.stdout}${result.stderr}`);
+      assert.match(result.stdout, /Invalid palee_id: 1 notes \(not adopted, not chained\)/);
+      assert.match(result.stdout, REPAIR);
+      assert.match(result.stdout, /palee_id is not a usable string \(B7\):[\s\S]*MOD\/01-falsy\.md/);
+      assert.match(result.stdout, /Already Adopted:\s+0 notes/, 'a present-but-unusable id is not an adopted topic');
+      assert.match(result.stdout, /Ready to Adopt:\s+1 notes/, 'the rest of the batch is untouched by the skip');
+      assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'MOD/01-falsy.md'), 'utf8'), before);
+      const fresh = parseFrontmatter(fs.readFileSync(path.join(vaultDir, 'MOD/02-fresh.md'), 'utf8'));
+      assert.ok(typeof fresh.frontmatter?.palee_id === 'string' && fresh.frontmatter.palee_id.startsWith('T-'));
+    });
+  }
+
   test('under --auto-chain the same judgment holds and the dependent is never chained to the unusable id', () => {
     const { vaultDir, configDir } = freshVault({
       'MOD/01-numeric.md': NUMERIC_NOTE,
