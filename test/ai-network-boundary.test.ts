@@ -24,6 +24,8 @@ import path from 'node:path';
  *
  * A child process is tracked by its import, not its call shape: every spawn must import
  * `child_process` first, and a call-form rule would false-positive on `RegExp.exec`.
+ * Import rules accept both the static (`from 'node:net'`) and dynamic (`import('node:net')`)
+ * forms — a lazily imported socket module opens just as real a socket.
  */
 const root = path.resolve(__dirname, '..');
 
@@ -56,9 +58,9 @@ interface PrimitiveRule {
   /** What the offender line names, in the words the failure message reports. */
   label: string;
   /**
-   * Call forms that can open a socket or resolve a name. Written as character classes
-   * where it matters so this file does not match itself and quietly exempt the code
-   * that is allowed to network.
+   * Call forms that can open a socket or resolve a name. Only `src/` and `bin/` are
+   * scanned, so this file is never a candidate; the patterns still require a real call
+   * shape (`fetch(`, not the word) so prose and unrelated methods stay clean.
    */
   pattern: RegExp;
   /** The single file allowed to use this primitive, if any. */
@@ -67,17 +69,24 @@ interface PrimitiveRule {
 
 const SOCKET_RULES: Array<Omit<PrimitiveRule, 'allowedIn'>> = [
   { label: 'fetch()', pattern: /(^|[^.\w])fetch\s*\(/ },
+  { label: 'a global fetch()', pattern: /\b(?:globalThis|window)\s*\.\s*fetch\s*\(/ },
   { label: 'http.request()', pattern: /\bhttps?\s*\.\s*request\s*\(/ },
   { label: 'http.get()', pattern: /\bhttps?\s*\.\s*get\s*\(/ },
+  { label: 'an HTTP server', pattern: /\bhttps?\s*\.\s*createServer\s*\(/ },
   { label: 'an http2 session', pattern: /\bhttp2\s*\.\s*connect\s*\(/ },
+  { label: 'an HTTP/2 server', pattern: /\bhttp2\s*\.\s*create(?:Secure)?Server\s*\(/ },
   { label: 'a raw socket', pattern: /\bnet\s*\.\s*connect\s*\(/ },
+  { label: 'a raw server socket', pattern: /\bnet\s*\.\s*createServer\s*\(/ },
   { label: 'a TLS socket', pattern: /\btls\s*\.\s*connect\s*\(/ },
+  { label: 'a TLS server', pattern: /\btls\s*\.\s*createServer\s*\(/ },
   { label: 'a UDP socket', pattern: /\bdgram\s*\.\s*createSocket\s*\(/ },
   { label: 'a DNS lookup', pattern: /\bdns\s*\.\s*(lookup|resolve)/ },
   { label: 'a WebSocket', pattern: /\bnew\s+WebSocket\s*\(/ },
+  { label: 'a listening server', pattern: /\.\s*listen\s*\(/ },
   {
     label: 'an import of net/tls/dns/http/https/http2/dgram/undici',
-    pattern: /from\s+['"](?:node:)?(?:net|tls|dns|http|https|http2|dgram|undici)['"]/,
+    pattern:
+      /(?:from\s+|import\s*\(\s*)['"](?:node:)?(?:net|tls|dns|http|https|http2|dgram|undici)['"]/,
   },
 ];
 
@@ -90,7 +99,7 @@ const RULES: PrimitiveRule[] = [
   ...SOCKET_RULES.map((rule) => ({ ...rule, allowedIn: PROVIDER_ADAPTER })),
   {
     label: 'an import of child_process (a socket opened by a child)',
-    pattern: /from\s+['"](?:node:)?child_process['"]/,
+    pattern: /(?:from\s+|import\s*\(\s*)['"](?:node:)?child_process['"]/,
     allowedIn: NPM_CHILD,
   },
 ];
@@ -175,17 +184,28 @@ describe('INV-29 network boundary (#24)', () => {
     const samples = [
       'const res = await fetch(url, init);',
       '  return fetch(url, init);',
+      'fetch(url);',
+      'globalThis.fetch(endpoint);',
+      'window.fetch(endpoint);',
       "import http from 'node:http';",
       'http.request(endpoint, options);',
+      'http.createServer(handler);',
+      'https.createServer(opts, handler);',
       'net.connect(80, "169.254.169.254")',
+      'net.createServer(sock => {});',
+      'tls.createServer(opts);',
       'dns.lookup(host, cb)',
       "import http2 from 'node:http2';",
       'http2.connect("https://registry.npmjs.org")',
+      'http2.createServer();',
       "import dgram from 'node:dgram';",
       'dgram.createSocket("udp4")',
       'const ws = new WebSocket(url);',
+      'server.listen(8080);',
       "import { request } from 'undici';",
+      "const net = await import('node:net');",
       "import { spawnSync } from 'child_process';",
+      "const child = await import('node:child_process');",
     ];
     const matched = samples.filter((line) => RULES.some((rule) => rule.pattern.test(line)));
     assert.strictEqual(matched.length, samples.length, `patterns missed: ${samples.filter((s) => !matched.includes(s)).join(' | ')}`);
@@ -195,6 +215,12 @@ describe('INV-29 network boundary (#24)', () => {
       'await this.attempt(request);',
       '// no network here',
       "import { PaleeConfig } from '../types';",
+      // A method that happens to be named `fetch` is not the global primitive the
+      // boundary is about; the rules match the bare/global call forms only.
+      'const fetched = await client.fetch(url);',
+      'const listener = createListener();',
+      "const types = await import('../types');",
+      '// the server could listen (in theory)',
       // `RegExp.exec` is not a child process — which is why the child-process rule is
       // import-shaped instead of call-shaped.
       'const match = FULL_VERSION.exec(version);',
