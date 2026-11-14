@@ -278,6 +278,72 @@ describe('Storage Loader metadata-only path (P3-06)', () => {
     assert.ok(fullRich.content.endsWith(richBody), 'the full load retains the whole note body');
   });
 
+  test('a frontmatter spanning several windows loads identically to the full load', () => {
+    // ~20 KiB of frontmatter puts the closing fence inside the third 8 KiB
+    // window: the scan must keep reading across windows and stop at the fence
+    // instead of running into the 64 KiB body.
+    const head = '---\npalee_id: T-wide\ntitle: Wide Frontmatter\nnote: ';
+    const pad = 'x'.repeat(20000 - Buffer.byteLength(head, 'utf8'));
+    const notePath = path.join(tmpVault, 'wide.md');
+    fs.writeFileSync(notePath, head + pad + '\n---\n# Wide body\n' + 'y'.repeat(64 * 1024), 'utf8');
+
+    const { result: topics, readSyncBytes } = probeIo([notePath], () => loadTopicMetadata(tmpVault));
+
+    assert.strictEqual(topics.length, 1);
+    const topic = topics[0];
+    assert.ok(topic, 'the multi-window frontmatter must load');
+    assert.strictEqual(topic.palee_id, 'T-wide');
+    assert.strictEqual(topic.title, 'Wide Frontmatter');
+    assert.ok(readSyncBytes > 2 * 8192, `the scan must span more than two windows: read ${readSyncBytes} bytes`);
+    assert.ok(readSyncBytes <= 3 * 8192, `the scan must stop at the fence: read ${readSyncBytes} bytes`);
+
+    const full = loadTopics(tmpVault);
+    assert.strictEqual(full.length, 1);
+    const fullWithoutContent = { ...full[0] } as FullTopicWithoutContent;
+    delete fullWithoutContent.content;
+    assert.deepStrictEqual(topic, fullWithoutContent, 'metadata must equal the full load minus content');
+  });
+
+  test('a closing fence split across the window boundary is still found', () => {
+    // The fence's leading \n lands two bytes before the second 8 KiB window
+    // starts, so the deciding bytes straddle the boundary: a probe that
+    // searches only the new window misses the fence and would read the whole
+    // body. Pinned to the loader's 8192-byte window; recompute the offset if
+    // that constant ever moves.
+    const head = '---\npalee_id: T-split\ntitle: Split Fence\nnote: ';
+    const pad = 'x'.repeat(8190 - Buffer.byteLength(head, 'utf8'));
+    const body = '# Split body\n' + 'y'.repeat(64 * 1024);
+    const notePath = path.join(tmpVault, 'split.md');
+    fs.writeFileSync(notePath, head + pad + '\n---\n' + body, 'utf8');
+    assert.strictEqual(
+      Buffer.byteLength(head + pad, 'utf8'),
+      8190,
+      'the fixture must put the closing fence newline two bytes before the window edge'
+    );
+
+    const { result: topics, readSyncBytes } = probeIo([notePath], () => loadTopicMetadata(tmpVault));
+
+    assert.strictEqual(topics.length, 1);
+    const topic = topics[0];
+    assert.ok(topic, 'the boundary-split fence must still close the block');
+    assert.strictEqual(topic.palee_id, 'T-split');
+    assert.strictEqual(topic.title, 'Split Fence');
+    assert.ok(readSyncBytes <= 2 * 8192, `the scan must stop at the split fence: read ${readSyncBytes} bytes`);
+  });
+
+  test('a large note with no closing fence is read to the cap and skipped', () => {
+    const notePath = path.join(tmpVault, 'unterminated-big.md');
+    const note = '---\npalee_id: T-un-big\n' + 'y'.repeat(300 * 1024);
+    fs.writeFileSync(notePath, note, 'utf8');
+
+    const { result: topics, readSyncBytes } = probeIo([notePath], () => loadTopicMetadata(tmpVault));
+
+    assert.strictEqual(topics.length, 0, 'no closing fence means no topic');
+    // The documented contract: without a closing fence the scan reads to
+    // maxBytes (the stat'd size) and the parse declines — now at linear cost.
+    assert.strictEqual(readSyncBytes, Buffer.byteLength(note, 'utf8'));
+  });
+
   test('metadata loads leave the full load\u2019s shared caches untouched', () => {
     const notePath = path.join(tmpVault, 'topic.md');
     const noteContent = '---\npalee_id: T-cache\ntitle: Cached Note\n---\n# Cached body\n';

@@ -365,6 +365,17 @@ function buildTopicMetadata(
 const METADATA_READ_WINDOW_BYTES = 8192;
 
 /**
+ * Raw bytes carried between windows so a closing fence split across a window
+ * boundary is still found (P3-06).
+ *
+ * @remarks
+ * The longest closing-fence spelling is `\r\n---` (five bytes), so at most
+ * four of its bytes can sit in the previous window; eight gives margin while
+ * staying far below one window.
+ */
+const FENCE_CARRY_BYTES = 8;
+
+/**
  * Reads only the head of a note up to the end of its frontmatter block.
  *
  * @param filePath - Absolute path to the Markdown note
@@ -376,17 +387,23 @@ const METADATA_READ_WINDOW_BYTES = 8192;
  * P3-06: the metadata-only load path must not pay for note bodies, so this
  * accumulates bounded windows until {@link parseFrontmatter}'s two fence shapes
  * are complete in the text read so far — the empty `---`/`---` block, or a
- * populated block closed by a `---` line — and stops there. The stop regexes
+ * populated block closed by a `---` line — and stops there. The stop shapes
  * mirror `parseFrontmatter`'s anchored fence matches exactly (BOM stripped
  * first, `\r?\n` breaks, the first `\n---` wins), so the bytes this returns
  * always let `parseFrontmatter` reach the same `frontmatter` verdict a full
  * read would: a completed block stays completed in every longer prefix, and a
  * file with no closing fence is read to `maxBytes` (EOF for an under-cap
- * note), which parses exactly like the full read. A multi-byte character cut
- * by a window boundary only mangles the intermediate probe text — continuation
- * bytes decode to U+FFFD, never to ASCII bytes, so the probe can neither
- * invent nor miss a fence — while the final parse runs over the whole
- * accumulated buffer with the block intact.
+ * note), which parses exactly like the full read.
+ *
+ * The scan is incremental: the anchored head and empty-block shapes live
+ * inside the first window and are decided once, while the closing fence is
+ * probed per window against {@link FENCE_CARRY_BYTES} raw carry bytes, so a
+ * fence split across a window boundary is still found and every byte is
+ * copied and decoded a bounded number of times — a fence-less note costs one
+ * pass over its head instead of one re-scan of the whole prefix per window.
+ * A multi-byte character cut at a probe edge decodes to U+FFFD, never to
+ * ASCII bytes, so a probe can neither invent nor miss a fence — while the
+ * final parse runs over the whole joined buffer with the block intact.
  */
 function readFrontmatterSlice(filePath: string, maxBytes: number): string | null {
   let fd: number | null = null;
@@ -394,18 +411,34 @@ function readFrontmatterSlice(filePath: string, maxBytes: number): string | null
     fd = fs.openSync(filePath, 'r');
     const chunks: Buffer[] = [];
     let total = 0;
+    let headDecided = false;
+    let carry: Buffer = Buffer.alloc(0);
     while (total < maxBytes) {
       const windowBytes = Math.min(METADATA_READ_WINDOW_BYTES, maxBytes - total);
       const buf = Buffer.alloc(windowBytes);
       const bytesRead = fs.readSync(fd, buf, 0, windowBytes, total);
       if (bytesRead <= 0) break; // EOF — return what we hold
-      chunks.push(buf.subarray(0, bytesRead));
+      const chunk = buf.subarray(0, bytesRead);
+      chunks.push(chunk);
       total += bytesRead;
-      const text = Buffer.concat(chunks).toString('utf8');
-      const stripped = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-      if (!/^---\r?\n/.test(stripped)) break; // no frontmatter at byte 0
-      if (/^---\r?\n---(?:\r?\n)?/.test(stripped)) break; // empty fence block complete
-      if (/^---\r?\n[\s\S]*?\r?\n---/.test(stripped)) break; // populated block complete
+      if (!headDecided) {
+        // Both anchored shapes match within ~10 bytes of the (possibly
+        // BOM-prefixed) start, so the first window decides them for every
+        // later one; a window truncated by `maxBytes` ends the loop anyway.
+        const head = chunk.toString('utf8');
+        const stripped = head.charCodeAt(0) === 0xfeff ? head.slice(1) : head;
+        if (!/^---\r?\n/.test(stripped)) break; // no frontmatter at byte 0
+        if (/^---\r?\n---(?:\r?\n)?/.test(stripped)) break; // empty fence block complete
+        headDecided = true;
+      }
+      // Populated-block probe: search the new bytes plus the raw carry, so a
+      // fence split across a window boundary is still found while each byte
+      // is copied and decoded O(1) times.
+      const region = carry.length === 0 ? chunk : Buffer.concat([carry, chunk]);
+      if (/\r?\n---/.test(region.toString('utf8'))) break; // populated block complete
+      carry = region.length > FENCE_CARRY_BYTES
+        ? Buffer.from(region.subarray(region.length - FENCE_CARRY_BYTES))
+        : region;
       if (bytesRead < windowBytes) break; // EOF before any closing fence
     }
     return Buffer.concat(chunks).toString('utf8');
