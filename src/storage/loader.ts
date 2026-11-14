@@ -573,12 +573,6 @@ export function loadTopics(
     // read) — and an absent entry parses as before, so a caller can
     // withhold any verdict it does not vouch for (collect-vault omits
     // every note carrying a parse diagnostic).
-    // P3-07: on the snapshot path, a caller-supplied parse of these exact
-    // bytes replaces the re-parse. Only injected bytes consult the map —
-    // disk-read bytes must parse fresh (a shared verdict may predate the
-    // read) — and an absent entry parses as before, so a caller can
-    // withhold any verdict it does not vouch for (collect-vault omits
-    // every note carrying a parse diagnostic).
     const sharedFrontmatter = fromSnapshot
       ? parsedFrontmatter?.get(filePath)
       : undefined;
