@@ -1220,8 +1220,9 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
  *
  * A draft whose target lock is held by a live writer is left in place
  * (`deleteSessionNote` yields) and is counted as neither deleted nor errored.
- * Read errors (ENOENT, EACCES), parse errors, and unlink errors are captured in
- * the returned `errors` array rather than swallowed silently.
+ * A listed draft that is already gone is counted as deleted — the goal state
+ * holds — while other read errors (EACCES), parse errors, and unlink errors are
+ * captured in the returned `errors` array rather than swallowed silently.
  * @example
  * ```typescript
  * const { deleted, errors } = deleteTopicDrafts('/vault', 'topic-123');
@@ -1239,8 +1240,22 @@ function deleteTopicDrafts(
   const errors: Array<{ path: string; error: Error }> = [];
 
   for (const draftPath of drafts) {
+    let content: string;
     try {
-      const content = fs.readFileSync(draftPath, 'utf8');
+      content = fs.readFileSync(draftPath, 'utf8');
+    } catch (err: unknown) {
+      // A listed draft that is already gone is the goal state, not a failure: a
+      // concurrent run — or the session that owned it — removed it between the
+      // caller's scan and this cleanup. `deleteSessionNote` already reports an
+      // absent target as deleted; this applies the same rule one step earlier.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        deleted.push(draftPath);
+      } else {
+        errors.push({ path: draftPath, error: err as Error });
+      }
+      continue;
+    }
+    try {
       const { frontmatter } = parseFrontmatter(content);
       if (frontmatter && frontmatter.topic_id === topicId && deleteSessionNote(vaultPath, draftPath)) {
         deleted.push(draftPath);

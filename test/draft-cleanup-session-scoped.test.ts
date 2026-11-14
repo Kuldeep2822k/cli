@@ -138,6 +138,22 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     assert.strictEqual(fs.existsSync(otherTopic), true, 'a different-topic draft must survive');
   });
 
+  test('deleteTopicDrafts counts an already-gone listed draft as deleted, not an error', () => {
+    const survivor = writeDraft('DRAFT-S-jjjj0014', 'T-scoped', minutesAgo(10));
+    const gone = draftPath('DRAFT-S-kkkk0015');
+    assert.strictEqual(fs.existsSync(gone), false, 'the listed draft is absent before cleanup');
+
+    const result = deleteTopicDrafts(vaultDir, 'T-scoped', [survivor, gone]);
+
+    // The deciding assertion: a draft someone else already removed is the goal
+    // state, not a cleanup failure. Reverting the read-side ENOENT branch files
+    // it under `errors` and fails here.
+    assert.deepStrictEqual(result.errors, [], 'a vanished draft is not a cleanup failure');
+    assert.deepStrictEqual(result.deleted, [survivor, gone].sort(), 'both listed drafts are accounted for as deleted');
+    assert.strictEqual(fs.existsSync(survivor), false, 'the draft still present is deleted');
+    assert.strictEqual(fs.existsSync(gone), false);
+  });
+
   test('deleteSessionNote yields a draft whose target lock a live process holds', async () => {
     const draft = writeDraft('DRAFT-S-dddd0004', 'T-scoped', minutesAgo(10));
     const lock = new Lock(vaultDir, draft);
