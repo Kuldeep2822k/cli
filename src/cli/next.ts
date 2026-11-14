@@ -6,7 +6,7 @@ import { exitCodeFor } from './exit-codes';
  * Shows next topic(s) due for review
  */
 
-import { loadTopics } from '../storage';
+import { loadTopicMetadata } from '../storage';
 import { getNextTopics } from '../application/get-next-topics';
 import { NextOptions } from '../types';
 
@@ -44,7 +44,9 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const topics = loadTopics(vaultPath);
+    // P3-06: `next` never reads a note body, so it loads metadata only — one
+    // bounded frontmatter read per note instead of a full-body read + hash.
+    const topics = loadTopicMetadata(vaultPath);
     const { dueTopics: actionableDue, totalTopics, blockedTopics } = getNextTopics(topics, new Date());
     // An archived note is never "next to review". `plan` (activeTopics) and
     // `dashboard` (status !== 'archived') already exclude archived topics from

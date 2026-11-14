@@ -6,7 +6,7 @@ import { exitCodeFor } from './exit-codes';
  * Shows learning plan for the day
  */
 
-import { loadTopics } from '../storage';
+import { loadTopicMetadata } from '../storage';
 import { getReadyTopics, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { compareDue, normalizeDueDate, partitionDue } from '../application/due-topics';
@@ -46,7 +46,9 @@ async function planCommand(options: PlanOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const loaded = loadTopics(vaultPath);
+    // P3-06: `plan` never reads a note body, so it loads metadata only — one
+    // bounded frontmatter read per note instead of a full-body read + hash.
+    const loaded = loadTopicMetadata(vaultPath);
     const topics = new Map<string, PlanTopic>();
     const now = new Date();
 

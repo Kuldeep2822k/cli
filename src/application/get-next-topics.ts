@@ -11,7 +11,7 @@
  * never gets two answers about the same note.
  */
 
-import { LoadedTopic } from '../storage';
+import { TopicMetadata } from '../storage';
 import { areDependenciesSatisfied, getTopicDependencies, quarantineCyclicTopics } from '../engine/dependency';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { Difficulty, TopicNode } from '../types';
@@ -159,7 +159,13 @@ export function findPrerequisiteBlocked(
   return blocked;
 }
 
-export function getNextTopics(topics: LoadedTopic[], now: Date): NextTopicsResult {
+/**
+ * @param topics - Loaded topic metadata — the vault graph as one read model
+ *   sees it. `TopicMetadata` rather than `LoadedTopic` (P3-06) because nothing
+ *   here reads a note body: `next` and its read-model siblings run on the
+ *   metadata-only load path, and a full `LoadedTopic` satisfies the same type.
+ */
+export function getNextTopics(topics: readonly TopicMetadata[], now: Date): NextTopicsResult {
   const blocked = findPrerequisiteBlocked(topics);
 
   const candidates: NextTopic[] = topics.map((t) => ({

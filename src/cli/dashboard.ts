@@ -3,7 +3,7 @@
  * Learning dashboard summary (text / JSON)
  */
 
-import { loadTopics } from '../storage';
+import { loadTopicMetadata } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { normalizeDueDate, partitionDue } from '../application/due-topics';
 import { getNextTopics } from '../application/get-next-topics';
@@ -46,7 +46,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const loaded = loadTopics(vaultPath);
+    // P3-06: `dashboard` never reads a note body, so it loads metadata only —
+    // one bounded frontmatter read per note instead of a full-body read + hash.
+    const loaded = loadTopicMetadata(vaultPath);
     const now = new Date();
 
     const topics: DashboardTopic[] = loaded.map((t) => {
