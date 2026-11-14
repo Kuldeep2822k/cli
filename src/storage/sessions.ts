@@ -1,26 +1,38 @@
 /**
- * Session Note Loader (#41/#42/#44 read path)
+ * Session Notes — Loader and Canonical Writers
  *
  * @remarks
- * Storage-side single-read loader for the PALEE memory subsystem:
- * canonical session notes (`.palee/sessions/S-*.md` and
- * `DRAFT-S-*.md`), the derived session index (`.palee/index.md`),
- * and a tolerant hot-memory read (`.palee/hot.md`, delegated to
- * `readHotMemory`). All filesystem IO for session validation lives
- * here so rules stay pure — the same layering as `loader.ts` for
- * topics.
+ * The canonical-session half of the memory subsystem: everything about the
+ * notes in `.palee/sessions/S-*.md` and `DRAFT-S-*.md`. The loader half
+ * (#41/#42/#44 read path) is the storage-side single-read pass for the PALEE
+ * memory subsystem: canonical session notes, the derived session index
+ * (`.palee/index.md`), and a tolerant hot-memory read (`.palee/hot.md`,
+ * delegated to `readHotMemory`). All filesystem IO for session validation
+ * lives here so rules stay pure — the same layering as `loader.ts` for
+ * topics. The writer half holds the canonical note's lifecycle: id minting,
+ * the OCC-guarded save, the locked delete, and the completed-session probe.
  *
  * The loader never throws on malformed notes: per-file parse
  * outcomes are preserved on `LoadedSession` so `valid-session-schema`
  * can report the defect while the rest of the vault is still
  * validated (one bad note = one finding, never a dead scan).
+ *
+ * P3-14 (#565): the writer half was extracted from `src/storage/memory.ts`,
+ * which now re-exports this module's surface unchanged. The hot/index and
+ * active-session state lives in `./hot-index`, the draft checkpoints in
+ * `./drafts`, and the shared `.palee` tree guards in `./palee-dirs`.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { parseFrontmatter } from './frontmatter';
+import crypto from 'crypto';
+import { parseFrontmatter, updateFrontmatter, computeFingerprint } from './frontmatter';
+import { atomicWrite, isConflictError } from './atomic-write';
+import { Lock } from './lock';
 import { relativeVaultPath } from './vault-walker';
-import { readHotMemory } from './memory';
+import { getSessionsDir } from './palee-dirs';
+import { readHotMemory } from './hot-index';
+import { CompletedSessionRecord } from '../types';
 
 /**
  * A memory-subsystem component that could not be read during a scan.
@@ -270,6 +282,181 @@ function readSessionIndex(
  */
 function readHotMemoryForValidation(vaultPath: string) {
   return readHotMemory(vaultPath);
+}
+
+/**
+ * Generates a unique canonical session identifier with timestamp and random entropy.
+ *
+ * @returns Session ID string formatted as `S-YYYYMMDDTHHMMSS-XXXXXXXX`
+ * @remarks Formats UTC timestamp segments and appends 4 bytes of random hex entropy.
+ * The timestamp only carries whole seconds, so the entropy alone separates two
+ * sessions started in the same second — and a repeated ID is not cosmetic:
+ * `writeSessionNote` takes the OCC fingerprint from the *target* file, so a
+ * collision satisfies its own check and `renameSync` silently replaces the
+ * earlier session note. `generateDraftId` already draws 4 bytes for the same reason.
+ * @example
+ * ```typescript
+ * const id = generateSessionId(); // "S-20260823T153000-a1b2c3d4"
+ * ```
+ */
+export function generateSessionId(): string {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const hours = String(now.getUTCHours()).padStart(2, '0');
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+  const timestamp = `${year}${month}${day}T${hours}${minutes}${seconds}`;
+  const random = crypto.randomBytes(4).toString('hex');
+  return `S-${timestamp}-${random}`;
+}
+
+/**
+ * Saves a completed study session note with frontmatter metadata to `.palee/sessions/S-*.md`.
+ *
+ * @param vaultPath - Absolute path to Obsidian vault root
+ * @param sessionData - Session metadata (ID, topic ID, timestamps)
+ * @param bodyContent - Markdown note body written during study
+ * @returns Absolute path to the saved session note
+ * @remarks Captures existing note fingerprint for optimistic concurrency control (OCC).
+ * @example
+ * ```typescript
+ * const notePath = await writeSessionNote('/vault', {
+ *   session_id: 'S-20260830T100000-abcd1234',
+ *   topic_id: 'topic-math',
+ *   started_at: '2026-08-30T10:00:00Z',
+ *   ended_at: '2026-08-30T10:30:00Z',
+ *   duration_minutes: 30,
+ * }, 'Note body');
+ * ```
+ */
+export async function writeSessionNote(
+  vaultPath: string,
+  sessionData: Omit<CompletedSessionRecord, 'palee_schema' | 'status'>,
+  bodyContent: string
+): Promise<string> {
+  const sessionsDir = getSessionsDir(vaultPath);
+  const filePath = path.join(sessionsDir, `${sessionData.session_id}.md`);
+
+  const fullData: CompletedSessionRecord = {
+    palee_schema: 1,
+    ...sessionData,
+    status: 'completed',
+  };
+
+  const frontmatterObj: Record<string, unknown> = {
+    palee_schema: fullData.palee_schema,
+    session_id: fullData.session_id,
+    topic_id: fullData.topic_id,
+    started_at: fullData.started_at,
+    ended_at: fullData.ended_at,
+    status: fullData.status,
+  };
+  if (fullData.duration_minutes !== undefined) {
+    frontmatterObj.duration_minutes = fullData.duration_minutes;
+  }
+  const content = updateFrontmatter(`# Session: ${fullData.session_id}\n\n${bodyContent.trim()}`, frontmatterObj);
+  let expectedFingerprint: string | null = null;
+  // Absence is an expectation the write carries, not a null fingerprint: a null
+  // fingerprint skipped `atomicWrite`'s whole OCC block, so a concurrent creator's
+  // fresh file was overwritten with no conflict (#327).
+  let expectExists = true;
+  try {
+    expectedFingerprint = computeFingerprint(fs.readFileSync(filePath, 'utf8'));
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      expectExists = false;
+    } else {
+      throw err;
+    }
+  }
+
+  await atomicWrite(vaultPath, filePath, content, expectedFingerprint, { expectExists });
+  return filePath;
+}
+
+/** Returns true when a completed session note with the supplied ID exists. */
+export function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
+  if (!/^S-[\w-]+$/.test(sessionId)) return false;
+  const sessionPath = path.join(getSessionsDir(vaultPath), `${sessionId}.md`);
+  try {
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(sessionPath, 'utf8'));
+    return frontmatter?.session_id === sessionId && frontmatter.status === 'completed';
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
+/**
+ * Safely unlinks a completed session note or draft checkpoint file within `.palee/sessions/`.
+ *
+ * @param vaultPath - Vault root path
+ * @param targetPath - Path to the session note or draft file
+ * @returns `true` when the target is gone (unlinked here, or already absent),
+ *   `false` when the unlink was skipped because another live process holds the
+ *   target's lock
+ * @remarks Validates that the target path does not escape `.palee/sessions/` directory.
+ * The unlink runs under the target's lock — the same one `atomicWrite` on this file
+ * takes — so it cannot pull the file out from under a concurrent writer mid-rename
+ * (#565 P3-02). A live lock is not an error: like `clearActiveSession`, the unlink
+ * is skipped and the target left for whoever holds it, reported to the caller as
+ * not-deleted rather than thrown.
+ * @example
+ * ```typescript
+ * if (!deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md')) {
+ *   console.warn('Draft is locked by another process; left in place.');
+ * }
+ * ```
+ */
+export function deleteSessionNote(vaultPath: string, targetPath: string): boolean {
+  const sessionsDir = getSessionsDir(vaultPath);
+  const resolvedSessions = fs.realpathSync(sessionsDir);
+  let resolvedTarget: string;
+  if (fs.existsSync(targetPath)) {
+    resolvedTarget = fs.realpathSync(targetPath);
+  } else {
+    const parentDir = path.dirname(targetPath);
+    const resolvedParent = fs.existsSync(parentDir) ? fs.realpathSync(parentDir) : path.resolve(parentDir);
+    resolvedTarget = path.join(resolvedParent, path.basename(targetPath));
+  }
+
+  // Boundary check: ensure target is within .palee/sessions/
+  if (!resolvedTarget.startsWith(resolvedSessions + path.sep) && resolvedTarget !== resolvedSessions) {
+    throw new Error(`Security error: Cannot delete session file outside sessions directory: ${targetPath}`);
+  }
+
+  // The unlink takes the target's lock: a concurrent `atomicWrite` on this same
+  // file holds it across its temp-write and rename, and an unguarded unlink raced
+  // that rename — surfacing EPERM/EBUSY on Windows or deleting the file the writer
+  // was about to replace. Contentions yield like `clearActiveSession`/`resetHotMemory`:
+  // a live writer re-creating the target is exactly when deleting it is wrong.
+  const lock = new Lock(vaultPath, resolvedTarget);
+  let lockAcquired = false;
+  try {
+    try {
+      lock.acquireSync();
+      lockAcquired = true;
+    } catch (err: unknown) {
+      if (isConflictError(err)) return false;
+      throw err;
+    }
+    try {
+      if (fs.existsSync(resolvedTarget)) {
+        fs.unlinkSync(resolvedTarget);
+      }
+      return true;
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e.code !== 'ENOENT') throw err;
+      return true;
+    }
+  } finally {
+    if (lockAcquired) {
+      lock.release();
+    }
+  }
 }
 
 export {

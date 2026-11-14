@@ -1,6 +1,15 @@
 /**
  * Roadmap Command Handler
  * Manages learning roadmaps (deterministic import via --from)
+ *
+ * P3-14 (#565): the handler's phases live beside it now — chain synthesis in
+ * `./roadmap-chain`, the #139 single-source field derivation in
+ * `./roadmap-resolve`, the canonical-path/descriptor-bound note IO in
+ * `./roadmap-note`, and the preflight graph check plus the OCC-tracked write
+ * loop in `./roadmap-import`. This file stays the orchestrator: input
+ * parsing and format dispatch, the validation loop and its graph check, the
+ * dry-run plan, and the confirmation gate, called in the same order the
+ * monolith ran them.
  */
 
 import fs from 'fs';
@@ -10,369 +19,27 @@ import { loadConfig } from './config';
 import { resolveVaultTarget } from './vault-echo';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import {
-  updateFrontmatter,
-  computeFingerprint,
-  parseFrontmatter,
   parseRoadmapContent,
   resolveWikilinkRoadmap,
-  atomicWrite,
-  isConflictError,
   loadTopics,
-  ensureVaultDirectory,
   relativeVaultPath,
 } from '../storage';
 import { isWithinVault } from '../storage/wikilink';
 import { isResolvableNotePath } from '../storage/vault-walker';
-import {
-  noteContentExceedsReadCap,
-  noteExceedsReadCap,
-  oversizedNoteDiagnostic,
-  oversizedWriteDiagnostic,
-} from '../storage/source-cap';
-import type { AtomicWriteOptions } from '../storage/atomic-write';
+import { noteExceedsReadCap, oversizedNoteDiagnostic } from '../storage/source-cap';
 import { detectCyclesBounded } from '../engine/dependency';
-import { buildTopicScaffold } from '../engine/topic-scaffold';
 import { isValidTopicId } from '../engine/topic-id';
-import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
+import { RoadmapOptions, RoadmapFile, TopicNode } from '../types';
+// P3-14 (#565): the roadmap phases, extracted from this handler.
+import { applyRoadmapAutoChain, type RoadmapChainResult } from './roadmap-chain';
+import { declaredIdOfNote, resolveTopicUpdates } from './roadmap-resolve';
+import { canonicalDeclaredPath } from './roadmap-note';
+import { planSurvivesSkippedNotes, importRoadmapTopics } from './roadmap-import';
 
-/**
- * Canonical absolute form of a roadmap-declared topic path for boundary checks.
- *
- * @param resolvedVault - Canonical vault root (`fs.realpathSync`ed)
- * @param declared - The `path` as written in the roadmap (vault-relative or absolute)
- * @returns Absolute canonical path, so it compares equal to `resolvedVault`
- *
- * @remarks
- * `isWithinVault` requires both endpoints canonical, but an absolute declared
- * path was only lexically resolved. On a machine whose temp dir passes through
- * a symlink (macOS `/var` → `/private/var`) the lexical form never sits under
- * the resolved vault, so every absolute declaration read as an escape. An
- * existing file resolves directly; a note this import is about to create
- * resolves through its nearest existing ancestor. That stays fail-closed: a
- * symlinked ancestor pointing out of the vault still fails the check rather
- * than slipping through.
- */
-function canonicalDeclaredPath(resolvedVault: string, declared: string): string {
-  const absolute = path.isAbsolute(declared)
-    ? path.resolve(declared)
-    : path.resolve(resolvedVault, declared);
-  // A symlinked final component is never followed here: a symlinked target
-  // is never a note, and the importer's `lstat` guard owns that case ("not a
-  // regular file", skipping one topic). Following it would re-report it as
-  // an escape and fail validation for the whole batch instead. Only the
-  // parent chain is canonicalized, which is also what a symlinked temp root
-  // needs. Missing leaves resolve through the nearest existing ancestor, so
-  // a note this import is about to create still compares against the vault.
-  let leaf = absolute;
-  const suffix: string[] = [];
-  while (true) {
-    let stat: fs.Stats | null;
-    try {
-      stat = fs.lstatSync(leaf);
-    } catch {
-      stat = null;
-    }
-    if (stat !== null) {
-      if (stat.isSymbolicLink() && suffix.length === 0) {
-        try {
-          return path.join(fs.realpathSync(path.dirname(leaf)), path.basename(leaf));
-        } catch {
-          return absolute;
-        }
-      }
-      try {
-        const canonicalBase = fs.realpathSync(leaf);
-        return suffix.length > 0 ? path.join(canonicalBase, ...suffix) : canonicalBase;
-      } catch {
-        return absolute;
-      }
-    }
-    const parent = path.dirname(leaf);
-    if (parent === leaf) return absolute;
-    suffix.unshift(path.basename(leaf));
-    leaf = parent;
-  }
-}
-
-/** Outcome of {@link applyRoadmapAutoChain}, used for deferred logging and cycle labels. */
-interface RoadmapChainResult {
-  /** Every edge this pass synthesized, keyed `childId\u0000predecessorId` */
-  synthesizedEdges: Set<string>;
-  /** Edges dropped because they would have closed a cycle */
-  skippedEdges: { from: string; to: string }[];
-}
-
-/**
- * Chains roadmap topics by their `order` field (#73, INV-47).
- *
- * @param topics - Roadmap topics, mutated in place
- * @returns Which edges were synthesized, and which were dropped as cycle-closing
- *
- * @remarks
- * Topics with an `order` sort first (ascending); topics without one keep
- * their file order and are appended after the ordered ones. A topic with no
- * (or an empty) `depends_on` is chained to the previous topic's ID — the
- * chain head receives nothing, so the dependencies its note already carries
- * on disk stay (#322). An explicit non-empty `depends_on`
- * always wins over the synthesized chain, and a topic whose dependencies are
- * already final (`chained`) is left alone.
- *
- * A synthesized edge is dropped, with a warning, when the predecessor already
- * reaches the topic through explicit or earlier synthesized deps: adding it
- * would close a cycle. The chain then simply restarts at that topic, whose own
- * `depends_on` is left exactly as authored, so an authored dependency and an
- * ordering coincidence cannot abort the import.
- * This reachability view covers the roadmap's own topics; a cycle that closes
- * only once existing vault topics are merged is still caught, fail-closed, by
- * the caller's graph validation.
- */
-function applyRoadmapAutoChain(topics: RoadmapTopic[]): RoadmapChainResult {
-  const byId = new Map(topics.map((topic) => [topic.id, topic]));
-  const synthesizedEdges = new Set<string>();
-  const skippedEdges: { from: string; to: string }[] = [];
-
-  const indexed = topics.map((topic, index) => ({ topic, index }));
-  indexed.sort((a, b) => {
-    const orderA = a.topic.order ?? Number.POSITIVE_INFINITY;
-    const orderB = b.topic.order ?? Number.POSITIVE_INFINITY;
-    if (orderA !== orderB) {
-      return orderA - orderB;
-    }
-    return a.index - b.index;
-  });
-
-  /** True when `start` already reaches `target` through dependencies assigned so far. */
-  const reaches = (start: string, target: string): boolean => {
-    const stack = [start];
-    const seen = new Set<string>();
-    while (stack.length > 0) {
-      const id = stack.pop() as string;
-      if (id === target) {
-        return true;
-      }
-      if (seen.has(id)) {
-        continue;
-      }
-      seen.add(id);
-      for (const dep of byId.get(id)?.depends_on ?? []) {
-        stack.push(dep);
-      }
-    }
-    return false;
-  };
-
-  indexed.forEach(({ topic }, rank) => {
-    if (topic.chained || (topic.depends_on && topic.depends_on.length > 0)) {
-      return;
-    }
-    if (rank === 0) {
-      // Left unassigned rather than set to `[]` (#322): the head note may
-      // already carry hand-authored dependencies on disk, and an explicit
-      // empty list wins over preservation in `resolveTopicUpdates`, erasing
-      // them. Same rule as the cycle-skip branch below.
-      return;
-    }
-    const predecessorEntry = indexed[rank - 1];
-    if (predecessorEntry === undefined) {
-      // Unreachable: `rank === 0` returned above and `rank < indexed.length`,
-      // so `rank - 1` is a valid index.
-      return;
-    }
-    const predecessorId = predecessorEntry.topic.id;
-    if (reaches(predecessorId, topic.id)) {
-      // Left unassigned rather than set to `[]`: skipping an edge must not
-      // also erase dependencies the note already had on disk, which an
-      // explicit empty list would do (see `resolveTopicUpdates`).
-      skippedEdges.push({ from: topic.id, to: predecessorId });
-      console.log(
-        `⚠ Warning: chain edge ${topic.id} -> ${predecessorId} skipped: would close a cycle. ` +
-          `${topic.id} starts a new chain.`
-      );
-      return;
-    }
-    topic.depends_on = [predecessorId];
-    synthesizedEdges.add(`${topic.id}\u0000${predecessorId}`);
-  });
-
-  return { synthesizedEdges, skippedEdges };
-}
-
-/**
- * Effective-input bundle for one roadmap topic, used by `resolveTopicUpdates`.
- *
- * @remarks
- * "Existing" identity is two-keyed on purpose (#137 follow-up): `depends_on`'s
- * preserve-existing rule looks the topic up BY `palee_id` (the roadmap topic may
- * not exist on disk yet, so its pre-import identity is its future ID), while
- * frontmatter pass-through fields come from the note AT THE TARGET PATH (the
- * file the import will actually write).
- */
-interface ResolveTopicInput {
-  /** Roadmap-declared topic */
-  topic: RoadmapTopicAlias;
-  /** Existing vault topic with the same `palee_id` (for depends_on preservation), or undefined */
-  existingById: LoadedTopicAlias | undefined;
-  /** Raw frontmatter of the note at the target path, or `{}` for new notes */
-  existingAtPath: Record<string, unknown>;
-}
-
-type RoadmapTopicAlias = import('../types').RoadmapTopic;
-type LoadedTopicAlias = { id: string; depends_on?: string[] };
-
-/**
- * The `palee_id` a note declares on disk, read without the loader's filters.
- *
- * @param absolutePath - Canonical path of the note a roadmap entry targets
- * @returns `absent` when nothing declares an identity, `unreadable` when the
- * frontmatter block will not parse, or the value exactly as stored
- *
- * @remarks
- * `loadTopics` requires a non-empty string `palee_id` by design (B7), so a note
- * whose id YAML read as a number leaves no incumbent in that scan — and an import
- * keyed on the scan would overwrite a declared identity anyway, the same silent
- * rename the wikilink path refuses. The note has to be asked directly.
- */
-function declaredIdOfNote(absolutePath: string):
-  { kind: 'absent' } | { kind: 'unreadable'; reason: string } | { kind: 'declared'; raw: unknown } {
-  let content: string;
-  try {
-    // #565 P1-10: this pre-read has no cap of its own, and it is the first thing the
-    // import asks a note. Refusing an oversized file here costs one `stat` and keeps the
-    // answer the same shape a note with broken frontmatter already produces.
-    const { size } = fs.statSync(absolutePath);
-    if (noteExceedsReadCap(size)) return { kind: 'unreadable', reason: oversizedNoteDiagnostic(size) };
-    content = fs.readFileSync(absolutePath, 'utf8');
-  } catch {
-    return { kind: 'absent' }; // no note yet: this entry adopts rather than overwrites
-  }
-  const { frontmatter, error } = parseFrontmatter(content);
-  if (error !== undefined) {
-    return { kind: 'unreadable', reason: error };
-  }
-  const raw = frontmatter?.palee_id;
-  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
-    return { kind: 'absent' };
-  }
-  return { kind: 'declared', raw };
-}
-
-/**
- * Single derivation of the effective frontmatter values a roadmap import
- * writes for one topic (#139).
- *
- * @remarks
- * SINGLE SOURCE OF TRUTH for both passes: `roadmapCommand`'s validation pass
- * (graph + field checks) AND `doImport`'s writeback both consume this helper.
- * Never re-derive an import field at a call site — any new field added to the
- * roadmap import path must be added HERE (and to `ResolvedTopicUpdates`), or
- * the validation-vs-writeback divergence pattern returns (the class of bug that
- * produced the #137 cycle-on-import defect).
- *
- * This function is PURE: it derives from the inputs it is given. The writeback
- * pass calls it with the FRESH at-path frontmatter re-read just before the
- * atomic write (OCC requires re-reading the target at write time), while the
- * validation pass calls it earlier with the pre-import snapshot. Same rules,
- * fresh data per pass — the divergence being removed is in the RULES, not in
- * when the data is read.
- *
- * `depends_on` semantics (unchanged since #137): explicit `[]` clears,
- * omitted preserves the existing topic's deps (by ID), populated replaces.
- *
- * A pillar score the note does not carry resolves to `undefined` rather than
- * `0.0`: `doImport` drops `undefined` keys so the import cannot mint assessment
- * data, which is the precondition `valid-topic-mastery` (#37) skips on (#191).
- *
- * The SM-2 review block is not spelled out here: the seven scheduling keys come
- * from the engine's `buildTopicScaffold(existingAtPath)` (P3-10) — a key the note
- * carries passes through verbatim, an absent or null key gets the adoption
- * scaffold default — the same defaults adoption writes and `validate --fix`
- * resets to.
- *
- * @param input - Roadmap topic plus its existing on-disk context
- * @returns Effective values for every frontmatter field the import writes;
- * `undefined` for a field that must be left unwritten
- */
-function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
-  const { topic, existingById, existingAtPath } = input;
-
-  return {
-    palee_id: topic.id,
-    palee_schema: existingAtPath.palee_schema ?? 1,
-    title: topic.title,
-    difficulty: topic.difficulty || existingAtPath.difficulty || 'intermediate',
-    depends_on: topic.depends_on ?? existingById?.depends_on ?? [],
-    topic_mastery: existingAtPath.topic_mastery ?? 0.0,
-    assessed_at: existingAtPath.assessed_at ?? null,
-    conceptual: existingAtPath.conceptual,
-    practical: existingAtPath.practical,
-    debug: existingAtPath.debug,
-    feynman: existingAtPath.feynman,
-    // Spread at this position so the written key order is unchanged (P3-10).
-    ...buildTopicScaffold(existingAtPath),
-  };
-}
-
-/**
- * Reads a vault note through a descriptor bound to the file `lstat` validated.
- *
- * @param targetPath - The note path the caller checked
- * @param expected - The `lstat` result that established it as a regular file inside the vault
- * @returns The note's text
- * @throws Error when the path cannot be opened, or no longer holds the file that was validated
- *
- * @remarks
- * Every vault check above a read is check-then-use, so a symlink planted after
- * them is still followed and its outside content imported as the note's own
- * text. Opening first and comparing the descriptor's identity against the
- * earlier `lstat` closes that for the read: the bytes come from the object that
- * was validated, and a swap underneath shows up as a different inode before
- * anything is read.
- *
- * Identity comparison is the form that works everywhere this CLI ships. A
- * no-follow open does not: `fs.constants.O_NOFOLLOW` is undefined on win32, so
- * the open follows the link anyway. Nor does resolving a descriptor —
- * `fs.realpathSync` reads a number as a path relative to the working directory
- * on win32 rather than reporting the open file.
- *
- * A planted *hard* link stays invisible to this and to every path-based check:
- * it is not a reference to another file but a second name for the same one.
- */
-export function readBoundNote(targetPath: string, expected: fs.Stats): string {
-  const fd = fs.openSync(targetPath, 'r');
-  try {
-    const opened = fs.fstatSync(fd);
-    if (!opened.isFile() || opened.ino !== expected.ino || opened.dev !== expected.dev) {
-      throw new Error(`${targetPath} changed between validation and read`);
-    }
-    // #565 P1-10: the cap is applied to the descriptor's own byte count. A second
-    // `stat` on the path would reopen the check-then-use window this function exists to
-    // close, and this writer is the one place the size is already in hand.
-    if (noteExceedsReadCap(opened.size)) {
-      throw new Error(oversizedNoteDiagnostic(opened.size));
-    }
-    return fs.readFileSync(fd, 'utf8');
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-/**
- * The existence claim a roadmap write makes about its target.
- *
- * @param isNew - Whether `inspectExistingNote` found no file at the target
- * @returns `{ expectExists: false }` for a first creation, `undefined` otherwise
- *
- * @remarks
- * #565 P1-08: "the inspection found nothing" is a claim, not the absence of one, and
- * `atomicWrite` only re-tests it when it is stated. Left implicit, a note created
- * between the inspection and the rename was replaced silently — the #327 lost update,
- * in a note writer. The overwrite branch states nothing because the fingerprint it
- * already passes is the stronger claim, and leaving it unstated keeps this write shaped
- * like every other overwrite in the CLI.
- */
-function writeExistenceClaim(isNew: boolean): AtomicWriteOptions | undefined {
-  return isNew ? { expectExists: false } : undefined;
-}
+// P3-14 (#565): the descriptor-bound read moved with the note IO to
+// `./roadmap-note`; re-exported so this module's public surface — the default
+// handler and this helper, both imported by tests and callers — is unchanged.
+export { readBoundNote } from './roadmap-note';
 
 /**
  * CLI command handler for validating and importing learning roadmaps into the vault.
@@ -733,6 +400,17 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
     }
     console.log();
 
+    // The vault-facing state the preflight graph check and the import's write
+    // loop share (P3-14: both phases live in `./roadmap-import`, which receives
+    // this bundle; the maps are mutated in place above, so the references the
+    // bundle holds are the same objects the passes read).
+    const writeCtx = {
+      resolvedVault,
+      topics: roadmap.topics,
+      existingTopicsById,
+      topicsMap,
+    };
+
     // #442 (bug 6): the real ghost-note defect — a fabricated identity — is refused
     // outright by the placeholder gate in the validation loop (all-zero ids). A
     // well-formed id that is simply new is the legitimate purpose of `roadmap --from`,
@@ -753,7 +431,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       // only inside `doImport`. `--dry-run` promises the plan an import would carry (#309),
       // and that promise has to include the refusal — otherwise the learner approves an
       // import that cannot proceed and hears about it only when they run it for real.
-      if (!planSurvivesSkippedNotes()) return;
+      if (!planSurvivesSkippedNotes(writeCtx)) return;
       let createCount = 0;
       let updateCount = 0;
       console.log('Dry-run plan (no files were written):');
@@ -803,420 +481,6 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
       return;
     }
 
-    /**
-     * Composes the note one roadmap topic writes, from bytes already read.
-     *
-     * @param topic - The roadmap entry being written
-     * @param content - The note's current text, or the skeleton for a new one
-     * @param existingData - That note's frontmatter, as the write reads it
-     * @returns The managed keys and the exact text the write would land
-     *
-     * @remarks
-     * Single source of truth for both the pre-write graph check and the write loop
-     * (#139): the bytes the check sizes are the bytes the loop stores, so a verdict
-     * derived from one cannot disagree with the other.
-     */
-    function composeTopicWrite(
-      topic: RoadmapTopic,
-      content: string,
-      existingData: Record<string, unknown>
-    ): { paleeData: Record<string, unknown>; updatedContent: string } {
-      // A pillar absent from the note resolves to `undefined` and is
-      // dropped here, so an import never writes an assessment score the
-      // learner does not have (#191).
-      const paleeData: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(
-        resolveTopicUpdates({
-          topic,
-          existingById: existingTopicsById.get(topic.id),
-          existingAtPath: existingData,
-        })
-      )) {
-        if (value !== undefined) paleeData[key] = value;
-      }
-
-      // Authorship rather than list comparison. A roadmap entry that declares
-      // prerequisites is making the learner's claim, whatever was stored
-      // before, so a leftover `toc` label would make them advisory and the
-      // gate would never bite. Comparing the written list against what the note
-      // held gets both directions wrong: an identical declaration kept a stale
-      // label, and a title-only import — whose preserved list comes back
-      // unioned with the legacy `dependencies` key — looked like a change and
-      // silently turned advisory edges back into gates, re-locking the note.
-      // An entry that omits `depends_on` preserves the note's own edges and the
-      // label recording who authored them.
-      const removals = topic.depends_on !== undefined
-        ? ['dependencies', 'depends_on_source']
-        : ['dependencies'];
-      return { paleeData, updatedContent: updateFrontmatter(content, paleeData, removals) };
-    }
-
-    /**
-     * Inspects the note one topic would write over, without creating anything.
-     *
-     * @param targetPath - The topic's path resolved against the vault
-     * @returns The target's `lstat` (`null` when it does not exist yet) and the
-     * reason it cannot be used, if there is one
-     *
-     * @remarks
-     * One implementation for two callers, so the verdict the import refuses on
-     * before writing anything is the verdict it would have skipped on mid-batch:
-     * {@link preflightReadableNotes} and the write loop both ask this. The
-     * existence test is `lstat` for the reason #264 established — `existsSync`
-     * follows a link and reports `false` for a dangling one, which would let the
-     * writer replace the link unseen — and a symlink whose target is inside the
-     * vault stays legal here because the boundary check below is what decides it.
-     */
-    function inspectExistingNote(targetPath: string): { stat: fs.Stats | null; blocker: string | null } {
-      let stat: fs.Stats;
-      try {
-        stat = fs.lstatSync(targetPath);
-      } catch (e: unknown) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT') return { stat: null, blocker: null };
-        return { stat: null, blocker: `could not be inspected: ${(e as Error).message}` };
-      }
-      if (stat.isSymbolicLink() || !stat.isFile()) {
-        return { stat, blocker: 'is not a regular file' };
-      }
-      const relRealTarget = path.relative(resolvedVault, fs.realpathSync(targetPath));
-      if (
-        path.isAbsolute(relRealTarget) ||
-        relRealTarget === '..' ||
-        relRealTarget.startsWith('..' + path.sep) ||
-        relRealTarget.split(path.sep).includes('..')
-      ) {
-        return { stat, blocker: 'resolves outside the vault' };
-      }
-      return { stat, blocker: null };
-    }
-
-    /**
-     * The ids whose note this import will not write, each with the reason it will not.
-     *
-     * @returns Every roadmap id the write loop will skip, mapped to the reason it
-     *   will skip it, decided from the bytes on disk
-     *
-     * @remarks
-     * The write loop fails such a topic per topic rather than storing a file every
-     * reader then skips (#565 P1-10). A topic that fails keeps the `depends_on` it
-     * already carries, so the graph that lands is not the graph validation cleared —
-     * the hole the pass below closes. The verdict is computed here, before the first
-     * write, through the very inspection and the very composer the loop uses, so the
-     * two cannot disagree about which notes those are.
-     *
-     * Three causes, tested in the order the loop reaches them: the target is not a
-     * note this command may write, the target is a regular in-vault file whose bytes
-     * cannot be opened, or the composed result crosses `MAX_NOTE_SOURCE_BYTES`. The
-     * middle one is the failure no metadata or size probe predicts — an over-cap
-     * *target* is refused by validation and a non-regular target is the first cause —
-     * so leaving it out of this set was the case where the documentation promised
-     * all-or-nothing for an unreadable note while the check did not model it.
-     *
-     * A target that does not exist composes the skeleton the loop would create and
-     * cannot trip the cap. A note whose managed block will not parse is deliberately
-     * absent: the same malformed YAML keeps `loadTopics` from indexing it, so the
-     * edges it holds are in no reading command's graph and modeling it could only ever
-     * remove edges from the projected graph. Nothing here creates a directory or
-     * writes a byte — a preflight that did either would make its own verdict stale.
-     */
-    function blockedWriteIds(): Map<string, string> {
-      const blocked = new Map<string, string>();
-      for (const topic of roadmap.topics) {
-        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
-        if (!isWithinVault(resolvedVault, absolutePath)) continue;
-        const { stat, blocker } = inspectExistingNote(absolutePath);
-        if (blocker !== null) {
-          blocked.set(topic.id, 'cannot be read');
-          continue;
-        }
-        // No existing file: the loop creates the note from a skeleton, which cannot
-        // cross the cap.
-        if (stat === null) continue;
-        let content: string;
-        try {
-          content = readBoundNote(absolutePath, stat);
-        } catch {
-          // A regular in-vault note the loop will not be able to open either. It keeps
-          // the `depends_on` it holds, so this is the graph check's own case.
-          blocked.set(topic.id, 'its content could not be read');
-          continue;
-        }
-        const parsed = parseFrontmatter(content);
-        let updatedContent: string;
-        try {
-          ({ updatedContent } = composeTopicWrite(topic, content, parsed.frontmatter ?? {}));
-        } catch {
-          // A note whose block will not parse has always failed on its own in the
-          // write loop, which the import is built to absorb. Deciding it here would
-          // turn one unparseable note into a refused batch.
-          continue;
-        }
-        if (noteContentExceedsReadCap(updatedContent)) {
-          blocked.set(topic.id, 'would be written past the read cap');
-        }
-      }
-      return blocked;
-    }
-
-    /**
-     * Refuses the import only when a note this command will not write changes the graph
-     * the validator just cleared (#267, #565).
-     *
-     * @returns `true` when the pre-write verdict still describes the graph that would
-     * land; `false` when it does not and nothing has been written
-     *
-     * @remarks
-     * A topic whose existing note this command cannot use — one it may not write over,
-     * one whose bytes it cannot open, or one whose composed result would cross the
-     * read cap — is skipped by the write loop, and a skipped note keeps whatever
-     * `depends_on` it already carries — not the list the roadmap declared for it, and
-     * not what the validator ran with. One stored backward hop closes a loop the check
-     * never saw: the import writes, exits `1`, and leaves the vault in exactly the
-     * state INV-46 says means exit `3` and no writes.
-     *
-     * So the declared graph is rebuilt with each skipped topic contributing the edges
-     * its note *holds* rather than the edges the roadmap meant for it, and checked
-     * again. A cycle appearing only under that reading is the case refused here, with
-     * the ids and the reason named, because "the plan changed" is why. When nothing
-     * closes, the import proceeds as it always has: the skip costs its own topic and
-     * the edge-integrity report still names whatever dangles. Refusing every skipped
-     * note would have been the simpler rule and the worse one — it throws away a
-     * partial import the user can act on.
-     *
-     * A skipped note the loader could not read either is modeled with no edges at all,
-     * which is the honest reading: the `depends_on` on its disk is in no reading
-     * command's graph, so it cannot close a loop `palee validate` would ever report.
-     * The skips this refusal catches are the ones whose bytes were readable when the
-     * vault was scanned and cannot be opened on the write path — which is why
-     * {@link blockedWriteIds} asks the read itself and not only the target's metadata.
-     */
-    function planSurvivesSkippedNotes(): boolean {
-      const blocked = blockedWriteIds();
-      if (blocked.size === 0) return true;
-
-      const effectiveIfSkipped = new Map(topicsMap);
-      for (const id of blocked.keys()) {
-        const stored = existingTopicsById.get(id);
-        effectiveIfSkipped.set(id, {
-          palee_id: id,
-          depends_on: stored?.depends_on ?? [],
-          topic_mastery: 0,
-        });
-      }
-      const { cycles } = detectCyclesBounded(effectiveIfSkipped);
-      if (cycles.length === 0) return true;
-
-      console.error(
-        'Error: refusing to import — the roadmap validates only if these notes are rewritten, and they will be skipped:'
-      );
-      for (const [id, reason] of blocked) console.error(`  • ${id} (${reason})`);
-      for (const cycle of cycles.slice(0, 5)) {
-        console.error(`  Cycle the skipped notes would leave behind: ${cycle.join(' → ')}`);
-      }
-      console.error(
-        'Nothing was written. A note skipped mid-import keeps the `depends_on` it already carries.'
-      );
-      process.exitCode = ExitCode.Validation;
-      return false;
-    }
-
-    /**
-     * Executes batch import of parsed roadmap topics into vault notes with error isolation and OCC tracking.
-     *
-     * @returns Promise resolving when all topics have been processed
-     *
-     * @remarks
-     * Iterates through all roadmap topics, validating vault path boundaries and writing topic notes with frontmatter.
-     * Catches and isolates per-topic errors (logging OCC conflicts vs standard write errors) and assigns exit codes (4 for conflict, 1 for other failures).
-     *
-     * @example
-     * ```typescript
-     * await doImport();
-     * ```
-     */
-    async function doImport(): Promise<void> {
-      // #267: a note this command cannot read keeps the edges it already carries, so
-      // the declared graph has to still be acyclic with those edges in it before any
-      // of this batch writes.
-      if (!planSurvivesSkippedNotes()) return;
-
-      let created = 0;
-      let updated = 0;
-      let failed = 0;
-      let conflicts = 0;
-      // Chain synthesis and validation both run against the *declared* topic
-      // list, so a topic whose note write fails still leaves its successors
-      // holding a `depends_on` that points at nothing — and the dependent note
-      // then disappears from `palee plan` with only a `validate` warning to say
-      // why. Track what actually landed so the batch can report its own edges.
-      /**
-       * Final writer of each note this import touched, keyed by the path resolved
-       * against the vault. Keyed on where the bytes actually landed rather than on
-       * the declared path: an absolute in-vault path, and a `n/./1.md` spelling,
-       * both write the one note the loader knows by a single relative path — and
-       * only the last id to win a path is a topic that still exists, with edges
-       * that survive on disk.
-       */
-      const finalIdByPath = new Map<string, string>();
-      const writtenEdges: { from: string; to: string }[] = [];
-
-      for (const topic of roadmap.topics) {
-        const absolutePath = canonicalDeclaredPath(resolvedVault, topic.path);
-
-        if (!isWithinVault(resolvedVault, absolutePath)) {
-          console.error(`Roadmap path escapes vault: ${topic.path}`);
-          failed++;
-          continue;
-        }
-
-        let resolvedTargetPath: string;
-
-        try {
-          // The canonical path, not the declared spelling: under a symlinked
-          // parent the lexical form fails `ensureVaultDirectory`'s own
-          // boundary check even though validation just accepted it.
-          const canonicalDir = ensureVaultDirectory(vaultPath, absolutePath);
-          resolvedTargetPath = path.join(canonicalDir, path.basename(absolutePath));
-        } catch (e) {
-          console.error(`Error creating directory for ${topic.path}: ${(e as Error).message}`);
-          failed++;
-          continue;
-        }
-
-        try {
-          let content = '';
-          let fingerprint: string | null = null;
-          let isNew = false;
-          let existingData: Record<string, unknown> = {};
-
-          // The same inspection the pre-flight ran (#267). Reaching `blocker` here
-          // means the target changed between the two looks — the race this layer
-          // cannot close — so it still costs its own topic rather than the batch.
-          // See {@link inspectExistingNote} for why the existence test is `lstat`.
-          const { stat: targetStat, blocker } = inspectExistingNote(resolvedTargetPath);
-          if (blocker !== null) {
-            console.error(`Skipped ${topic.id}: ${topic.path} ${blocker}`);
-            failed++;
-            continue;
-          }
-
-          if (targetStat !== null) {
-            try {
-              content = readBoundNote(resolvedTargetPath, targetStat);
-            } catch (e: unknown) {
-              // The pre-write graph check models this skip too and proceeds when the
-              // edges the note holds cannot close a loop, so arriving here is the
-              // expected outcome for such a topic: the skip costs this topic alone.
-              console.error(`Skipped ${topic.id}: ${(e as Error).message}`);
-              failed++;
-              continue;
-            }
-            fingerprint = computeFingerprint(content);
-            const parsed = parseFrontmatter(content);
-            if (parsed.frontmatter) {
-              existingData = parsed.frontmatter;
-            }
-          } else {
-            isNew = true;
-            content = `# ${topic.title}\n\n(Add your notes here)`;
-          }
-
-
-          // One composition for the pre-write graph check and this write, so the
-          // bytes the check sized are the bytes that land.
-          const { paleeData, updatedContent } = composeTopicWrite(topic, content, existingData);
-          // #565 P1-10 review: validation bounded the note that was there, not the note
-          // this write produces. The pre-write graph check predicts this verdict from
-          // the bytes on disk (`blockedWriteIds`), so reaching it means the note
-          // changed between that look and this one — the race no layer here can close.
-          // It still fails this topic rather than writing a file every reader then skips.
-          if (noteContentExceedsReadCap(updatedContent)) {
-            throw new Error(oversizedWriteDiagnostic(Buffer.byteLength(updatedContent, 'utf8')));
-          }
-          await atomicWrite(
-            vaultPath,
-            resolvedTargetPath,
-            updatedContent,
-            fingerprint,
-            writeExistenceClaim(isNew),
-          );
-
-          if (isNew) {
-            created++;
-          } else {
-            updated++;
-          }
-          finalIdByPath.set(
-            path.relative(resolvedVault, resolvedTargetPath).replace(/\\/g, '/'),
-            topic.id
-          );
-          const writtenDeps = Array.isArray(paleeData.depends_on) ? (paleeData.depends_on as unknown[]) : [];
-          for (const dep of writtenDeps) {
-            if (typeof dep === 'string') writtenEdges.push({ from: topic.id, to: dep });
-          }
-        } catch (err: unknown) {
-          const targetPath = topic.path;
-          const isConflict = isConflictError(err);
-          if (isConflict) {
-            conflicts++;
-            console.error(`  - Failed ${topic.id} (${targetPath}): OCC conflict (file locked or concurrently modified)`);
-          } else {
-            console.error(`  - Failed ${topic.id} (${targetPath}): ${(err as Error).message}`);
-          }
-          failed++;
-          continue;
-        }
-      }
-
-      // A topic stops existing when this import writes a different id over the note
-      // it lived on, so it cannot count as a known target just because the vault
-      // scan saw it before the batch. An edge naming the superseded id is dangling,
-      // and this check exists to say so.
-      const survivingExistingIds = [...existingTopicsById.entries()]
-        .filter(([id, t]) => {
-          const finalId = finalIdByPath.get((t.path ?? '').replace(/\\/g, '/'));
-          return finalId === undefined || finalId === id;
-        })
-        .map(([id]) => id);
-      // An id that lost its note later in the same batch has no edges left on
-      // disk either — the file was rewritten under another id — so reporting its
-      // edges would name a dependency that no longer exists anywhere, and counting
-      // it as known would hide the edges pointing at it.
-      const finalWriters = new Set(finalIdByPath.values());
-      const knownIds = new Set<string>([...finalWriters, ...survivingExistingIds]);
-      const danglingEdges = writtenEdges.filter(
-        (edge) => finalWriters.has(edge.from) && !knownIds.has(edge.to)
-      );
-      if (danglingEdges.length > 0) {
-        console.error(
-          `⚠ ${danglingEdges.length} dependency edge(s) point at topics that do not exist:`
-        );
-        for (const edge of danglingEdges.slice(0, 10)) {
-          console.error(`    ${edge.from} → ${edge.to}`);
-        }
-        if (danglingEdges.length > 10) {
-          console.error(`    ... and ${danglingEdges.length - 10} more`);
-        }
-        console.error('    Those notes stay out of `palee plan` until the edge is removed or its target exists. Run palee validate.');
-      }
-
-      console.log();
-      if (failed > 0) {
-        console.error(`Failed to import ${failed} topics.`);
-        console.log(`  Created: ${created} notes`);
-        console.log(`  Updated: ${updated} notes`);
-        process.exitCode = conflicts > 0 ? ExitCode.Conflict : ExitCode.PartialImport;
-        return;
-      } else {
-        console.log('✓ Roadmap imported successfully');
-        console.log(`  Created: ${created} notes`);
-        console.log(`  Updated: ${updated} notes`);
-        process.exitCode = ExitCode.Success;
-        return;
-      }
-    }
-
     if (!options.yes && !process.stdin.isTTY) {
       console.error('Error: Non-interactive environment detected. Use --yes to confirm import.');
       process.exitCode = ExitCode.Usage;
@@ -1225,7 +489,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
 
     if (options.yes) {
       console.log('Auto-confirmed via --yes.');
-      await doImport();
+      await importRoadmapTopics({ ...writeCtx, vaultPath });
     } else {
       console.log('Proceed? (y/N): ');
       const rl = readline.createInterface({
@@ -1249,7 +513,7 @@ async function roadmapCommand(options: RoadmapOptions): Promise<void> {
         console.log('Aborted.');
         return;
       }
-      await doImport();
+      await importRoadmapTopics({ ...writeCtx, vaultPath });
     }
   } catch (e: unknown) {
     const err = e as Error;
