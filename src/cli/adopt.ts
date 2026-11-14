@@ -52,6 +52,7 @@ import {
   type DeclaredPrereqRef,
 } from '../engine/prereq-text';
 import { AdoptOptions, Difficulty, normalizeDifficulty, normalizeAssessedAt, type TopicNode } from '../types';
+import { formatDiagnosticValue } from '../diagnostic-value';
 
 import { resolveNoteTitle } from '../storage/note-title';
 import { normalizeDependencies } from '../storage/dependencies';
@@ -401,7 +402,7 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       if (existingPaleeId !== undefined && existingPaleeId !== null) {
         if (!isValidPaleeId(existingPaleeId)) {
           console.error(
-            `Error: ${targetPath} has a palee_id that is not a usable string (${JSON.stringify(existingPaleeId)}); nothing was adopted.`
+            `Error: ${targetPath} has a palee_id that is not a usable string (${formatDiagnosticValue(existingPaleeId)}); nothing was adopted.`
           );
           console.error(`  → ${INVALID_PALEE_ID_REPAIR}`);
           process.exitCode = ExitCode.Usage;

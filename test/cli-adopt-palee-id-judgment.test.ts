@@ -179,6 +179,25 @@ describe('CLI adopt: one judgment for a present-but-unusable palee_id (P3-13, B7
     });
   }
 
+  test('single-file adoption refuses a cyclic palee_id without a serialization failure', () => {
+    // `yaml` preserves an alias cycle, so `palee_id: &a {x: *a}` parses to an
+    // object holding itself. Plain JSON.stringify threw before the refusal could
+    // print, turning the promised exit 2 into the fatal handler's exit 5.
+    const CYCLE_NOTE = ['---', 'palee_id: &a {x: *a}', 'palee_schema: 1', 'title: Cycle', '---', '', '# Cycle', ''].join('\n');
+    const parsedId = parseFrontmatter(CYCLE_NOTE).frontmatter?.palee_id as { x?: unknown } | undefined;
+    assert.ok(parsedId !== undefined && parsedId.x === parsedId, 'the fixture is a real yaml alias cycle');
+
+    const { vaultDir, configDir } = freshVault({ 'cycle.md': CYCLE_NOTE });
+    const before = fs.readFileSync(path.join(vaultDir, 'cycle.md'), 'utf8');
+
+    const result = runCLI(['adopt', 'cycle.md'], configDir);
+    assert.strictEqual(result.status, 2, `expected exit 2, got ${result.status}: ${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /has a palee_id that is not a usable string \(\[circular\]\)/);
+    assert.match(result.stderr, REPAIR, 'the one repair path is named');
+    assert.doesNotMatch(result.stderr, /already adopted/);
+    assert.strictEqual(fs.readFileSync(path.join(vaultDir, 'cycle.md'), 'utf8'), before, 'the id is never rewritten');
+  });
+
   test('under --auto-chain the same judgment holds and the dependent is never chained to the unusable id', () => {
     const { vaultDir, configDir } = freshVault({
       'MOD/01-numeric.md': NUMERIC_NOTE,
