@@ -76,6 +76,10 @@ The validation script ensures the tarball contains only necessary production fil
 
 Sources: [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml)[scripts/verify-tarball.js](https://github.com/Kuldeep2822k/cli/blob/main/scripts/verify-tarball.js)
 
+#### The local publish path runs the same assertions
+
+The tarball assertions are not CI-only. `prepublishOnly` rebuilds `dist/` from source (#336), packs the tarball, and runs `verify-tarball.js` before a manual `npm publish` from the repository root proceeds [package.json](https://github.com/Kuldeep2822k/cli/blob/main/package.json), so a local release fails on the same missing or forbidden files the release pipeline refuses — a publish whose pack cannot be verified never reaches the registry. The `publish-npm` job uploads the artifact `verify-and-pack` already verified (`npm publish "$PACKAGE_FILENAME"`), so the workflow itself never re-runs this hook; publishing a packed tarball does not trigger the publishing package's lifecycle scripts.
+
 ### 2. Idempotent NPM Publishing (`publish-npm`)
 
 Publishing waits on two jobs: `verify-and-pack`, which produces the artifact it uploads, and `test-platforms`, which runs the same operating-system and Node matrix CI runs [.github/workflows/release.yml](https://github.com/Kuldeep2822k/cli/blob/main/.github/workflows/release.yml). The gate lives here rather than depending on CI's tag run because a GitHub Actions job cannot depend on another workflow's result — without it, a macOS or Windows failure could occur while the ubuntu-only release path published anyway. `test/ci-workflow-matrix.test.ts` asserts the two matrices stay identical, so the release cannot quietly gate a narrower claim than CI tests.
