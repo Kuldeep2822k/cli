@@ -10,14 +10,17 @@
  * Raw `fs` here is confined to the config directory — machine-level state of
  * the same class as `config.json` (see `config.ts`), never vault files. The
  * derived `update-check.json` is freely rebuildable: a torn cache is silently
- * repaired by the next check, so it skips the tmp+fsync+rename ceremony
- * `saveConfig` pays for a user-authored credential.
+ * repaired by the next check, so it skips the fsync ceremony `saveConfig`
+ * pays for a user-authored credential — but not the exclusive temp file and
+ * rename, because the cache name is predictable and a plain `writeFileSync`
+ * would follow a symlink planted at it (#565).
  *
  * ADR-0033 owns the spawn-bounding and cache decisions; this file keeps the
  * short version of each next to the code that enforces it.
  */
 
 import fs from 'fs';
+import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
@@ -338,14 +341,62 @@ export function isCacheFresh(record: UpdateCheckEntry, now: number, ttlMs: numbe
  * A write that cannot land costs one extra probe on the next run, never a
  * command: an unwritable config dir is not worth an error on a background
  * notice path.
+ *
+ * The write never follows a symlink. The cache name is predictable, so a link
+ * planted at `update-check.json` would let a plain `writeFileSync` clobber
+ * whatever it points at (#565). The payload lands in an exclusive temp file —
+ * `wx` refuses to follow a pre-planted entry at the temp name — and
+ * `renameSync` moves it into place, replacing the final entry instead of
+ * writing through it. The resolved path is then verified to be the regular
+ * file just written; anything else counts as a failed write and the next
+ * check repairs the cache. Cleanup unlinks only a temp file this call
+ * created, so a planted entry is left exactly as found.
  */
 export function writeUpdateCheckRecord(currentVersion: string, record: UpdateCheckEntry): void {
   try {
     const store = readUpdateCheckStore();
     store[currentVersion] = record;
     const file = updateCheckPath();
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify(store, null, 2), 'utf8');
+    const dir = path.dirname(file);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+    // `pid + Date.now()` is not a unique name (see `saveConfig`): two processes
+    // forked together inside one millisecond would share a temp name, and the
+    // second `open(w)` truncates the first one's file mid-write. Entropy pays
+    // for the difference, and `wx` turns a collision — or a planted entry —
+    // into a refused open rather than a write through it.
+    const tempPath = `${file}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+    const payload = JSON.stringify(store, null, 2);
+
+    let fd: number | null = null;
+    let created = false;
+    let success = false;
+    try {
+      fd = fs.openSync(tempPath, 'wx', 0o600);
+      created = true;
+      fs.writeSync(fd, payload, 0, 'utf8');
+      fs.closeSync(fd);
+      fd = null;
+      fs.renameSync(tempPath, file);
+      // The rename must have replaced the final entry with the file just
+      // written — never followed it. Rename operates on the entry on every
+      // supported platform, so a failure here means the platform did
+      // something else; reporting the write as failed is the honest answer.
+      const landed = fs.lstatSync(file);
+      if (landed.isSymbolicLink() || !landed.isFile()) {
+        throw new Error(`update-check cache write did not land on a regular file: ${file}`);
+      }
+      success = true;
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+      // Only ever unlink a temp file this call created; a pre-planted entry
+      // at the temp name belongs to whoever put it there.
+      if (created && !success) {
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+    }
   } catch {
     // Best effort by contract; see the docstring.
   }
