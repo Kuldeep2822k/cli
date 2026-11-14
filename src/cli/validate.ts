@@ -12,7 +12,7 @@ import { runRules } from '../validation/run-rules';
 import { formatHuman, formatJson } from '../validation/format';
 import { VALIDATION_RULES } from '../validation';
 import { repairReviewFields } from '../validation/rules/valid-review-fields';
-import { toJsonSafeValue } from '../validation/rules/diagnostic-value';
+import { toJsonSafeValue } from '../diagnostic-value';
 import type { ValidationContext, ValidationIssue, ValidationRule } from '../validation/types';
 import {
   updateFrontmatter,

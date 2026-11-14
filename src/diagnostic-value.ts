@@ -1,7 +1,16 @@
 /**
- * Shared diagnostic-value rendering (#166)
+ * Neutral diagnostic-value rendering (#166; relocated — #565 P3-12)
  *
  * @remarks
+ * This module belongs to no layer: it sits beside the shared contract in
+ * `types.ts`, imports nothing from the layers, and is imported downward by
+ * the engine (`sm2.ts` renders offending values in its precondition errors)
+ * and the validation rules (finding messages and `details` payloads) alike.
+ * It previously lived in `src/validation/rules/`, which made the engine
+ * import the validation layer while `valid-topic-mastery` imported the
+ * engine back — a layering cycle. `test/engine-import-boundary.test.ts`
+ * keeps the engine free of validation imports and this module layer-free.
+ *
  * `JSON.stringify(NaN)` and `JSON.stringify(Infinity)` both produce
  * `null`, so validation findings that interpolate stored values with
  * JSON.stringify misreport non-finite frontmatter (YAML `.nan`,

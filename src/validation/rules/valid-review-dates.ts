@@ -27,7 +27,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 import { isValidReviewDate, parseDateOnly } from './review-dates';
 
 /**
