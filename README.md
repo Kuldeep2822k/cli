@@ -303,3 +303,7 @@ PALEE_JSON=1 palee next | jq -r '.next.path'
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and clone-to-green verification steps. Repository conventions and design constraints live in [AGENTS.md](AGENTS.md).
+
+## License
+
+MIT (see [LICENSE](LICENSE)).
