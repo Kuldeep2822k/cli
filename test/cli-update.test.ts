@@ -13,6 +13,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import childProcess from 'child_process';
@@ -71,6 +72,30 @@ function withSpawnStub<T>(stub: (...args: unknown[]) => unknown, fn: () => T): T
 /** The `SpawnSyncReturns` shape the stubs answer with. */
 function spawnResult(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null, ...overrides };
+}
+
+/**
+ * Runs a function with `crypto.randomBytes` replaced by a stub. The update
+ * module reaches `randomBytes` through the module object at call time — the
+ * same mechanism `withSpawnStub` exploits — so a test can pin the entropy
+ * that names the cache writer's temp file.
+ */
+function withRandomBytesStub<T>(stub: (size: number) => Buffer, fn: () => T): T {
+  const original = crypto.randomBytes;
+  Object.defineProperty(crypto, 'randomBytes', {
+    configurable: true,
+    writable: true,
+    value: stub as unknown as typeof crypto.randomBytes,
+  });
+  try {
+    return fn();
+  } finally {
+    Object.defineProperty(crypto, 'randomBytes', {
+      configurable: true,
+      writable: true,
+      value: original,
+    });
+  }
 }
 
 /** Captures both console streams so "stderr-only" and "stdout stays clean" are assertable. */
@@ -247,6 +272,68 @@ describe('update: pure helpers', () => {
       assert.deepStrictEqual(readUpdateCheckRecord('2.0.0'), { checkedAt: 6, latestVersion: '2.1.0', notifiedVersion: null });
       writeUpdateCheckRecord('1.0.0', { checkedAt: 7, latestVersion: null, notifiedVersion: null });
       assert.deepStrictEqual(readUpdateCheckRecord('2.0.0'), { checkedAt: 6, latestVersion: '2.1.0', notifiedVersion: null });
+    });
+  });
+});
+
+describe('update: the cache write is symlink-safe (#565)', () => {
+  test('a symlink planted at the cache path is replaced, never written through', (t) => {
+    withTempConfigDir((dir) => {
+      const victim = path.join(dir, 'victim.txt');
+      const canary = '# ORIGINAL — not a cache\n';
+      fs.writeFileSync(victim, canary, 'utf8');
+      const cache = updateCheckPath();
+      assert.strictEqual(cache, path.join(dir, 'update-check.json'));
+      try {
+        fs.symlinkSync(victim, cache, 'file');
+      } catch {
+        t.skip('file symlink creation is not permitted on this platform');
+        return;
+      }
+
+      writeUpdateCheckRecord('1.0.0', { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: null });
+
+      assert.strictEqual(
+        fs.readFileSync(victim, 'utf8'),
+        canary,
+        'the write must never land in the file the link names'
+      );
+      const landed = fs.lstatSync(cache);
+      assert.strictEqual(landed.isSymbolicLink(), false, 'the cache path must end up a regular file, not the planted link');
+      assert.strictEqual(landed.isFile(), true);
+      assert.deepStrictEqual(readUpdateCheckRecord('1.0.0'), { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: null });
+    });
+  });
+
+  test('a pre-planted entry at the temp path is refused, never followed or clobbered', () => {
+    withTempConfigDir((dir) => {
+      const cache = path.join(dir, 'update-check.json');
+      // The writer's temp name is `<cache>.tmp.<pid>.<8 hex>`; pinning the
+      // entropy makes the name predictable so the planted file can sit on it.
+      const planted = `${cache}.tmp.${process.pid}.cafebabe`;
+      fs.writeFileSync(planted, 'PLANTED', 'utf8');
+      withRandomBytesStub(() => Buffer.from('cafebabe', 'hex'), () => {
+        writeUpdateCheckRecord('1.0.0', { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: null });
+      });
+
+      assert.strictEqual(
+        fs.readFileSync(planted, 'utf8'),
+        'PLANTED',
+        'the planted entry must not be written through, truncated, or removed'
+      );
+      assert.ok(!fs.existsSync(cache), 'a refused temp open must not leave a cache behind');
+    });
+  });
+
+  test('a successful write leaves no temp litter and reads back through the entry', () => {
+    withTempConfigDir((dir) => {
+      writeUpdateCheckRecord('1.0.0', { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: null });
+      assert.deepStrictEqual(
+        fs.readdirSync(dir).filter((name) => name.includes('.tmp.')),
+        [],
+        'the temp file is renamed into place, not left beside the cache'
+      );
+      assert.deepStrictEqual(readUpdateCheckRecord('1.0.0'), { checkedAt: 5, latestVersion: '1.1.0', notifiedVersion: null });
     });
   });
 });
