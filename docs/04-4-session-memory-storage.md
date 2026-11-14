@@ -100,8 +100,8 @@ Sources: [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/
 During a session, the system captures progress using `writeDraftCheckpoint` [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts). The storage layer provides dedicated helpers:
 
 - **`getTopicDrafts(vaultPath, topicId)`**: Returns array of matching active drafts with their paths, `started_at` timestamps, and body text.
-- **`deleteTopicDrafts(vaultPath, topicId)`**: Discovers and deletes all drafts matching a given topic.
-- **`deleteSessionNote(vaultPath, targetPath)`**: Safely deletes a session or draft note with strict directory boundary validation preventing unlinks outside `.palee/sessions/`.
+- **`deleteTopicDrafts(vaultPath, topicId, draftPaths?)`**: Deletes the matching drafts — only the checkpoints listed in `draftPaths` when the caller supplies them (the session's recorded, consumed set; a same-topic draft that appeared after the caller's scan survives), every same-topic draft when no list is given. A draft whose target lock is held by a live writer is left in place.
+- **`deleteSessionNote(vaultPath, targetPath)`**: Safely deletes a session or draft note with strict directory boundary validation preventing unlinks outside `.palee/sessions/`. The unlink runs under the target's lock — the same one `atomicWrite` takes — and yields (returns `false`, file untouched) when a live process holds it, so it cannot race a concurrent write mid-rename.
 
 The `recoverDraft` function handles four distinct actions [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts):
 

@@ -761,8 +761,13 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         duration_minutes: durationMinutes,
       }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.${consumedDraftMarkers ? `\n${consumedDraftMarkers}` : ''}`);
 
-      // Clean up drafts on confirmed session end for the current topic
-      const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
+      // Clean up exactly the drafts this session consumed: the checkpoints recorded
+      // in the note above are the same set `topicDrafts` held at scan time, so the
+      // explicit list keeps cleanup session-scoped (#565 P3-02) — a same-topic draft
+      // created after that scan (a concurrent `session draft`) was never consumed by
+      // this session and must survive for the session that holds it. Re-scanning the
+      // directory at delete time would destroy it.
+      const cleanupResult = deleteTopicDrafts(vaultPath, topicId, topicDrafts.map((draft) => draft.path));
 
       // #442 (bug 3): deleting draft checkpoints silently looked like data loss. Report
       // each consumed draft so the draft -> session transition is explicit. In machine
