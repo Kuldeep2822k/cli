@@ -15,6 +15,7 @@
  */
 
 import { PaleeConfig } from '../types';
+import { TERMINAL_ACTIVE_CHARACTERS } from '../text-safety';
 
 /** Why a provider call failed, so the CLI maps it through `exitCodeFor()` exactly once. */
 export type ProviderErrorKind = 'config' | 'network' | 'provider' | 'schema';
@@ -206,8 +207,9 @@ export function isLoopbackHost(hostname: string): boolean {
 export function describeForeignText(secret: string | undefined, text: string): string {
   const masked = secret && secret.length > 0 ? text.split(secret).join('***') : text;
   const printable = masked
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '?')
+    // The same class the CLI display layer uses; `?` keeps the byte visible in
+    // a message instead of silently shortening the text around it (INV-30).
+    .replace(TERMINAL_ACTIVE_CHARACTERS, '?')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/ {2,}/g, ' ')
     .trim();

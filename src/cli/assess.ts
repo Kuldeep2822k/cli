@@ -12,6 +12,7 @@ import {
 } from '../storage';
 import { computeTopicMastery, normalizeScore, MASTERY_THRESHOLD } from '../engine/mastery';
 import { programName } from './program-name';
+import { sanitizeForDisplay } from './display-safety';
 import {
   PILLARS,
   Pillar,
@@ -103,13 +104,13 @@ function printAssessmentEffect(
   }
 
   if (unlocked.length > 0) {
-    const listed = unlocked.slice(0, 3).join(', ');
+    const listed = sanitizeForDisplay(unlocked.slice(0, 3).join(', '));
     console.log(
       `  ${unlocked.length} topic(s) newly offered by palee plan: ${listed}` +
         (unlocked.length > 3 ? `, +${unlocked.length - 3} more` : '')
     );
   } else if (newlyBlocked.length > 0) {
-    const listed = newlyBlocked.slice(0, 3).join(', ');
+    const listed = sanitizeForDisplay(newlyBlocked.slice(0, 3).join(', '));
     console.log(
       `  ${newlyBlocked.length} topic(s) are no longer offered by palee plan: ${listed}` +
         (newlyBlocked.length > 3 ? `, +${newlyBlocked.length - 3} more` : '')
@@ -196,7 +197,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
     if (resolution.kind === 'ambiguous') {
       console.error(`Error: Multiple topics match "${topicQuery}":`);
       for (const c of resolution.candidates) {
-        console.error(`  - ${c.palee_id}: ${c.title}`);
+        console.error(`  - ${sanitizeForDisplay(c.palee_id)}: ${sanitizeForDisplay(c.title)}`);
       }
       console.error('Please provide a more specific query.');
       process.exitCode = ExitCode.Usage;
@@ -253,7 +254,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
       // Every check a recording runs has passed by this point: the vault, the
       // topic resolution, the note re-read and fingerprint compare, and each
       // stored pillar. No lock is taken and no byte is written.
-      console.log(`Assessment preview for ${topic.title} (${topic.palee_id})`);
+      console.log(`Assessment preview for ${sanitizeForDisplay(topic.title)} (${sanitizeForDisplay(topic.palee_id)})`);
       printAssessmentEffect(parsed, scores, previousMastery, topicMastery, unlocked, newlyBlocked, { recording: false });
       console.log('Dry-run complete. No files were modified.');
       return;
@@ -263,7 +264,7 @@ async function assessCommand(topicQuery: string, options: AssessOptions = {}): P
 
     await atomicWrite(vaultPath, filePath, updatedContent, freshFingerprint);
 
-    console.log(`✓ Assessment recorded for ${topic.title} (${topic.palee_id})`);
+    console.log(`✓ Assessment recorded for ${sanitizeForDisplay(topic.title)} (${sanitizeForDisplay(topic.palee_id)})`);
     printAssessmentEffect(parsed, scores, previousMastery, topicMastery, unlocked, newlyBlocked, {
       recording: true,
       force: options.force === true,

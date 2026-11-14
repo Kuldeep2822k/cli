@@ -184,4 +184,177 @@ describe('CI workflow matrix parity (#269 release health)', () => {
       'both launch paths must carry the same bound, or the unbounded one becomes the default people hit'
     );
   });
+
+  // ── Shortcut contracts (#504) ───────────────────────────────────────────────
+  // Nothing read these selection lists before, so a family could be added to one
+  // shortcut and forgotten in the other — or dropped from both — with every
+  // suite still green. The contract is written down here rather than derived from
+  // the declaration it checks: a list computed from the script itself passes when
+  // the script loses an entry, which is the failure this block exists to catch.
+
+  const shortcutPkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')
+  ) as { scripts?: Record<string, string> };
+  const shortcutScripts: Record<string, string> = shortcutPkg.scripts ?? {};
+  /** Root-level suites by repo-relative path, enumerated without importing them. */
+  const suiteFiles: string[] = fs
+    .readdirSync(__dirname)
+    .filter((name) => name.endsWith('.test.ts'))
+    .map((name) => `test/${name}`);
+
+  /**
+   * The `node --test` path arguments one shortcut passes.
+   *
+   * @remarks
+   * Quoted `.test.ts` arguments only: `--import tsx` and the concurrency cap are
+   * options rather than selections, and an unquoted token would be a path this
+   * suite cannot see.
+   */
+  function selection(script: string | undefined): string[] {
+    return [...(script ?? '').matchAll(/"([^"]*\.test\.ts)"/g)].map((match) => match[1] ?? '');
+  }
+
+  /** The suites of {@link suiteFiles} that a selection actually runs. */
+  function expandsTo(patterns: string[]): string[] {
+    return suiteFiles.filter((file) => patterns.some((pattern) => path.matchesGlob(file, pattern)));
+  }
+
+  test('every shortcut whose selection this block reads parses something', () => {
+    // `selection()` sees one quoting style, so a script that re-quotes its
+    // arguments — or is renamed out of `package.json` — parses to an empty list.
+    // The family and named-suite checks below would then report "missing suites" and
+    // blame the shortcut for files it never had a chance to run, the two absence
+    // assertions would pass on a selection of nothing, and `test:e2e` and `test:fuzz`
+    // would go unexamined entirely. A parse failure has to surface as itself
+    // (#504 review).
+    for (const name of ['test', 'test:unit', 'test:fast', 'test:e2e', 'test:fuzz', 'test:coverage']) {
+      assert.ok(
+        selection(shortcutScripts[name]).length > 0,
+        `${name}: no quoted .test.ts argument parsed from the script`
+      );
+    }
+  });
+
+  test('unit and fast both select the application, validation and AI families', () => {
+    // The families are named by the prefixes the tree actually carries — the
+    // issue's proposed names did not exist, and a pattern that matches nothing
+    // would satisfy a presence check on the string alone.
+    for (const family of ['test/ai-*.test.ts', 'test/application-*.test.ts', 'test/validation-*.test.ts']) {
+      const members = expandsTo([family]);
+      assert.ok(members.length > 0, `precondition: ${family} matches a suite on disk`);
+      for (const name of ['test:unit', 'test:fast']) {
+        const selected = expandsTo(selection(shortcutScripts[name]));
+        const missing = members.filter((file) => !selected.includes(file));
+        assert.deepStrictEqual(missing, [], `${name} must select every ${family} suite`);
+      }
+    }
+  });
+
+  test('neither shortcut dropped a suite it already ran', () => {
+    // Named explicitly, so the expansion of a wider family cannot vouch for an
+    // entry a later edit deleted.
+    const required: Record<string, string[]> = {
+      'test:unit': [
+        'test/engine-dependency.test.ts',
+        'test/smoke.test.ts',
+        'test/storage-lock.test.ts',
+        'test/types-difficulty.test.ts',
+      ],
+      'test:fast': [
+        'test/cli-adopt-batch.test.ts',
+        'test/cli-commands.test.ts',
+        'test/engine-sm2.test.ts',
+        'test/fault-injection.test.ts',
+        'test/property-fuzz.test.ts',
+        'test/session-cli.test.ts',
+        'test/smoke.test.ts',
+        'test/storage-lock.test.ts',
+        'test/stress-concurrency.test.ts',
+        'test/timezone-matrix.test.ts',
+        'test/types-difficulty.test.ts',
+      ],
+    };
+    for (const [name, suites] of Object.entries(required)) {
+      const selected = expandsTo(selection(shortcutScripts[name]));
+      const missing = suites.filter((file) => !selected.includes(file));
+      assert.deepStrictEqual(missing, [], `${name} must still run these suites`);
+    }
+  });
+
+  test('neither shortcut dropped a family it already ran', () => {
+    // One example per family is not the family. The check above names
+    // test/engine-dependency.test.ts, so replacing `test:unit`'s engine-* glob with
+    // that one file keeps every named entry selected while the other eight engine
+    // suites silently stop running (#504 review). The remaining families of the
+    // contract in docs/06-0-testing.md are therefore required as their full on-disk
+    // expansion; the ai-, application- and validation- families are already expanded
+    // by the check above and are not repeated here.
+    const families: Record<string, string[]> = {
+      'test:unit': ['test/engine-*.test.ts', 'test/storage-*.test.ts', 'test/types-*.test.ts'],
+      'test:fast': [
+        'test/cli-*.test.ts',
+        'test/engine-*.test.ts',
+        'test/session-*.test.ts',
+        'test/storage-*.test.ts',
+        'test/types-*.test.ts',
+      ],
+    };
+    for (const [name, patterns] of Object.entries(families)) {
+      const selected = expandsTo(selection(shortcutScripts[name]));
+      for (const family of patterns) {
+        const members = expandsTo([family]);
+        assert.ok(members.length > 0, `precondition: ${family} matches a suite on disk`);
+        const dropped = members.filter((file) => !selected.includes(file));
+        assert.deepStrictEqual(dropped, [], `${name} must run every ${family} suite`);
+      }
+    }
+  });
+
+  test('fast stays the curated selection, not the whole tree', () => {
+    // `test:fast` is the pre-push set: the challenger runs are long by design and
+    // stay out. Redefining the shortcut as every root suite would change what its
+    // name means while the name stayed the same.
+    const challengers = expandsTo(['test/challenger1-*.test.ts']);
+    assert.ok(challengers.length > 0, 'precondition: challenger suites exist');
+    const patterns = selection(shortcutScripts['test:fast']);
+    const adopted = challengers.filter((file) => expandsTo(patterns).includes(file));
+    assert.deepStrictEqual(adopted, [], 'test:fast must not adopt the challenger suites');
+    assert.ok(
+      !patterns.includes('test/**/*.test.ts'),
+      'test:fast is a curated list; the recursive glob belongs to npm test and coverage'
+    );
+  });
+
+  test('unit stays build-free', () => {
+    // `test:unit` imports the sources directly, so it has no build hook and
+    // nothing it selects may launch the built CLI — a suite that spawns needs
+    // `dist`, which this shortcut never produces.
+    assert.strictEqual(shortcutScripts['pretest:unit'], undefined, 'test:unit must not gain a build hook');
+    const launchers = expandsTo(selection(shortcutScripts['test:unit'])).filter((file) =>
+      /from '\.\/(?:palee-cli|e2e\/test-env)'/.test(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8'))
+    );
+    assert.deepStrictEqual(launchers, [], 'a CLI-spawning suite needs dist, which test:unit never builds');
+  });
+
+  test('every shortcut that launches the built CLI builds first', () => {
+    for (const name of ['test', 'test:fast', 'test:e2e', 'test:fuzz', 'test:coverage']) {
+      assert.strictEqual(
+        shortcutScripts[`pre${name}`],
+        'npm run build',
+        `${name} spawns the built CLI, so it must keep its build hook`
+      );
+    }
+  });
+
+  test('npm test and test:coverage still select the same recursive suite', () => {
+    const full = selection(shortcutScripts['test']);
+    assert.deepStrictEqual(full, ['test/**/*.test.ts'], 'npm test keeps the one recursive selection');
+    assert.deepStrictEqual(
+      selection(shortcutScripts['test:coverage']),
+      full,
+      'coverage must measure exactly what npm test runs'
+    );
+    const unselected = suiteFiles.filter((file) => !expandsTo(full).includes(file));
+    assert.deepStrictEqual(unselected, [], 'the recursive glob must reach every root suite');
+  });
 });

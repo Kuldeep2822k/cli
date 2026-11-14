@@ -13,6 +13,7 @@ import { formatHuman, formatJson } from '../validation/format';
 import { VALIDATION_RULES } from '../validation';
 import { repairReviewFields } from '../validation/rules/valid-review-fields';
 import { toJsonSafeValue } from '../validation/rules/diagnostic-value';
+import { sanitizeForDisplay } from './display-safety';
 import type { ValidationContext, ValidationIssue, ValidationRule } from '../validation/types';
 import {
   updateFrontmatter,
@@ -227,6 +228,7 @@ async function applyReviewFieldRepairs(
       }
     } catch (e: unknown) {
       if (isConflictError(e)) {
+        // Machine output keeps the stored bytes; the human printer sanitises.
         conflicts.push(`${topic.path}: ${(e as Error).message}`);
         continue;
       }
@@ -305,6 +307,7 @@ async function applyMasteryRepairs(
       });
     } catch (e: unknown) {
       if (isConflictError(e)) {
+        // Machine output keeps the stored bytes; the human printer sanitises.
         conflicts.push(`${topic.path}: ${(e as Error).message}`);
         continue;
       }
@@ -508,7 +511,7 @@ async function validateCommand(options: ValidateOptions = {}): Promise<void> {
         console.log(formatRepair(repair));
       }
       for (const conflict of conflicts) {
-        console.error(`⚠ Skipped repair: ${conflict}`);
+        console.error(`⚠ Skipped repair: ${sanitizeForDisplay(conflict)}`);
       }
       if (repairs.length === 0 && conflicts.length === 0) {
         console.log('Nothing to repair: --fix found no fixable issues.');
