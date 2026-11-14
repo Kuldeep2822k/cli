@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { spawnSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { parseDocument } from 'yaml';
 import { CLI_SPAWN_TIMEOUT_MS } from './cli-spawn-env';
@@ -41,8 +41,24 @@ describe('npm publish build guard (#336)', () => {
   const releaseJobs = (parseDocument(release).toJSON() as { jobs: Jobs }).jobs;
   const ciJobs = (parseDocument(fs.readFileSync(ciPath, 'utf8')).toJSON() as { jobs: Jobs }).jobs;
 
-  test('publishing rebuilds from source instead of shipping a stale dist/', () => {
-    assert.strictEqual(pkg.scripts.prepublishOnly, 'npm run build');
+  test('publishing rebuilds from source, then packs and verifies the tarball (#336, #565 P3-15)', () => {
+    // #336 put the rebuild on the local publish path; #565 P3-15 put CI's tarball
+    // assertions there too. `verify-tarball.js` ran only in `release.yml`, so a manual
+    // `npm publish` shipped a tarball whose contents nothing had asserted. The hook is
+    // pinned step by step, not by one whole-string equality, so the failure names the
+    // step that was dropped — and a revert to the pre-P3-15 chain fails on step 2.
+    const steps = (pkg.scripts.prepublishOnly ?? '').split('&&').map((step) => step.trim());
+    assert.strictEqual(steps[0], 'npm run build', 'rebuild dist/ from source first (#336)');
+    assert.strictEqual(
+      steps[1],
+      'npm pack',
+      'then pack the tarball the assertions read — verify-tarball.js checks the file by name',
+    );
+    assert.strictEqual(
+      steps[2],
+      'node scripts/verify-tarball.js',
+      'then run the same tarball assertions release.yml runs',
+    );
   });
 
   test('no prepack hook, because CI already builds before it packs', () => {
@@ -387,5 +403,161 @@ describe('release manifest rules (#565 P1-06)', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * #565 P3-15 — `prepublishOnly` now runs `npm pack && node scripts/verify-tarball.js`,
+ * so the local publish path ends in the same tarball assertions `release.yml` runs.
+ * The chain is pinned in the suite above; what that pin cannot catch is the assertions
+ * themselves going toothless while still being wired in — a deleted `REQUIRED` or
+ * `FORBIDDEN` loop, or a verifier that stops running. These tests execute the real
+ * verifier against real tarballs.
+ *
+ * `verify-tarball.js` reads the manifest one directory above its own location and the
+ * tarball by its derived name from the working directory, so it cannot be pointed at a
+ * fixture in place; like the packer tests above, it is run from a copy, which also
+ * keeps a test pack out of the repo root.
+ */
+describe('verify-tarball assertions the local publish path runs (#565 P3-15)', () => {
+  // The verifier derives its assertions from the manifest's `main`, `types` and `bin`,
+  // so the fixture manifest carries the real fields — hard-coded copies would drift
+  // the day an entry point moves and quietly pin the wrong tarball shape.
+  const repoPkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
+    name: string;
+    version: string;
+    main: string;
+    types: string;
+    bin: { palee: string };
+  };
+  const manifest = {
+    name: repoPkg.name,
+    version: repoPkg.version,
+    main: repoPkg.main,
+    types: repoPkg.types,
+    bin: repoPkg.bin,
+  };
+  const { tarballFilename } = requireScript('../scripts/release-manifest') as {
+    tarballFilename: (manifest: { name: string; version: string }) => string;
+  };
+
+  /** The paths the verifier must find below `package/` for this manifest. */
+  const REQUIRED_ENTRIES = [
+    repoPkg.main,
+    repoPkg.types,
+    repoPkg.bin.palee.replace(/^\.\//, ''),
+    'package.json',
+    'dist/package.json',
+    'README.md',
+    'LICENSE',
+  ];
+
+  /**
+   * Builds a throwaway copy of the verifier's layout — the two scripts byte for
+   * byte, and the `package.json` the manifest rules read one directory above their own.
+   *
+   * @returns The temp root, to be removed by the caller
+   */
+  function verifierLayout(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-verify-guard-'));
+    fs.mkdirSync(path.join(dir, 'scripts'));
+    for (const name of ['verify-tarball.js', 'release-manifest.js']) {
+      fs.copyFileSync(path.join(root, 'scripts', name), path.join(dir, 'scripts', name));
+    }
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+    return dir;
+  }
+
+  /**
+   * Packs a real tarball under the derived filename, holding exactly the given
+   * entries below `package/`. Each entry is a one-line stub: the verifier lists
+   * the archive, it never reads the contents.
+   *
+   * @param dir - A layout from {@link verifierLayout}; the tarball is written there
+   * @param entries - Paths below `package/` the archive must carry
+   * @returns The archive filename the manifest derivation produced
+   */
+  function packFixtureTarball(dir: string, entries: string[]): string {
+    const staging = path.join(dir, 'staging');
+    fs.mkdirSync(path.join(staging, 'package'), { recursive: true });
+    for (const entry of entries) {
+      const target = path.join(staging, 'package', entry);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, `stub ${entry}\n`);
+    }
+    const filename = tarballFilename(manifest);
+    // Relative paths, cwd anchored on the layout: an absolute Windows path carries a
+    // `C:` colon, which GNU tar parses as a remote tape host ("Cannot connect to C:
+    // resolve failed"). The verifier itself is safe — its filename is always bare.
+    execFileSync('tar', ['-czf', filename, '-C', 'staging', 'package'], {
+      cwd: dir,
+      stdio: 'ignore',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    return filename;
+  }
+
+  /**
+   * Runs the copied verifier against the tarball in `dir`.
+   *
+   * @param dir - A layout from {@link verifierLayout}
+   * @returns The exit status and both output streams
+   */
+  function runVerifier(dir: string): { status: number | null; stdout: string; stderr: string } {
+    const result = spawnSync(process.execPath, [path.join(dir, 'scripts', 'verify-tarball.js')], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: CLI_SPAWN_TIMEOUT_MS,
+    });
+    return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  }
+
+  /**
+   * Runs `run` against a fresh verifier layout, cleaning the temp root up after.
+   *
+   * @param run - The assertions to make inside the layout
+   */
+  function withVerifier(run: (dir: string) => void): void {
+    const dir = verifierLayout();
+    try {
+      run(dir);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // The control for the two refusals below: a verifier that refuses everything
+  // would also fail every publish, and one that never starts reports no output.
+  test('a tarball carrying exactly the required entries passes', () => {
+    withVerifier((dir) => {
+      packFixtureTarball(dir, REQUIRED_ENTRIES);
+      const run = runVerifier(dir);
+      assert.strictEqual(run.status, 0, `verifier failed: ${run.stderr}`);
+      assert.match(run.stdout, /passed cleanly/);
+    });
+  });
+
+  test('a tarball carrying a forbidden path fails the verifier', () => {
+    withVerifier((dir) => {
+      packFixtureTarball(dir, [...REQUIRED_ENTRIES, 'src/cli/config.js']);
+      const run = runVerifier(dir);
+      assert.notStrictEqual(run.status, 0, 'a tarball shipping src/ must fail the publish');
+      assert.match(run.stderr, /Forbidden file detected in tarball/);
+      assert.doesNotMatch(run.stdout, /passed cleanly/);
+    });
+  });
+
+  test('a tarball missing a required file fails the verifier', () => {
+    withVerifier((dir) => {
+      packFixtureTarball(dir, REQUIRED_ENTRIES.filter((entry) => entry !== 'dist/src/index.js'));
+      const run = runVerifier(dir);
+      assert.notStrictEqual(
+        run.status,
+        0,
+        'a tarball missing dist/src/index.js must fail the publish',
+      );
+      assert.match(run.stderr, /Missing required tarball file/);
+      assert.doesNotMatch(run.stdout, /passed cleanly/);
+    });
   });
 });
