@@ -19,7 +19,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { validHotMemoryRule } from '../src/validation/rules/valid-hot-memory';
 import { safeVaultPathsRule } from '../src/validation/rules/safe-vault-paths';
-import { displayValue, formatDiagnosticValue, toJsonSafeValue } from '../src/validation/rules/diagnostic-value';
+import { displayValue, formatDiagnosticValue, toJsonSafeValue } from '../src/diagnostic-value';
 import type { ValidationContext } from '../src/validation/types';
 import type { LoadedTopic } from '../src/storage/loader';
 import type { LoadedSession } from '../src/storage/sessions';
