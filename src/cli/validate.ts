@@ -22,7 +22,7 @@ import {
   rebuildHotAndIndex,
 } from '../storage';
 import type { LoadedTopic } from '../storage';
-import { computeTopicMastery } from '../engine/mastery';
+import { computeTopicMastery, PILLAR_KEYS } from '../engine/mastery';
 
 /** One field-level repair performed by `--fix` (additive JSON report entry). */
 interface Sm2RepairEntry {
@@ -97,8 +97,12 @@ const EXPLICIT_MANUAL_REPAIRS: readonly string[] = ['valid-review-fields'];
 /** Derived projections rebuilt by the `rebuild_derived_views` repair. */
 const DERIVED_VIEW_LABELS = ['.palee/hot.md', '.palee/index.md'];
 
-/** Assessment pillar fields, in `computeTopicMastery`'s argument order. */
-const MASTERY_PILLARS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+/**
+ * Assessment pillar fields, in `computeTopicMastery`'s argument order — the
+ * engine's `PILLAR_KEYS` itself, not a local copy, so the repair recomputes
+ * over exactly the pillars the mastery engine reads (#565 P3-09).
+ */
+const MASTERY_PILLARS = PILLAR_KEYS;
 
 /**
  * Which repairs a `--fix` pass may run, resolved from rule metadata.
