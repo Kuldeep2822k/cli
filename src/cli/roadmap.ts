@@ -31,6 +31,7 @@ import {
 } from '../storage/source-cap';
 import type { AtomicWriteOptions } from '../storage/atomic-write';
 import { detectCyclesBounded } from '../engine/dependency';
+import { buildTopicScaffold } from '../engine/topic-scaffold';
 import { isValidTopicId } from '../engine/topic-id';
 import { RoadmapOptions, RoadmapTopic, RoadmapFile, TopicNode, ResolvedTopicUpdates } from '../types';
 
@@ -281,6 +282,12 @@ function declaredIdOfNote(absolutePath: string):
  * `0.0`: `doImport` drops `undefined` keys so the import cannot mint assessment
  * data, which is the precondition `valid-topic-mastery` (#37) skips on (#191).
  *
+ * The SM-2 review block is not spelled out here: the seven scheduling keys come
+ * from the engine's `buildTopicScaffold(existingAtPath)` (P3-10) — a key the note
+ * carries passes through verbatim, an absent or null key gets the adoption
+ * scaffold default — the same defaults adoption writes and `validate --fix`
+ * resets to.
+ *
  * @param input - Roadmap topic plus its existing on-disk context
  * @returns Effective values for every frontmatter field the import writes;
  * `undefined` for a field that must be left unwritten
@@ -300,13 +307,8 @@ function resolveTopicUpdates(input: ResolveTopicInput): ResolvedTopicUpdates {
     practical: existingAtPath.practical,
     debug: existingAtPath.debug,
     feynman: existingAtPath.feynman,
-    ease_factor: existingAtPath.ease_factor ?? 2.5,
-    interval_days: existingAtPath.interval_days ?? 1,
-    repetition: existingAtPath.repetition ?? 0,
-    lapses: existingAtPath.lapses ?? 0,
-    last_quality: existingAtPath.last_quality ?? null,
-    last_reviewed_at: existingAtPath.last_reviewed_at ?? null,
-    due_at: existingAtPath.due_at ?? null,
+    // Spread at this position so the written key order is unchanged (P3-10).
+    ...buildTopicScaffold(existingAtPath),
   };
 }
 

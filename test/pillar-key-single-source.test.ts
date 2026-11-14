@@ -26,6 +26,13 @@ import * as recordAssessment from '../src/application/record-assessment';
  * `engine-import-boundary.test.ts`: no file outside the canonical engine
  * module may carry a quoted four-pillar list, and each named consumer must
  * import `PILLAR_KEYS` from a module resolving into `src/engine/`.
+ *
+ * P3-10 amended the mechanism for one consumer, not the invariant: the pillar
+ * list inside `src/cli/adopt-undo.ts`'s strip set moved with `PALEE_OWNED_KEYS`
+ * itself into `src/engine/topic-scaffold.ts`, whose set splices the engine's
+ * `PILLAR_KEYS` in. So `adopt-undo` satisfies this guard transitively — it must
+ * import `PALEE_OWNED_KEYS` from `src/engine/`, and `topic-scaffold-single-
+ * source.test.ts` pins that the imported set really does carry the pillars.
  */
 
 const root = path.resolve(__dirname, '..');
@@ -74,9 +81,11 @@ function resolvesTo(fromRel: string, specifier: string): string {
 }
 
 /**
- * True when the file imports the identifier `PILLAR_KEYS` from a relative
- * specifier resolving into `src/engine/`. The brace-body match spans newlines,
- * so multi-line import blocks are covered.
+ * True when the file imports the pillar list from a relative specifier
+ * resolving into `src/engine/` — either `PILLAR_KEYS` directly (the P3-09
+ * wiring) or `PALEE_OWNED_KEYS` from the topic-scaffold module (the P3-10
+ * wiring, whose set splices the engine's `PILLAR_KEYS` in). The brace-body
+ * match spans newlines, so multi-line import blocks are covered.
  */
 function importsPillarKeysFromEngine(rel: string, text: string): boolean {
   const importMatches = [
@@ -87,7 +96,7 @@ function importsPillarKeysFromEngine(rel: string, text: string): boolean {
       .split(',')
       .map((name) => name.trim())
       .filter((name) => name.length > 0);
-    if (!names.includes('PILLAR_KEYS')) continue;
+    if (!names.includes('PILLAR_KEYS') && !names.includes('PALEE_OWNED_KEYS')) continue;
     const resolved = resolvesTo(rel, match[2] ?? '');
     if (resolved === 'src/engine' || resolved.startsWith('src/engine/')) return true;
   }
@@ -123,12 +132,12 @@ describe('pillar-key single source (P3-09, #565)', () => {
     );
   });
 
-  test('each P3-09 consumer imports PILLAR_KEYS from the engine and defines no local copy', () => {
+  test('each P3-09 consumer gets the pillar list from the engine and defines no local copy', () => {
     const problems: string[] = [];
     for (const rel of CONSUMER_FILES) {
       const text = readSource(rel);
       if (!importsPillarKeysFromEngine(rel, text)) {
-        problems.push(`${rel} does not import PILLAR_KEYS from src/engine/`);
+        problems.push(`${rel} does not import PILLAR_KEYS (or PALEE_OWNED_KEYS) from src/engine/`);
       }
       const copies = hardcodedPillarCopies(text);
       if (copies.length > 0) {
@@ -188,6 +197,22 @@ describe('pillar-key single source (P3-09, #565)', () => {
       importsPillarKeysFromEngine('src/cli/validate.ts', engineImport),
       true,
       'the rewired import must be recognised'
+    );
+    // The P3-10 transit: adopt-undo now consumes the pillars through the
+    // centralized owned-key set, imported from the topic-scaffold engine module.
+    const transitImport = "import { PALEE_OWNED_KEYS } from '../engine/topic-scaffold';";
+    assert.strictEqual(
+      importsPillarKeysFromEngine('src/cli/adopt-undo.ts', transitImport),
+      true,
+      'the PALEE_OWNED_KEYS import from the topic-scaffold module must count'
+    );
+    assert.strictEqual(
+      importsPillarKeysFromEngine(
+        'src/cli/adopt-undo.ts',
+        "import { PALEE_OWNED_KEYS } from './topic-scaffold';"
+      ),
+      false,
+      "'./topic-scaffold' inside src/cli resolves outside src/engine and must not count"
     );
     assert.strictEqual(
       importsPillarKeysFromEngine(
