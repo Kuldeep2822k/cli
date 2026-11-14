@@ -11,37 +11,9 @@ import readline from 'readline';
 import { PaleeConfig, NodeError } from '../types';
 import { ExitCode, exitCodeFor } from './exit-codes';
 import { isJsonOutput, emitError } from './onboarding';
+import { getConfigPath } from './config-path';
+import { isAffirmativeEnvFlag } from './env-flag';
 import { API_KEY_ENV, OpenAICompatibleProvider, describeForeignText, isSendable, normalizeProviderEndpoint, resolveProviderSettings } from '../ai';
-
-/**
- * Resolves the platform-specific path to the PALEE config JSON file.
- *
- * @returns The absolute file path to config.json.
- * @throws {Error} If LOCALAPPDATA environment variable is missing on Windows.
- *
- * @remarks
- * Checks `PALEE_CONFIG_DIR`, defaulting to `%LOCALAPPDATA%/palee` on Windows or `~/.config/palee` on POSIX.
- *
- * @example
- * ```typescript
- * const configPath = getConfigPath();
- * ```
- */
-function getConfigPath(): string {
-  if (process.env.PALEE_CONFIG_DIR) {
-    return path.join(process.env.PALEE_CONFIG_DIR, 'config.json');
-  }
-
-  if (process.platform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (!localAppData) {
-      throw new Error('LOCALAPPDATA environment variable not set');
-    }
-    return path.join(localAppData, 'palee', 'config.json');
-  } else {
-    return path.join(os.homedir(), '.config', 'palee', 'config.json');
-  }
-}
 
 /**
  * The directories a Windows user's own files live under — the roots a
@@ -82,6 +54,22 @@ function isConfigDirStorableForKey(dir: string, roots: string[]): boolean {
     if (!rel.startsWith('..') && !path.win32.isAbsolute(rel)) return true;
   }
   return false;
+}
+
+/**
+ * Decides whether the Windows profile-location refusal is overridden.
+ *
+ * @param value - The raw `PALEE_ALLOW_INSECURE_CONFIG_DIR` value.
+ * @returns `true` only for `1` and `true` (trimmed, case-insensitive).
+ *
+ * @remarks
+ * Truthiness used to be the whole test, so `=0` and `=false` — the conventional
+ * false spellings — disarmed the guard and stored the key outside the profile.
+ * Only `1` and `true` opt in; every other value, including an empty one, keeps
+ * the refusal active.
+ */
+function isInsecureConfigDirAllowed(value: string | undefined): boolean {
+  return isAffirmativeEnvFlag(value, { trim: true });
 }
 
 /**
@@ -881,7 +869,7 @@ async function configCommand(
       // to write the key there rather than store it where another principal can
       // read it (#316). The override is for a directory the user has secured by
       // other means, which this location heuristic cannot see.
-      if (process.platform === 'win32' && !process.env.PALEE_ALLOW_INSECURE_CONFIG_DIR) {
+      if (process.platform === 'win32' && !isInsecureConfigDirAllowed(process.env.PALEE_ALLOW_INSECURE_CONFIG_DIR)) {
         const dir = path.dirname(getConfigPath());
         const roots = profileRoots();
         if (!isConfigDirStorableForKey(dir, roots)) {
@@ -1012,5 +1000,5 @@ async function configCommand(
 
 // `withConfigLock` is exported for the lock's own tests; command handlers reach
 // it through the mutating arms of {@link configCommand}.
-export { loadConfig, saveConfig, isConfigDirStorableForKey, getConfigPath, withConfigLock };
+export { loadConfig, saveConfig, isConfigDirStorableForKey, isInsecureConfigDirAllowed, getConfigPath, withConfigLock };
 export default configCommand;

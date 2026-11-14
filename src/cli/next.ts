@@ -1,5 +1,6 @@
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { sanitizeForDisplay } from './display-safety';
 import { exitCodeFor } from './exit-codes';
 /**
  * Next Command Handler
@@ -148,9 +149,9 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
         const dueStr = topic.dueAt
           ? topic.dueAt.toISOString().split('T')[0]
           : 'Never reviewed';
-        console.log(`  ${topic.id} - ${topic.title}`);
+        console.log(`  ${sanitizeForDisplay(topic.id)} - ${sanitizeForDisplay(topic.title)}`);
         console.log(`    Due: ${dueStr} | Mastery: ${(topic.mastery * 100).toFixed(1)}% | Reps: ${topic.repetition}`);
-        console.log(`    Path: ${topic.path}`);
+        console.log(`    Path: ${sanitizeForDisplay(String(topic.path ?? ''))}`);
         console.log();
       }
     } else {
@@ -166,12 +167,12 @@ async function nextCommand(options: NextOptions = {}): Promise<void> {
 
       console.log('Next topic due for review:');
       console.log();
-      console.log(`  ${next.title}`);
-      console.log(`  ID: ${next.id}`);
+      console.log(`  ${sanitizeForDisplay(next.title)}`);
+      console.log(`  ID: ${sanitizeForDisplay(next.id)}`);
       console.log(`  Due: ${dueStr}`);
       console.log(`  Mastery: ${(next.mastery * 100).toFixed(1)}%`);
       console.log(`  Repetitions: ${next.repetition}`);
-      console.log(`  Path: ${next.path}`);
+      console.log(`  Path: ${sanitizeForDisplay(String(next.path ?? ''))}`);
       console.log();
     }
 
@@ -205,7 +206,7 @@ function printBlockedTopics(
 ): void {
   console.log('Nothing to review — every due topic is blocked by prerequisites:\n');
   for (const topic of blockedTopics.slice(0, 5)) {
-    console.log(`  • ${topic.title} (${topic.id}) — waiting on ${topic.waiting_on.join('; ')}`);
+    console.log(`  • ${sanitizeForDisplay(topic.title)} (${sanitizeForDisplay(topic.id)}) — waiting on ${sanitizeForDisplay(topic.waiting_on.join('; '))}`);
   }
   if (blockedTopics.length > 5) {
     console.log(`  ... and ${blockedTopics.length - 5} more`);
