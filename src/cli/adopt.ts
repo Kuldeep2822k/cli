@@ -27,6 +27,7 @@ import { foldIdentity } from '../storage/vault-walker';
 import { tallyPatterns, type PatternTally } from '../storage/pattern-matcher';
 import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
 import { resolveTopicMastery, carriedPillarScores } from '../engine/mastery';
+import { buildTopicScaffold } from '../engine/topic-scaffold';
 import { generateTopicId, isValidTopicId } from '../engine/topic-id';
 import { planAutoChainWithHygiene } from '../engine/auto-chain';
 import {
@@ -461,13 +462,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         ...pillars,
-        ease_factor: 2.5,
-        interval_days: 1,
-        repetition: 0,
-        lapses: 0,
-        last_quality: null,
-        last_reviewed_at: null,
-        due_at: null,
+        // The never-reviewed SM-2 scaffold, from the engine's one builder (P3-10) —
+        // spread at this position so the written key order is unchanged.
+        ...buildTopicScaffold(),
       };
 
       // `declared` is the label that already means "the learner wrote this list"
@@ -1251,13 +1248,9 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
         topic_mastery: topicMastery,
         assessed_at: normalizeAssessedAt(frontmatter?.assessed_at),
         ...carriedPillarScores(frontmatter),
-        ease_factor: 2.5,
-        interval_days: 1,
-        repetition: 0,
-        lapses: 0,
-        last_quality: null,
-        last_reviewed_at: null,
-        due_at: null,
+        // The never-reviewed SM-2 scaffold, from the engine's one builder (P3-10) —
+        // spread at this position so the written key order is unchanged.
+        ...buildTopicScaffold(),
       };
 
       // C5 (PAL-205-C): additive provenance label. Only notes whose chain
