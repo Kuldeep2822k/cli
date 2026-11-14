@@ -202,9 +202,26 @@ export function isLoopbackHost(hostname: string): boolean {
  * Control characters are stripped next — an ANSI escape is not whitespace, so
  * collapsing whitespace alone still lets a provider body forge terminal output and
  * cursor moves (INV-30). Finally the length bound.
+ *
+ * Two spellings of the credential are masked. Foreign text is usually JSON — the raw
+ * response body, a serialized error envelope — and inside a JSON string literal
+ * `JSON.stringify` spells `"` as `\"` and `\` as `\\`, both of which `isSendable` permits
+ * in a key: the same fact the parsed-reply masking in `OpenAICompatibleProvider` records.
+ * A body quoting the key back inside its `message` field carries only the escaped
+ * spelling, so a raw-spelling match alone would print the key with the very error that
+ * reports it (#565 P3-04). The escaped spelling is masked first: it is the longer of the
+ * two and contains the raw one as a prefix when the key ends in backslashes, and masking
+ * the raw spelling first would strand that fragment of the escaped occurrence.
  */
 export function describeForeignText(secret: string | undefined, text: string): string {
-  const masked = secret && secret.length > 0 ? text.split(secret).join('***') : text;
+  let masked = text;
+  if (secret && secret.length > 0) {
+    // `JSON.stringify` returns a quoted literal for every string, so the slice drops
+    // exactly the delimiters and leaves the spelling a JSON body would carry.
+    const escaped = JSON.stringify(secret).slice(1, -1);
+    if (escaped !== secret) masked = masked.split(escaped).join('***');
+    masked = masked.split(secret).join('***');
+  }
   const printable = masked
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '?')

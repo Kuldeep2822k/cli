@@ -700,6 +700,33 @@ describe('redaction of every foreign string (#24)', () => {
     assert.ok(described.includes('***'), described);
   });
 
+  test('a key echoed inside a JSON body is masked in its JSON-escaped spelling (#565 P3-04)', () => {
+    // `isSendable` permits `"` and `\`, and inside a JSON string literal `JSON.stringify`
+    // spells those as `\"` and `\\` — the raw spelling never occurs in the text. A
+    // single `split(secret)` therefore hunts for a sequence the body does not contain
+    // and the key survives the snippet printed with the provider error.
+    const key = 'testkey-"\\-echo-9d41';
+    const body = JSON.stringify({
+      error: { message: `bad key ${key} supplied`, type: 'invalid_request_error' },
+    });
+    const described = describeForeignText(key, body);
+    assert.ok(!described.includes('9d41'), `the escaped key survived redaction: ${described}`);
+    assert.ok(!described.includes(key), described);
+    assert.ok(described.includes('***'), described);
+  });
+
+  test('masking the escaped spelling first leaves no fragment of it behind', () => {
+    // A key ending in a backslash escapes to a spelling that *contains* the raw one as a
+    // prefix (`abc-\` escapes to `abc-\\`). Masking the raw spelling first consumes only
+    // that prefix and strands the trailing `\` of the escaped occurrence; masking the
+    // escaped spelling first consumes the whole occurrence before the raw pass runs.
+    const key = 'abc-\\';
+    const body = JSON.stringify({ message: `key ${key} accepted` });
+    const described = describeForeignText(key, body);
+    assert.ok(!described.includes('\\'), `a fragment of the escaped key survived: ${described}`);
+    assert.ok(described.includes('***'), described);
+  });
+
   test('an ANSI escape from a provider body cannot forge terminal output (INV-30)', () => {
     const described = describeForeignText(undefined, 'done\u001b[2J\u001b]0;pwned\u0007');
     // ESC is not whitespace: collapsing whitespace alone would leave the sequence intact.
@@ -714,6 +741,32 @@ describe('redaction of every foreign string (#24)', () => {
       (err: unknown) => {
         assert.ok(err instanceof ProviderError);
         assert.ok(!err.message.includes(KEY), err.message);
+        assert.match(err.message, /\*\*\*/);
+        return true;
+      }
+    );
+  });
+
+  test('a 401 body quoting the key inside its JSON message field is reported without it', async () => {
+    // The body arrives as raw JSON text, so the key reaches describeForeignText only in
+    // its JSON-escaped spelling — the exact shape a gateway echoes when the credential is
+    // wrong (#565 P3-04). Before the escaped-spelling mask, the snippet on the
+    // ProviderError carried the key verbatim.
+    const trickyKey = 'testkey-"\\-leak-4b2e';
+    const body = JSON.stringify({
+      error: { message: `invalid key ${trickyKey} supplied`, type: 'invalid_request_error' },
+    });
+    const { transport } = recorder(() => new Response(body, { status: 401 }));
+    const p = new OpenAICompatibleProvider(
+      resolveProviderSettings({ baseUrl: 'https://gw.example/v1', apiKey: trickyKey }, {}),
+      { transport }
+    );
+    await assert.rejects(
+      () => p.complete({ messages: [{ role: 'user', content: 'x' }] }),
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderError);
+        assert.ok(!err.message.includes('4b2e'), err.message);
+        assert.ok(!err.message.includes(trickyKey), err.message);
         assert.match(err.message, /\*\*\*/);
         return true;
       }
