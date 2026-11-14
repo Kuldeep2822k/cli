@@ -96,7 +96,7 @@ Modules: 60 · internal edges: 216 (33 type-only) · produced by `node scripts/a
 - src/index -> src/storage/index
 - src/index -> src/validation/index
 
-## Layer order permitted by agent.md:9-16
+## Layer order permitted by AGENTS.md:9-16
 
 Each row lists the layers the source layer may import.
 

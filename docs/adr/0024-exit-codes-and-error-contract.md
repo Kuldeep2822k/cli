@@ -34,7 +34,7 @@ The provider mapping lives in the classifier rather than at each call site, so t
 
 ### `process.exitCode`, never `process.exit`, on every handled path
 
-The Commander usage-error branch immediately above the JSON one already used `process.exitCode = N; return` to avoid exactly the truncation — the policy is stated in `agent.md` and is now uniform. The only `process.exit` left is the fatal top-level 5, where flushing is moot.
+The Commander usage-error branch immediately above the JSON one already used `process.exitCode = N; return` to avoid exactly the truncation — the policy is stated in `AGENTS.md` and is now uniform. The only `process.exit` left is the fatal top-level 5, where flushing is moot.
 
 ### JSON mode is detected from the parsed options, not argv
 

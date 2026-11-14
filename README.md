@@ -302,12 +302,7 @@ PALEE_JSON=1 palee next | jq -r '.next.path'
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-Detailed contribution guidelines will be added with the implementation source.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and clone-to-green verification steps. Repository conventions and design constraints live in [AGENTS.md](AGENTS.md).
 
 ## License
 

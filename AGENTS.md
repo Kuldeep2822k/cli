@@ -90,3 +90,5 @@ Tests use real temp dirs (`fs.mkdtempSync`), CLI tests spawn `process.execPath` 
 - Commit messages are one line, two at most — a subject that says plainly what the commit did (`fix(engine): cap SM-2 intervals`, `fix(storage): fold the lock key`, `chore: remove dead code`). No paragraph bodies: reasoning belongs in the PR description or an ADR, not the commit log.
 
 Reference docs for design intent: `planning/palee_cli_spec.md`, `planning/invariants.md` (authoritative acceptance criteria), `planning/storage_design.md`, `planning/memory_design.md`, `planning/PHASE_2_GAPS.md`. Cite invariants by their stable `INV-nn` id (e.g. `INV-25`), never by document line number or bare `#NN` — line numbers shift silently on any edit and `#NN` already means a GitHub issue; `test/planning-invariant-ids.test.ts` enforces this.
+
+Contribution workflow and the clone-to-green checklist live in [CONTRIBUTING.md](CONTRIBUTING.md).
