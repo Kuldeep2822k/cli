@@ -27,60 +27,15 @@ import {
   loadSessions,
 } from '../storage';
 import { noteExceedsReadCap, noteContentExceedsReadCap, oversizedNoteDiagnostic, oversizedWriteDiagnostic, MAX_NOTE_SOURCE_BYTES } from '../storage/source-cap';
-import { PILLAR_KEYS } from '../engine/mastery';
+// The one owned-key set (P3-10 of audit issue #565): defined in
+// `src/engine/topic-scaffold.ts` beside the scaffold builder both adoption
+// paths write with, so this strip list can never drift from what adoption
+// writes — its pillar middle is the engine's `PILLAR_KEYS` (P3-09) and its
+// SM-2 middle is the builder's own key order. Why each key is owned, why
+// `title` is deliberately absent, and why removing the scheduling keys is
+// correct even for a note reviewed since adoption: see that module's docs.
+import { PALEE_OWNED_KEYS } from '../engine/topic-scaffold';
 import { AdoptOptions } from '../types';
-
-/**
- * The frontmatter keys `--undo` removes, in the order `adopt.ts` writes them.
- *
- * @remarks
- * This set is read off the code, not off the prose. The entries are exactly what
- * the two adoption paths in `src/cli/adopt.ts` hand to `updateFrontmatter`
- * (`palee_id`, `palee_schema`, `difficulty`, `depends_on`, `topic_mastery`,
- * `assessed_at`, the four pillars, `ease_factor`, `interval_days`, `repetition`,
- * `lapses`, `last_quality`, `last_reviewed_at`, `due_at`), which is also the order
- * documented for the flat topic note, plus `depends_on_source`, the provenance
- * label adoption writes whenever it lays an edge and `migrate --relabel-ties`
- * rewrites. Keys adoption never writes — `topic`, `track`, `status`,
- * `dependencies`, `assessment`, `review` — are deliberately NOT on this list:
- * reversal must restore only what adoption added, so a note the learner later
- * hand-annotated with any of those keeps them byte-for-byte (#299).
- *
- * The SM-2 scheduling keys (`ease_factor` … `due_at`) are adoption-written
- * scaffolding, so `--undo` removes them to restore the pre-adoption note. A note
- * reviewed since adoption therefore loses that accumulated review state on undo —
- * that is intrinsic to reversing the adoption, not a leak of a key PALEE did not
- * own; `--undo --dry-run` previews exactly what will go first.
- *
- * `title` is absent from the list above and is kept by default. Adoption writes
- * it, but it is not on the owned list, it is a key Obsidian authors write by hand,
- * and adoption preserves the note's own value when it has one — so reversal cannot
- * tell a minted title from an authored one. `migrate --relabel-ties` meets the same
- * shape and refuses to guess ("only the user can say whether they were adopted or
- * typed by hand"), so this command does the same thing: it leaves the key, says it
- * left it, and hands the judgement back through `--drop-title`.
- *
- * The four pillar names are spliced in from the engine's `PILLAR_KEYS`
- * (`src/engine/mastery.ts`) rather than retyped here, so the removal list can
- * never drift from the keys the mastery engine itself reads (#565 P3-09).
- */
-const PALEE_OWNED_KEYS: readonly string[] = [
-  'palee_id',
-  'palee_schema',
-  'difficulty',
-  'depends_on',
-  'topic_mastery',
-  'assessed_at',
-  ...PILLAR_KEYS,
-  'ease_factor',
-  'interval_days',
-  'repetition',
-  'lapses',
-  'last_quality',
-  'last_reviewed_at',
-  'due_at',
-  'depends_on_source',
-];
 
 /** The display title `adopt` minted but does not own; removed only on request. */
 const TITLE_KEY = 'title';
