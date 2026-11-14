@@ -954,7 +954,11 @@ function getDrafts(vaultPath: string): string[] {
  * @param vaultPath - Vault root path
  * @param draftPath - Path to draft checkpoint note
  * @param action - Action to take: `'save'`, `'discard'`, `'resume'`, or `'ignore'`
- * @returns Promise resolving when draft recovery action is executed
+ * @returns Promise resolving to `true` when the draft reached the state the
+ *   action asked for — unlinked (`discard`, `save`), or deliberately kept
+ *   (`resume`, `ignore`) — and `false` when a requested unlink was skipped
+ *   because the target's lock is held by a live writer, leaving the draft in
+ *   place for its holder
  * @remarks If saving, validates draft start recency (clamping timestamps in the future or older than 24h).
  * @example
  * ```typescript
@@ -965,16 +969,17 @@ async function recoverDraft(
   vaultPath: string,
   draftPath: string,
   action: DraftRecoveryAction
-): Promise<void> {
-  if (!fs.existsSync(draftPath)) return;
+): Promise<boolean> {
+  if (!fs.existsSync(draftPath)) return true; // Already gone — the requested end state holds.
 
   if (action === 'discard') {
-    deleteSessionNote(vaultPath, draftPath);
-    return;
+    // A `false` here means the target lock is held: the draft stays for its
+    // holder, and the caller must treat the choice as not yet applied.
+    return deleteSessionNote(vaultPath, draftPath);
   }
 
   if (action === 'ignore') {
-    return;
+    return true; // Deliberate keep — the draft is resolved by choice.
   }
 
   if (action === 'save') {
@@ -1110,14 +1115,19 @@ async function recoverDraft(
     // the unlink itself fails the draft survives and the pass above recognises the
     // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
-    deleteSessionNote(vaultPath, draftPath);
-    return;
+    return deleteSessionNote(vaultPath, draftPath);
   }
 
   if (action === 'resume') {
-    // Keep draft for resumption
-    return;
+    // Keep draft for resumption — resolved by choice.
+    return true;
   }
+
+  // `DraftRecoveryAction` is a closed four-member union and every member
+  // returns above. This line keeps the boolean contract total if the union
+  // ever grows with a member that leaves the draft untouched: such an action
+  // must report unresolved rather than fall off the end.
+  return false;
 }
 
 /**

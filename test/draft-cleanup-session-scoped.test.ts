@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { deleteSessionNote, deleteTopicDrafts, Lock } from '../src/storage';
+import { deleteSessionNote, deleteTopicDrafts, recoverDraft, Lock } from '../src/storage';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 /**
@@ -155,6 +155,48 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     // Once released, the same unlink succeeds.
     assert.strictEqual(deleteSessionNote(vaultDir, draft), true);
     assert.strictEqual(fs.existsSync(draft), false);
+  });
+
+  test('recoverDraft reports a discard skipped by the target lock', async () => {
+    const draft = writeDraft('DRAFT-S-gggg0011', 'T-scoped', minutesAgo(10));
+
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      // The deciding assertion: the discard could not take the target's lock,
+      // so the choice is reported as not applied. The pre-fix `recoverDraft`
+      // resolved void here, and the interactive flow would start a session on
+      // top of a draft the user asked to discard.
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'discard'), false);
+      assert.strictEqual(fs.existsSync(draft), true, 'a locked draft must survive a skipped discard');
+    } finally {
+      lock.release();
+    }
+    // Once the holder is done, the same discard applies.
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'discard'), true);
+    assert.strictEqual(fs.existsSync(draft), false);
+  });
+
+  test('recoverDraft reports deliberate keeps and a save skipped by the lock', async () => {
+    const kept = writeDraft('DRAFT-S-hhhh0012', 'T-scoped', minutesAgo(10));
+    assert.strictEqual(await recoverDraft(vaultDir, kept, 'ignore'), true);
+    assert.strictEqual(await recoverDraft(vaultDir, kept, 'resume'), true);
+    assert.strictEqual(fs.existsSync(kept), true, 'ignore and resume keep the draft by choice');
+
+    const saved = writeDraft('DRAFT-S-iiii0013', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, saved);
+    try {
+      await lock.acquire();
+      // The save itself lands (the session note is written before the draft is
+      // retired), but the retiring unlink is skipped while the lock is held.
+      assert.strictEqual(await recoverDraft(vaultDir, saved, 'save'), false);
+      assert.strictEqual(fs.existsSync(saved), true, 'a locked draft must survive a skipped retirement');
+    } finally {
+      lock.release();
+    }
+    // The retry is recognized as already saved (#328) and retires the draft.
+    assert.strictEqual(await recoverDraft(vaultDir, saved, 'save'), true);
+    assert.strictEqual(fs.existsSync(saved), false);
   });
 
   test('session end deletes exactly the drafts its note records; a draft created after the scan survives', async () => {
