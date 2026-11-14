@@ -13,7 +13,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { isValidAssessedAt } from './assessed-at';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 
 /** Assessment score fields covered by this rule. */
 const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
