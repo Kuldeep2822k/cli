@@ -36,7 +36,7 @@
 import type { ValidationRule, ValidationIssue } from '../types';
 import { SUPPORTED_SCHEMA_VERSION } from '../../engine/topic-id';
 import { isRealCalendarDate } from './assessed-at';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 import type { LoadedSession } from '../../storage/sessions';
 
 /** Required fields every session note must carry. */

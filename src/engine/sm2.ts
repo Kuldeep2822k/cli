@@ -9,7 +9,9 @@
  */
 
 import { Review } from '../types';
-import { formatDiagnosticValue } from '../validation/rules/diagnostic-value';
+// The neutral diagnostic module below both layers (P3-12): the engine must
+// not import the validation layer while validation rules import the engine.
+import { formatDiagnosticValue } from '../diagnostic-value';
 
 /**
  * Ceiling on a computed `interval_days`, in days (100 years).
