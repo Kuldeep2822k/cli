@@ -1842,8 +1842,15 @@ async function adoptCommand(targetPath?: string, options: AdoptOptions = {}): Pr
       const freshFingerprint = computeFingerprint(freshContent);
       const { frontmatter } = parseFrontmatter(freshContent);
 
-      if (frontmatter && frontmatter.palee_id) {
-        // Any truthy id, of any YAML type: the scan's B7 rule treats a
+      // P3-13 review (#565): presence, not truthiness — the scan's B7 rule and
+      // `--undo` both treat 0, false, and "" as values PALEE does not own, and
+      // this re-read judges them the same way. A bare truthy gate let them
+      // through to `composeAdoptedNote`, which minted a replacement id over the
+      // editor's value and stored the edited bytes' fingerprint as the write
+      // baseline, so no OCC conflict could catch it.
+      const existingPaleeId = frontmatter?.palee_id;
+      if (existingPaleeId !== undefined && existingPaleeId !== null) {
+        // Any present id, of any YAML type: the scan's B7 rule treats a
         // non-string id as identity too, and neither is this command's to overwrite.
         driftedDuringRun.push({ relativePath: note.relativePath, reason: 'a palee_id is now declared' });
         continue;
