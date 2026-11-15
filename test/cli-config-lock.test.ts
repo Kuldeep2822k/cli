@@ -262,6 +262,114 @@ describe('config lock semantics (in process)', () => {
     assert.strictEqual(ExitCode.Conflict, 4);
   });
 
+  test('a transient Windows EPERM on lock creation is contention, not an unexpected failure', async () => {
+    // Windows reports a lock entry whose handle another process still holds as
+    // EPERM/EBUSY instead of EEXIST — the window between a holder's unlink and
+    // the name becoming creatable again. This is the code path the Windows Node
+    // 24 CI failure took to exit 5 (#620), injected deterministically here at
+    // the real `openSync` primitive: one denial, with the foreign lock released
+    // at the same instant, so the retry must find a free name.
+    const configDir = freshConfigDir();
+    const lockPath = writeForeignLock(configDir, 'windows-holder');
+    const realOpenSync = fs.openSync;
+    const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    assert.ok(realPlatform !== undefined);
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
+    let denials = 0;
+    (fs as any).openSync = (target: unknown, flags?: unknown, mode?: unknown): number => {
+      if (target === lockPath && flags === 'wx' && denials === 0) {
+        denials += 1;
+        const err = new Error(`EPERM: operation not permitted, open '${lockPath}'`) as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        err.syscall = 'open';
+        err.path = lockPath;
+        fs.unlinkSync(lockPath);
+        throw err;
+      }
+      return (realOpenSync as (...a: unknown[]) => number)(target, flags, mode);
+    };
+    try {
+      const result = await withConfigLock(() => 'acquired-despite-EPERM', { timeoutMs: 5000, staleMs: 60000 });
+      assert.strictEqual(result, 'acquired-despite-EPERM');
+      assert.strictEqual(denials, 1, 'the fault must have fired exactly once');
+    } finally {
+      (fs as any).openSync = realOpenSync;
+      Object.defineProperty(process, 'platform', realPlatform);
+    }
+  });
+
+  test('a persistent Windows EPERM still ends as a bounded conflict, never a success', async () => {
+    const configDir = freshConfigDir();
+    const lockPath = writeForeignLock(configDir, 'permanent-denial');
+    const realOpenSync = fs.openSync;
+    const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    assert.ok(realPlatform !== undefined);
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
+    let denials = 0;
+    (fs as any).openSync = (target: unknown, flags?: unknown, mode?: unknown): number => {
+      if (target === lockPath && flags === 'wx') {
+        denials += 1;
+        const err = new Error(`EPERM: operation not permitted, open '${lockPath}'`) as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        throw err;
+      }
+      return (realOpenSync as (...a: unknown[]) => number)(target, flags, mode);
+    };
+    try {
+      const startedAt = Date.now();
+      const error = await withConfigLock(() => 'never', { timeoutMs: 300, staleMs: 60000 }).then(
+        () => {
+          assert.fail('acquisition must not succeed under a permanent denial');
+        },
+        (e: unknown) => e
+      );
+      const elapsed = Date.now() - startedAt;
+      assert.strictEqual(
+        (error as NodeError).code,
+        'ECONFLICT',
+        'the deadline bounds the retry and reports the lock-conflict class'
+      );
+      assert.ok(denials >= 1, `the denial must have been observed, saw ${denials}`);
+      assert.ok(elapsed >= 250, `the wait must be bounded by timeoutMs, saw ${elapsed}ms`);
+      assert.ok(elapsed < 10_000, `the wait must not be unbounded, saw ${elapsed}ms`);
+    } finally {
+      (fs as any).openSync = realOpenSync;
+      Object.defineProperty(process, 'platform', realPlatform);
+    }
+  });
+
+  test('the same EPERM is not retried on POSIX, where it means a real permission problem', async () => {
+    const configDir = freshConfigDir();
+    const lockPath = writeForeignLock(configDir, 'posix-denial');
+    const realOpenSync = fs.openSync;
+    const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    assert.ok(realPlatform !== undefined);
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
+    let denials = 0;
+    (fs as any).openSync = (target: unknown, flags?: unknown, mode?: unknown): number => {
+      if (target === lockPath && flags === 'wx') {
+        denials += 1;
+        const err = new Error(`EPERM: operation not permitted, open '${lockPath}'`) as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        throw err;
+      }
+      return (realOpenSync as (...a: unknown[]) => number)(target, flags, mode);
+    };
+    try {
+      const error = await withConfigLock(() => 'never', { timeoutMs: 5000, staleMs: 60000 }).then(
+        () => {
+          assert.fail('a POSIX permission problem must fail');
+        },
+        (e: unknown) => e
+      );
+      assert.strictEqual((error as NodeError).code, 'EPERM', 'the original failure surfaces unchanged');
+      assert.strictEqual(denials, 1, 'no retry budget is spent on a POSIX EPERM');
+    } finally {
+      (fs as any).openSync = realOpenSync;
+      Object.defineProperty(process, 'platform', realPlatform);
+    }
+  });
+
   test('release leaves a lock that was stolen from its owner alone', async () => {
     const configDir = freshConfigDir();
     let releaseHold: () => void = () => {};

@@ -362,7 +362,19 @@ async function acquireConfigLock(
         },
       };
     } catch (e: unknown) {
-      if ((e as NodeError).code !== 'EEXIST') throw e;
+      const code = (e as NodeError).code;
+      // Windows reports a lock entry whose handle another process still holds —
+      // an unlink in flight, an AV or indexer touch — as EPERM/EBUSY on create,
+      // not the EEXIST that means "someone holds the lock". `Lock` classifies
+      // the same codes as transient handle contention (src/storage/lock.ts),
+      // and treating them as fatal here turned a lost race into exit 5 (#620).
+      // The denial still goes through the bounded wait below: a permission
+      // problem that never clears ends at the deadline as ECONFLICT, never as
+      // a successful acquisition. On POSIX these codes mean a real permission
+      // or mount problem, so they are rethrown untouched.
+      const transientHandleDenial =
+        process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY');
+      if (code !== 'EEXIST' && !transientHandleDenial) throw e;
     }
 
     // Someone else holds it. Give up once the wait is exhausted — checked here,
