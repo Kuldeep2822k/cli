@@ -252,6 +252,12 @@ const CONFIG_LOCK_STALE_MS = 10_000;
  */
 const CONFIG_LOCK_TIMEOUT_MS = 30_000;
 
+/**
+ * How long an exclusive recovery token (`config.lock.recovery`) may sit untouched
+ * before counting as abandoned by a crashed process.
+ */
+const CONFIG_LOCK_RECOVERY_STALE_MS = 5_000;
+
 /** What a lock file carries: who holds it, and the token its release checks. */
 interface ConfigLockPayload {
   pid: number;
@@ -278,7 +284,7 @@ function readConfigLockPayload(lockPath: string): ConfigLockPayload | null {
     const candidate = parsed as ConfigLockPayload;
     if (typeof candidate.nonce !== 'string') return null;
     return {
-      pid: typeof candidate.pid === 'number' ? candidate.pid : -1,
+      pid: typeof candidate.pid === 'number' && candidate.pid > 0 ? candidate.pid : -1,
       nonce: candidate.nonce,
       acquired_at: typeof candidate.acquired_at === 'string' ? candidate.acquired_at : '',
     };
@@ -364,7 +370,7 @@ async function acquireConfigLock(
     // turn the loop into a spin that never re-tests the deadline.
     if (Date.now() >= deadline) {
       const holderPid = readConfigLockPayload(lockPath)?.pid ?? null;
-      const holder = holderPid === null ? '' : ` (held by pid ${holderPid})`;
+      const holder = holderPid === null || holderPid <= 0 ? '' : ` (held by pid ${holderPid})`;
       // A lock that could not be taken is the OCC/lock-conflict class the vault
       // lock already reports, not an unexpected failure: `ECONFLICT` is what
       // `isConflictError` reads, so `exitCodeFor` maps it to the documented
@@ -387,18 +393,60 @@ async function acquireConfigLock(
       continue;
     }
     if (ageMs >= staleMs) {
-      // Re-stat and rename in one synchronous step so a lock re-created after
-      // our age check is almost certainly left standing; a residual race here
-      // costs one displaced acquirer, not data.
+      // Multiple commands observing the same stale lock must not race on
+      // renameSync: if command A's stat precedes command B's rename, B could
+      // create a fresh lock and start writing just before A's renameSync
+      // displaces B's fresh lock.
+      //
+      // To prevent displacing a fresh lock, recovery takes an exclusive
+      // recovery token (`config.lock.recovery`). Under that token, it re-verifies
+      // that `lockPath` still exists and is still older than `staleMs`. Only
+      // the verified-stale lock is renamed aside.
+      const recoveryPath = `${lockPath}.recovery`;
+      let recoveryFd: number;
       try {
-        const freshMtime = fs.statSync(lockPath).mtimeMs;
-        if (Date.now() - freshMtime < staleMs) {
+        recoveryFd = fs.openSync(recoveryPath, 'wx', 0o600);
+      } catch (recErr: unknown) {
+        if ((recErr as NodeError).code === 'EEXIST') {
+          // Another command is currently performing recovery. If that recovery
+          // token is itself abandoned, clear it; otherwise back off and retry so
+          // we observe the winner's fresh lock.
+          const recoveryStaleMs = Math.min(CONFIG_LOCK_RECOVERY_STALE_MS, staleMs);
+          try {
+            const recMtime = fs.statSync(recoveryPath).mtimeMs;
+            if (Date.now() - recMtime >= recoveryStaleMs) {
+              fs.unlinkSync(recoveryPath);
+            }
+          } catch {}
           await sleep(backoffMs);
+          backoffMs = Math.min(backoffMs * 2, 100);
           continue;
         }
-        fs.renameSync(lockPath, `${lockPath}.stale.${process.pid}.${crypto.randomBytes(4).toString('hex')}`);
+        throw recErr;
+      }
+
+      let renewed = false;
+      try {
+        const freshStat = fs.statSync(lockPath);
+        if (Date.now() - freshStat.mtimeMs < staleMs) {
+          // Renewed or re-created with a fresh mtime while waiting; do not steal.
+          renewed = true;
+        } else {
+          fs.renameSync(lockPath, `${lockPath}.stale.${process.pid}.${crypto.randomBytes(4).toString('hex')}`);
+        }
       } catch {
         // Gone already (released or stolen first) — retry the create.
+      } finally {
+        try {
+          fs.closeSync(recoveryFd);
+        } catch {}
+        try {
+          fs.unlinkSync(recoveryPath);
+        } catch {}
+      }
+      if (renewed) {
+        await sleep(backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 100);
       }
       continue;
     }
@@ -829,11 +877,17 @@ async function configCommand(
       if (retarget === null) return;
       const written = await withConfigLock((): string | null => {
         const config = loadConfig();
-        if (
-          retarget === 'recheck' &&
-          (config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl)
-        ) {
-          console.error('Error: the configuration changed while waiting for confirmation; re-run the command');
+        const currentOrigin = originOf(config.baseUrl);
+        const drift =
+          retarget === 'recheck'
+            ? config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl
+            : !options?.keepKey &&
+              Boolean(config.apiKey) &&
+              Boolean(config.baseUrl) &&
+              currentOrigin !== endpoint.origin;
+
+        if (drift) {
+          emitError('the configuration changed while waiting for confirmation; re-run the command', options);
           process.exitCode = ExitCode.Usage;
           return null;
         }

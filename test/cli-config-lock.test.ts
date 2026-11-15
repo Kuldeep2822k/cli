@@ -169,6 +169,41 @@ describe('config lock semantics (in process)', () => {
     assert.ok(!fs.existsSync(path.join(configDir, 'config.lock')), 'and the winner must have released its own lock');
   });
 
+  test('stale recovery backs off and retries when another process holds the recovery token', async () => {
+    const configDir = freshConfigDir();
+    const lockPath = writeForeignLock(configDir, 'stale-holder');
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockPath, past, past);
+
+    const recoveryPath = `${lockPath}.recovery`;
+    fs.writeFileSync(recoveryPath, '', 'utf8');
+
+    setTimeout(() => {
+      try {
+        fs.unlinkSync(recoveryPath);
+      } catch {}
+    }, 50);
+
+    const result = await withConfigLock(() => 'recovered', { staleMs: 100 });
+    assert.strictEqual(result, 'recovered');
+    assert.ok(!fs.existsSync(recoveryPath), 'the recovery token must be cleaned up');
+  });
+
+  test('stale recovery cleans up an abandoned recovery token', async () => {
+    const configDir = freshConfigDir();
+    const lockPath = writeForeignLock(configDir, 'stale-holder');
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockPath, past, past);
+
+    const recoveryPath = `${lockPath}.recovery`;
+    fs.writeFileSync(recoveryPath, '', 'utf8');
+    fs.utimesSync(recoveryPath, past, past);
+
+    const result = await withConfigLock(() => 'recovered-abandoned', { staleMs: 100 });
+    assert.strictEqual(result, 'recovered-abandoned');
+    assert.ok(!fs.existsSync(recoveryPath), 'the abandoned recovery token must be removed');
+  });
+
   test('acquisition times out with an actionable error while a foreign lock is fresh', async () => {
     const configDir = freshConfigDir();
     writeForeignLock(configDir, 'forever-holder');
@@ -181,6 +216,26 @@ describe('config lock semantics (in process)', () => {
     assert.match(
       (error as Error).message,
       /timed out waiting for the configuration lock/
+    );
+  });
+
+  test('acquisition timeout omits the pid clause when the lock payload carries no valid pid', async () => {
+    const configDir = freshConfigDir();
+    const lockPath = path.join(configDir, 'config.lock');
+    fs.writeFileSync(lockPath, JSON.stringify({ nonce: 'no-pid-holder', acquired_at: new Date().toISOString() }), 'utf8');
+    const error = await withConfigLock(() => 'never', { timeoutMs: 250 }).then(
+      () => {
+        assert.fail('acquisition must not succeed while a fresh foreign lock is held');
+      },
+      (e: unknown) => e
+    );
+    assert.match(
+      (error as Error).message,
+      /timed out waiting for the configuration lock at .*config\.lock;/
+    );
+    assert.ok(
+      !(error as Error).message.includes('held by pid'),
+      'invalid or missing pid must not print "held by pid -1"'
     );
   });
 
@@ -270,7 +325,9 @@ describe('config lock semantics (in process)', () => {
       }
     }) as typeof fs.readFileSync;
 
+    const origLog = console.log;
     try {
+      console.log = () => {};
       process.exitCode = 0;
       armed = true;
       await configCommand('set-provider', 'interleaved-provider', {});
@@ -282,6 +339,51 @@ describe('config lock semantics (in process)', () => {
       assert.strictEqual(stored.aiProvider, 'interleaved-provider', 'the outer command’s field must survive');
       assert.strictEqual(stored.model, 'interleaved-model', 'the racing command must keep the field it loaded late');
     } finally {
+      console.log = origLog;
+      (fs as unknown as { readFileSync: unknown }).readFileSync = realReadFileSync;
+      process.exitCode = 0;
+      assert.ok(!fs.existsSync(path.join(configDir, 'config.lock')), 'no lock may outlive the run');
+    }
+  });
+
+  test('set-base-url refuses when an API key is stored concurrently while waiting for the lock', async () => {
+    const configDir = freshConfigDir();
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: 'http://127.0.0.1:11434/v1' }),
+      'utf8'
+    );
+
+    const realReadFileSync = fs.readFileSync;
+    let armed = false;
+    (fs as unknown as { readFileSync: unknown }).readFileSync = ((
+      target: fs.PathOrFileDescriptor,
+      options?: unknown
+    ) => {
+      const isArmedConfigRead = armed && typeof target === 'string' && target.endsWith('config.json');
+      if (isArmedConfigRead) {
+        armed = false;
+        const res = Reflect.apply(realReadFileSync, fs, [target, options]) as string;
+        const current = JSON.parse(res) as Record<string, unknown>;
+        current.apiKey = 'injected-secret-key';
+        fs.writeFileSync(target as string, JSON.stringify(current), 'utf8');
+        return res;
+      }
+      return Reflect.apply(realReadFileSync, fs, [target, options]);
+    }) as typeof fs.readFileSync;
+
+    const origError = console.error;
+    try {
+      console.error = () => {};
+      process.exitCode = 0;
+      armed = true;
+      await configCommand('set-base-url', 'http://127.0.0.1:8080/v1', {});
+      assert.strictEqual(process.exitCode, ExitCode.Usage, 'refusal must exit 2');
+      const stored = readStored(configDir);
+      assert.strictEqual(stored.baseUrl, 'http://127.0.0.1:11434/v1', 'the base URL must not be retargeted');
+      assert.strictEqual(stored.apiKey, 'injected-secret-key', 'the concurrently added key is preserved');
+    } finally {
+      console.error = origError;
       (fs as unknown as { readFileSync: unknown }).readFileSync = realReadFileSync;
       process.exitCode = 0;
       assert.ok(!fs.existsSync(path.join(configDir, 'config.lock')), 'no lock may outlive the run');
@@ -347,5 +449,29 @@ describe('config lock across processes (#565 P3-01)', () => {
       'the dead holder’s lock is quarantined'
     );
     assert.ok(!fs.existsSync(lockPath), 'and the winning run must not leave its own lock behind');
+  });
+
+  test('two commands recovering the same stale lock do not displace each other’s writes', async () => {
+    const configDir = fs.mkdtempSync(path.join(root, 'dual-stale-'));
+    const lockPath = writeForeignLock(configDir, 'crashed-process');
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockPath, past, past);
+
+    const [res1, res2] = await Promise.all([
+      spawnConfig(['set-model', 'winner-model'], configDir),
+      spawnConfig(['set-provider', 'winner-provider'], configDir),
+    ]);
+
+    assert.strictEqual(res1.status, 0, `cmd 1 must succeed:\n${res1.stdout}\n${res1.stderr}`);
+    assert.strictEqual(res2.status, 0, `cmd 2 must succeed:\n${res2.stdout}\n${res2.stderr}`);
+
+    const stored = readStored(configDir);
+    assert.strictEqual(stored.model, 'winner-model', 'model field must survive');
+    assert.strictEqual(stored.aiProvider, 'winner-provider', 'provider field must survive');
+    assert.ok(
+      fs.readdirSync(configDir).some((name) => name.startsWith('config.lock.stale.')),
+      'the stale lock is quarantined'
+    );
+    assert.ok(!fs.existsSync(lockPath), 'no active lock may outlive the runs');
   });
 });
