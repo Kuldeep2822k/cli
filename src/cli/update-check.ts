@@ -374,7 +374,20 @@ export function writeUpdateCheckRecord(currentVersion: string, record: UpdateChe
     try {
       fd = fs.openSync(tempPath, 'wx', 0o600);
       created = true;
-      fs.writeSync(fd, payload, 0, 'utf8');
+      // `fs.writeSync` may write fewer bytes than asked; the byte count is the
+      // only evidence the payload is complete. One unchecked call used to
+      // rename whatever had landed over the previous valid cache (P3-03
+      // review), so the loop requires progress on every call and aborts a
+      // stalled write rather than publishing a torn file — or spinning.
+      const bytes = Buffer.from(payload, 'utf8');
+      let offset = 0;
+      while (offset < bytes.length) {
+        const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+        if (written <= 0) {
+          throw new Error(`update-check cache write stalled at byte ${offset} of ${bytes.length}`);
+        }
+        offset += written;
+      }
       fs.closeSync(fd);
       fd = null;
       fs.renameSync(tempPath, file);
