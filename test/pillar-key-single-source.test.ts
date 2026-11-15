@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
 import * as engineMastery from '../src/engine/mastery';
 import * as recordAssessment from '../src/application/record-assessment';
 
@@ -45,26 +46,37 @@ const CANONICAL_FILE = 'src/engine/mastery.ts';
 /** The four pillar keys, in the order `adopt.ts` writes them (INV-21's inputs). */
 const EXPECTED_PILLAR_KEYS: readonly string[] = ['conceptual', 'practical', 'debug', 'feynman'];
 
-/** The quoted forms a hand-written copy of the list cannot avoid. */
-const QUOTED_PILLARS: readonly string[] = ["'conceptual'", "'practical'", "'debug'", "'feynman'"];
-
 /**
- * Non-comment source lines carrying all four quoted pillar names — i.e. a
- * hand-written copy of the list. Comment-looking lines (`//`, `*`, `/*`) are
- * prose, not imports, and are skipped so a doc mention cannot cry wolf.
+ * Start lines of array literals carrying all four pillar keys as string
+ * literals — i.e. a hand-written copy of the list.
+ *
+ * Parsed with the TypeScript compiler already installed for `npm run
+ * typecheck`, because a line-oriented scan cannot see a copy whose entries sit
+ * on separate lines (`['conceptual',\n 'practical', …]`, or the adopt-undo
+ * shape where the pillars are entries mid-array). The AST also separates code
+ * from comments for free: a doc mention is not an array, an incomplete or
+ * object-shaped list is not this defect, and a spread of the canonical list is
+ * the fix. Both quote styles parse to the same string-literal value, so neither
+ * spelling escapes. Detection is independent of any import of `PILLAR_KEYS` —
+ * importing the canonical list does not license a second hand-written copy.
  */
 function hardcodedPillarCopies(text: string): number[] {
+  const sourceFile = ts.createSourceFile('guard.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const flagged: number[] = [];
-  const lines = text.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    assert.ok(line !== undefined);
-    const trimmed = line.trim();
-    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
-    if (QUOTED_PILLARS.every((name) => trimmed.includes(name))) {
-      flagged.push(index + 1);
+  const visit = (node: ts.Node): void => {
+    if (ts.isArrayLiteralExpression(node)) {
+      const values = node.elements
+        .filter((element): element is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral =>
+          ts.isStringLiteralLike(element)
+        )
+        .map((element) => element.text);
+      if (EXPECTED_PILLAR_KEYS.every((key) => values.includes(key))) {
+        flagged.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+      }
     }
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return flagged;
 }
 
@@ -164,6 +176,119 @@ describe('pillar-key single source (P3-09, #565)', () => {
       offenders,
       [],
       'the quoted pillar-key tuple belongs to src/engine/mastery.ts alone (P3-09, #565)'
+    );
+  });
+
+  test('a copied pillar list split across lines is flagged like the one-line literal', () => {
+    const multilineDoubleQuoted = [
+      'export const PILLARS = [',
+      '  "conceptual",',
+      '  "practical",',
+      '  "debug",',
+      '  "feynman",',
+      '] as const;',
+    ].join('\n');
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(multilineDoubleQuoted),
+      [1],
+      'the same four strings spread over five lines are the same copy'
+    );
+
+    // The adopt-undo shape P3-09 removed: the pillars embedded mid-array in a
+    // longer owned-key list, one entry per line. A whole-file all-four shortcut
+    // cannot tell this from four unrelated mentions; the copy is the array.
+    const adoptUndoStyle = [
+      'const PALEE_OWNED_KEYS = [',
+      "  'palee_id',",
+      "  'palee_schema',",
+      "  'difficulty',",
+      "  'depends_on',",
+      "  'conceptual',",
+      "  'practical',",
+      "  'debug',",
+      "  'feynman',",
+      "  'topic_mastery',",
+      "  'lapses',",
+      '];',
+    ].join('\n');
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(adoptUndoStyle),
+      [1],
+      'a pillar tuple tucked into a larger owned-key array is still a second copy'
+    );
+
+    const embedded = ['// header', '', 'const PILLARS = [', "  'conceptual',", "  'practical',", "  'debug',", "  'feynman',", '];'].join('\n');
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(embedded),
+      [3],
+      'the finding points at the array, not the file'
+    );
+  });
+
+  test('detection does not depend on whether PILLAR_KEYS is also imported', () => {
+    const text = [
+      "import { PILLAR_KEYS } from '../engine/mastery';",
+      '',
+      'const local = [',
+      "  'conceptual',",
+      "  'practical',",
+      "  'debug',",
+      "  'feynman',",
+      '];',
+    ].join('\n');
+    assert.ok(
+      importsPillarKeysFromEngine('src/cli/validate.ts', text),
+      'the import half recognises this file'
+    );
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(text),
+      [3],
+      'a rewired import does not license a hand-written copy beside it'
+    );
+  });
+
+  test('scattered pillar mentions and non-list uses are not copies', () => {
+    const proseInComments = [
+      "// conceptual, practical, debug, and feynman are the four pillars",
+      '/*',
+      "  'conceptual', 'practical', 'debug', 'feynman'",
+      '*/',
+    ].join('\n');
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(proseInComments),
+      [],
+      'comment prose naming all four pillars is not a list'
+    );
+
+    // Each pillar named once, in unrelated contexts: the whole-file
+    // contains-all-four shortcut would cry wolf here; the detector must not.
+    const scatteredUses = [
+      "const conceptual = 'conceptual';",
+      "const practical = 'practical';",
+      "const debug = 'debug';",
+      "const feynman = 'feynman';",
+    ].join('\n');
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(scatteredUses),
+      [],
+      'four individual string literals are not an array copy'
+    );
+
+    const threeOfFour = "const keys = ['conceptual', 'practical', 'debug'];";
+    assert.deepStrictEqual(hardcodedPillarCopies(threeOfFour), [], 'an incomplete list is not the copy');
+
+    const objectKeys = 'const rubric = { conceptual: 1, practical: 1, debug: 1, feynman: 1 };';
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(objectKeys),
+      [],
+      'an object literal of scores is a different shape, not an array copy'
+    );
+
+    const spreadOfCanonical = "const all = [...PILLAR_KEYS, 'topic_mastery'];";
+    assert.deepStrictEqual(
+      hardcodedPillarCopies(spreadOfCanonical),
+      [],
+      'deriving from the canonical list is the fix, not the defect'
     );
   });
 
