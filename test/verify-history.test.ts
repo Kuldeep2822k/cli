@@ -6,6 +6,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { spawnSync } from 'node:child_process';
 import { parseDocument } from 'yaml';
+import { CLI_SPAWN_TIMEOUT_MS } from './cli-spawn-env';
 
 /**
  * The tip's typecheck cannot see mid-branch breakage: #565 P3-09 shipped four
@@ -318,14 +319,14 @@ describe('scripts/verify-history.js — per-commit typecheck gate (#565 P3-09)',
 describe('materialization is platform-portable (GNU tar cannot see a drive letter)', () => {
   test('materializeCommit extracts the commit archive from a relative operand', () => {
     const repoRoot = path.resolve(__dirname, '..');
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', windowsHide: true, timeout: CLI_SPAWN_TIMEOUT_MS });
     assert.strictEqual(head.status, 0, `git rev-parse failed: ${head.stderr}`);
     const commit = { sha: (head.stdout || '').trim(), subject: 'materialization probe' };
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-history-materialize-'));
     let treeDir: string | null = null;
     try {
       const git = (args: string[]): string => {
-        const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+        const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', windowsHide: true, timeout: CLI_SPAWN_TIMEOUT_MS });
         if (result.status !== 0) {
           throw new Error(`git ${args.join(' ')} exited ${result.status}: ${result.stderr}`);
         }
