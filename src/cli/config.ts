@@ -196,6 +196,7 @@ function saveConfig(config: PaleeConfig): void {
   const payload = JSON.stringify(config, null, 2);
 
   let fd: number | null = null;
+  let created = false;
   let success = false;
   try {
     // `wx` fails if `tempPath` already exists, so a pre-placed file or symlink at
@@ -203,7 +204,19 @@ function saveConfig(config: PaleeConfig): void {
     // makes a genuine collision near-impossible, and a collision that does happen
     // is a signal, not something to overwrite.
     fd = fs.openSync(tempPath, 'wx', 0o600);
-    fs.writeSync(fd, payload, 0, 'utf8');
+    created = true;
+    // The byte count is the only evidence the payload is complete. A short write
+    // that makes progress is completed by the loop; zero progress aborts before
+    // fsync/close/rename, so a torn file can never replace a valid config.
+    const bytes = Buffer.from(payload, 'utf8');
+    let offset = 0;
+    while (offset < bytes.length) {
+      const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+      if (written <= 0) {
+        throw new Error(`config write stalled at byte ${offset} of ${bytes.length}`);
+      }
+      offset += written;
+    }
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;
@@ -221,7 +234,9 @@ function saveConfig(config: PaleeConfig): void {
     if (fd !== null) {
       try { fs.closeSync(fd); } catch {}
     }
-    if (!success) {
+    // Only a temp name this call created is this call's to remove: a `wx`
+    // collision belongs to whoever placed the entry and is left untouched.
+    if (created && !success) {
       try { fs.unlinkSync(tempPath); } catch {}
     }
   }
@@ -342,13 +357,57 @@ async function acquireConfigLock(
   let backoffMs = 10;
 
   for (;;) {
+    let fd: number | null = null;
+    let transientCreateDenial = false;
     try {
-      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      fd = fs.openSync(lockPath, 'wx', 0o600);
+    } catch (e: unknown) {
+      const code = (e as NodeError).code;
+      // Windows reports a lock entry whose handle another process still holds —
+      // an unlink in flight, an AV or indexer touch — as EPERM/EBUSY on create,
+      // not the EEXIST that means "someone holds the lock". `Lock` classifies
+      // the same codes as transient handle contention (src/storage/lock.ts),
+      // and treating them as fatal here turned a lost race into exit 5 (#620).
+      // The classification is confined to creation: once this call owns a
+      // descriptor, a payload-write or close failure is that operation's own
+      // error and must not be retried as contention or wait on this call's own
+      // lock. On POSIX these codes mean a permission or mount problem, so they
+      // are rethrown untouched. A persistent creation denial still ends at the
+      // deadline as ECONFLICT (exit 4).
+      transientCreateDenial = process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY');
+      if (code !== 'EEXIST' && !transientCreateDenial) throw e;
+    }
+
+    if (fd !== null) {
+      // Complete the payload before the callback can run: a short write that
+      // makes progress is completed by the loop; zero progress, a throw, or a
+      // close failure is an acquisition failure, never acquisition. The first
+      // error wins so a close failure cannot mask the write error. A lock left
+      // behind by a failed initialization is handled by stale recovery; this
+      // call does not unlink it, because a creation flag is not current
+      // ownership of the pathname.
+      let writeErr: unknown;
       try {
-        fs.writeSync(fd, JSON.stringify(payload), 0, 'utf8');
-      } finally {
-        fs.closeSync(fd);
+        const bytes = Buffer.from(JSON.stringify(payload), 'utf8');
+        let offset = 0;
+        while (offset < bytes.length) {
+          const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+          if (written <= 0) {
+            throw new Error(`config lock payload write stalled at byte ${offset} of ${bytes.length}`);
+          }
+          offset += written;
+        }
+      } catch (e: unknown) {
+        writeErr = e;
       }
+      let closeErr: unknown;
+      try {
+        fs.closeSync(fd);
+      } catch (e: unknown) {
+        closeErr = e;
+      }
+      if (writeErr !== undefined) throw writeErr;
+      if (closeErr !== undefined) throw closeErr;
       return {
         release(): void {
           // Unlink only while the file still carries our nonce: if this holder
@@ -361,20 +420,6 @@ async function acquireConfigLock(
           } catch {}
         },
       };
-    } catch (e: unknown) {
-      const code = (e as NodeError).code;
-      // Windows reports a lock entry whose handle another process still holds —
-      // an unlink in flight, an AV or indexer touch — as EPERM/EBUSY on create,
-      // not the EEXIST that means "someone holds the lock". `Lock` classifies
-      // the same codes as transient handle contention (src/storage/lock.ts),
-      // and treating them as fatal here turned a lost race into exit 5 (#620).
-      // The denial still goes through the bounded wait below: a permission
-      // problem that never clears ends at the deadline as ECONFLICT, never as
-      // a successful acquisition. On POSIX these codes mean a real permission
-      // or mount problem, so they are rethrown untouched.
-      const transientHandleDenial =
-        process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY');
-      if (code !== 'EEXIST' && !transientHandleDenial) throw e;
     }
 
     // Someone else holds it. Give up once the wait is exhausted — checked here,
@@ -400,8 +445,14 @@ async function acquireConfigLock(
     try {
       ageMs = Math.max(0, Date.now() - fs.statSync(lockPath).mtimeMs);
     } catch {
-      // The holder released between our failed create and this stat; go
-      // straight back to the create attempt, no backoff.
+      // The holder released between our failed create and this stat; go straight
+      // back to the create attempt. A transient creation denial with no entry to
+      // stat must still back off — retrying a persistent denial in a tight loop
+      // would burn the whole timeout at full CPU.
+      if (transientCreateDenial) {
+        await sleep(backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 100);
+      }
       continue;
     }
     if (ageMs >= staleMs) {
