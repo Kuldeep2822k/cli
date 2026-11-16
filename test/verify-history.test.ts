@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
+import { spawnSync } from 'node:child_process';
 import { parseDocument } from 'yaml';
 
 /**
@@ -44,6 +45,12 @@ interface VerifyHistoryModule {
     git: (args: string[]) => string,
     options: { base: string; head: string }
   ): { mergeBase: string; commits: Commit[] };
+  materializeCommit(
+    git: (args: string[]) => string,
+    commit: Commit,
+    workDir: string,
+    repoNodeModules: string
+  ): string;
   formatFailureDetail(output: string): string;
   main(argv: string[], deps?: MainDeps): number;
 }
@@ -305,6 +312,34 @@ describe('scripts/verify-history.js — per-commit typecheck gate (#565 P3-09)',
       assert.strictEqual(exit, 2);
       assert.ok(logs.some((line) => line.includes('run npm ci first')));
     });
+  });
+});
+
+describe('materialization is platform-portable (GNU tar cannot see a drive letter)', () => {
+  test('materializeCommit extracts the commit archive from a relative operand', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+    assert.strictEqual(head.status, 0, `git rev-parse failed: ${head.stderr}`);
+    const commit = { sha: (head.stdout || '').trim(), subject: 'materialization probe' };
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-history-materialize-'));
+    let treeDir: string | null = null;
+    try {
+      const git = (args: string[]): string => {
+        const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+        if (result.status !== 0) {
+          throw new Error(`git ${args.join(' ')} exited ${result.status}: ${result.stderr}`);
+        }
+        return result.stdout;
+      };
+      const materialized = verifyHistory.materializeCommit(git, commit, workDir, path.resolve(repoRoot, 'node_modules'));
+      treeDir = materialized;
+      assert.ok(fs.existsSync(path.join(materialized, 'package.json')), 'the commit tree must be extracted');
+    } finally {
+      if (treeDir !== null) {
+        try { fs.rmSync(path.join(treeDir, 'node_modules'), { force: true }); } catch {}
+      }
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
   });
 });
 

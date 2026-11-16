@@ -77,11 +77,16 @@ function resolveCommits(git, { base, head }) {
 // link is a Windows junction (no admin rights needed) or a POSIX symlink; it
 // is removed with its work dir, never followed.
 function materializeCommit(git, commit, workDir, repoNodeModules) {
-  const tarball = path.join(workDir, 'tree.tar');
+  const archiveName = 'tree.tar';
+  const tarball = path.join(workDir, archiveName);
   git(['archive', '--format=tar', '-o', tarball, commit.sha]);
   const treeDir = path.join(workDir, 'tree');
   fs.mkdirSync(treeDir, { recursive: true });
-  const extract = spawnSync('tar', ['-xf', tarball, '-C', treeDir], { encoding: 'utf8', windowsHide: true });
+  // GNU tar reads a drive-letter prefix in an archive operand as a remote host
+  // ("tar: Cannot connect to C:"), so extract by relative name from the work
+  // directory. `-C tree` is relative for the same reason; no absolute Windows
+  // path ever reaches tar as an operand.
+  const extract = spawnSync('tar', ['-xf', archiveName, '-C', 'tree'], { cwd: workDir, encoding: 'utf8', windowsHide: true });
   if (extract.error) {
     throw new Error(`could not run tar: ${extract.error.message}`);
   }
