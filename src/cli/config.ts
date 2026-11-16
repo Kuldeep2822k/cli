@@ -338,6 +338,11 @@ function sleep(ms: number): Promise<void> {
  * exists to prevent — survivable, and strictly narrower than the vault lock's
  * 60s/120s stale windows, which back much longer critical sections.
  */
+/** Preserves an original Error (and its code) while satisfying only-throw-error. */
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
 async function acquireConfigLock(
   timeoutMs: number = CONFIG_LOCK_TIMEOUT_MS,
   staleMs: number = CONFIG_LOCK_STALE_MS
@@ -406,8 +411,8 @@ async function acquireConfigLock(
       } catch (e: unknown) {
         closeErr = e;
       }
-      if (writeErr !== undefined) throw writeErr;
-      if (closeErr !== undefined) throw closeErr;
+      if (writeErr !== undefined) throw asError(writeErr);
+      if (closeErr !== undefined) throw asError(closeErr);
       return {
         release(): void {
           // Unlink only while the file still carries our nonce: if this holder
