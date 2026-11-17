@@ -26,12 +26,16 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { computeTopicMastery } from '../../engine/mastery';
+import { computeTopicMastery, PILLAR_KEYS } from '../../engine/mastery';
 import { isValidAssessedAt } from './assessed-at';
 import { displayValue } from '../../diagnostic-value';
 
-/** Assessment score fields consumed by the mastery formula. */
-const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
+/**
+ * Assessment score fields consumed by the mastery formula — the engine's
+ * `PILLAR_KEYS` itself, not a local copy, so the rule recomputes over exactly
+ * the pillars the engine reads (#565 P3-09).
+ */
+const SCORE_FIELDS = PILLAR_KEYS;
 
 /** Epsilon for serialized-float drift (4-decimal canonical precision). */
 const EPSILON = 1e-5;

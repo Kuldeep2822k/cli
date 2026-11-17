@@ -23,6 +23,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check": "npm run typecheck && npm run lint",
+    "verify:history": "node scripts/verify-history.js",
     "build": "tsc && node -e \"const fs=require('fs'); fs.copyFileSync('package.json', 'dist/package.json'); fs.chmodSync('dist/bin/palee.js', 0o755)\"",
     "prepublishOnly": "npm run build && npm pack && node scripts/verify-tarball.js",
     "docs:dev": "npm run dev --workspace=@kuldeep2822k/cli-docs",
