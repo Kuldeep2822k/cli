@@ -3,7 +3,8 @@
  *
  * @remarks
  * Provides glob pattern compilation, path filtering, frontmatter tag extraction,
- * and hierarchical tag matching for CLI filters (`--include`, `--exclude`, `--tag`).
+ * and hierarchical tag matching for CLI filters (`--include`, `--exclude`, `--tag`),
+ * plus the batch-scope decision that folds the three into one exclusion verdict.
  */
 
 import path from 'path';
@@ -589,6 +590,71 @@ export function matchesTags(noteTags: unknown, targetTags: string | string[]): b
   }
 
   return false;
+}
+
+/**
+ * Which batch filter excluded a scanned note, or `null` when the note is in scope.
+ */
+export type BatchScopeExclusion = 'include' | 'exclude' | 'tag';
+
+/**
+ * The batch filter flags a scan applies, as the `AdoptOptions` of
+ * `adopt`/`adopt-undo` carry them.
+ */
+export interface BatchScopeFilters {
+  /** `--include`: when supplied, a path no include pattern selects is out of scope */
+  include?: string | string[];
+  /** `--exclude`: when supplied, a path an exclude pattern selects is out of scope */
+  exclude?: string | string[];
+  /** `--tag`: when supplied, a note whose tags match none of the targets is out of scope */
+  tag?: string | string[];
+}
+
+/**
+ * Decides whether the batch filters `--include`/`--exclude`/`--tag` exclude one
+ * scanned note, and which of them did.
+ *
+ * @param filePath - Vault-relative path of the scanned note
+ * @param noteTags - The note's frontmatter `tags` value, or `undefined` when the
+ *   note carries no frontmatter — a `--tag` scan excludes it, as {@link matchesTags} rules
+ * @param filters - The flags as supplied; an absent or empty flag never excludes
+ * @returns `'include'` when an include list was supplied and selects nothing here,
+ *   `'exclude'` when an exclude list selects the path, `'tag'` when a tag list was
+ *   supplied and matches none of the note's tags, and `null` when the note is in scope
+ *
+ * @remarks
+ * One predicate for every batch scan that applies the three filters (P3-11 of
+ * audit issue #565): `adopt`'s scan uses `=== null` to decide which already-adopted
+ * notes the chain planner may see, and both `adopt` and `adopt-undo` route the
+ * non-null verdict into their own `Excluded (Pattern)` / `Excluded (Tag)` counters.
+ * The decision order — include, then exclude, then tag — is load-bearing: it is the
+ * order the separate checks applied, so a note failing several filters is counted in
+ * the bucket the first failing filter has always claimed. The dialect itself (glob
+ * anchoring, OR-folding, hierarchical tags) is {@link matchesPattern} and
+ * {@link matchesTags}; this folds them, and does not re-derive it.
+ *
+ * @example
+ * ```typescript
+ * batchScopeExclusion('drafts/01.md', undefined, { tag: 'cs' }); // 'tag'
+ * batchScopeExclusion('drafts/01.md', undefined, { exclude: '*draft*' }); // 'exclude'
+ * batchScopeExclusion('MODULES/01.md', ['#cs'], { include: 'MODULES/*' }); // null
+ * ```
+ */
+export function batchScopeExclusion(
+  filePath: string,
+  noteTags: unknown,
+  filters: BatchScopeFilters
+): BatchScopeExclusion | null {
+  if (filters.include && !matchesPattern(filePath, filters.include)) {
+    return 'include';
+  }
+  if (filters.exclude && matchesPattern(filePath, filters.exclude)) {
+    return 'exclude';
+  }
+  if (filters.tag && !matchesTags(noteTags, filters.tag)) {
+    return 'tag';
+  }
+  return null;
 }
 
 /**
