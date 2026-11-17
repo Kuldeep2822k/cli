@@ -28,7 +28,7 @@
 import type { ValidationRule, ValidationIssue } from '../types';
 import { computeTopicMastery } from '../../engine/mastery';
 import { isValidAssessedAt } from './assessed-at';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 
 /** Assessment score fields consumed by the mastery formula. */
 const SCORE_FIELDS = ['conceptual', 'practical', 'debug', 'feynman'] as const;
