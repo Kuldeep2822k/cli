@@ -132,7 +132,7 @@ Concludes the study period, calculates actual elapsed time, and formalizes the s
   const durationMinutes = Math.round(durationMs / 60000);
   ```
 - Generates a confirmed session ID (`S-YYYYMMDDTHHMMSS-<hex>.md`) and writes the permanent session note via `writeSessionNote()` containing `started_at`, `ended_at`, `duration_minutes`, and `status: 'completed'`.
-- Deletes matching draft checkpoints via storage helper `deleteTopicDrafts(vaultPath, topicId)`.
+- Deletes the draft checkpoints this session consumed via storage helper `deleteTopicDrafts(vaultPath, topicId, draftPaths)` — the exact checkpoints the session note records above. A same-topic draft created after the session's scan (a concurrent `session draft`) was never recorded and survives for the session that holds it.
 - Executes `rebuildHotAndIndex()` to refresh `hot.md` and `index.md`.
 
 ```bash

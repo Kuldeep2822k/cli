@@ -7,7 +7,7 @@ import { sanitizeForDisplay } from './display-safety';
  * Shows learning progress summary
  */
 
-import { loadTopics, type LoadedTopic } from '../storage';
+import { loadTopicMetadata, type TopicMetadata } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { formatLocalDateOnly } from '../engine/sm2';
 import { summarizeMastery } from '../application/mastery-summary';
@@ -30,7 +30,7 @@ interface ProgressTopic {
 }
 
 /** Projects one loaded topic onto the fields `progress` reports. */
-function toProgressTopic(t: LoadedTopic): ProgressTopic {
+function toProgressTopic(t: TopicMetadata): ProgressTopic {
   return {
     id: t.palee_id,
     title: t.title,
@@ -102,7 +102,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const loaded = loadTopics(vaultPath);
+    // P3-06: `progress` never reads a note body, so it loads metadata only —
+    // one bounded frontmatter read per note instead of a full-body read + hash.
+    const loaded = loadTopicMetadata(vaultPath);
 
     if (loaded.length === 0 && !options.topic) {
       if (jsonMode) {

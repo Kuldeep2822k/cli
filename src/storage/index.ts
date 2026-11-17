@@ -3,7 +3,7 @@
  *
  * @remarks
  * Bundles the core persistence capabilities of PALEE:
- * - **Vault Traversal & Loading**: `walkVault`, `loadTopics`
+ * - **Vault Traversal & Loading**: `walkVault`, `loadTopics`, `loadTopicMetadata`
  * - **YAML CST & Markdown Frontmatter**: `parseFrontmatter`, `updateFrontmatter`, `computeFingerprint`
  * - **Cross-Process File Locking**: `Lock`
  * - **Atomic OCC Writes**: `atomicWrite`, `isConflictError`, `isContainmentError`
@@ -55,7 +55,7 @@ import { matchesPattern, matchesTags, extractTags, validatePattern } from './pat
 import { resolveNoteTitle } from './note-title';
 import { resolveWikilinkRoadmap } from './wikilink';
 import { discoverTocFiles, deriveTocEnumeration, type TocEnumeration, type TocSkippedLink } from './toc';
-import { loadTopics, getTopicCache, type LoadedTopic, type LoadTopicsOptions } from './loader';
+import { loadTopics, loadTopicMetadata, getTopicCache, type LoadedTopic, type LoadTopicsOptions, type TopicMetadata, type LoadTopicMetadataOptions } from './loader';
 import {
   loadSessions,
   readSessionIndex,
@@ -71,6 +71,7 @@ export {
   ensureVaultDirectory,
   relativeVaultPath,
   loadTopics,
+  loadTopicMetadata,
   getTopicCache,
   scanNotes,
 
@@ -137,6 +138,6 @@ export {
   MAX_HOT_WORDS,
 };
 
-export type { ParsedRoadmapResult, WikilinkRoadmapSection, LoadedTopic, LoadTopicsOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError, TocEnumeration, TocSkippedLink };
+export type { ParsedRoadmapResult, WikilinkRoadmapSection, LoadedTopic, LoadTopicsOptions, TopicMetadata, LoadTopicMetadataOptions, HotMemoryRead, HotMemoryReadState, ScanNotesOptions, LoadedSession, SessionIndexRead, MemoryReadError, TocEnumeration, TocSkippedLink };
 
 
