@@ -276,10 +276,26 @@ export function stemOf(basename: string): string {
  * `palee_id` as "already adopted" while `loadTopics` requires a non-empty
  * string, so `palee_id: 12345` made an unsatisfiable chain predecessor that
  * silently blocked everything chaining after it.
+ *
+ * P3-13 (#565): this predicate is the *only* judgment. `loadTopics`
+ * (`src/storage/loader.ts`), the adopt scans (single-file and batch) and
+ * `adopt --undo` (`src/cli/adopt-undo.ts`) all route their "is this adopted"
+ * test through it, so the four surfaces cannot disagree again about what a
+ * present-but-unusable id means.
  */
 export function isValidPaleeId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
+
+/**
+ * The one repair path (P3-13 of #565) every reporter of a present-but-unusable
+ * `palee_id` prints — the batch scan's counted skip, single-file adoption's
+ * refusal, and `adopt --undo`'s "left alone" note. PALEE never rewrites such a
+ * value (its authorship cannot be established), so the repair is the learner's:
+ * make the id a non-empty string or delete the key, then adopt.
+ */
+export const INVALID_PALEE_ID_REPAIR =
+  'Repair: make `palee_id` a non-empty string or delete the key, then re-run `palee adopt`.';
 
 /** True when any non-final path segment names a phase directory (B4). */
 export function isPhaseSubtree(relPath: string): boolean {
