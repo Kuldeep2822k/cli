@@ -9,8 +9,8 @@
 
 ## Headline: the layering is clean
 
-- **0 circular imports.** Tarjan SCC over all 60 modules returned no component larger than one node. For a codebase this size that is an achievement worth pinning, and it is the reason `agent.md`'s verification loop (`typecheck → lint → test → build → pack`) can be trusted to localise failures.
-- **0 forbidden-direction edges.** Against the layer rules in `agent.md:9-16` (`engine` pure; `storage` owns vault IO; `cli` on top; `types` shared) every one of the 216 edges points the documented way. Nothing in `src/engine`, `src/storage` or `src/validation` imports `src/cli`.
+- **0 circular imports.** Tarjan SCC over all 60 modules returned no component larger than one node. For a codebase this size that is an achievement worth pinning, and it is the reason `AGENTS.md`'s verification loop (`typecheck → lint → test → build → pack`) can be trusted to localise failures.
+- **0 forbidden-direction edges.** Against the layer rules in `AGENTS.md:9-16` (`engine` pure; `storage` owns vault IO; `cli` on top; `types` shared) every one of the 216 edges points the documented way. Nothing in `src/engine`, `src/storage` or `src/validation` imports `src/cli`.
 - The exceptions are *not* import-direction violations — they are **IO** and **facade** violations. See the last two sections.
 
 ## Layer dependency summary
@@ -104,7 +104,7 @@ Separately, `src/cli/config.ts:104-126` re-implements atomic writing (`mkdirSync
 | `MASTERY_THRESHOLD` in `src/engine/mastery.ts` | 15 modules — CLI *and* `valid-topic-mastery` rule | `test/engine-mastery.test.ts` + `test/engine-dependency.test.ts` (readiness gate uses the same 0.7) |
 | adding a validation rule | `src/cli/validate.ts` registry + `src/validation/index.ts` + the barrel census test | `test/validation-barrel-census.test.ts` will fail on a count change; output *order* is not automatically checked |
 | a command's `--json` shape | consumers + `test/cli-json-output.test.ts` | that suite plus `docs/06-2`'s command matrix, which is hand-maintained |
-| `src/cli/exit-codes.ts` | `bin` + all 11 handlers, and CI asserts on codes | `test/cli-exit-codes.test.ts`; re-read README's exit-code table and `agent.md:24` |
+| `src/cli/exit-codes.ts` | `bin` + all 11 handlers, and CI asserts on codes | `test/cli-exit-codes.test.ts`; re-read README's exit-code table and `AGENTS.md:24` |
 
 ## Unknowns worth resolving before relying on this view
 

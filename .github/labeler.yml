@@ -78,7 +78,7 @@ documentation:
           - 'docs/**/*'
           - 'examples/**/*'
           - 'planning/**/*.md'
-          - 'agent.md'
+          - 'AGENTS.md'
           - 'DOCS_AUDIT_REPORT.md'
 
 # --- Build / Config / Project tooling ---

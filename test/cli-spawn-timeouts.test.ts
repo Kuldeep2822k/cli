@@ -15,7 +15,6 @@ import path from 'path';
  * only shrink.
  */
 const PARTIALLY_BOUNDED: readonly string[] = [
-  'test/cli-adopt-autochain.test.ts',
   'test/cli-adopt-batch.test.ts',
   'test/cli-adopt-pattern-accounting.test.ts',
   'test/cli-adopt-prereq-text.test.ts',
@@ -24,7 +23,6 @@ const PARTIALLY_BOUNDED: readonly string[] = [
   'test/cli-adopt-undo-disclosure.test.ts',
   'test/cli-commands.test.ts',
   'test/cli-fatal-error-output.test.ts',
-  'test/cli-migrate-relabel-ties.test.ts',
   'test/cli-review-early.test.ts',
   'test/cli-roadmap-autochain-head-deps.test.ts',
   'test/cli-roadmap-dry-run.test.ts',

@@ -618,9 +618,111 @@ function isConfirmedSession(
 }
 
 /**
+ * One read of the sessions directory, shared by both derived views.
+ *
+ * @remarks
+ * `hot.md` needs the newest confirmed session and `index.md` needs every
+ * confirmed session's row, and each used to walk `S-*.md` on its own — stat,
+ * read and YAML-parse every file twice per rebuild (#565 P2-09). Sessions grow
+ * without bound, so `session end`, draft save/discard and `validate --fix` all
+ * paid O(2N). A single pass also makes the two files one snapshot of the
+ * directory: the index cannot list a session the hot memory never saw.
+ */
+interface SessionScan {
+  /** Confirmed sessions in ascending filename order. */
+  sessions: (SessionRecord & { fileStem: string })[];
+  /** Confirmed sessions skipped because they were unreadable or unsupported. */
+  skippedCount: number;
+  /** The newest confirmed session, as `hot.md` selects it, or `null`. */
+  newest: { file: string; frontmatter: Record<string, unknown>; body: string } | null;
+}
+
+/**
+ * Reads every `S-*.md` once and returns what both derived views need.
+ *
+ * @param sessionsDir - The vault's `.palee/sessions` directory
+ * @returns Confirmed-session rows, the skip count, and the newest session
+ *
+ * @remarks
+ * Ascending filename order, as `loadSessions` uses, so two sessions that share
+ * a `started_at` resolve to the same one on every OS instead of to whatever
+ * order `readdir` returned. The newest-session comparison stays `>=`: an
+ * unparseable `started_at` ranks at -Infinity, so under `>` a vault whose
+ * sessions all carry unreadable dates would select nothing and erase hot memory
+ * (BUG-005). Skip counting matches what `index.md` has always reported: a
+ * parse error, an unsupported schema and an unreadable file are each one skip,
+ * while a draft is not a candidate and is never counted. Both views apply the
+ * same confirmed-session predicate here, schema gate included, so a session the
+ * index skips is never `hot.md`'s `last_session` (#542).
+ */
+function scanSessions(sessionsDir: string): SessionScan {
+  const sessions: (SessionRecord & { fileStem: string })[] = [];
+  let skippedCount = 0;
+  let newest: SessionScan['newest'] = null;
+  // Lowest possible rank, so a parseable timestamp of any era (including
+  // pre-1970) outranks an unparseable one instead of being filtered out.
+  let newestTime = -Infinity;
+
+  if (!fs.existsSync(sessionsDir)) return { sessions, skippedCount, newest };
+
+  const files = fs.readdirSync(sessionsDir).sort();
+  for (const file of files) {
+    if (!file.startsWith('S-') || !file.endsWith('.md')) continue;
+    const filePath = path.join(sessionsDir, file);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.size === 0) continue;
+      const content = fs.readFileSync(filePath, 'utf8');
+      const { frontmatter, body, error } = parseFrontmatter(content);
+      // Corrupt frontmatter on a non-empty S- file: a session we cannot read.
+      // Count it rather than dropping it silently (#362).
+      if (error) {
+        skippedCount++;
+        continue;
+      }
+      // An in-progress draft is not a session the learner lost (#361, #362).
+      if (!isSessionCandidate(frontmatter)) continue;
+      // Strict schema gate mirroring readHotMemory (#361): do not coerce an
+      // unknown/missing palee_schema to 1. Skip and count instead.
+      if (!isConfirmedSession(frontmatter)) {
+        skippedCount++;
+        continue;
+      }
+      sessions.push({
+        palee_schema: frontmatter.palee_schema as number,
+        session_id: frontmatter.session_id as string,
+        topic_id: (frontmatter.topic_id as string) || 'unknown',
+        started_at: (frontmatter.started_at as string) || '',
+        ended_at: (frontmatter.ended_at as string) || '',
+        status: 'completed',
+        // The wikilink ref must be the filename stem, not
+        // frontmatter.session_id: the session loader derives IDs from the
+        // filename (the only reliable signal when the two disagree), and
+        // valid-session-index checks refs against that ID space (#359).
+        fileStem: sessionStem(file),
+      });
+      const parsedTime = new Date((frontmatter.started_at as string) || 0).getTime();
+      const time = Number.isNaN(parsedTime) ? Number.NEGATIVE_INFINITY : parsedTime;
+      if (time >= newestTime) {
+        newestTime = time;
+        newest = { file: filePath, frontmatter, body };
+      }
+    } catch {
+      // Unreadable session file (IO error). Count it so the total does not
+      // silently undercount, but never delete or mutate session files during a
+      // rebuild (#362).
+      skippedCount++;
+    }
+  }
+
+  return { sessions, skippedCount, newest };
+}
+
+/**
  * Rebuilds `.palee/index.md` listing all confirmed study sessions in reverse chronological order.
  *
  * @param vaultPath - Vault root path
+ * @param scanned - The rebuild's shared session scan, when the caller has one
  * @returns Absolute path to `index.md`
  * @remarks Reads all confirmed session files and aggregates them into a markdown index with frontmatter.
  * @example
@@ -628,70 +730,14 @@ function isConfirmedSession(
  * const indexPath = await regenerateIndex('/vault');
  * ```
  */
-async function regenerateIndex(vaultPath: string): Promise<string> {
+async function regenerateIndex(vaultPath: string, scanned?: SessionScan): Promise<string> {
   const paleeDir = getPaleeDir(vaultPath);
   const indexPath = path.join(paleeDir, 'index.md');
-  const sessionsDir = getSessionsDir(vaultPath);
+  const { sessions, skippedCount } = scanned ?? scanSessions(getSessionsDir(vaultPath));
 
-  const sessions: (SessionRecord & { fileStem: string })[] = [];
-  // Confirmed sessions skipped because they could not be read or carry an
-  // unsupported schema. Surfaced in the report so `Total Sessions` no longer
-  // silently undercounts reality (#361, #362).
-  let skippedCount = 0;
-  if (fs.existsSync(sessionsDir)) {
-    // Ascending filename order, as `loadSessions` already uses: two sessions that
-    // share a `started_at` must be listed in the same order on every OS, not in
-    // whatever order readdir returns them.
-    const files = fs.readdirSync(sessionsDir).sort();
-    for (const file of files) {
-      if (file.startsWith('S-') && file.endsWith('.md')) {
-        const filePath = path.join(sessionsDir, file);
-        try {
-          const stat = fs.statSync(filePath);
-          if (stat.size === 0) {
-            continue;
-          }
-          const content = fs.readFileSync(filePath, 'utf8');
-          const { frontmatter, error } = parseFrontmatter(content);
-          // Corrupt frontmatter on a non-empty S- file: a session we cannot
-          // read. Count it rather than dropping it silently (#362).
-          if (error) {
-            skippedCount++;
-            continue;
-          }
-          if (isSessionCandidate(frontmatter)) {
-            // Strict schema gate mirroring readHotMemory (#361): do not coerce
-            // an unknown/missing palee_schema to 1. Skip and count instead.
-            if (!isConfirmedSession(frontmatter)) {
-              skippedCount++;
-              continue;
-            }
-            sessions.push({
-              palee_schema: frontmatter.palee_schema as number,
-              session_id: frontmatter.session_id as string,
-              topic_id: (frontmatter.topic_id as string) || 'unknown',
-              started_at: (frontmatter.started_at as string) || '',
-              ended_at: (frontmatter.ended_at as string) || '',
-              status: 'completed',
-              // The wikilink ref must be the filename stem, not
-              // frontmatter.session_id: the session loader derives IDs from the
-              // filename (the only reliable signal when the two disagree), and
-              // valid-session-index checks refs against that ID space (#359).
-              fileStem: sessionStem(file),
-            });
-          }
-        } catch {
-          // Unreadable session file (IO error). Count it so the total does not
-          // silently undercount, but never delete or mutate session files
-          // during index rebuild (#362).
-          skippedCount++;
-        }
-      }
-    }
-  }
-
-  // Sort newest first with NaN protection
-  sessions.sort((a, b) => {
+  // Sort a copy newest first with NaN protection: `scanned` is shared with the
+  // hot-memory view, and the scan's own contract is ascending filename order.
+  const sortedSessions = [...sessions].sort((a, b) => {
     const timeA = a.started_at ? new Date(a.started_at).getTime() : 0;
     const timeB = b.started_at ? new Date(b.started_at).getTime() : 0;
     const safeA = Number.isNaN(timeA) ? 0 : timeA;
@@ -700,11 +746,11 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
   });
 
   let indexBody = '# PALEE Session Index\n\n';
-  if (sessions.length === 0) {
+  if (sortedSessions.length === 0) {
     indexBody += 'No confirmed sessions recorded.\n';
   } else {
-    indexBody += `Total Sessions: ${sessions.length}\n\n`;
-    for (const s of sessions) {
+    indexBody += `Total Sessions: ${sortedSessions.length}\n\n`;
+    for (const s of sortedSessions) {
       const dateStr = s.started_at ? s.started_at.split('T')[0] : 'Unknown date';
       indexBody += `- [[${s.fileStem}]] - Topic: ${s.topic_id} (${dateStr})\n`;
     }
@@ -751,54 +797,11 @@ async function regenerateIndex(vaultPath: string): Promise<string> {
  * ```
  */
 async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
-  const sessionsDir = getSessionsDir(vaultPath);
-  let newestSession: { file: string; frontmatter: Record<string, unknown>; body: string } | null = null;
-  // Lowest possible rank, so a parseable timestamp of any era (including
-  // pre-1970) outranks an unparseable one instead of being filtered out.
-  let newestTime = -Infinity;
-
-  if (fs.existsSync(sessionsDir)) {
-    // Ascending filename order, as `loadSessions` uses, so a tie on `started_at`
-    // resolves to the same session on every OS instead of to whatever readdir
-    // happened to return. The comparison below stays `>=` deliberately:
-    // `newestTime` starts at -Infinity and an unparseable `started_at` is ranked at
-    // -Infinity too, so under `>` a vault whose sessions all carry unreadable dates
-    // would select nothing and erase hot memory (BUG-005).
-    const files = fs.readdirSync(sessionsDir).sort();
-    for (const file of files) {
-      if (file.startsWith('S-') && file.endsWith('.md')) {
-        const filePath = path.join(sessionsDir, file);
-        try {
-          const stat = fs.statSync(filePath);
-          if (stat.size === 0) {
-            continue;
-          }
-          const content = fs.readFileSync(filePath, 'utf8');
-          const { frontmatter, body } = parseFrontmatter(content);
-          // The same confirmed-session predicate `regenerateIndex` applies, schema
-          // gate included: hot.md is the other view of this one rebuild pass, and
-          // it used to select a session the index had skipped as unsupported, so
-          // the two derived files disagreed about the same vault (#542).
-          if (isConfirmedSession(frontmatter)) {
-            // Apply the same NaN protection `regenerateIndex` uses: an
-            // unparseable `started_at` (hand-edited or corrupted frontmatter)
-            // yields NaN, and `NaN >= newestTime` is always false, which would
-            // disqualify every canonical session and erase hot memory. Rank it
-            // lowest instead of dropping it, so any parseable timestamp — even
-            // a pre-1970 one — still wins, and derived views stay non-empty.
-            const parsedTime = new Date((frontmatter.started_at as string) || 0).getTime();
-            const time = Number.isNaN(parsedTime) ? Number.NEGATIVE_INFINITY : parsedTime;
-            if (time >= newestTime) {
-              newestTime = time;
-              newestSession = { file: filePath, frontmatter, body };
-            }
-          }
-        } catch {
-          // Never delete or mutate session files during hot/index rebuild.
-        }
-      }
-    }
-  }
+  // One scan feeds both views (#565 P2-09): its rows go to `index.md` below and
+  // its newest confirmed session becomes `hot.md`. Both files describe the same
+  // snapshot, so they cannot disagree about which sessions exist.
+  const scanned = scanSessions(getSessionsDir(vaultPath));
+  const newestSession = scanned.newest;
 
   const activeSession = readActiveSession(vaultPath);
   if (newestSession) {
@@ -838,7 +841,7 @@ async function rebuildHotAndIndex(vaultPath: string): Promise<void> {
     );
   }
 
-  await regenerateIndex(vaultPath);
+  await regenerateIndex(vaultPath, scanned);
 }
 
 /** Maximum retry attempts when writeDraftCheckpoint encounters an OCC conflict (#358). */

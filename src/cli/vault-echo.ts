@@ -13,7 +13,7 @@
  */
 
 import { PaleeConfig } from '../types';
-import { getConfigPath } from './config';
+import { getConfigPath } from './config-path';
 import { validateVaultPath } from './onboarding';
 
 /**

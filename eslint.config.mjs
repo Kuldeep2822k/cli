@@ -67,7 +67,7 @@ export default tseslint.config(
     }
   },
   {
-    // The documented PR rule is zero `any` casts in `src/` (agent.md, PR
+    // The documented PR rule is zero `any` casts in `src/` (AGENTS.md, PR
     // checklist). It was asserted but unchecked: the block above turned the
     // rule off repo-wide, so `npm run lint` passed on any input. Re-armed for
     // shipped code only — `test/` keeps it off deliberately, where `any` is

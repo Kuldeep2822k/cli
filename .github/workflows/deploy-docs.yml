@@ -14,8 +14,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Actions are pinned to full commit SHAs for supply-chain security.
 # Periodically verify and update SHAs during dependency review.
@@ -28,6 +26,14 @@ jobs:
     name: Build VitePress Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The build runs the third-party docs toolchain, so it holds no credential
+    # that can publish: `pages: write` and `id-token: write` belong to the
+    # deploy job alone. `pages: read` stays because `configure-pages` asks the
+    # API for the site's base path, and job-level permissions replace (not
+    # merge with) the workflow-level grant.
+    permissions:
+      contents: read
+      pages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,8 +48,8 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        # --ignore-scripts matches ci.yml: this job holds `pages: write` and
-        # `id-token: write`, so a malicious transitive postinstall must not run here.
+        # --ignore-scripts matches ci.yml: a malicious transitive postinstall
+        # must not run while the docs toolchain is installed.
         run: npm ci --ignore-scripts
 
       - name: Configure GitHub Pages
@@ -62,6 +68,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

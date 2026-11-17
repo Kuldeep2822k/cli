@@ -1,5 +1,5 @@
 ---
-description: "PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (node:test) and assertion library (node:assert), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies."
+description: "PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (node:test) and assertion library (node:assert), keeping the run deterministic and dependency-light."
 ---
 
 
@@ -45,7 +45,7 @@ description: "PALEE utilizes a robust, zero-external-framework testing strategy 
 
 :::
 
-PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), ensuring maximum execution speed, deterministic concurrency, and minimal dependencies. The catalog below covers the 19 architectural-layer suites (47 `describe` blocks and 494 declared `test()` cases); additional specialized suites live in the same `test/` tree — concurrency and stress runs, property-based fuzzing, fault injection, timezone matrix coverage, session hot-read races, storage-barrel contract census, and the tiered end-to-end suites under `test/e2e/` — and are documented in their own sections where they carry dedicated invariants.
+PALEE utilizes a robust, zero-external-framework testing strategy centered around the Node.js native test runner (`node:test`) and assertion library (`node:assert`), keeping the run deterministic and dependency-light. The catalog below covers the 19 architectural-layer suites (47 `describe` blocks and 494 declared `test()` cases); additional specialized suites live in the same `test/` tree — concurrency and stress runs, property-based fuzzing, fault injection, timezone matrix coverage, session hot-read races, storage-barrel contract census, and the tiered end-to-end suites under `test/e2e/` — and are documented in their own sections where they carry dedicated invariants.
 
 ## Master Test Suite Catalog
 
@@ -85,7 +85,36 @@ The testing environment is built on high-performance native tooling:
 - **Assertion Library**: Node.js native `node:assert/strict` and `node:assert` (`assert.strictEqual`, `assert.deepStrictEqual`, `assert.throws`, `assert.rejects`, `assert.match`).
 - **Execution Engine**: `tsx` (`node --import tsx --test --test-concurrency=4 "test/**/*.test.ts"`), executing TypeScript tests directly from source without intermediate compilation steps. The worker pool is capped at 4 on both launch paths: uncapped, `node:test` spawns one `tsx` worker per core, which fails to commit memory on a 16-core dev box (ADR-0029 bounds the coverage path for the same reason).
 - **Coverage Tooling**: `c8` (`npm run test:coverage`), generating detailed text and `lcov` coverage reports mapped back to original TypeScript source lines.
-- **Hermetic Test Isolation**: All filesystem-touching tests redirect state by setting `process.env.PALEE_CONFIG_DIR` to a temporary directory created with `fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-'))`.
+- **Hermetic Test Isolation**: All filesystem-touching tests redirect state by setting `process.env.PALEE_CONFIG_DIR` to a temporary directory created with `fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-'))`. Points set up by a test's own fixture may be written straight to `config.json` rather than spawned through `config set-vault`: the pointer is setup state, not behaviour under test.
+
+---
+
+## Command Shortcuts and Their Contracts
+
+The shortcuts select different slices of one `test/` tree, and each contract is asserted in `test/ci-workflow-matrix.test.ts`. Family coverage there is checked against the suites that exist on disk, not merely against the script strings, and the entries a shortcut already ran are named explicitly — a deleted entry fails the check instead of quietly redefining the shortcut.
+
+| Command | Selection | Build hook | Concurrency |
+| :--- | :--- | :--- | :--- |
+| `npm test` | every recursive suite (`test/**/*.test.ts`) | `pretest` | `--test-concurrency=4` |
+| `npm run test:coverage` | the same recursive selection, measured by `c8` | `pretest:coverage` | `--test-concurrency=4` |
+| `npm run test:unit` | `storage-*`, `engine-*`, `types-*`, `ai-*`, `application-*`, `validation-*`, `smoke` | none | none |
+| `npm run test:fast` | the curated pre-push set: those families plus `cli-*`, `session-*`, `fault-injection`, `property-fuzz`, `stress-concurrency`, `timezone-matrix` | `pretest:fast` | none |
+| `npm run test:e2e` | `test/e2e/*.test.ts` | `pretest:e2e` | none |
+| `npm run test:fuzz` | `property-fuzz`, `stress-concurrency`, `challenger1-*` | `pretest:fuzz` | none |
+
+Two properties are load-bearing:
+
+- **`test:unit` is build-free, and `test:fast` is a curated selection.** `test:unit` imports the sources directly, so it has no prebuild hook and selects nothing that launches the CLI: a suite that spawns the binary needs `dist`, which this shortcut never produces. `test:fast` is the pre-push set, so the long `challenger1-*` runs stay out of it. Neither shortcut is defined as "every root suite", and fast plus e2e is not required to equal the full suite.
+- **Build-free does not mean filesystem-free.** A unit suite imports `src/` rather than `dist/`, but it may still create temporary directories under `os.tmpdir()` and open loopback sockets — the AI provider suite binds `127.0.0.1` on an ephemeral port, and the storage suites lock and rename real files. Isolation, not purity, is what makes them unit tests here.
+
+### How a CLI-launching suite launches
+
+Everything that spawns the CLI goes through [`runPalee`](https://github.com/Kuldeep2822k/cli/blob/main/test/e2e/test-env.ts), which owns the launch policy for the whole tree:
+
+- **Normal runs** (`npm test`, `test:fast`, `test:e2e`) launch the prebuilt `dist/bin/palee.js`, so a spawn pays plain Node startup rather than a per-spawn `tsx` cold start.
+- **Coverage runs** (`test:coverage`, which c8 marks with `NODE_V8_COVERAGE`) launch the TypeScript sources behind `--import tsx`, so every process in the report compiles with the same transform as the parent and the coverage maps merge cleanly.
+- Every spawn is bounded by a 120 s timeout and reports `ETIMEDOUT` with the command and the output it managed, instead of hanging its worker. Arguments are passed as an argv array — no shell, so nothing is quoted or escaped.
+- The `pretest:*` hooks build `dist` first. Running `node --test` by hand bypasses those hooks, so build before launching a CLI-spawning suite directly; the helper's import fails fast with that instruction rather than letting each suite report an unrelated-looking child `ENOENT`.
 
 ---
 
@@ -99,7 +128,7 @@ CLI and integration tests follow a deterministic setup and teardown lifecycle:
 
 1. **Setup (`before` / `beforeEach`)**: Create a unique temporary directory using `fs.mkdtempSync(path.join(os.tmpdir(), 'palee-test-'))`.
 2. **Environment Redirection**: Set `process.env.PALEE_CONFIG_DIR` to this temporary directory to isolate `config.json` and internal vault metadata (`.palee/`).
-3. **Execution**: Run commands via `execFile` / `execSync` in subprocess integration tests, or invoke command handler functions directly with stream interception in in-process tests.
+3. **Execution**: Run commands through the shared `runPalee` helper in `test/e2e/test-env.ts`, or invoke command handler functions directly with stream interception in in-process tests.
 4. **Teardown (`after` / `afterEach`)**: Recursively remove the temporary directory (`fs.rmSync(tempDir, { recursive: true, force: true })`) and restore `process.env` and global console streams.
 
 ---
@@ -128,7 +157,7 @@ flowchart TD
         StreamMock["Console / TTY Stream Interception"]
     end
 
-    subgraph TestTiers ["Test Execution Tiers (test:fast: 203 Suites / 1,458 Tests)"]
+    subgraph TestTiers ["Test Execution Tiers (selection contracts: see Command Shortcuts)"]
         UT["Tier 1: Pure Unit & Engine Tests<br/>(test/engine-*.test.ts, test/types-*.test.ts)"]
         STG["Tier 2: Storage & Concurrency Tests<br/>(test/storage-*.test.ts)"]
         IT["Tier 3: CLI Integration Tests<br/>(test/cli-commands.test.ts,<br/>test/cli-adopt-batch.test.ts)"]
@@ -187,9 +216,9 @@ describe('Engine Subsystem Unit Tests', () => {
 });
 ```
 
-### 2. CLI Subprocess Integration Test Boilerplate (`child_process.execFile`)
+### 2. CLI Subprocess Integration Test Boilerplate (`runPalee`)
 
-Use this template for end-to-end command execution verifying CLI flag parsing, exit codes, and disk state changes:
+Use this template for end-to-end command execution verifying CLI flag parsing, exit codes, and disk state changes. Do not spawn the CLI yourself: import `runPalee` from `test/e2e/test-env.ts`, which owns the launch policy (see [How a CLI-launching suite launches](#how-a-cli-launching-suite-launches)) — `dist/bin/palee.js` normally, the sources under `--import tsx` when c8 sets `NODE_V8_COVERAGE`, always with a 120 s timeout and a diagnostic throw on a failed launch:
 
 ```typescript
 import { describe, test, before, after } from 'node:test';
@@ -197,21 +226,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { runPalee } from './e2e/test-env';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 describe('CLI Subprocess Integration Tests', () => {
   let tempDir: string;
+  let configDir: string;
   let vaultDir: string;
 
   before(() => {
-    // 1. Create hermetic temp root & vault
+    // 1. Create hermetic temp root, vault and config directory
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-custom-test-'));
     vaultDir = path.join(tempDir, 'vault');
     fs.mkdirSync(vaultDir, { recursive: true });
+    configDir = path.join(tempDir, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
 
-    // 2. Point CLI to isolated test environment
-    runCLI(['config', 'set-vault', vaultDir]);
+    // 2. Write the config fixture directly - the vault pointer is setup
+    //    state, not the behaviour under test, so it costs no subprocess.
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ vaultPath: vaultDir }, null, 2),
+      'utf8'
+    );
   });
 
   after(() => {
@@ -219,26 +256,10 @@ describe('CLI Subprocess Integration Tests', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  // Arguments travel as an argv array - no shell, so nothing is quoted or
+  // escaped and a path with a space arrives as one word.
   function runCLI(args: string[]): { status: number; stdout: string; stderr: string } {
-    try {
-      const stdout = execFileSync(
-        process.execPath,
-        ['--import', 'tsx', path.resolve(__dirname, '../bin/palee.ts'), ...args],
-        {
-          cwd: path.resolve(__dirname, '..'),
-          env: { ...process.env, PALEE_CONFIG_DIR: tempDir },
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }
-      );
-      return { status: 0, stdout, stderr: '' };
-    } catch (e: any) {
-      return {
-        status: e.status ?? 1,
-        stdout: e.stdout?.toString() || '',
-        stderr: e.stderr?.toString() || ''
-      };
-    }
+    return runPalee(args, configDir);
   }
 
   test('creates topic note and verifies frontmatter persistence', () => {
@@ -254,6 +275,8 @@ describe('CLI Subprocess Integration Tests', () => {
   });
 });
 ```
+
+`runPalee` launches `dist/bin/palee.js` outside coverage, so this suite needs a built tree. Under `npm test` / `npm run test:fast` the `pretest:*` hooks do that; a manual `node --test` run must `npm run build` first.
 
 ### 3. Stream & JSON-Mode Test Boilerplate (`PALEE_JSON`)
 
@@ -338,7 +361,7 @@ For comprehensive breakdown of each test file and coverage specifics, consult:
 
 | Utility | Purpose | Code Reference |
 | --- | --- | --- |
-| `runCLI` | Subprocess execution helper passing isolated `PALEE_CONFIG_DIR` environment variables. | `test/cli-commands.test.ts`, `test/cli-adopt-batch.test.ts` |
+| `runPalee` | Subprocess execution helper: launches the CLI with an isolated `PALEE_CONFIG_DIR`, an argv array (no shell), and a 120 s bound; `dist` normally, `tsx` sources under coverage. | `test/e2e/test-env.ts` |
 | `getLastParsedJson` | Captures and parses stdout JSON for machine-readable output contract validation. | `test/cli-json-output.test.ts` |
 | `computeFingerprint` | Computes SHA-256 file hashes in test assertions to verify OCC concurrency integrity. | `test/storage-atomic-write.test.ts`, `test/storage-frontmatter.test.ts` |
 | `UNSETTLED_HORIZON` | 2000ms threshold constant tested for cache invalidation during rapid file edits. | `test/storage-cache.test.ts` |

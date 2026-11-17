@@ -20,9 +20,9 @@ digraph BoundaryExceptions {
   // ---------------------------------------------------------------- nodes
   subgraph cluster_docs {
     label="  Documented rule  "; style="rounded"; color="#6c757d"; fontcolor="#6c757d";
-    rule_fs      [label="agent.md:13\n\"No raw fs outside storage.\"\nreinforced by\ndocs/01-2:121, docs/02-4:163,\ndocs/04-0:23", shape=note, fillcolor="#e9ecef"];
-    rule_layers  [label="agent.md:9-14\n\"Architecture (four layers)\"\ntypes / engine / storage / cli\n— src/validation is not listed", shape=note, fillcolor="#e9ecef"];
-    rule_facade  [label="agent.md:12-13\nengine + storage reached via\nsrc/<layer>/index.ts facades", shape=note, fillcolor="#e9ecef"];
+    rule_fs      [label="AGENTS.md:13\n\"No raw fs outside storage.\"\nreinforced by\ndocs/01-2:121, docs/02-4:163,\ndocs/04-0:23", shape=note, fillcolor="#e9ecef"];
+    rule_layers  [label="AGENTS.md:9-14\n\"Architecture (four layers)\"\ntypes / engine / storage / cli\n— src/validation is not listed", shape=note, fillcolor="#e9ecef"];
+    rule_facade  [label="AGENTS.md:12-13\nengine + storage reached via\nsrc/<layer>/index.ts facades", shape=note, fillcolor="#e9ecef"];
   }
 
   subgraph cluster_impl {

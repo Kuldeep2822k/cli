@@ -3,8 +3,9 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync, spawnSync } from 'node:child_process';
-import { PALEE_CMD, PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
+import { spawnSync } from 'node:child_process';
+import { PALEE_ARGV, CLI_SPAWN_TIMEOUT_MS } from './palee-cli';
+import { runPalee } from './e2e/test-env';
 import { parseFrontmatter } from '../src/storage/frontmatter';
 
 describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
@@ -19,29 +20,30 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   });
 
   /**
-   * Runs the real CLI through the shared launch command (`PALEE_CMD`: the
-   * prebuilt dist entry normally, the TypeScript sources behind tsx under
-   * coverage) with `PALEE_CONFIG_DIR` pointed at {@link configDir}; captures
-   * exit status, stdout and stderr instead of throwing on a non-zero exit.
-   * Args containing glob/space characters are shell-quoted.
+   * Runs the real CLI through the shared launch helper with `PALEE_CONFIG_DIR`
+   * pointed at {@link configDir}; captures exit status, stdout and stderr
+   * instead of throwing on a non-zero exit.
+   *
+   * @remarks
+   * Arguments go to the child as an argv array, so nothing is shell-quoted and a
+   * glob or a space arrives as one word. The helper also carries the shared
+   * 120 s budget, keeps stderr on a successful exit, and throws a diagnostic when
+   * the child cannot start — a launch that hangs now names itself instead of
+   * taking the worker down with it.
    */
   function runCLI(args: string[], configDir: string): { status: number; stdout: string; stderr: string } {
-    try {
-      const escapedArgs = args.map((arg) => (/[*?[\]\s,]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg));
-      const stdout = execSync(`${PALEE_CMD} ${escapedArgs.join(' ')}`, {
-        cwd: path.resolve(__dirname, '..'),
-        env: { ...process.env, PALEE_CONFIG_DIR: configDir },
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-      return { status: 0, stdout, stderr: '' };
-    } catch (e: unknown) {
-      const err = e as { status?: number; stdout?: string; stderr?: string };
-      return { status: err.status ?? 1, stdout: err.stdout || '', stderr: err.stderr || '' };
-    }
+    return runPalee(args, configDir);
   }
 
-  /** Creates a fresh vault with the given relPath -> content files and points config at it. */
+  /**
+   * Creates a fresh vault with the given relPath -> content files and points
+   * config at it.
+   *
+   * @remarks
+   * The isolated config directory holds the `config.json` fixture directly; the
+   * pointer is setup, not behaviour under test, so it is written rather than
+   * spawned through `config set-vault`.
+   */
   function freshVault(files: Record<string, string>): { vaultDir: string; configDir: string } {
     const vaultDir = fs.mkdtempSync(path.join(tempDir, 'vault-'));
     for (const [rel, content] of Object.entries(files)) {
@@ -50,8 +52,11 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
       fs.writeFileSync(abs, content);
     }
     const configDir = fs.mkdtempSync(path.join(tempDir, 'cfg-'));
-    const setResult = runCLI(['config', 'set-vault', vaultDir], configDir);
-    assert.strictEqual(setResult.status, 0, `set-vault failed: ${setResult.stderr}`);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ vaultPath: vaultDir }, null, 2),
+      'utf8'
+    );
     return { vaultDir, configDir };
   }
 
@@ -1624,8 +1629,7 @@ describe('CLI Adopt --auto-chain Integration (Issue #73, INV-46)', () => {
   // carries — a success report over a topic that had just left `palee plan`.
   //
   // Both streams are needed here: the skip and the severed edges are reported on
-  // stderr while the run still exits 0, and `execSync` keeps stderr only for a
-  // failed command.
+  // stderr while the run still exits 0, so the two are concatenated below.
   test('an over-cap predecessor is severed from the note that chained onto it', () => {
     // 524240 bytes of body: under the 524288 ceiling, inside the band the managed
     // keys need, so the source is adoptable and only the result is not.

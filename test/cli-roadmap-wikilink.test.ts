@@ -318,7 +318,7 @@ due_at: '2026-09-12'
     const result = runCLI(['roadmap', '--from', path.join(vaultDir, 'daily-log.md'), '-y'], configDir);
 
     // A file that was never a roadmap is a usage error (exit 2), not a validation
-    // failure (exit 3) -- see the exit code contract in agent.md.
+    // failure (exit 3) -- see the exit code contract in AGENTS.md.
     assert.strictEqual(
       result.status,
       2,

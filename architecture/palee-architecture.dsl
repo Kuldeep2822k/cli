@@ -34,17 +34,17 @@ workspace "PALEE CLI" "Evidence-backed current-state model for @kuldeep2822k/pal
                 // ---- layers (labels mirror the src/ directory names exactly)
                 clicommand = component "CLI layer (src/cli)" "13 modules / 3076 lines. One handler per command; loadConfig() + validateVaultPath() preamble, try/catch -> exit code. Also owns per-user config file IO (src/cli/config.ts)." "TypeScript modules" "c-cli"
 
-                typescontract = component "Shared contract (src/types.ts)" "734 lines / 26 importers - widest reach of any module. Single source of truth for shared types (agent.md:11). The runtime shape is the FLAT LoadedTopic; nested Topic/Assessment/Review are Phase-2 reserved (agent.md:54)." "TypeScript module" "c-types"
+                typescontract = component "Shared contract (src/types.ts)" "734 lines / 26 importers - widest reach of any module. Single source of truth for shared types (AGENTS.md:11). The runtime shape is the FLAT LoadedTopic; nested Topic/Assessment/Review are Phase-2 reserved (AGENTS.md:54)." "TypeScript module" "c-types"
 
                 enginecore = component "Engine layer (src/engine)" "5 modules / 1430 lines, fs-free (no fs import anywhere under src/engine). SM-2 scheduling, four-pillar mastery, DAG analysis. No Date.now(), no Math.random()." "TypeScript modules" "c-engine"
 
                 storagecore = component "Storage layer (src/storage)" "13 modules / 3758 lines - largest layer by code volume. All vault IO: walker, CST frontmatter, directory-mutex locks, atomic OCC writes, mtime/SHA-256 cache, session and hot-memory persistence, roadmap and pattern parsers." "TypeScript modules" "c-storage"
 
-                validationcore = component "Validation layer (src/validation)" "26 modules / 3072 lines - largest layer by file count. collectVault() one-read pass, runRules() over a 19-rule deterministic catalog, human and JSON formatters. Absent from agent.md's 'Architecture (four layers)' heading." "TypeScript modules" "c-validation"
+                validationcore = component "Validation layer (src/validation)" "26 modules / 3072 lines - largest layer by file count. collectVault() one-read pass, runRules() over a 19-rule deterministic catalog, human and JSON formatters. Absent from AGENTS.md's 'Architecture (four layers)' heading." "TypeScript modules" "c-validation"
 
                 publicapi = component "Public package API (src/index.ts)" "src/index.ts:11-26 - version plus export * of the types, engine, storage and validation barrels. The only supported library entry point for consumers." "TypeScript module" "c-public"
 
-                cmdlinelib = component "commander" "v15 - argument and option parsing, help output. One of only two runtime dependencies (agent.md:16)." "npm package" "c-lib"
+                cmdlinelib = component "commander" "v15 - argument and option parsing, help output. One of only two runtime dependencies (AGENTS.md:16)." "npm package" "c-lib"
 
                 yamllib = component "yaml" "v2 - parseDocument CST, used to preserve frontmatter comments, key order and unknown keys byte-for-byte." "npm package" "c-lib"
             }
@@ -103,7 +103,7 @@ workspace "PALEE CLI" "Evidence-backed current-state model for @kuldeep2822k/pal
         //   src/storage    -> src/engine      : 0 edges
         //   src/storage    -> src/validation  : 0 edges
         //   src/validation -> src/cli         : 0 edges
-        //   src or bin     -> http/https/net/dns : 0 imports (agent.md:80 forbids sockets in Phase 1)
+        //   src or bin     -> http/https/net/dns : 0 imports (AGENTS.md:80 forbids sockets in Phase 1)
         //   circular module deps : none - Tarjan SCC over all 60 modules found no component > 1
     }
 
