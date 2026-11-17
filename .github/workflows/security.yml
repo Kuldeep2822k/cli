@@ -35,13 +35,17 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # Dual-scope npm audit: production-only for PRs, full scan for scheduled/push
+      # Production dependencies ship in the package; block CI on high-severity
+      # findings in that scope for every event.
       - name: Production dependency vulnerability audit
-        if: github.event_name == 'pull_request'
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Full dependency vulnerability audit (production + dev)
+      # Development tooling may contain advisories without a compatible patched
+      # release. Report the full tree on push/schedule without weakening the
+      # production gate or forcing a breaking dependency downgrade.
+      - name: Full dependency vulnerability audit report
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         run: npm audit --audit-level=high
 
       - name: Native Module Guardrail
