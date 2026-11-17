@@ -60,7 +60,7 @@
 import type { ValidationRule, ValidationIssue } from '../types';
 import type { LoadedTopic } from '../../storage/loader';
 import { normalizeDependsOnSource } from '../../types';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 
 /**
  * True when a value contains itself, through an array or an object.

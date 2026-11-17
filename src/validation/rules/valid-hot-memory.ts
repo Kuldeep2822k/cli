@@ -36,7 +36,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { MAX_HOT_WORDS, countWords } from '../../storage/memory';
-import { displayValue } from './diagnostic-value';
+import { displayValue } from '../../diagnostic-value';
 
 /** Fixed identifier the hot-memory writer stamps (`H-active`). */
 const MEMORY_ID = 'H-active';
