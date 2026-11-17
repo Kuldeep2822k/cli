@@ -103,24 +103,31 @@ const OWNED_HEAD: readonly string[] = [
 ];
 const OWNED_TAIL: readonly string[] = ['depends_on_source'];
 
-/** The consumers P3-10 rewired, with the engine symbol each must import. */
+/** The consumers P3-10 rewired, with the engine symbol each must import. The
+ * batch adoption compose moved from `src/cli/adopt.ts` to `src/cli/adopt-plan.ts`,
+ * and the roadmap import's `resolveTopicUpdates` from `src/cli/roadmap.ts` to
+ * `src/cli/roadmap-resolve.ts`, in the P3-14 phase split (#565); the pins
+ * follow the code. */
 const CONSUMERS: Readonly<Record<string, string>> = {
   'src/cli/adopt.ts': 'buildTopicScaffold',
-  'src/cli/roadmap.ts': 'buildTopicScaffold',
+  'src/cli/adopt-plan.ts': 'buildTopicScaffold',
+  'src/cli/roadmap-resolve.ts': 'buildTopicScaffold',
   'src/validation/rules/valid-review-fields.ts': 'buildTopicScaffold',
   'src/cli/adopt-undo.ts': 'PALEE_OWNED_KEYS',
 };
 
 /**
  * Extra per-file detectors, scoped to the file whose reverted shape they catch:
- * the preserve-else-default form lived only in `roadmap.ts`, the hand-listed
- * owned-key set only in `adopt-undo.ts`. Applying them file-wide would cry wolf
- * on legitimate neighbours — `valid-review-fields.ts`'s bounds table quotes the
- * field names (`field: 'ease_factor'`), and `plan`/`progress`/`dashboard` carry
- * `??` guards over the loader's normalized fields.
+ * the preserve-else-default form lived only in the roadmap import's field
+ * resolver (`src/cli/roadmap.ts` before P3-14 moved it to
+ * `roadmap-resolve.ts`), the hand-listed owned-key set only in `adopt-undo.ts`.
+ * Applying them file-wide would cry wolf on legitimate neighbours —
+ * `valid-review-fields.ts`'s bounds table quotes the field names
+ * (`field: 'ease_factor'`), and `plan`/`progress`/`dashboard` carry `??` guards
+ * over the loader's normalized fields.
  */
 const EXTRA_DETECTORS: Readonly<Record<string, ReadonlyArray<readonly [string, RegExp]>>> = {
-  'src/cli/roadmap.ts': [['preserve-else-default literal', PRESERVE_DEFAULT_LINE]],
+  'src/cli/roadmap-resolve.ts': [['preserve-else-default literal', PRESERVE_DEFAULT_LINE]],
   'src/cli/adopt-undo.ts': [['hand-listed owned key', QUOTED_OWNED_KEY]],
 };
 
