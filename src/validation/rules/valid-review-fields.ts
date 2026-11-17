@@ -33,7 +33,7 @@
  */
 
 import type { ValidationRule, ValidationIssue } from '../types';
-import { formatDiagnosticValue, toJsonSafeValue } from './diagnostic-value';
+import { formatDiagnosticValue, toJsonSafeValue } from '../../diagnostic-value';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
