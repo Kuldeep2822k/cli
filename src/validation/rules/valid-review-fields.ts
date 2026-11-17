@@ -34,6 +34,7 @@
 
 import type { ValidationRule, ValidationIssue } from '../types';
 import { formatDiagnosticValue, toJsonSafeValue } from '../../diagnostic-value';
+import { buildTopicScaffold } from '../../engine/topic-scaffold';
 
 /** Numeric review fields with their SM-2 bounds. */
 const NUMERIC_FIELDS = [
@@ -67,14 +68,22 @@ function isLastQualityValid(value: unknown): boolean {
 /**
  * Adopt-written defaults for the review block. `validate --fix` resets
  * corrupted fields to exactly this adopt shape (missing fields are left
- * missing — the adopt-default policy above).
+ * missing — the adopt-default policy above). The values are read off the
+ * engine's scaffold builder (P3-10 of audit issue #565) — the same never-
+ * reviewed state adoption writes and the roadmap import preserves — so a
+ * changed SM-2 default propagates to the repair instead of drifting from
+ * it. `last_reviewed_at`/`due_at` are scaffold keys too, but date fields:
+ * they belong to `valid-review-dates` (#39), so they stay out of this
+ * numeric reset map.
  */
+const ADOPT_REVIEW_STATE = buildTopicScaffold();
+
 const SM2_REVIEW_DEFAULTS: Record<string, unknown> = {
-  ease_factor: 2.5,
-  interval_days: 1,
-  repetition: 0,
-  lapses: 0,
-  last_quality: null,
+  ease_factor: ADOPT_REVIEW_STATE.ease_factor,
+  interval_days: ADOPT_REVIEW_STATE.interval_days,
+  repetition: ADOPT_REVIEW_STATE.repetition,
+  lapses: ADOPT_REVIEW_STATE.lapses,
+  last_quality: ADOPT_REVIEW_STATE.last_quality,
 };
 
 /**

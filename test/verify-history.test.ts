@@ -64,8 +64,13 @@ const TS2307 =
 
 // The exact failure shape P3-09 produced on audit-p3-remediation: the
 // pillar-key rewire commit and the three after it rewired diagnostic-value
-// imports to a path that only names a module from b391af1 onward. Oldest
-// first, in the order a bisect walks.
+// imports to a path that only names a module from b391af1 onward. The three
+// after it inherit P3-09's break; P3-10 additionally bundles one of its own —
+// a hunk unrelated to its item (valid-review-fields.ts switched
+// './diagnostic-value' to '../../diagnostic-value') — so its repair is a
+// split, not a revert: the specifier switch moves into the commit that
+// creates src/diagnostic-value.ts (b391af1). Oldest first, in the order a
+// bisect walks.
 const FAILING_COMMITS: ReadonlyArray<Commit> = [
   {
     sha: '0c4a17f000000000000000000000000000000000',
