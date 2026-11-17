@@ -23,7 +23,10 @@ import {
  * `batchScopeExclusion` in `src/storage/pattern-matcher.ts`, beside the two
  * matchers it folds (`matchesPattern`, `matchesTags`) and the #312 tally that
  * audits their dialect, and each command keeps its own counters by routing the
- * verdict.
+ * verdict. P3-14 (#565) later moved the batch adoption's scan out of the
+ * handler into `src/cli/adopt-scan.ts`, so that module is the consumer this
+ * guard tracks on the adoption side — the handler in `src/cli/adopt.ts`
+ * orchestrates the phases and applies no filter itself.
  *
  * The guard has two halves, like `topic-scaffold-single-source` and
  * `pillar-key-single-source`. The runtime half pins the verdict table and —
@@ -43,8 +46,9 @@ const root = path.resolve(__dirname, '..');
 /** The canonical module P3-11 put the predicate in. */
 const CANONICAL_FILE = 'src/storage/pattern-matcher.ts';
 
-/** The two consumers the item names, each with its own counters. */
-const CONSUMERS: readonly string[] = ['src/cli/adopt.ts', 'src/cli/adopt-undo.ts'];
+/** The two consumers the item names, each with its own counters — adoption's
+ * scan relocated to `src/cli/adopt-scan.ts` by the P3-14 phase split (#565). */
+const CONSUMERS: readonly string[] = ['src/cli/adopt-scan.ts', 'src/cli/adopt-undo.ts'];
 
 /** The path form every filter decision is measured against: vault-relative, `/`-separated. */
 const PATHS: readonly string[] = [
