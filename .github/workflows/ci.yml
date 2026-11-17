@@ -48,6 +48,38 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+  # The tip's typecheck cannot see mid-branch breakage: #565 P3-09 shipped four
+  # consecutive commits importing a module the path did not name yet — every
+  # tip-side gate stayed green while `tsc --noEmit` failed at each of them,
+  # breaking agent.md's per-change verification loop and bisect. Pull requests
+  # are where the branch can still be rewritten, so the merge-base range is
+  # typechecked commit by commit here; pushes to main and tags skip the job.
+  commit-history-typecheck:
+    name: Every Commit Typechecks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge-base range needs the full history, like the diff-cover leg.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        # --no-workspaces skips the docs workspace, like the other typecheck legs.
+        run: npm ci --ignore-scripts --no-workspaces
+
+      - name: Typecheck every commit since the merge base with main
+        run: node scripts/verify-history.js --base origin/main
+
   docs-check:
     name: Build Documentation
     runs-on: ubuntu-latest
@@ -245,7 +277,7 @@ jobs:
 
   ci-success:
     if: always()
-    needs: [quality-check, docs-check, test-matrix, smoke-install, engines-floor-smoke]
+    needs: [quality-check, commit-history-typecheck, docs-check, test-matrix, smoke-install, engines-floor-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
