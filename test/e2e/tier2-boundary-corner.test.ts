@@ -394,6 +394,98 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(parsed.total_drafts, 0);
     });
 
+    test('B4.8: session end after a lock-yielded draft is resolved into a new session records it', async () => {
+      env.createTopics(['T-lockyield']);
+      env.run(['session', 'draft', '--topic', 'T-lockyield']);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      // End while a live writer holds the draft's target lock: the session note
+      // records the draft as consumed, but the lock-aware cleanup yields and
+      // the draft stays on disk (#565 P3-02).
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const endRes = env.run(['session', 'end', '--json', '--topic', 'T-lockyield']);
+        assert.strictEqual(endRes.status, 0);
+      } finally {
+        lock.release();
+      }
+      assert.strictEqual(env.listSessions().drafts.length, 1, 'the locked draft must survive the first end');
+      assert.strictEqual(env.listSessions().confirmed.length, 1);
+
+      // Resolve the leftover into a new session (ignore keeps the draft), then
+      // end the new session. The old note's consumed marker must not veto an
+      // active session: refusing here with "no active session" is exactly the
+      // regression this test pins.
+      const startRes = env.run(['session', 'start', '--interactive', '--json', '--topic', 'T-lockyield'], { input: 'i\n' });
+      assert.strictEqual(startRes.status, 0, `${startRes.stdout}${startRes.stderr}`);
+      const endRes = env.run(['session', 'end', '--json', '--topic', 'T-lockyield']);
+      assert.strictEqual(endRes.status, 0, `the new session must end: ${endRes.stderr}`);
+      const parsed = JSON.parse(endRes.stdout);
+      assert.strictEqual(parsed.status, 'recorded');
+      assert.deepStrictEqual(parsed.consumed_drafts, [draftName], 'the new end consumes the surviving draft');
+      assert.strictEqual(env.listSessions().drafts.length, 0, 'the draft is retired by the session that consumed it');
+      assert.strictEqual(env.listSessions().confirmed.length, 2);
+    });
+
+    test('B4.9: a discard skipped by the target lock keeps the draft unresolved and refuses the start', async () => {
+      env.createTopics(['T-lockdiscard']);
+      env.run(['session', 'draft', '--topic', 'T-lockdiscard']);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const startRes = env.run(
+          ['session', 'start', '--interactive', '--json', '--topic', 'T-lockdiscard'],
+          { input: 'd\n' }
+        );
+        // The deciding assertions: the discard could not take the draft's lock,
+        // so the choice is reported as not applied and the start refuses rather
+        // than opening a session on top of a draft the user asked to discard.
+        // The pre-fix flow ignored recoverDraft's result, started the session,
+        // and the draft reappeared on the next start.
+        assert.strictEqual(startRes.status, 2, `expected the refusal exit code: ${startRes.stdout}${startRes.stderr}`);
+        assert.match(startRes.stderr, /Draft recovery was not completed/);
+        assert.doesNotMatch(startRes.stdout, /"status":"started"/);
+      } finally {
+        lock.release();
+      }
+      assert.strictEqual(env.listSessions().drafts.length, 1, 'the locked draft must survive the skipped discard');
+      assert.strictEqual(env.listSessions().confirmed.length, 0, 'no session may start past an unresolved draft');
+    });
+
+    test('B4.10: a save skipped by the target lock reports the leftover and refuses the start', async () => {
+      env.createTopics(['T-locksave']);
+      env.run(['session', 'draft', '--topic', 'T-locksave']);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const startRes = env.run(
+          ['session', 'start', '--interactive', '--json', '--topic', 'T-locksave'],
+          { input: 's\n' }
+        );
+        // The save itself lands (the session note is written before the draft
+        // is retired), but the retiring unlink is skipped while the lock is
+        // held — so the draft is not resolved and the start refuses instead of
+        // silently carrying a pending draft into a new session.
+        assert.strictEqual(startRes.status, 2, `expected the refusal exit code: ${startRes.stdout}${startRes.stderr}`);
+        assert.match(startRes.stderr, /Draft recovery was not completed/);
+      } finally {
+        lock.release();
+      }
+      assert.strictEqual(env.listSessions().confirmed.length, 1, 'the save itself must have landed');
+      assert.strictEqual(env.listSessions().drafts.length, 1, 'the locked draft must survive the skipped retirement');
+    });
+
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
       env.createTopics(['T-mixed-first', 'T-mixed-second']);
       env.run(['session', 'draft', '--topic', 'T-mixed-first']);
