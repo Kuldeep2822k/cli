@@ -16,6 +16,16 @@
   A deterministic, Spaced-Repetition (SM-2) &amp; Directed Acyclic Graph (DAG) study engine for Obsidian vaults.
 </p>
 
+## Demo
+
+<p align="center">
+  <img src="assets/demo.gif" alt="PALEE CLI demo: adopting Microsoft's Generative AI for Beginners course, logging a review, assessing mastery, and viewing the dashboard" width="738" />
+</p>
+
+<p align="center">
+  <em>PALEE pointed at Microsoft's Generative AI for Beginners course: adopt all 33 lessons, see what is due, log a review, assess mastery, and check the dashboard.</em>
+</p>
+
 ## Documentation
 
 Complete interactive documentation with architecture guides, interactive Mermaid diagrams, and CLI command references is available at [https://kuldeep2822k.github.io/cli/](https://kuldeep2822k.github.io/cli/).
