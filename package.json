@@ -24,7 +24,7 @@
     "lint:fix": "eslint . --fix",
     "check": "npm run typecheck && npm run lint",
     "build": "tsc && node -e \"const fs=require('fs'); fs.copyFileSync('package.json', 'dist/package.json'); fs.chmodSync('dist/bin/palee.js', 0o755)\"",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build && npm pack && node scripts/verify-tarball.js",
     "docs:dev": "npm run dev --workspace=@kuldeep2822k/cli-docs",
     "docs:build": "npm run build --workspace=@kuldeep2822k/cli-docs",
     "docs:preview": "npm run preview --workspace=@kuldeep2822k/cli-docs",
