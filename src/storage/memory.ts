@@ -1135,16 +1135,16 @@ async function recoverDraft(
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
- * @returns Array of matching draft records with path, started_at timestamp, and body
+ * @returns Array of matching draft records with path, started_at timestamp, body, and full-note fingerprint
  * @remarks Filters all existing draft checkpoints by `topic_id`.
  * @example
  * ```typescript
  * const topicDrafts = getTopicDrafts('/vault', 'topic-123');
  * ```
  */
-function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string }> {
+function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string; fingerprint: string }> {
   const drafts = getDrafts(vaultPath);
-  const matches: Array<{ path: string; started_at: string; body: string }> = [];
+  const matches: Array<{ path: string; started_at: string; body: string; fingerprint: string }> = [];
   for (const draftPath of drafts) {
     try {
       const content = fs.readFileSync(draftPath, 'utf8');
@@ -1154,6 +1154,7 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
           path: draftPath,
           started_at: (frontmatter.started_at as string) || '',
           body,
+          fingerprint: computeFingerprint(content),
         });
       }
     } catch {
@@ -1209,6 +1210,7 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
  * @param topicId - Topic ID
  * @param draftPaths - Optional allow-list of the exact draft paths to delete — the
  *   checkpoints the caller's session recorded as consumed
+ * @param expectedFingerprints - Optional scanned fingerprints keyed by draft path
  * @returns Object with `deleted` paths array and `errors` array of `{ path, error }` for any failures
  * @remarks
  * When `draftPaths` is supplied, only those files are deleted (#565 P3-02): a
@@ -1220,6 +1222,8 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
  *
  * A draft whose target lock is held by a live writer is left in place
  * (`deleteSessionNote` yields) and is counted as neither deleted nor errored.
+ * With `expectedFingerprints`, the full-note fingerprint is checked under that
+ * lock; changed drafts and paths without a supplied fingerprint are left in place.
  * A listed draft that is already gone is counted as deleted — the goal state
  * holds — while other read errors (EACCES), parse errors, and unlink errors are
  * captured in the returned `errors` array rather than swallowed silently.
@@ -1232,7 +1236,8 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
 function deleteTopicDrafts(
   vaultPath: string,
   topicId: string,
-  draftPaths?: readonly string[]
+  draftPaths?: readonly string[],
+  expectedFingerprints?: ReadonlyMap<string, string>
 ): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
   const scopedPaths = draftPaths ? [...new Set(draftPaths)].sort() : null;
   const drafts = scopedPaths ?? getDrafts(vaultPath);
@@ -1240,6 +1245,8 @@ function deleteTopicDrafts(
   const errors: Array<{ path: string; error: Error }> = [];
 
   for (const draftPath of drafts) {
+    const expectedFingerprint = expectedFingerprints?.get(draftPath);
+    if (expectedFingerprints && expectedFingerprint === undefined) continue;
     let content: string;
     try {
       content = fs.readFileSync(draftPath, 'utf8');
@@ -1257,7 +1264,7 @@ function deleteTopicDrafts(
     }
     try {
       const { frontmatter } = parseFrontmatter(content);
-      if (frontmatter && frontmatter.topic_id === topicId && deleteSessionNote(vaultPath, draftPath)) {
+      if (frontmatter && frontmatter.topic_id === topicId && deleteSessionNote(vaultPath, draftPath, expectedFingerprint)) {
         deleted.push(draftPath);
       }
     } catch (err: unknown) {
@@ -1273,9 +1280,10 @@ function deleteTopicDrafts(
  *
  * @param vaultPath - Vault root path
  * @param targetPath - Path to the session note or draft file
+ * @param expectedFingerprint - Optional fingerprint of the complete note the caller consumed
  * @returns `true` when the target is gone (unlinked here, or already absent),
- *   `false` when the unlink was skipped because another live process holds the
- *   target's lock
+ *   `false` when another live process holds its lock or its content no longer
+ *   matches `expectedFingerprint`
  * @remarks Validates that the target path does not escape `.palee/sessions/` directory.
  * The unlink runs under the target's lock — the same one `atomicWrite` on this file
  * takes — so it cannot pull the file out from under a concurrent writer mid-rename
@@ -1289,7 +1297,7 @@ function deleteTopicDrafts(
  * }
  * ```
  */
-function deleteSessionNote(vaultPath: string, targetPath: string): boolean {
+function deleteSessionNote(vaultPath: string, targetPath: string, expectedFingerprint?: string): boolean {
   const sessionsDir = getSessionsDir(vaultPath);
   const resolvedSessions = fs.realpathSync(sessionsDir);
   let resolvedTarget: string;
@@ -1322,9 +1330,15 @@ function deleteSessionNote(vaultPath: string, targetPath: string): boolean {
       throw err;
     }
     try {
-      if (fs.existsSync(resolvedTarget)) {
-        fs.unlinkSync(resolvedTarget);
+      // The lock serializes writers; the fingerprint protects a refresh that
+      // finished before we acquired it, including changes to the note's identity.
+      if (
+        expectedFingerprint !== undefined &&
+        computeFingerprint(fs.readFileSync(resolvedTarget, 'utf8')) !== expectedFingerprint
+      ) {
+        return false;
       }
+      fs.unlinkSync(resolvedTarget);
       return true;
     } catch (err: unknown) {
       const e = err as { code?: string };

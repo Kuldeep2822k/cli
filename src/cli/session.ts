@@ -380,6 +380,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             lockSkipped = true;
           }
         }
+        const stdinClosed = inputExhausted;
         rl.close();
 
         if (unresolvedDrafts.length > 0) {
@@ -390,7 +391,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           // reason — the draft was left for its holder, not resolved.
           const reasons: string[] = [];
           if (lockSkipped) reasons.push('a locked draft was left for its holder');
-          if (inputExhausted) reasons.push('stdin closed');
+          if (stdinClosed) reasons.push('stdin closed');
           const why = `Draft recovery was not completed${reasons.length > 0 ? ` (${reasons.join('; ')})` : ''}.`;
           if (jsonMode) {
             console.error(JSON.stringify({
@@ -686,12 +687,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // 3-tier timestamp recovery algorithm
       // Tier 1: Check draft checkpoints for earliest started_at
       const topicDrafts = getTopicDrafts(vaultPath, topicId);
+      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
       const matchingDrafts = topicDrafts.filter((d) => {
-        if (!d.started_at) return false;
+        if (consumedDrafts.has(d.path) || !d.started_at) return false;
         const t = new Date(d.started_at).getTime();
         return !Number.isNaN(t) && t <= nowTime + 60000;
       });
-      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
       // A draft recorded as consumed by a completed session normally means that
       // session already ended — ending again would re-record it, so refuse
       // (#442 bug 2). But a draft whose cleanup was skipped because its target
@@ -789,7 +790,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // created after that scan (a concurrent `session draft`) was never consumed by
       // this session and must survive for the session that holds it. Re-scanning the
       // directory at delete time would destroy it.
-      const cleanupResult = deleteTopicDrafts(vaultPath, topicId, topicDrafts.map((draft) => draft.path));
+      const cleanupResult = deleteTopicDrafts(
+        vaultPath,
+        topicId,
+        topicDrafts.map((draft) => draft.path),
+        new Map(topicDrafts.map((draft) => [draft.path, draft.fingerprint]))
+      );
 
       // #442 (bug 3): deleting draft checkpoints silently looked like data loss. Report
       // each consumed draft so the draft -> session transition is explicit. In machine

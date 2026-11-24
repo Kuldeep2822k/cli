@@ -394,12 +394,15 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(parsed.total_drafts, 0);
     });
 
-    test('B4.8: session end after a lock-yielded draft is resolved into a new session records it', async () => {
+    test('B4.8: a new session ignores the start time of an already-consumed lock-yielded draft', async () => {
       env.createTopics(['T-lockyield']);
       env.run(['session', 'draft', '--topic', 'T-lockyield']);
       const [draftName] = env.listSessions().drafts;
       assert.ok(draftName !== undefined);
       const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+      env.updateTopic(path.join('.palee', 'sessions', draftName), {
+        started_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      });
 
       // End while a live writer holds the draft's target lock: the session note
       // records the draft as consumed, but the lock-aware cleanup yields and
@@ -421,10 +424,15 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       // regression this test pins.
       const startRes = env.run(['session', 'start', '--interactive', '--json', '--topic', 'T-lockyield'], { input: 'i\n' });
       assert.strictEqual(startRes.status, 0, `${startRes.stdout}${startRes.stderr}`);
+      const activeStart = env.readTopic(path.join('.palee', 'active-session.md')).frontmatter?.started_at;
+      assert.ok(typeof activeStart === 'string');
       const endRes = env.run(['session', 'end', '--json', '--topic', 'T-lockyield']);
       assert.strictEqual(endRes.status, 0, `the new session must end: ${endRes.stderr}`);
       const parsed = JSON.parse(endRes.stdout);
       assert.strictEqual(parsed.status, 'recorded');
+      const expectedDuration = Math.round((Date.parse(parsed.ended_at) - Date.parse(activeStart)) / 60000);
+      assert.strictEqual(parsed.duration_minutes, expectedDuration, 'the old consumed draft must not add time to the new session');
+      assert.strictEqual(parsed.started_at, activeStart, 'the new active-session start must be used');
       assert.deepStrictEqual(parsed.consumed_drafts, [draftName], 'the new end consumes the surviving draft');
       assert.strictEqual(env.listSessions().drafts.length, 0, 'the draft is retired by the session that consumed it');
       assert.strictEqual(env.listSessions().confirmed.length, 2);
@@ -485,6 +493,32 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(env.listSessions().confirmed.length, 1, 'the save itself must have landed');
       assert.strictEqual(env.listSessions().drafts.length, 1, 'the locked draft must survive the skipped retirement');
     });
+
+    for (const [action, answer, savedCount] of [['discard', 'd\n', 0], ['save', 's\n', 1]] as const) {
+      test(`locked ${action} recovery does not report EOF while stdin remains open`, async () => {
+        const topicId = `T-open-${action}`;
+        env.createTopics([topicId]);
+        env.run(['session', 'draft', '--topic', topicId]);
+        const [draftName] = env.listSessions().drafts;
+        assert.ok(draftName !== undefined);
+        const lock = new Lock(env.vaultDir, path.join(env.vaultDir, '.palee', 'sessions', draftName));
+        try {
+          await lock.acquire();
+          const result = await env.runInteractive(
+            ['session', 'start', '--interactive', '--topic', topicId],
+            [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: answer }],
+            { keepStdinOpen: true }
+          );
+          assert.strictEqual(result.status, 2, `${result.stdout}${result.stderr}`);
+          assert.match(result.stderr, /a locked draft was left for its holder/);
+          assert.doesNotMatch(result.stderr, /stdin closed/);
+        } finally {
+          lock.release();
+        }
+        assert.deepStrictEqual(env.listSessions().drafts, [draftName]);
+        assert.strictEqual(env.listSessions().confirmed.length, savedCount);
+      });
+    }
 
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
       env.createTopics(['T-mixed-first', 'T-mixed-second']);
@@ -564,6 +598,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
         [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 'x\n' }]
       );
       assert.strictEqual(startRes.status, 2, 'A re-prompt that ends at EOF resolves nothing');
+      assert.match(startRes.stderr, /stdin closed/);
       const prompts = (startRes.stdout.match(/\[R\]esume\s+\[S\]ave as session/g) ?? []).length;
       assert.ok(prompts >= 2, `Unmatched input must re-prompt, saw ${prompts} prompt(s)`);
 
@@ -589,6 +624,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
         [{ waitFor: /Draft: DRAFT-S-[0-9a-f]+\.md/, write: 's\n' }]
       );
       assert.strictEqual(startRes.status, 2, 'EOF with a draft left unanswered must not report success');
+      assert.match(startRes.stderr, /stdin closed/);
       assert.ok(
         !startRes.stdout.includes('PALEE Session Started'),
         'No session may start while a checkpoint is unresolved'
@@ -633,6 +669,7 @@ describe('Tier 2: Boundary & Corner Cases', () => {
         [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: '' }]
       );
       assert.strictEqual(startRes.status, 2);
+      assert.match(startRes.stderr, /stdin closed/);
       assert.ok(!startRes.stdout.includes('PALEE Session Started'));
 
       const sessions = env.listSessions();

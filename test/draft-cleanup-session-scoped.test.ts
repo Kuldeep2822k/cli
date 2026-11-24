@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { deleteSessionNote, deleteTopicDrafts, recoverDraft, Lock } from '../src/storage';
-import { parseFrontmatter } from '../src/storage/frontmatter';
+import { deleteSessionNote, deleteTopicDrafts, getTopicDrafts, recoverDraft, writeDraftCheckpoint, Lock } from '../src/storage';
+import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 
 /**
  * #565 (P3-02) — draft cleanup is session-scoped and lock-aware.
@@ -266,6 +266,101 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     assert.strictEqual(fs.existsSync(consumedLate), false);
     assert.strictEqual(fs.existsSync(injectedPath), true, 'a draft created after the session scan must survive cleanup');
   });
+
+  test('cleanup preserves a same-path checkpoint refreshed after the scan', async () => {
+    const unchanged = writeDraft('DRAFT-S-abcd0016', 'T-scoped', minutesAgo(10));
+    const refreshed = writeDraft('DRAFT-S-abcd0017', 'T-scoped', minutesAgo(5));
+    const scanned = getTopicDrafts(vaultDir, 'T-scoped');
+    const fingerprints = new Map(scanned.map((draft) => [draft.path, draft.fingerprint]));
+
+    await writeDraftCheckpoint(vaultDir, 'DRAFT-S-abcd0017', {
+      topic_id: 'T-scoped',
+      started_at: minutesAgo(1),
+    }, 'Notes written after the scan');
+    const refreshedContent = fs.readFileSync(refreshed, 'utf8');
+    const result = deleteTopicDrafts(vaultDir, 'T-scoped', scanned.map((draft) => draft.path), fingerprints);
+
+    assert.deepStrictEqual(result.errors, []);
+    assert.deepStrictEqual(result.deleted, [unchanged]);
+    assert.strictEqual(fs.existsSync(unchanged), false);
+    assert.strictEqual(fs.readFileSync(refreshed, 'utf8'), refreshedContent);
+    assert.strictEqual(deleteSessionNote(vaultDir, unchanged, fingerprints.get(unchanged)), true);
+  });
+
+  test('cleanup checks the fingerprint after acquiring the target lock', () => {
+    const draft = writeDraft('DRAFT-S-abcd0018', 'T-scoped', minutesAgo(10));
+    const content = fs.readFileSync(draft, 'utf8');
+    const fingerprint = computeFingerprint(content);
+    const refreshedContent = content
+      .replace('topic_id: T-scoped', 'topic_id: T-race')
+      .replace('Draft body', 'Refreshed before lock acquisition');
+    const acquireSync = Lock.prototype.acquireSync;
+    let refreshed = false;
+    Lock.prototype.acquireSync = function () {
+      fs.writeFileSync(draft, refreshedContent);
+      refreshed = true;
+      acquireSync.call(this);
+    };
+
+    try {
+      const result = deleteTopicDrafts(vaultDir, 'T-scoped', [draft], new Map([[draft, fingerprint]]));
+      assert.deepStrictEqual(result, { deleted: [], errors: [] });
+    } finally {
+      Lock.prototype.acquireSync = acquireSync;
+    }
+    assert.strictEqual(refreshed, true);
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+    const lock = new Lock(vaultDir, draft);
+    lock.acquireSync();
+    lock.release();
+  });
+
+  test('a supplied fingerprint map never authorizes a path without a snapshot', () => {
+    const draft = writeDraft('DRAFT-S-abcd0019', 'T-scoped', minutesAgo(10));
+    const content = fs.readFileSync(draft, 'utf8');
+    const result = deleteTopicDrafts(vaultDir, 'T-scoped', [draft], new Map());
+
+    assert.deepStrictEqual(result, { deleted: [], errors: [] });
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), content);
+  });
+
+  for (const refreshedTopicId of ['T-race', 'T-scoped']) {
+    test(`session end preserves a scanned checkpoint refreshed onto ${refreshedTopicId}`, async () => {
+      const draft = writeDraft('DRAFT-S-abcd0020', 'T-race', minutesAgo(10));
+      const content = fs.readFileSync(draft, 'utf8');
+      const refreshedContent = content
+        .replace('topic_id: T-race', `topic_id: ${refreshedTopicId}`)
+        .replace('Draft body', 'New checkpoint notes');
+      const renameSync = fs.renameSync;
+      let refreshed = false;
+      fs.renameSync = (src, dest) => {
+        renameSync(src, dest);
+        if (!refreshed && path.basename(String(dest)).startsWith('S-') && String(dest).endsWith('.md')) {
+          refreshed = true;
+          const lock = new Lock(vaultDir, draft);
+          lock.acquireSync();
+          try {
+            fs.writeFileSync(draft, refreshedContent);
+          } finally {
+            lock.release();
+          }
+        }
+      };
+
+      try {
+        await sessionCommand('end', { topic: 'T-race' });
+      } finally {
+        fs.renameSync = renameSync;
+      }
+      assert.strictEqual(refreshed, true);
+      assert.strictEqual(fs.existsSync(draft), true, 'a refreshed checkpoint must survive cleanup');
+      assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+      assert.strictEqual(process.exitCode, undefined);
+      const [sessionPath] = completedSessionPaths();
+      assert.ok(sessionPath !== undefined);
+      assert.ok(fs.readFileSync(sessionPath, 'utf8').includes(`Draft checkpoint: ${path.basename(draft)}`));
+    });
+  }
 
   test('session end leaves a scanned draft in place while its target lock is held', async () => {
     const unlocked = writeDraft('DRAFT-S-eeee0008', 'T-locky', minutesAgo(10));

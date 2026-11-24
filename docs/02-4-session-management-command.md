@@ -122,7 +122,7 @@ palee session draft --topic "T-20260814T120000-abcd"
 Concludes the study period, calculates actual elapsed time, and formalizes the session:
 - Resolves the target topic ID against the vault (via `--topic` or `hot.md`) and exits `2` when the flag names no single topic, before any session note is written.
 - **3-Tier Start Timestamp Recovery Algorithm**:
-  - **Tier 1 (Topic Draft Checkpoints)**: Queries `getTopicDrafts(vaultPath, topicId)` for active drafts matching the topic, sorting chronologically to recover the earliest `started_at`.
+  - **Tier 1 (Topic Draft Checkpoints)**: Queries `getTopicDrafts(vaultPath, topicId)` for drafts matching the topic, excluding checkpoints already recorded as consumed by completed sessions, then sorts chronologically to recover the earliest `started_at`.
   - **Tier 2 (Active Working Memory)**: Reads `started_at` from `.palee/hot.md` if `active_topic` matches the session topic.
   - **Tier 3 (Current Instant Fallback)**: Falls back to the current instant `ended_at` if no prior timestamp exists.
 - **Duration Calculation**:
@@ -132,7 +132,7 @@ Concludes the study period, calculates actual elapsed time, and formalizes the s
   const durationMinutes = Math.round(durationMs / 60000);
   ```
 - Generates a confirmed session ID (`S-YYYYMMDDTHHMMSS-<hex>.md`) and writes the permanent session note via `writeSessionNote()` containing `started_at`, `ended_at`, `duration_minutes`, and `status: 'completed'`.
-- Deletes the draft checkpoints this session consumed via storage helper `deleteTopicDrafts(vaultPath, topicId, draftPaths)` — the exact checkpoints the session note records above. A same-topic draft created after the session's scan (a concurrent `session draft`) was never recorded and survives for the session that holds it.
+- Deletes the draft checkpoints this session consumed via storage helper `deleteTopicDrafts(vaultPath, topicId, draftPaths, expectedFingerprints)` — the exact checkpoints the session note records above. Each fingerprint comes from the session's scan and is rechecked under the target lock before deletion. A draft created or refreshed after that scan survives for the session that holds it.
 - Executes `rebuildHotAndIndex()` to refresh `hot.md` and `index.md`.
 
 ```bash
