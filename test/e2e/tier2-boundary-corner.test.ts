@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTestVault, TestVaultEnv } from './test-env';
-import { Lock } from '../../src/storage';
+import { Lock, writeDraftCheckpoint } from '../../src/storage';
 
 describe('Tier 2: Boundary & Corner Cases', () => {
   let env: TestVaultEnv;
@@ -546,6 +546,41 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(secondEnd.status, 0, `expected draft-only session to end: ${secondEnd.stderr}`);
       const parsed = JSON.parse(secondEnd.stdout);
       assert.strictEqual(parsed.status, 'recorded');
+      assert.strictEqual(env.listSessions().confirmed.length, 2);
+      assert.strictEqual(env.listSessions().drafts.length, 0);
+    });
+
+    test('B4.12: a retained consumed checkpoint refreshed at the same path is consumed by the next session end', async () => {
+      env.createTopics(['T-refresh-e2e']);
+      env.run(['session', 'draft', '--topic', 'T-refresh-e2e']);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const firstEnd = env.run(['session', 'end', '--json', '--topic', 'T-refresh-e2e']);
+        assert.strictEqual(firstEnd.status, 0);
+      } finally {
+        lock.release();
+      }
+      assert.deepStrictEqual(env.listSessions().drafts, [draftName]);
+      assert.strictEqual(env.listSessions().confirmed.length, 1);
+
+      const draftId = draftName.replace(/\.md$/, '');
+      await writeDraftCheckpoint(
+        env.vaultDir,
+        draftId,
+        { topic_id: 'T-refresh-e2e', started_at: new Date().toISOString() },
+        'Refreshed checkpoint notes at same path'
+      );
+
+      const secondEnd = env.run(['session', 'end', '--json', '--topic', 'T-refresh-e2e']);
+      assert.strictEqual(secondEnd.status, 0, `expected refreshed checkpoint to end a new session: ${secondEnd.stderr}`);
+      const parsed = JSON.parse(secondEnd.stdout);
+      assert.strictEqual(parsed.status, 'recorded');
+      assert.deepStrictEqual(parsed.consumed_drafts, [draftName]);
       assert.strictEqual(env.listSessions().confirmed.length, 2);
       assert.strictEqual(env.listSessions().drafts.length, 0);
     });

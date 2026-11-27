@@ -3,6 +3,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline';
+import { PassThrough } from 'node:stream';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
 import { deleteSessionNote, deleteTopicDrafts, getConsumedDraftPaths, getTopicDrafts, recoverDraft, writeDraftCheckpoint, Lock } from '../src/storage';
@@ -412,7 +414,14 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     };
 
     try {
-      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+      let skipReason: string | undefined;
+      assert.strictEqual(
+        await recoverDraft(vaultDir, draft, 'save', (reason) => {
+          skipReason = reason;
+        }),
+        false
+      );
+      assert.strictEqual(skipReason, 'fingerprint_mismatch');
     } finally {
       fs.renameSync = renameSync;
     }
@@ -422,6 +431,66 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     const [sessionPath] = completedSessionPaths();
     assert.ok(sessionPath !== undefined);
     assert.ok(fs.readFileSync(sessionPath, 'utf8').includes('Draft body'));
+  });
+
+  test('recoverDraft reports locked when a held target lock skips retirement', async () => {
+    const draft = writeDraft('DRAFT-S-oooo0018', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, draft);
+    let skipReason: string | undefined;
+    try {
+      await lock.acquire();
+      assert.strictEqual(
+        await recoverDraft(vaultDir, draft, 'save', (reason) => {
+          skipReason = reason;
+        }),
+        false
+      );
+    } finally {
+      lock.release();
+    }
+    assert.strictEqual(skipReason, 'locked');
+  });
+
+  test('session start --interactive reports fingerprint mismatch separately from lock contention', async () => {
+    const draft = writeDraft('DRAFT-S-rrrr0021', 'T-scoped', minutesAgo(10));
+    const originalContent = fs.readFileSync(draft, 'utf8');
+    const refreshedContent = originalContent.replace('Draft body', 'Refreshed during interactive save');
+
+    const realCreateInterface = readline.createInterface;
+    const realRenameSync = fs.renameSync;
+    const realConsoleError = console.error;
+    const errors: string[] = [];
+
+    const inputStream = new PassThrough();
+    inputStream.write('s\n');
+
+    readline.createInterface = (() => realCreateInterface({ input: inputStream, output: new PassThrough() })) as typeof readline.createInterface;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    };
+    let refreshed = false;
+    fs.renameSync = (src, dest) => {
+      realRenameSync(src, dest);
+      if (!refreshed && path.basename(String(dest)).startsWith('S-') && String(dest).endsWith('.md')) {
+        refreshed = true;
+        fs.writeFileSync(draft, refreshedContent, 'utf8');
+      }
+    };
+
+    try {
+      await sessionCommand('start', { interactive: true, json: true, topic: 'T-scoped' });
+    } finally {
+      readline.createInterface = realCreateInterface;
+      fs.renameSync = realRenameSync;
+      console.error = realConsoleError;
+      inputStream.end();
+    }
+
+    assert.strictEqual(process.exitCode, 2);
+    const errText = errors.join('\n');
+    assert.match(errText, /a draft changed during save and was kept on disk/);
+    assert.doesNotMatch(errText, /a locked draft was left for its holder/);
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
   });
 
   test('recoverDraft save retry writes updated notes when the draft changed after a lock-blocked save', async () => {
@@ -443,6 +512,51 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     const sessions = completedSessionPaths();
     assert.strictEqual(sessions.length, 2, 'updated notes must be saved as a new session instead of matching the old snapshot');
     assert.ok(sessions.some((p) => fs.readFileSync(p, 'utf8').includes('Updated draft body after lock')));
+  });
+
+  test('recoverDraft save retry writes updated notes on a heading-only refresh', async () => {
+    const draft = writeDraft('DRAFT-S-pppp0019', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+    } finally {
+      lock.release();
+    }
+    assert.strictEqual(completedSessionPaths().length, 1);
+
+    const refreshedWithHeading = fs
+      .readFileSync(draft, 'utf8')
+      .replace('# Draft Session: DRAFT-S-pppp0019', '# Session: Added user heading\n# Draft Session: DRAFT-S-pppp0019');
+    fs.writeFileSync(draft, refreshedWithHeading, 'utf8');
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false, 'the refreshed draft must be retired after saving');
+    const sessions = completedSessionPaths();
+    assert.strictEqual(sessions.length, 2, 'a heading-only refresh must not match the earlier snapshot');
+    assert.ok(sessions.some((p) => fs.readFileSync(p, 'utf8').includes('# Session: Added user heading')));
+  });
+
+  test('recoverDraft save retry reuses the existing session when unchanged, even with a user-authored # Session: heading', async () => {
+    const draft = writeDraft('DRAFT-S-qqqq0020', 'T-scoped', minutesAgo(10));
+    const withUserHeading = fs
+      .readFileSync(draft, 'utf8')
+      .replace('# Draft Session: DRAFT-S-qqqq0020', '# Session: User heading\n# Draft Session: DRAFT-S-qqqq0020');
+    fs.writeFileSync(draft, withUserHeading, 'utf8');
+
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+    } finally {
+      lock.release();
+    }
+    const firstSessions = completedSessionPaths();
+    assert.strictEqual(firstSessions.length, 1);
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false);
+    assert.deepStrictEqual(completedSessionPaths(), firstSessions, 'unchanged retry must remain idempotent');
   });
 
   test('getConsumedDraftPaths matches versioned fingerprints and stays conservative on legacy markers', async () => {

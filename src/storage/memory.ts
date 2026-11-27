@@ -957,8 +957,8 @@ function getDrafts(vaultPath: string): string[] {
  * @returns Promise resolving to `true` when the draft reached the state the
  *   action asked for — unlinked (`discard`, `save`), or deliberately kept
  *   (`resume`, `ignore`) — and `false` when a requested unlink was skipped
- *   because the target's lock is held by a live writer, leaving the draft in
- *   place for its holder
+ *   because the target's lock is held by a live writer or the draft changed
+ *   before `save` could retire it, leaving the draft in place
  * @remarks If saving, validates draft start recency (clamping timestamps in the future or older than 24h).
  * @example
  * ```typescript
@@ -968,14 +968,15 @@ function getDrafts(vaultPath: string): string[] {
 async function recoverDraft(
   vaultPath: string,
   draftPath: string,
-  action: DraftRecoveryAction
+  action: DraftRecoveryAction,
+  onSkip?: (reason: 'locked' | 'fingerprint_mismatch') => void
 ): Promise<boolean> {
   if (!fs.existsSync(draftPath)) return true; // Already gone — the requested end state holds.
 
   if (action === 'discard') {
     // A `false` here means the target lock is held: the draft stays for its
     // holder, and the caller must treat the choice as not yet applied.
-    return deleteSessionNote(vaultPath, draftPath);
+    return deleteSessionNote(vaultPath, draftPath, undefined, onSkip);
   }
 
   if (action === 'ignore') {
@@ -1025,14 +1026,20 @@ async function recoverDraft(
     // the window this pass resolves to, and a note written after this draft — the only
     // order a save of this draft could have produced.
     const draftHeading = `# Draft Session: ${path.basename(draftPath, '.md')}`;
-    const notesOf = (text: string): string => {
-      let notes = text.trim();
-      while (/^# (?:Draft )?Session:/.test(notes)) {
-        notes = notes.replace(/^# (?:Draft )?Session:[^\n]*\n*/, '').trim();
+    const draftBody = body.trim();
+    // `writeSessionNote` prepends a single `# Session: <session_id>` line to
+    // `body.trim()`. Peel off only that generated outer envelope so user-authored
+    // `# Session:` or `# Draft Session:` headings inside the draft remain part
+    // of the comparison and a heading-only refresh is never treated as saved.
+    const stripSessionEnvelope = (sessionId: string, candidateBody: string): string | null => {
+      const prefix = `# Session: ${sessionId}`;
+      if (!candidateBody.startsWith(prefix)) return null;
+      const afterPrefix = candidateBody.slice(prefix.length);
+      if (afterPrefix !== '' && !afterPrefix.startsWith('\n') && !afterPrefix.startsWith('\r\n')) {
+        return null;
       }
-      return notes;
+      return afterPrefix.replace(/^(?:\r?\n)+/, '').trim();
     };
-    const draftNotes = notesOf(body);
     // ±60s is the same clock-skew tolerance the clamp above uses. The window spans the
     // draft's own start, this pass's resolution, and the draft's last checkpoint,
     // because a stale or future-dated draft clamps to the *then*-current instant: any
@@ -1069,11 +1076,13 @@ async function recoverDraft(
           const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
           if (Number.isNaN(candidateStartMs)) continue;
           if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
-          if (candidate.body.includes(draftHeading) && notesOf(candidate.body) === draftNotes) {
+          const savedDraftBody = stripSessionEnvelope(fm.session_id, candidate.body);
+          if (savedDraftBody === null) continue;
+          if (candidate.body.includes(draftHeading) && savedDraftBody === draftBody) {
             alreadySavedSessionId = fm.session_id;
             break;
           }
-          // Empty notes carry no identifying signal: `notesOf === ''` would
+          // Empty notes carry no identifying signal: an empty `draftBody` would
           // match any no-notes completed session of this topic in the window,
           // so with drafts scanned in filename order (not creation order) an
           // older draft could be read as "already saved" by a newer draft's
@@ -1082,9 +1091,9 @@ async function recoverDraft(
           // and the only cost is a possible duplicate for a hand-edited,
           // headingless, note-less draft — never a lost session.
           if (
-            draftNotes !== '' &&
+            draftBody !== '' &&
             !Number.isNaN(draftMtimeMs) &&
-            notesOf(candidate.body) === draftNotes &&
+            savedDraftBody === draftBody &&
             candidateStat.mtimeMs >= draftMtimeMs
           ) {
             alreadySavedSessionId = fm.session_id;
@@ -1115,7 +1124,7 @@ async function recoverDraft(
     // the unlink itself fails the draft survives and the pass above recognises the
     // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
-    return deleteSessionNote(vaultPath, draftPath, computeFingerprint(content));
+    return deleteSessionNote(vaultPath, draftPath, computeFingerprint(content), onSkip);
   }
 
   if (action === 'resume') {
@@ -1313,7 +1322,12 @@ function deleteTopicDrafts(
  * }
  * ```
  */
-function deleteSessionNote(vaultPath: string, targetPath: string, expectedFingerprint?: string): boolean {
+function deleteSessionNote(
+  vaultPath: string,
+  targetPath: string,
+  expectedFingerprint?: string,
+  onSkip?: (reason: 'locked' | 'fingerprint_mismatch') => void
+): boolean {
   const sessionsDir = getSessionsDir(vaultPath);
   const resolvedSessions = fs.realpathSync(sessionsDir);
   let resolvedTarget: string;
@@ -1342,7 +1356,10 @@ function deleteSessionNote(vaultPath: string, targetPath: string, expectedFinger
       lock.acquireSync();
       lockAcquired = true;
     } catch (err: unknown) {
-      if (isConflictError(err)) return false;
+      if (isConflictError(err)) {
+        onSkip?.('locked');
+        return false;
+      }
       throw err;
     }
     try {
@@ -1352,6 +1369,7 @@ function deleteSessionNote(vaultPath: string, targetPath: string, expectedFinger
         expectedFingerprint !== undefined &&
         computeFingerprint(fs.readFileSync(resolvedTarget, 'utf8')) !== expectedFingerprint
       ) {
+        onSkip?.('fingerprint_mismatch');
         return false;
       }
       fs.unlinkSync(resolvedTarget);

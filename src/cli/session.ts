@@ -348,6 +348,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
 
         const unresolvedDrafts: string[] = [];
         let lockSkipped = false;
+        let fingerprintSkipped = false;
         for (const draftPath of drafts) {
           const draftName = path.basename(draftPath);
           if (inputExhausted) {
@@ -369,15 +370,22 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             unresolvedDrafts.push(draftName);
             continue;
           }
-          const resolved = await recoverDraft(vaultPath, draftPath, recoveryAction);
+          let skipReason: 'locked' | 'fingerprint_mismatch' | null = null;
+          const resolved = await recoverDraft(vaultPath, draftPath, recoveryAction, (reason) => {
+            skipReason = reason;
+          });
           if (!resolved) {
-            // A discard or save whose unlink was skipped (the target lock is
-            // held by a live writer) leaves the draft in place: it stays
-            // unresolved for this run, because starting a session on top of it
-            // would contradict the choice just made. The next interactive
-            // start offers the menu again once the holder is done.
+            // A discard or save whose unlink was skipped (either because the
+            // target lock is held by a live writer or because the draft changed
+            // after `save` read its snapshot) leaves the draft in place: it
+            // stays unresolved for this run, because starting a session on top
+            // of it would contradict the choice just made.
             unresolvedDrafts.push(draftName);
-            lockSkipped = true;
+            if (skipReason === 'fingerprint_mismatch') {
+              fingerprintSkipped = true;
+            } else {
+              lockSkipped = true;
+            }
           }
         }
         const stdinClosed = inputExhausted;
@@ -387,10 +395,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           // An unanswered menu is the condition the non-interactive path above
           // already refuses with exit 2: the checkpoints are neither resolved
           // nor discarded, so no session may start on top of them. A discard
-          // or save skipped by a held target lock lands here for the same
-          // reason — the draft was left for its holder, not resolved.
+          // or save skipped by a held target lock or a concurrent draft update
+          // lands here for the same reason — the draft was kept on disk, not resolved.
           const reasons: string[] = [];
           if (lockSkipped) reasons.push('a locked draft was left for its holder');
+          if (fingerprintSkipped) reasons.push('a draft changed during save and was kept on disk');
           if (stdinClosed) reasons.push('stdin closed');
           const why = `Draft recovery was not completed${reasons.length > 0 ? ` (${reasons.join('; ')})` : ''}.`;
           if (jsonMode) {
