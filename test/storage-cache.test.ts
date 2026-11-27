@@ -150,6 +150,45 @@ describe('File Cache', () => {
     );
   });
 
+  test('a same-size edit that moves the mtime outside the horizon is caught by the fingerprint (#565)', () => {
+    // The branch the other cases miss: mtime differs *and* the file is past the
+    // unsettled horizon, so mtime equality cannot decide it and only the re-hash
+    // can. Without this, deleting the fingerprint comparison keeps the suite green
+    // while `plan`/`next` serve stale state for the rest of the process.
+    const original = '# Test';
+    const pinned = (Date.now() - 10000) / 1000;
+    fs.writeFileSync(testFile, original, 'utf8');
+    fs.utimesSync(testFile, pinned, pinned);
+    cache.set(testFile, { title: 'Original' }, computeFingerprint(original));
+
+    const edited = '# Best';
+    assert.strictEqual(edited.length, original.length, 'precondition: same byte length');
+    fs.writeFileSync(testFile, edited, 'utf8');
+    const later = pinned + 3;
+    fs.utimesSync(testFile, later, later);
+
+    assert.strictEqual(cache.get(testFile), null, 'the re-hash must evict a same-size edit');
+  });
+
+  test('a same-size rewrite with identical bytes and a moved mtime stays a hit (#565)', () => {
+    // Mirror of the case above: an mtime move alone is not an edit, so the
+    // fingerprint match must keep the entry instead of evicting on suspicion.
+    const content = '# Test';
+    const pinned = (Date.now() - 10000) / 1000;
+    fs.writeFileSync(testFile, content, 'utf8');
+    fs.utimesSync(testFile, pinned, pinned);
+    cache.set(testFile, { title: 'Same' }, computeFingerprint(content));
+
+    const later = pinned + 5;
+    fs.utimesSync(testFile, later, later);
+
+    assert.deepStrictEqual(
+      cache.get(testFile),
+      { title: 'Same' },
+      'a matching fingerprint must survive an mtime move'
+    );
+  });
+
   test('cache evicts past the cap, oldest lastVerified first (#368)', () => {
     const capDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palee-cache-cap-'));
     try {

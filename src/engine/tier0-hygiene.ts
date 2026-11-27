@@ -15,7 +15,7 @@
  * Every batch adoption runs this pass, not only `--auto-chain` (#298): the
  * `excluded` verdict is a scope decision, while `backbone`/`leaf` only matter
  * to planning. Everything here takes `/`-separated path strings and plain
- * data: the engine layer stays fs-free (`agent.md`), and these predicates are
+ * data: the engine layer stays fs-free (`AGENTS.md`), and these predicates are
  * the contract Work Order C (TOC tier) consumes after rebase - do not fork
  * these rules.
  *

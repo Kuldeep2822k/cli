@@ -1,12 +1,13 @@
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
 import { ExitCode, exitCodeFor } from './exit-codes';
+import { sanitizeForDisplay } from './display-safety';
 /**
  * Progress Command Handler
  * Shows learning progress summary
  */
 
-import { loadTopics, type LoadedTopic } from '../storage';
+import { loadTopicMetadata, type TopicMetadata } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { formatLocalDateOnly } from '../engine/sm2';
 import { summarizeMastery } from '../application/mastery-summary';
@@ -29,7 +30,7 @@ interface ProgressTopic {
 }
 
 /** Projects one loaded topic onto the fields `progress` reports. */
-function toProgressTopic(t: LoadedTopic): ProgressTopic {
+function toProgressTopic(t: TopicMetadata): ProgressTopic {
   return {
     id: t.palee_id,
     title: t.title,
@@ -101,7 +102,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const loaded = loadTopics(vaultPath);
+    // P3-06: `progress` never reads a note body, so it loads metadata only —
+    // one bounded frontmatter read per note instead of a full-body read + hash.
+    const loaded = loadTopicMetadata(vaultPath);
 
     if (loaded.length === 0 && !options.topic) {
       if (jsonMode) {
@@ -158,7 +161,7 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         } else {
           console.error(`Error: Multiple topics match "${options.topic}":`);
           for (const c of resolution.candidates) {
-            console.error(`  - ${c.palee_id}: ${c.title}`);
+            console.error(`  - ${sanitizeForDisplay(c.palee_id)}: ${sanitizeForDisplay(c.title)}`);
           }
           console.error('Please provide a more specific query.');
         }
@@ -182,9 +185,9 @@ async function progressCommand(options: ProgressOptions = {}): Promise<void> {
         return;
       }
 
-      console.log(`Progress for: ${match.title}`);
-      console.log(`ID: ${match.id}`);
-      console.log(`Path: ${match.path}`);
+      console.log(`Progress for: ${sanitizeForDisplay(match.title)}`);
+      console.log(`ID: ${sanitizeForDisplay(match.id)}`);
+      console.log(`Path: ${sanitizeForDisplay(String(match.path ?? ''))}`);
       console.log();
       console.log(`Mastery: ${(match.mastery * 100).toFixed(1)}%`);
       console.log(`Difficulty: ${match.difficulty}`);

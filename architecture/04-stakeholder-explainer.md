@@ -142,13 +142,13 @@ Five properties are the project's actual quality signal, and each is checkable r
 
 The design holds up. The **documentation about the design** is where the problems are, and a reviewer should know which statements are stale before trusting them:
 
-- The `agent.md` brief still describes `detectCycle` as a **3-color DFS**. The implementation moved to iterative Tarjan SCC + Johnson-style enumeration (issue #79); the docs pages that describe `visiting`/`pathStack` — including a pasted code block presented as `src/engine/dependency.ts` — describe code that no longer exists. `docs/02-3` is the page that got it right.
-- `agent.md` claims `session end` is a Phase-1 stub. It is implemented (`duration_minutes`, `ended_at`, draft cleanup).
-- `agent.md` says "no raw `fs` outside storage". Seven `src/cli` modules import `fs`; the one that actually mutates is `src/cli/config.ts`, writing the config file (not the vault). The narrow rule — all vault writes go through `atomicWrite` — does hold.
-- `agent.md` enumerates "four layers" and never names `src/validation`, which is the biggest module tree in the repo; `docs/01-2` instead says "three layers" and diagrams a `SM2` class, a `DependencyGraph` class and functions (`computeNextState`, `recordReview`, `get_progress`) that do not exist in the code.
+- The `AGENTS.md` brief still describes `detectCycle` as a **3-color DFS**. The implementation moved to iterative Tarjan SCC + Johnson-style enumeration (issue #79); the docs pages that describe `visiting`/`pathStack` — including a pasted code block presented as `src/engine/dependency.ts` — describe code that no longer exists. `docs/02-3` is the page that got it right.
+- `AGENTS.md` claims `session end` is a Phase-1 stub. It is implemented (`duration_minutes`, `ended_at`, draft cleanup).
+- `AGENTS.md` says "no raw `fs` outside storage". Seven `src/cli` modules import `fs`; the one that actually mutates is `src/cli/config.ts`, writing the config file (not the vault). The narrow rule — all vault writes go through `atomicWrite` — does hold.
+- `AGENTS.md` enumerates "four layers" and never names `src/validation`, which is the biggest module tree in the repo; `docs/01-2` instead says "three layers" and diagrams a `SM2` class, a `DependencyGraph` class and functions (`computeNextState`, `recordReview`, `get_progress`) that do not exist in the code.
 - `docs/05-0/05-1/05-2` cite `src/types.ts` symbols by line number, and those line numbers are wrong by dozens to hundreds of lines, three different ways for the same symbol.
 
-None of these are runtime bugs. All of them are traps for the next person — especially an AI agent, which is told to read `agent.md` first. The full list with evidence and severity is in [`03-docs-audit-findings.md`](03-docs-audit-findings.md); the recommended fix is a CI check that re-verifies the claims, sketched at the end of that file.
+None of these are runtime bugs. All of them are traps for the next person — especially an AI agent, which is told to read `AGENTS.md` first. The full list with evidence and severity is in [`03-docs-audit-findings.md`](03-docs-audit-findings.md); the recommended fix is a CI check that re-verifies the claims, sketched at the end of that file.
 
 Separately, README advertises `palee test`, `palee tutor`, an AI roadmap interview and `config set-provider` with `api_key`. Those are **intentional Phase-2 forward declarations**, documented as such in `planning/PHASE_2_GAPS.md`, and should not be counted as defects.
 
@@ -156,10 +156,10 @@ Separately, README advertises `palee test`, `palee tutor`, an AI roadmap intervi
 
 | You want to… | Touch | Do not touch | Verification |
 | --- | --- | --- | --- |
-| change scheduling maths | `src/engine/sm2.ts` | the timestamp writes in `review.ts` | `npm run test:unit`, and re-read the frozen EF-delta formula in `agent.md:35` first |
+| change scheduling maths | `src/engine/sm2.ts` | the timestamp writes in `review.ts` | `npm run test:unit`, and re-read the frozen EF-delta formula in `AGENTS.md:35` first |
 | add a validation rule | one file in `src/validation/rules/` + the registry in `src/cli/validate.ts` + the barrel | the rule order, without meaning to change output order | `test/validation-barrel-census.test.ts` fails on a count change |
 | write to the vault | call `atomicWrite` with `expectedFingerprint` | `fs.writeFileSync` | `test/storage-atomic-write.test.ts`, `test/stress-concurrency.test.ts` |
 | add a CLI flag | handler in `src/cli/<name>.ts` + `.command()` block in `bin/palee.ts` + an `*Options` type | raw `fs` in the handler | `npm run test:fast` |
-| change an exit code | — | this is a breaking change; README and CI both assert codes | update `README` + `agent.md:24` + `docs/02-0` in the same commit |
+| change an exit code | — | this is a breaking change; README and CI both assert codes | update `README` + `AGENTS.md:24` + `docs/02-0` in the same commit |
 
 `npm run typecheck` is the real quality gate in this repo (strict `tsc --noEmit`); lint is mostly hygiene with one hard rule — zero `any` casts in `src/`.

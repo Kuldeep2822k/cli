@@ -35,11 +35,11 @@ The `PaleeConfig` interface defines the core settings required for PALEE to oper
 
 ### Config File Resolution
 
-The location of `config.json` is determined by the `getConfigPath` function [src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts) which follows platform-specific conventions:
+The location of `config.json` is determined by the `getConfigPath` function [src/cli/config-path.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config-path.ts) which follows platform-specific conventions:
 
-1. Environment Override: If the `PALEE_CONFIG_DIR` environment variable is set, the config is stored in `${PALEE_CONFIG_DIR}/config.json`[src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts) This is primarily used for test isolation [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
-2. Windows: `%LOCALAPPDATA%\palee\config.json`[src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
-3. POSIX (Linux/macOS): `~/.config/palee/config.json`[src/cli/config.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config.ts)
+1. Environment Override: If the `PALEE_CONFIG_DIR` environment variable is set, the config is stored in `${PALEE_CONFIG_DIR}/config.json`[src/cli/config-path.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config-path.ts) This is primarily used for test isolation [test/cli-commands.test.ts](https://github.com/Kuldeep2822k/cli/blob/main/test/cli-commands.test.ts)
+2. Windows: `%LOCALAPPDATA%\palee\config.json`[src/cli/config-path.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config-path.ts)
+3. POSIX (Linux/macOS): `~/.config/palee/config.json`[src/cli/config-path.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/config-path.ts)
 
 ### Configuration Flow
 
@@ -106,7 +106,7 @@ This diagram bridges the natural language concept of "Platform Specific Config" 
 ```mermaid
 flowchart TD
     subgraph subGraph1 ["Code Entity Space"]
-        GCP["getConfigPath() in src/cli/config.ts"]
+        GCP["getConfigPath() in src/cli/config-path.ts"]
         LC["loadConfig() in src/cli/config.ts"]
         PC["PaleeConfig Interface in src/types.ts"]
         PCE["PALEE_CONFIG_DIR env var"]

@@ -11,8 +11,8 @@ Confidence: **high** = read directly from code/config or an authoritative doc; *
 | id | label | type | state | sourceRefs (representative) | conf |
 | --- | --- | --- | --- | --- | --- |
 | `student` | Learner (vault owner) | actor | current | `bin/palee.ts:25-124`, `README.md:94-149` | high |
-| `ci` | CI runner | actor | current | `.github/workflows/ci.yml:19-154`, `agent.md:59-67` | high |
-| `obsidian` | Obsidian vault | external-system | current | `planning/storage_design.md:3-5`, `agent.md:45-50` | high |
+| `ci` | CI runner | actor | current | `.github/workflows/ci.yml:19-154`, `AGENTS.md:59-67` | high |
+| `obsidian` | Obsidian vault | external-system | current | `planning/storage_design.md:3-5`, `AGENTS.md:45-50` | high |
 | `npmregistry` | npm registry | external-system | current | `.github/workflows/release.yml:82-124`, `package.json:2-14` | high |
 | `process` | palee CLI process | service (container) | current | `bin/palee.ts:1,146`, `package.json:12-14,76-78` | high |
 | `bin` | Composition root | module | current | `bin/palee.ts:1-146` (11 `.command()` blocks at `:31-124`) | high |
@@ -25,7 +25,7 @@ Confidence: **high** = read directly from code/config or an authoritative doc; *
 | `cmdlinelib` / `yamllib` | commander / yaml | dependency | current | `package.json:64-66` (the only runtime deps) | high |
 | `configstore` | Per-user config file | database (file) | current | `src/cli/config.ts:26-40` | high |
 | `vaultdir` | Vault notes + `.palee/` | database (file) | current | `src/storage/vault-walker.ts`, `src/storage/memory.ts`, `src/storage/lock.ts:25-47` | high |
-| *`ai-layer`* | Phase-2 AI module | capability | **target** | `planning/PHASE_2_GAPS.md`, `docs/08-2`, `agent.md:81` | — deliberately not in the current model |
+| *`ai-layer`* | Phase-2 AI module | capability | **target** | `planning/PHASE_2_GAPS.md`, `docs/08-2`, `AGENTS.md:81` | — deliberately not in the current model |
 
 ## Edges
 
@@ -58,15 +58,15 @@ Counts are static import edges; per-file detail is in `_evidence/evidence-model.
 
 | Documented rule | Source | Status in code |
 | --- | --- | --- |
-| Four layers: types / engine / storage / cli | `agent.md:9-14` | **incomplete** — `src/validation` (26 modules) is not listed; `docs/01-2:13` instead says "three-layer" |
-| `src/types.ts` is the single shared contract | `agent.md:11` | **holds** — 26 importers, no competing contract module |
-| Engine is pure, deterministic, fs-free | `agent.md:12` | **holds** — no `fs`, no `Date.now()`, no `Math.random()` under `src/engine` |
-| No raw `fs` outside storage | `agent.md:13` | **does not hold as written** — 7 `src/cli` modules import `fs`; only `src/cli/config.ts` mutates, and it writes the config store, not the vault |
-| All vault writes go through `atomicWrite` | `agent.md:45-46` | **holds** |
-| Engine/storage reached via their `index.ts` facades | `agent.md:12-13` | **partial** — true for `storage` (10 of 12 handlers); `engine/index.ts` and `validation/index.ts` are imported only by `src/index.ts` |
-| Exit codes 0–5 are load-bearing | `agent.md:24`, `README.md:208-216` | **holds** — 1–12 `process.exitCode` assignments per handler, asserted by `test/cli-exit-codes.test.ts` |
-| Phase 1 opens no sockets, no DNS | `agent.md:80` | **holds** |
-| Only `commander` + `yaml` at runtime | `agent.md:16,83` | **holds** — `package.json:64-66` |
+| Four layers: types / engine / storage / cli | `AGENTS.md:9-14` | **incomplete** — `src/validation` (26 modules) is not listed; `docs/01-2:13` instead says "three-layer" |
+| `src/types.ts` is the single shared contract | `AGENTS.md:11` | **holds** — 26 importers, no competing contract module |
+| Engine is pure, deterministic, fs-free | `AGENTS.md:12` | **holds** — no `fs`, no `Date.now()`, no `Math.random()` under `src/engine` |
+| No raw `fs` outside storage | `AGENTS.md:13` | **does not hold as written** — 7 `src/cli` modules import `fs`; only `src/cli/config.ts` mutates, and it writes the config store, not the vault |
+| All vault writes go through `atomicWrite` | `AGENTS.md:45-46` | **holds** |
+| Engine/storage reached via their `index.ts` facades | `AGENTS.md:12-13` | **partial** — true for `storage` (10 of 12 handlers); `engine/index.ts` and `validation/index.ts` are imported only by `src/index.ts` |
+| Exit codes 0–5 are load-bearing | `AGENTS.md:24`, `README.md:208-216` | **holds** — 1–12 `process.exitCode` assignments per handler, asserted by `test/cli-exit-codes.test.ts` |
+| Phase 1 opens no sockets, no DNS | `AGENTS.md:80` | **holds** |
+| Only `commander` + `yaml` at runtime | `AGENTS.md:16,83` | **holds** — `package.json:64-66` |
 
 Details, severity and fixes: [`03-docs-audit-findings.md`](03-docs-audit-findings.md).
 
@@ -88,5 +88,5 @@ Details, severity and fixes: [`03-docs-audit-findings.md`](03-docs-audit-finding
 
 1. Is the engine deep-import style intended or incidental? No ADR covers it (ADR-0006 covers the *storage* barrel). This decides whether finding F6 is a docs fix or a code fix.
 2. Should `saveConfig` move into `src/storage` (making "no raw fs outside storage" literally true), or should the rule be narrowed to vault paths?
-3. Cycle detection moved from 3-color DFS to Tarjan-SCC + Johnson enumeration (#79) with no ADR. Should one be written, given `agent.md`, `docs/03-0`, `docs/03-2`, `docs/02-1`, `docs/06-x`, `docs/09` and `planning/palee_cli_spec.md` all still describe the old algorithm?
+3. Cycle detection moved from 3-color DFS to Tarjan-SCC + Johnson enumeration (#79) with no ADR. Should one be written, given `AGENTS.md`, `docs/03-0`, `docs/03-2`, `docs/02-1`, `docs/06-x`, `docs/09` and `planning/palee_cli_spec.md` all still describe the old algorithm?
 4. Runtime reach: which rules a given vault actually fires is unmeasured. `coverage/` exists and could feed a runtime-observation view.

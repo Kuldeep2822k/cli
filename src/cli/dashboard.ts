@@ -3,7 +3,7 @@
  * Learning dashboard summary (text / JSON)
  */
 
-import { loadTopics } from '../storage';
+import { loadTopicMetadata } from '../storage';
 import { MASTERY_THRESHOLD } from '../engine/mastery';
 import { normalizeDueDate, partitionDue } from '../application/due-topics';
 import { getNextTopics } from '../application/get-next-topics';
@@ -11,6 +11,7 @@ import { summarizeMastery } from '../application/mastery-summary';
 
 import { loadConfig } from './config';
 import { emitError, isJsonOutput, printEmptyVaultOnboarding, validateVaultPath } from './onboarding';
+import { sanitizeForDisplay } from './display-safety';
 import { exitCodeFor } from './exit-codes';
 import { Difficulty, DashboardOptions } from '../types';
 
@@ -46,7 +47,9 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     const vaultPath = validateVaultPath(config.vaultPath, { json: jsonMode });
     if (!vaultPath) return;
 
-    const loaded = loadTopics(vaultPath);
+    // P3-06: `dashboard` never reads a note body, so it loads metadata only —
+    // one bounded frontmatter read per note instead of a full-body read + hash.
+    const loaded = loadTopicMetadata(vaultPath);
     const now = new Date();
 
     const topics: DashboardTopic[] = loaded.map((t) => {
@@ -193,7 +196,7 @@ async function dashboardCommand(options: DashboardOptions = {}): Promise<void> {
     // Next review
     if (next) {
       console.log('Next Review:');
-      console.log(`  ${next.title} (${next.id})`);
+      console.log(`  ${sanitizeForDisplay(next.title)} (${sanitizeForDisplay(next.id)})`);
       console.log(`  Mastery: ${(next.mastery * 100).toFixed(1)}% | Reps: ${next.repetition}`);
       console.log();
     }

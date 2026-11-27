@@ -1,6 +1,6 @@
 {
   "generatedFrom": "static regex scan of import/export-from/require specifiers over src + bin",
-  "layerRulesSource": "agent.md:9-16 (\"Architecture (four layers)\")",
+  "layerRulesSource": "AGENTS.md:9-16 (\"Architecture (four layers)\")",
   "counts": {
     "modules": 60,
     "internalEdges": 216,

@@ -254,7 +254,7 @@ function formatLocalDateOnly(date: Date): string {
  *
  * @remarks
  * Performs calendar arithmetic in the local timezone to avoid daylight saving shift
- * discrepancies; `agent.md` requires that this stay local `setDate` math rather than
+ * discrepancies; `AGENTS.md` requires that this stay local `setDate` math rather than
  * UTC millisecond arithmetic.
  *
  * Two baselines are supported: a `Date` (what `review` passes), and a **date-only**

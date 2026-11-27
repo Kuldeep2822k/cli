@@ -10,7 +10,7 @@
 
 ## One-paragraph answer
 
-PALEE is a **single short-lived Node.js process** that treats an Obsidian vault as its database. There is no server, no daemon, no queue, and — in Phase 1 — no network at all. Inside the process the code is arranged in five import-reachable layers: a `bin/palee.ts` composition root, a `src/cli` handler layer, a pure `src/engine`, an `src/storage` layer that owns all vault IO, and an `src/validation` rule engine, all sharing one `src/types.ts` contract that `src/index.ts` re-exports as the public library surface. The layering is genuinely clean: **0 forbidden-direction edges and 0 circular imports** across 60 modules and 216 internal edges. The interesting structure is not the layer diagram — it is that the two facades named in `agent.md` (`src/engine/index.ts`, `src/validation/index.ts`) serve *only the npm package surface*, while the CLI deep-imports through them, and that the layer with the most files (`src/validation`, 26 modules) is absent from the heading that claims to enumerate the layers.
+PALEE is a **single short-lived Node.js process** that treats an Obsidian vault as its database. There is no server, no daemon, no queue, and — in Phase 1 — no network at all. Inside the process the code is arranged in five import-reachable layers: a `bin/palee.ts` composition root, a `src/cli` handler layer, a pure `src/engine`, an `src/storage` layer that owns all vault IO, and an `src/validation` rule engine, all sharing one `src/types.ts` contract that `src/index.ts` re-exports as the public library surface. The layering is genuinely clean: **0 forbidden-direction edges and 0 circular imports** across 60 modules and 216 internal edges. The interesting structure is not the layer diagram — it is that the two facades named in `AGENTS.md` (`src/engine/index.ts`, `src/validation/index.ts`) serve *only the npm package surface*, while the CLI deep-imports through them, and that the layer with the most files (`src/validation`, 26 modules) is absent from the heading that claims to enumerate the layers.
 
 ## Reading order
 
@@ -27,13 +27,13 @@ PALEE is a **single short-lived Node.js process** that treats an Obsidian vault 
 | Element | Type | Notes | Confidence |
 | --- | --- | --- | --- |
 | Learner (vault owner) | actor | Runs `palee <cmd>`; reads plain text or `--json`; branches on exit codes 0–5 | high — `bin/palee.ts:25-124`, README exit-code table |
-| CI runner | actor | `npm run check` / `test:coverage` / `build` / `pack` + `scripts/verify-tarball.js` | high — `.github/workflows/ci.yml`, `agent.md:59-67` |
+| CI runner | actor | `npm run check` / `test:coverage` / `build` / `pack` + `scripts/verify-tarball.js` | high — `.github/workflows/ci.yml`, `AGENTS.md:59-67` |
 | **PALEE CLI** | the system | npm package `@kuldeep2822k/palee`, bin name `palee` | high — `package.json:2,12-14` |
-| Obsidian vault | external file store | Canonical data. `.md` notes + a hidden `.palee/` directory owned by PALEE | high — `planning/storage_design.md`, `agent.md:45-50` |
+| Obsidian vault | external file store | Canonical data. `.md` notes + a hidden `.palee/` directory owned by PALEE | high — `planning/storage_design.md`, `AGENTS.md:45-50` |
 | Per-user config | external file store | `PALEE_CONFIG_DIR` override, else `%LOCALAPPDATA%\palee\config.json` / `~/.config/palee/config.json` | high — `getConfigPath` at `src/cli/config.ts:26` |
 | npm registry | external | publish target and install source for the two runtime deps | high — `.github/workflows/release.yml`, `package.json:64-66` |
 
-**Boundary fact worth stating out loud:** PALEE's only "integration points" are files. It has no API, no database driver, and no HTTP client — `src` and `bin` contain zero imports of `http`, `https`, `net`, or `dns`, and the dependency list is exactly `commander` + `yaml` (`package.json:64-66`). ADR-0002 and `agent.md:80` make the no-network property a deliberate invariant, not an accident of scope.
+**Boundary fact worth stating out loud:** PALEE's only "integration points" are files. It has no API, no database driver, and no HTTP client — `src` and `bin` contain zero imports of `http`, `https`, `net`, or `dns`, and the dependency list is exactly `commander` + `yaml` (`package.json:64-66`). ADR-0002 and `AGENTS.md:80` make the no-network property a deliberate invariant, not an accident of scope.
 
 ### L2 — containers
 
@@ -77,7 +77,7 @@ Verified against the historical import graph (60 modules, 216 edges, snapshot da
 | `src/engine` → `src/cli`, `src/engine` → `src/validation` | No upward dependency out of the pure layer |
 | `src/storage` → `src/cli`, `→ src/engine`, `→ src/validation` | Storage is a leaf above `types`; nothing below depends on something above |
 | `src/validation` → `src/cli` | Rules stay reusable by tests and the library API |
-| any → `http`/`https`/`net`/`dns` | Phase-1 "no sockets, no DNS lookups" (`agent.md:80`) holds mechanically |
+| any → `http`/`https`/`net`/`dns` | Phase-1 "no sockets, no DNS lookups" (`AGENTS.md:80`) holds mechanically |
 | circular imports | Tarjan SCC over all 60 modules found **no** component larger than one node |
 
 Confidence: **high** (static scan of every `import`/`export…from`/`require` specifier in `src` and `bin`).
@@ -86,8 +86,8 @@ Confidence: **high** (static scan of every `import`/`export…from`/`require` sp
 
 These are stated here once, neutrally; the fix list and severity are in `03-docs-audit-findings.md`.
 
-1. **`src/validation` is missing from the heading that names the layers.** `agent.md:9` reads `## Architecture (four layers)` and its four bullets are `src/types.ts`, `src/engine/`, `src/storage/`, `src/cli/`. `src/validation/` is not among them, yet it is exported from the public barrel and is the biggest module tree by file count. Confidence: high.
-2. **"No raw `fs` outside storage" (`agent.md:13`) is not true as written.** Seven `src/cli` modules import `fs`: `adopt`, `config`, `migrate`, `onboarding`, `review`, `roadmap`, `session`. Only `src/cli/config.ts` *mutates* through it (`fs.mkdirSync:105`, `openSync:114`, `renameSync:119`, `unlinkSync:126`) — and that file writes the config store, not the vault. The narrow rule (`agent.md:45-46`, all *vault writes* go through `atomicWrite`) does hold. So this is a documentation overstatement plus one genuine second implementation of the atomic-write pattern outside storage. Confidence: high.
+1. **`src/validation` is missing from the heading that names the layers.** `AGENTS.md:9` reads `## Architecture (four layers)` and its four bullets are `src/types.ts`, `src/engine/`, `src/storage/`, `src/cli/`. `src/validation/` is not among them, yet it is exported from the public barrel and is the biggest module tree by file count. Confidence: high.
+2. **"No raw `fs` outside storage" (`AGENTS.md:13`) is not true as written.** Seven `src/cli` modules import `fs`: `adopt`, `config`, `migrate`, `onboarding`, `review`, `roadmap`, `session`. Only `src/cli/config.ts` *mutates* through it (`fs.mkdirSync:105`, `openSync:114`, `renameSync:119`, `unlinkSync:126`) — and that file writes the config store, not the vault. The narrow rule (`AGENTS.md:45-46`, all *vault writes* go through `atomicWrite`) does hold. So this is a documentation overstatement plus one genuine second implementation of the atomic-write pattern outside storage. Confidence: high.
 3. **Both named facades serve only the package surface.** `src/engine/index.ts` (17 exports) and `src/validation/index.ts` (22 exports incl. all 19 rules) are each imported by exactly one module: `src/index.ts`. The eight CLI→engine edges are all deep (`engine/sm2`, `engine/mastery`, `engine/dependency`), and `src/cli/validate.ts` imports the 19 rules one by one instead of the barrel. `src/storage/index.ts` is the opposite — 10 of 12 CLI modules go through it. Confidence: high.
 4. **`palee validate` never reaches the engine directly.** `src/cli/validate.ts` has no import of `src/engine/*`; its only route into the engine is through the rules — `cli/validate → src/validation/rules/no-dependency-cycle.ts:13 → detectCyclesBounded` and `no-missing-dependency.ts:32 → findMissingDependencies` (the other five engine edges out of `src/validation` carry `computeTopicMastery` and `engine/topic-id` constants). Confidence: high.
 
@@ -103,6 +103,6 @@ These are stated here once, neutrally; the fix list and severity are in `03-docs
 | If you change… | Also update… |
 | --- | --- |
 | a module's imports | nothing in this directory — the import graph and DOT views are a dated snapshot (60/216, 2026-09-22) and the generator scripts are not in this repository, so the counts stay as recorded. Add a new dated snapshot only when the graph and its dependent artifacts can be re-derived together (ADR-0031) |
-| the layer set or its rules | `agent.md:9-16`, `architecture/palee-architecture.dsl` element list, and this page's L3 table |
+| the layer set or its rules | `AGENTS.md:9-16`, `architecture/palee-architecture.dsl` element list, and this page's L3 table |
 | a facade's exports | `src/<layer>/index.ts` doc comment, and the `FacadeBypass` view if the CLI starts or stops using it |
 | the 19-rule catalog | `src/cli/validate.ts` registry **and** `src/validation/index.ts` (registration order is mirrored in both today) |

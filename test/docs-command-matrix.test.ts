@@ -98,7 +98,7 @@ const exitRows = parseExitRows(exitSection);
 const documented = [...new Set(exitRows.map((row) => row.command))];
 
 /**
- * Commands named on one `agent.md` line: the first word of each backticked
+ * Commands named on one `AGENTS.md` line: the first word of each backticked
  * token, with an optional `palee` prefix. Only registered commands come back,
  * so prose about a planned command (`test`/`tutor`) stays prose.
  */
@@ -286,12 +286,12 @@ describe('Exit-code contract covers every registered command (#268)', () => {
 });
 
 /**
- * #486: `agent.md` called `validate --fix` and `session end` "Phase-1 stubs"
+ * #486: `AGENTS.md` called `validate --fix` and `session end` "Phase-1 stubs"
  * long after both shipped, and nothing failed because the claim lived only in
  * prose. This ties a stub claim to the handler it names: a command may be
  * called a stub only while its source still carries a stub marker.
  */
-describe('agent.md stub claims match the handlers (#486)', () => {
+describe('AGENTS.md stub claims match the handlers (#486)', () => {
   test('the scanner recognises the historical claim it was written for', () => {
     assert.deepStrictEqual(
       namedCommands('`validate --fix` and `session end` are Phase-1 stubs.'),
@@ -300,7 +300,7 @@ describe('agent.md stub claims match the handlers (#486)', () => {
   });
 
   test('a registered command called a stub still carries a stub marker in its handler', () => {
-    const agent = fs.readFileSync(path.join(root, 'agent.md'), 'utf8');
+    const agent = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
     const marker = /\b(?:stubs?|unimplemented|not implemented)\b/i;
     const stale: string[] = [];
 
@@ -309,18 +309,18 @@ describe('agent.md stub claims match the handlers (#486)', () => {
       for (const command of namedCommands(line)) {
         const handler = fs.readFileSync(path.join(root, `src/cli/${command}.ts`), 'utf8');
         if (!marker.test(handler)) {
-          stale.push(`\`palee ${command}\` — agent.md: "${line.trim()}"`);
+          stale.push(`\`palee ${command}\` — AGENTS.md: "${line.trim()}"`);
         }
       }
     }
 
-    assert.deepStrictEqual(stale, [], `agent.md calls shipped commands stubs:\n${stale.join('\n')}`);
+    assert.deepStrictEqual(stale, [], `AGENTS.md calls shipped commands stubs:\n${stale.join('\n')}`);
   });
 });
 
 /**
  * #565 P1-12: the README is the first page a user reads and it was the one command
- * table no test read — this file guarded `docs/02-0` and `agent.md` only. Two rows had
+ * table no test read — this file guarded `docs/02-0` and `AGENTS.md` only. Two rows had
  * drifted from the handlers: `session start` promised an AI tutor the handler never
  * calls, and `validate --fix` named one of its three repairers. The table is checked
  * against the same `--help` parse as everything above, so the command list cannot rot
