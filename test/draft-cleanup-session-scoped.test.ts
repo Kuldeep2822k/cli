@@ -784,4 +784,80 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     assert.strictEqual(sessions.length, 2, 'refreshed checkpoint must still be saved as a new session');
     assert.ok(sessions.some((p) => fs.readFileSync(p, 'utf8').includes('New notes after locked session end')));
   });
+
+  test('recoverDraft save ignores unsupported-schema notes when checking alreadySavedSessionId, while reusing confirmed sessions', async () => {
+    const startedAt = minutesAgo(10);
+    const draft = writeDraft('DRAFT-S-yyyy0028', 'T-scoped', startedAt);
+    const draftFingerprint = computeFingerprint(fs.readFileSync(draft, 'utf8'));
+    const snapshotMarker = `Draft checkpoint: ${path.basename(draft)} [fingerprint: ${draftFingerprint}]`;
+
+    // An unsupported-schema note carrying the exact versioned snapshot marker (plus an extra
+    // marker line so it lands in the versionedMarkerLines branch) must not count as already saved.
+    const unsupportedSessionPath = path.join(vaultDir, '.palee', 'sessions', 'S-20260101T000000-00000002.md');
+    fs.writeFileSync(
+      unsupportedSessionPath,
+      [
+        '---',
+        'palee_schema: 2',
+        'session_id: S-20260101T000000-00000002',
+        'topic_id: T-scoped',
+        `started_at: "${startedAt}"`,
+        `ended_at: "${minutesAgo(5)}"`,
+        'duration_minutes: 5',
+        'status: completed',
+        '---',
+        '# Session: S-20260101T000000-00000002',
+        '',
+        snapshotMarker,
+        'Draft checkpoint: DRAFT-S-other [fingerprint: 0123456789abcdef]',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false, 'draft must be retired after saving a confirmed session');
+    const afterUnsupported = completedSessionPaths();
+    assert.strictEqual(afterUnsupported.length, 2, 'unsupported-schema note must not prevent writing a confirmed session');
+    const confirmedSavedPath = afterUnsupported.find((p) => p !== unsupportedSessionPath);
+    assert.ok(confirmedSavedPath !== undefined);
+    const savedParsed = parseFrontmatter(fs.readFileSync(confirmedSavedPath, 'utf8'));
+    assert.strictEqual(savedParsed.frontmatter?.palee_schema, 1);
+
+    // Conversely, a confirmed (palee_schema: 1) note carrying the exact versioned snapshot marker
+    // must still be recognized as already saved without writing a duplicate session.
+    const confirmedDraft = writeDraft('DRAFT-S-zzzz0029', 'T-scoped', startedAt);
+    const confirmedFingerprint = computeFingerprint(fs.readFileSync(confirmedDraft, 'utf8'));
+    const confirmedMarker = `Draft checkpoint: ${path.basename(confirmedDraft)} [fingerprint: ${confirmedFingerprint}]`;
+    const confirmedSessionPath = path.join(vaultDir, '.palee', 'sessions', 'S-20260101T000000-00000003.md');
+    fs.writeFileSync(
+      confirmedSessionPath,
+      [
+        '---',
+        'palee_schema: 1',
+        'session_id: S-20260101T000000-00000003',
+        'topic_id: T-scoped',
+        `started_at: "${startedAt}"`,
+        `ended_at: "${minutesAgo(5)}"`,
+        'duration_minutes: 5',
+        'status: completed',
+        '---',
+        '# Session: S-20260101T000000-00000003',
+        '',
+        confirmedMarker,
+        'Draft checkpoint: DRAFT-S-other [fingerprint: 0123456789abcdef]',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const beforeConfirmedSave = completedSessionPaths();
+    assert.strictEqual(await recoverDraft(vaultDir, confirmedDraft, 'save'), true);
+    assert.strictEqual(fs.existsSync(confirmedDraft), false);
+    assert.deepStrictEqual(
+      completedSessionPaths(),
+      beforeConfirmedSave,
+      'confirmed session carrying the exact versioned marker must be reused without duplicating'
+    );
+  });
 });

@@ -1094,7 +1094,7 @@ async function recoverDraft(
           if (candidateStat.size === 0) continue;
           const candidate = parseFrontmatter(fs.readFileSync(candidatePath, 'utf8'));
           const fm = candidate.frontmatter;
-          if (!fm || typeof fm.session_id !== 'string' || fm.session_id.startsWith('DRAFT-')) continue;
+          if (!isConfirmedSession(fm) || typeof fm.session_id !== 'string') continue;
           if (fm.status !== 'completed') continue;
           if (String(fm.topic_id ?? 'unknown') !== topicId) continue;
           const envelopeBody = stripSessionEnvelope(fm.session_id, candidate.body);
