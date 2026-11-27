@@ -899,6 +899,44 @@ class Lock {
   }
 
   /**
+   * Synchronously acquires the lock and starts the background heartbeat timer.
+   *
+   * @returns Void
+   * @throws {NodeError} If the lock is held by another active process (`ECONFLICT`)
+   *
+   * @remarks
+   * The synchronous twin of {@link Lock.acquire} for sync critical sections that
+   * cannot `await` — a single unlink inside `deleteSessionNote`, for example.
+   * `createLock` is itself synchronous (its stale-recovery waits park the thread
+   * through `SyncWait`), so this is `acquire` without the promise wrapper, and the
+   * same heartbeat and {@link Lock.lockLost} bookkeeping govern the hold. Callers
+   * classify a refusal with `isConflictError` and yield, as the lock-aware unlink
+   * paths do.
+   *
+   * @example
+   * ```typescript
+   * const lock = new Lock('/vault', '/vault/notes/note.md');
+   * try {
+   *   lock.acquireSync();
+   * } catch (err) {
+   *   if (isConflictError(err)) return; // a live writer owns the target
+   *   throw err;
+   * }
+   * try {
+   *   // mutate the target
+   * } finally {
+   *   lock.release();
+   * }
+   * ```
+   */
+  acquireSync(): void {
+    this.lockData = createLock(this.lockPath, this.targetPath);
+    // A fresh record means a fresh claim: clear the loss the previous hold observed.
+    this.lostLock = false;
+    this.startHeartbeat();
+  }
+
+  /**
    * Initiates periodic heartbeat timer that touches the lock file mtime.
    *
    * @returns Void

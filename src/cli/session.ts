@@ -348,10 +348,14 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         }
 
         const unresolvedDrafts: string[] = [];
+        let lockSkipped = false;
+        let fingerprintSkipped = false;
+        let stdinInterrupted = false;
         for (const draftPath of drafts) {
           const draftName = path.basename(draftPath);
           if (inputExhausted) {
             unresolvedDrafts.push(draftName);
+            stdinInterrupted = true;
             continue;
           }
           note(`\nDraft: ${draftName}`);
@@ -367,17 +371,40 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           }
           if (!recoveryAction) {
             unresolvedDrafts.push(draftName);
+            stdinInterrupted = true;
             continue;
           }
-          await recoverDraft(vaultPath, draftPath, recoveryAction);
+          let skipReason: 'locked' | 'fingerprint_mismatch' | null = null;
+          const resolved = await recoverDraft(vaultPath, draftPath, recoveryAction, (reason) => {
+            skipReason = reason;
+          });
+          if (!resolved) {
+            // A discard or save whose unlink was skipped (either because the
+            // target lock is held by a live writer or because the draft changed
+            // after `save` read its snapshot) leaves the draft in place: it
+            // stays unresolved for this run, because starting a session on top
+            // of it would contradict the choice just made.
+            unresolvedDrafts.push(draftName);
+            if (skipReason === 'fingerprint_mismatch') {
+              fingerprintSkipped = true;
+            } else if (skipReason === 'locked') {
+              lockSkipped = true;
+            }
+          }
         }
         rl.close();
 
         if (unresolvedDrafts.length > 0) {
           // An unanswered menu is the condition the non-interactive path above
           // already refuses with exit 2: the checkpoints are neither resolved
-          // nor discarded, so no session may start on top of them.
-          const why = 'Draft recovery was not completed (stdin closed).';
+          // nor discarded, so no session may start on top of them. A discard
+          // or save skipped by a held target lock or a concurrent draft update
+          // lands here for the same reason — the draft was kept on disk, not resolved.
+          const reasons: string[] = [];
+          if (lockSkipped) reasons.push('a locked draft was left for its holder');
+          if (fingerprintSkipped) reasons.push('a draft changed during save and was kept on disk');
+          if (stdinInterrupted) reasons.push('stdin closed');
+          const why = `Draft recovery was not completed${reasons.length > 0 ? ` (${reasons.join('; ')})` : ''}.`;
           if (jsonMode) {
             console.error(JSON.stringify({
               error: why,
@@ -672,13 +699,23 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // 3-tier timestamp recovery algorithm
       // Tier 1: Check draft checkpoints for earliest started_at
       const topicDrafts = getTopicDrafts(vaultPath, topicId);
+      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts);
       const matchingDrafts = topicDrafts.filter((d) => {
-        if (!d.started_at) return false;
+        if (consumedDrafts.has(d.path) || !d.started_at) return false;
         const t = new Date(d.started_at).getTime();
         return !Number.isNaN(t) && t <= nowTime + 60000;
       });
-      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
-      if (consumedDrafts.size > 0) {
+      // A draft recorded as consumed by a completed session normally means that
+      // session already ended — ending again would re-record it, so refuse
+      // (#442 bug 2). But a draft whose cleanup was skipped because its target
+      // lock was held (#565 P3-02) stays on disk past its own marker and can be
+      // resolved interactively into a genuinely new session; while the
+      // active-session marker names this topic, that new session is real and
+      // must be allowed to end — consuming the draft into its own note.
+      const unconsumedDrafts = topicDrafts.filter((draft) => !consumedDrafts.has(draft.path));
+      // A consumed checkpoint alone is evidence of an already-ended session, but
+      // a newer unconsumed checkpoint is evidence of a new draft-only session.
+      if (consumedDrafts.size > 0 && unconsumedDrafts.length === 0 && activeSession?.topic_id !== topicId) {
         reportNoActiveSession(jsonMode);
         return;
       }
@@ -752,7 +789,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         : generateSessionId();
 
       const consumedDraftMarkers = topicDrafts
-        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)}`)
+        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)} [fingerprint: ${draft.fingerprint}]`)
         .join('\n');
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,
@@ -762,8 +799,18 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         duration_minutes: durationMinutes,
       }, `Completed learning session for ${topicId}.\nDuration: ${durationMinutes} min.${consumedDraftMarkers ? `\n${consumedDraftMarkers}` : ''}`);
 
-      // Clean up drafts on confirmed session end for the current topic
-      const cleanupResult = deleteTopicDrafts(vaultPath, topicId);
+      // Clean up exactly the drafts this session consumed: the checkpoints recorded
+      // in the note above are the same set `topicDrafts` held at scan time, so the
+      // explicit list keeps cleanup session-scoped (#565 P3-02) — a same-topic draft
+      // created after that scan (a concurrent `session draft`) was never consumed by
+      // this session and must survive for the session that holds it. Re-scanning the
+      // directory at delete time would destroy it.
+      const cleanupResult = deleteTopicDrafts(
+        vaultPath,
+        topicId,
+        topicDrafts.map((draft) => draft.path),
+        new Map(topicDrafts.map((draft) => [draft.path, draft.fingerprint]))
+      );
 
       // #442 (bug 3): deleting draft checkpoints silently looked like data loss. Report
       // each consumed draft so the draft -> session transition is explicit. In machine

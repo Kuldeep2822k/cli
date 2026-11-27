@@ -99,17 +99,18 @@ Sources: [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/
 
 During a session, the system captures progress using `writeDraftCheckpoint` [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts). The storage layer provides dedicated helpers:
 
-- **`getTopicDrafts(vaultPath, topicId)`**: Returns array of matching active drafts with their paths, `started_at` timestamps, and body text.
-- **`deleteTopicDrafts(vaultPath, topicId)`**: Discovers and deletes all drafts matching a given topic.
-- **`deleteSessionNote(vaultPath, targetPath)`**: Safely deletes a session or draft note with strict directory boundary validation preventing unlinks outside `.palee/sessions/`.
+- **`getTopicDrafts(vaultPath, topicId)`**: Returns matching drafts with their paths, `started_at` timestamps, body text, and fingerprints of the complete scanned notes.
+- **`getConsumedDraftPaths(vaultPath, drafts)`**: Scans completed session notes to identify which checkpoints have already been consumed. When passed `{ path, fingerprint }` records, it matches versioned markers (`Draft checkpoint: <filename> [fingerprint: <hash>]`), so a checkpoint refreshed at the same path with new content is treated as unconsumed. Legacy path-only markers (`Draft checkpoint: <filename>` without a `[fingerprint:` suffix) remain conservative and treat the path as consumed because they cannot prove which revision was saved.
+- **`deleteTopicDrafts(vaultPath, topicId, draftPaths?, expectedFingerprints?)`**: Deletes matching drafts, limited to `draftPaths` when supplied. With the scanned fingerprint map, refreshed drafts and paths without a supplied fingerprint are preserved. Without either argument, every same-topic draft is eligible. Locked drafts are always left in place.
+- **`deleteSessionNote(vaultPath, targetPath, expectedFingerprint?)`**: Safely deletes a session or draft note with strict directory boundary validation preventing unlinks outside `.palee/sessions/`. The unlink and optional fingerprint check run under the target's lock — the same one `atomicWrite` takes. It returns `false` without deleting when a live process holds the lock or the note no longer matches the supplied fingerprint.
 
 The `recoverDraft` function handles four distinct actions [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts):
 
 | Action | Logic |
 | --- | --- |
 | `resume` | Retains the draft checkpoint note for continued study. |
-| `save` | Converts the draft into a completed session note via `writeSessionNote`, computes elapsed `duration_minutes`, deletes the draft via `deleteSessionNote`, and refreshes views via `rebuildHotAndIndex`. |
-| `discard` | Permanently and safely deletes the draft file via `deleteSessionNote`. |
+| `save` | Converts the draft into a completed session note via `writeSessionNote` (recording the saved snapshot's fingerprint marker so retries — as well as unchanged checkpoints already recorded with that exact versioned marker by `session end` — reuse the existing completed session and retire the draft without duplicating it when unchanged), computes elapsed `duration_minutes`, refreshes views via `rebuildHotAndIndex`, and retires the draft via `deleteSessionNote` guarded by that snapshot's fingerprint. If the draft is locked or changed after the snapshot read, `deleteSessionNote` preserves the draft and `recoverDraft` returns `false` so the caller keeps it unresolved. |
+| `discard` | Permanently and safely deletes the draft file via `deleteSessionNote` (returns `false` if locked). |
 | `ignore` | Leaves the draft file in place without taking action. |
 
 Sources: [src/storage/memory.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/storage/memory.ts) · [src/cli/session.ts](https://github.com/Kuldeep2822k/cli/blob/main/src/cli/session.ts)

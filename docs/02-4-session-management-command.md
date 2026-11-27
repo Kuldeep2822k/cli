@@ -57,7 +57,7 @@ When `palee session start` is executed:
   - `[D]iscard`: Safely unlinks the orphaned draft checkpoint via `deleteSessionNote()`.
   - `[I]gnore`: Leaves the draft file untouched on disk.
 - **Interactive Recovery in JSON Mode**: with `--json` (or `PALEE_JSON=1`) the recovery banner and menu are written to `stderr`, so `stdout` still carries exactly one document. `drafts_pending` is only the non-interactive arm; an interactive run that resolves its drafts then resolves its topic like any other start — it finishes with `started`, or refuses with one `{error}` document at exit `2` when no topic resolves (#546).
-- **Interactive Mode at End of Input**: If stdin closes before every draft has been answered (a piped or scripted run, or `Ctrl+D` at the prompt), the menu ends instead of re-prompting a dead stream. Unanswered checkpoints stay on disk byte-identical, no session starts, and the run exits with code `2` naming them — the same refusal the non-interactive mode already applies.
+- **Interactive Mode at End of Input or Skipped Retirement**: If stdin closes before every draft has been answered (a piped or scripted run, or `Ctrl+D` at the prompt), the menu ends instead of re-prompting a dead stream. Likewise, if a `discard` or `save` leaves a draft on disk because its target lock is held or because the draft's content changed before `save` could retire it (a fingerprint mismatch, which still preserves the updated draft), the draft stays unresolved, no session starts, and the run exits with code `2` naming the unresolved checkpoints and reason.
 
 ```mermaid
 flowchart TD
@@ -122,7 +122,7 @@ palee session draft --topic "T-20260814T120000-abcd"
 Concludes the study period, calculates actual elapsed time, and formalizes the session:
 - Resolves the target topic ID against the vault (via `--topic` or `hot.md`) and exits `2` when the flag names no single topic, before any session note is written.
 - **3-Tier Start Timestamp Recovery Algorithm**:
-  - **Tier 1 (Topic Draft Checkpoints)**: Queries `getTopicDrafts(vaultPath, topicId)` for active drafts matching the topic, sorting chronologically to recover the earliest `started_at`.
+  - **Tier 1 (Topic Draft Checkpoints)**: Queries `getTopicDrafts(vaultPath, topicId)` for drafts matching the topic, excluding checkpoints already recorded as consumed by completed sessions (`Draft checkpoint: <filename> [fingerprint: <hash>]` — so a checkpoint refreshed at the same path with new content is treated as unconsumed, while legacy path-only markers without a fingerprint remain conservatively consumed), then sorts chronologically to recover the earliest `started_at`.
   - **Tier 2 (Active Working Memory)**: Reads `started_at` from `.palee/hot.md` if `active_topic` matches the session topic.
   - **Tier 3 (Current Instant Fallback)**: Falls back to the current instant `ended_at` if no prior timestamp exists.
 - **Duration Calculation**:
@@ -132,7 +132,7 @@ Concludes the study period, calculates actual elapsed time, and formalizes the s
   const durationMinutes = Math.round(durationMs / 60000);
   ```
 - Generates a confirmed session ID (`S-YYYYMMDDTHHMMSS-<hex>.md`) and writes the permanent session note via `writeSessionNote()` containing `started_at`, `ended_at`, `duration_minutes`, and `status: 'completed'`.
-- Deletes matching draft checkpoints via storage helper `deleteTopicDrafts(vaultPath, topicId)`.
+- Deletes the draft checkpoints this session consumed via storage helper `deleteTopicDrafts(vaultPath, topicId, draftPaths, expectedFingerprints)` — the exact checkpoints the session note records above. Each fingerprint comes from the session's scan and is rechecked under the target lock before deletion. A draft created or refreshed after that scan survives for the session that holds it.
 - Executes `rebuildHotAndIndex()` to refresh `hot.md` and `index.md`.
 
 ```bash

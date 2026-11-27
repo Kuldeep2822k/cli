@@ -22,7 +22,7 @@ export interface TestVaultEnv {
   runInteractive: (
     args: string[],
     steps: Array<{ waitFor: RegExp; write: string }>,
-    options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+    options?: { cwd?: string; env?: Record<string, string>; timeout?: number; keepStdinOpen?: boolean }
   ) => Promise<CLIResult>;
   createTopic: (filename: string, frontmatter: Record<string, unknown>, body?: string) => string;
   createTopics: (ids: string[]) => void;
@@ -99,7 +99,7 @@ export const runPaleeCli = runPalee;
  *   that has not been consumed yet
  * @param options - Optional `cwd`, `env` overrides (applied after the isolated
  *   `PALEE_CONFIG_DIR`/`NODE_ENV` pair, matching `runPalee`), and a `timeout`
- *   override
+ *   override, or `keepStdinOpen` to withhold EOF after the last queued answer
  * @returns Promise resolving to the same result shape `runPalee` returns
  * @remarks
  * `runPalee` pipes stdin through `spawnSync`, which delivers the whole blob at
@@ -111,7 +111,7 @@ function runPaleeInteractive(
   args: string[],
   configDir: string,
   steps: Array<{ waitFor: RegExp; write: string }>,
-  options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+  options?: { cwd?: string; env?: Record<string, string>; timeout?: number; keepStdinOpen?: boolean }
 ): Promise<CLIResult> {
   const timeoutMs = options?.timeout ?? 60000;
   return new Promise((resolve, reject) => {
@@ -147,9 +147,8 @@ function runPaleeInteractive(
       consumed += (match.index ?? 0) + match[0].length;
       step++;
       child.stdin.write(pending.write);
-      // Mirror spawnSync's `input` behaviour: an open stdin keeps the child's
-      // event loop alive after the queue drains, so the run would never end.
-      if (step === steps.length) child.stdin.end();
+      // Mirror spawnSync's input EOF unless the test needs a live stdin pipe.
+      if (step === steps.length && !options?.keepStdinOpen) child.stdin.end();
     };
 
     const timer = setTimeout(() => {
@@ -223,7 +222,7 @@ export function createTestVault(prefix = 'palee-e2e-'): TestVaultEnv {
   const runInteractive = (
     args: string[],
     steps: Array<{ waitFor: RegExp; write: string }>,
-    options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
+    options?: { cwd?: string; env?: Record<string, string>; timeout?: number; keepStdinOpen?: boolean }
   ): Promise<CLIResult> => runPaleeInteractive(args, configDir, steps, options);
 
   const createTopic = (filename: string, frontmatter: Record<string, unknown>, body = 'Topic notes content.'): string => {

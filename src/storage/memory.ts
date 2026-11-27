@@ -957,7 +957,12 @@ function getDrafts(vaultPath: string): string[] {
  * @param vaultPath - Vault root path
  * @param draftPath - Path to draft checkpoint note
  * @param action - Action to take: `'save'`, `'discard'`, `'resume'`, or `'ignore'`
- * @returns Promise resolving when draft recovery action is executed
+ * @param onSkip - Optional callback invoked with the skip reason when unlink is skipped
+ * @returns Promise resolving to `true` when the draft reached the state the
+ *   action asked for — unlinked (`discard`, `save`), or deliberately kept
+ *   (`resume`, `ignore`) — and `false` when a requested unlink was skipped
+ *   because the target's lock is held by a live writer or the draft changed
+ *   before `save` could retire it, leaving the draft in place
  * @remarks If saving, validates draft start recency (clamping timestamps in the future or older than 24h).
  * @example
  * ```typescript
@@ -967,17 +972,19 @@ function getDrafts(vaultPath: string): string[] {
 async function recoverDraft(
   vaultPath: string,
   draftPath: string,
-  action: DraftRecoveryAction
-): Promise<void> {
-  if (!fs.existsSync(draftPath)) return;
+  action: DraftRecoveryAction,
+  onSkip?: (reason: 'locked' | 'fingerprint_mismatch') => void
+): Promise<boolean> {
+  if (!fs.existsSync(draftPath)) return true; // Already gone — the requested end state holds.
 
   if (action === 'discard') {
-    deleteSessionNote(vaultPath, draftPath);
-    return;
+    // A `false` here means the target lock is held: the draft stays for its
+    // holder, and the caller must treat the choice as not yet applied.
+    return deleteSessionNote(vaultPath, draftPath, undefined, onSkip);
   }
 
   if (action === 'ignore') {
-    return;
+    return true; // Deliberate keep — the draft is resolved by choice.
   }
 
   if (action === 'save') {
@@ -1011,26 +1018,56 @@ async function recoverDraft(
     // session note reaches the vault but before the draft is retired, leaving both
     // files, and the next run then has to tell "already saved" from "not yet saved".
     // The session frontmatter carries no provenance key back to the draft, and adding
-    // one would change the pinned session format (and every fingerprint of it), so the
-    // match is made on bytes a save already leaves behind. `writeSessionNote` copies
-    // the draft body verbatim under its own heading, so the draft's
-    // `# Draft Session: <id>` line — carrying the draft's own id — survives inside the
-    // completed note. That is the exact signal. Two drafts always get different
-    // `DRAFT-S-<8 hex>` ids, so unlike a topic-and-time comparison it can never
-    // confuse a second draft of the same topic with a retry of the first.
-    // Hand-edited drafts need not carry that heading, so a weaker second match covers
-    // them: same topic, same notes (the heading lines stripped), a `started_at` inside
-    // the window this pass resolves to, and a note written after this draft — the only
-    // order a save of this draft could have produced.
+    // one would change the pinned session format (and every fingerprint of it), so
+    // `save` appends a `Draft checkpoint: <file> [fingerprint: <sha256>]` marker to
+    // the session note body (the same marker format `session end` writes). On retry,
+    // an exact fingerprint match proves neither notes nor metadata (`started_at`,
+    // `topic_id`) changed since the saved snapshot — even when a stale draft's
+    // clamped `started_at` shifts between runs, or when a refreshed draft falls
+    // inside the ±60s window. Likewise, if a prior `session end` already recorded
+    // that exact versioned checkpoint line before a lock prevented cleanup, Save
+    // reuses that completed note and retires the leftover draft instead of writing
+    // a duplicate session. Legacy completed notes without a versioned marker
+    // fall back to matching the `# Draft Session: <id>` heading and exact body.
+    const draftFileName = path.basename(draftPath);
+    const draftFingerprint = computeFingerprint(content);
     const draftHeading = `# Draft Session: ${path.basename(draftPath, '.md')}`;
-    const notesOf = (text: string): string => {
-      let notes = text.trim();
-      while (/^# (?:Draft )?Session:/.test(notes)) {
-        notes = notes.replace(/^# (?:Draft )?Session:[^\n]*\n*/, '').trim();
+    const draftBody = body.trim();
+    const snapshotPrefix = `Draft checkpoint: ${draftFileName} [fingerprint: `;
+    const snapshotMarker = `${snapshotPrefix}${draftFingerprint}]`;
+    const savedNoteBody = draftBody ? `${draftBody}\n\n${snapshotMarker}` : snapshotMarker;
+    const isHexFingerprint = (value: string): boolean => /^[a-f0-9]+$/.test(value);
+    const parseTrailingSnapshot = (envelopeBody: string): { fingerprint: string; savedDraftBody: string } | null => {
+      if (!envelopeBody.endsWith(']')) return null;
+      const markerStart = envelopeBody.lastIndexOf(snapshotPrefix);
+      if (markerStart === -1) return null;
+      const hex = envelopeBody.slice(markerStart + snapshotPrefix.length, -1);
+      if (!isHexFingerprint(hex)) return null;
+      if (markerStart === 0) {
+        return { fingerprint: hex, savedDraftBody: '' };
       }
-      return notes;
+      const before = envelopeBody.slice(0, markerStart);
+      if (!before.endsWith('\n\n') && !before.endsWith('\r\n\r\n')) {
+        return null;
+      }
+      return {
+        fingerprint: hex,
+        savedDraftBody: before.trim(),
+      };
     };
-    const draftNotes = notesOf(body);
+    // `writeSessionNote` prepends a single `# Session: <session_id>` line to
+    // `savedNoteBody`. Peel off only that generated outer envelope so user-authored
+    // `# Session:` or `# Draft Session:` headings inside the draft remain part
+    // of the comparison and a heading-only refresh is never treated as saved.
+    const stripSessionEnvelope = (sessionId: string, candidateBody: string): string | null => {
+      const prefix = `# Session: ${sessionId}`;
+      if (!candidateBody.startsWith(prefix)) return null;
+      const afterPrefix = candidateBody.slice(prefix.length);
+      if (afterPrefix !== '' && !afterPrefix.startsWith('\n') && !afterPrefix.startsWith('\r\n')) {
+        return null;
+      }
+      return afterPrefix.replace(/^(?:\r?\n)+/, '').trim();
+    };
     // ±60s is the same clock-skew tolerance the clamp above uses. The window spans the
     // draft's own start, this pass's resolution, and the draft's last checkpoint,
     // because a stale or future-dated draft clamps to the *then*-current instant: any
@@ -1060,18 +1097,52 @@ async function recoverDraft(
           if (candidateStat.size === 0) continue;
           const candidate = parseFrontmatter(fs.readFileSync(candidatePath, 'utf8'));
           const fm = candidate.frontmatter;
-          if (!fm || typeof fm.session_id !== 'string' || fm.session_id.startsWith('DRAFT-')) continue;
+          if (!isConfirmedSession(fm) || typeof fm.session_id !== 'string') continue;
           if (fm.status !== 'completed') continue;
           if (String(fm.topic_id ?? 'unknown') !== topicId) continue;
+          const envelopeBody = stripSessionEnvelope(fm.session_id, candidate.body);
+          if (envelopeBody === null) continue;
+          const trailingSnapshot = parseTrailingSnapshot(envelopeBody);
+          if (trailingSnapshot !== null) {
+            const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+            const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
+            if (Number.isNaN(candidateStartMs)) continue;
+            if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
+            if (trailingSnapshot.fingerprint === draftFingerprint && trailingSnapshot.savedDraftBody === draftBody) {
+              alreadySavedSessionId = fm.session_id;
+              break;
+            }
+            // A versioned snapshot marker for this draft file is authoritative:
+            // a mismatch means metadata or notes changed, so never fall back.
+            continue;
+          }
+          const versionedMarkerLines = envelopeBody
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(
+              (line) =>
+                line.startsWith(snapshotPrefix) &&
+                line.endsWith(']') &&
+                isHexFingerprint(line.slice(snapshotPrefix.length, -1))
+            );
+          if (versionedMarkerLines.length > 0) {
+            if (versionedMarkerLines.includes(snapshotMarker)) {
+              alreadySavedSessionId = fm.session_id;
+              break;
+            }
+            // A completed session recording another version of this draft cannot
+            // satisfy a refreshed checkpoint on disk.
+            continue;
+          }
           const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
           const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
           if (Number.isNaN(candidateStartMs)) continue;
           if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
-          if (candidate.body.includes(draftHeading)) {
+          if (candidate.body.includes(draftHeading) && envelopeBody === draftBody) {
             alreadySavedSessionId = fm.session_id;
             break;
           }
-          // Empty notes carry no identifying signal: `notesOf === ''` would
+          // Empty notes carry no identifying signal: an empty `draftBody` would
           // match any no-notes completed session of this topic in the window,
           // so with drafts scanned in filename order (not creation order) an
           // older draft could be read as "already saved" by a newer draft's
@@ -1080,9 +1151,9 @@ async function recoverDraft(
           // and the only cost is a possible duplicate for a hand-edited,
           // headingless, note-less draft — never a lost session.
           if (
-            draftNotes !== '' &&
+            draftBody !== '' &&
             !Number.isNaN(draftMtimeMs) &&
-            notesOf(candidate.body) === draftNotes &&
+            envelopeBody === draftBody &&
             candidateStat.mtimeMs >= draftMtimeMs
           ) {
             alreadySavedSessionId = fm.session_id;
@@ -1101,7 +1172,7 @@ async function recoverDraft(
         started_at: startedAt,
         ended_at: endedAt,
         duration_minutes: durationMinutes,
-      }, body);
+      }, savedNoteBody);
     }
 
     // #328 ordering. `rebuildHotAndIndex` regenerates `.palee/hot.md` and
@@ -1113,14 +1184,19 @@ async function recoverDraft(
     // the unlink itself fails the draft survives and the pass above recognises the
     // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
-    deleteSessionNote(vaultPath, draftPath);
-    return;
+    return deleteSessionNote(vaultPath, draftPath, draftFingerprint, onSkip);
   }
 
   if (action === 'resume') {
-    // Keep draft for resumption
-    return;
+    // Keep draft for resumption — resolved by choice.
+    return true;
   }
+
+  // `DraftRecoveryAction` is a closed four-member union and every member
+  // returns above. This line keeps the boolean contract total if the union
+  // ever grows with a member that leaves the draft untouched: such an action
+  // must report unresolved rather than fall off the end.
+  return false;
 }
 
 /**
@@ -1128,16 +1204,16 @@ async function recoverDraft(
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
- * @returns Array of matching draft records with path, started_at timestamp, and body
+ * @returns Array of matching draft records with path, started_at timestamp, body, and full-note fingerprint
  * @remarks Filters all existing draft checkpoints by `topic_id`.
  * @example
  * ```typescript
  * const topicDrafts = getTopicDrafts('/vault', 'topic-123');
  * ```
  */
-function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string }> {
+function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: string; started_at: string; body: string; fingerprint: string }> {
   const drafts = getDrafts(vaultPath);
-  const matches: Array<{ path: string; started_at: string; body: string }> = [];
+  const matches: Array<{ path: string; started_at: string; body: string; fingerprint: string }> = [];
   for (const draftPath of drafts) {
     try {
       const content = fs.readFileSync(draftPath, 'utf8');
@@ -1147,6 +1223,7 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
           path: draftPath,
           started_at: (frontmatter.started_at as string) || '',
           body,
+          fingerprint: computeFingerprint(content),
         });
       }
     } catch {
@@ -1157,10 +1234,14 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
 }
 
 /** Returns which supplied draft checkpoints a completed session already records as consumed. */
-function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<string> {
-  const draftMarkers = new Map(draftPaths.map((draftPath) => [
-    `Draft checkpoint: ${path.basename(draftPath)}`,
-    draftPath,
+function getConsumedDraftPaths(
+  vaultPath: string,
+  drafts: readonly string[] | readonly { path: string; fingerprint: string }[]
+): Set<string> {
+  const records = drafts.map((draft) => typeof draft === 'string' ? { path: draft, fingerprint: null } : draft);
+  const draftMarkers = new Map(records.map((draft) => [
+    path.basename(draft.path),
+    draft,
   ]));
   const consumed = new Set<string>();
   if (draftMarkers.size === 0) return consumed;
@@ -1172,8 +1253,24 @@ function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<str
       const content = fs.readFileSync(path.join(sessionsDir, file), 'utf8');
       const { frontmatter, body } = parseFrontmatter(content);
       if (frontmatter?.status !== 'completed') continue;
-      for (const [marker, draftPath] of draftMarkers) {
-        if (body.includes(marker)) consumed.add(draftPath);
+      const bodyLines = body.split(/\r?\n/).map((line) => line.trim());
+      for (const [name, draft] of draftMarkers) {
+        const marker = `Draft checkpoint: ${name}`;
+        if (draft.fingerprint !== null) {
+          const versioned = `${marker} [fingerprint: ${draft.fingerprint}]`;
+          const hasAnyVersioned = bodyLines.some(
+            (line) => line.startsWith(`${marker} [fingerprint: `) && line.endsWith(']')
+          );
+          if (bodyLines.includes(versioned)) {
+            consumed.add(draft.path);
+          } else if (bodyLines.includes(marker) && !hasAnyVersioned) {
+            // Completed notes from before versioned markers remain conservative:
+            // their path-only marker cannot prove which revision was consumed.
+            consumed.add(draft.path);
+          }
+        } else if (bodyLines.some((line) => line === marker || line.startsWith(`${marker} [fingerprint: `))) {
+          consumed.add(draft.path);
+        }
       }
     } catch {
       // An unreadable completed note cannot prove that this draft was consumed.
@@ -1196,31 +1293,67 @@ function hasCompletedSession(vaultPath: string, sessionId: string): boolean {
 }
 
 /**
- * Deletes all draft checkpoints matching a specific topic ID.
+ * Deletes draft checkpoints matching a specific topic ID.
  *
  * @param vaultPath - Vault root path
  * @param topicId - Topic ID
+ * @param draftPaths - Optional allow-list of the exact draft paths to delete — the
+ *   checkpoints the caller's session recorded as consumed
+ * @param expectedFingerprints - Optional scanned fingerprints keyed by draft path
  * @returns Object with `deleted` paths array and `errors` array of `{ path, error }` for any failures
  * @remarks
- * Attempts deletion of all matching draft files. Read errors (ENOENT, EACCES), parse errors,
- * and unlink errors are captured in the returned `errors` array rather than swallowed silently.
+ * When `draftPaths` is supplied, only those files are deleted (#565 P3-02): a
+ * same-topic draft that appeared after the caller's scan — a concurrent
+ * `session draft` on the topic — was never consumed by the caller's session and
+ * must survive for the session that holds it. Without the list the historical
+ * behavior stands: every same-topic draft present now is deleted. Each listed
+ * path is still verified to be a draft of `topicId` before the unlink.
+ *
+ * A draft whose target lock is held by a live writer is left in place
+ * (`deleteSessionNote` yields) and is counted as neither deleted nor errored.
+ * With `expectedFingerprints`, the full-note fingerprint is checked under that
+ * lock; changed drafts and paths without a supplied fingerprint are left in place.
+ * A listed draft that is already gone is counted as deleted — the goal state
+ * holds — while other read errors (EACCES), parse errors, and unlink errors are
+ * captured in the returned `errors` array rather than swallowed silently.
  * @example
  * ```typescript
  * const { deleted, errors } = deleteTopicDrafts('/vault', 'topic-123');
  * if (errors.length > 0) { console.warn('Cleanup warnings:', errors); }
  * ```
  */
-function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
-  const drafts = getDrafts(vaultPath);
+function deleteTopicDrafts(
+  vaultPath: string,
+  topicId: string,
+  draftPaths?: readonly string[],
+  expectedFingerprints?: ReadonlyMap<string, string>
+): { deleted: string[]; errors: Array<{ path: string; error: Error }> } {
+  const scopedPaths = draftPaths ? [...new Set(draftPaths)].sort() : null;
+  const drafts = scopedPaths ?? getDrafts(vaultPath);
   const deleted: string[] = [];
   const errors: Array<{ path: string; error: Error }> = [];
 
   for (const draftPath of drafts) {
+    const expectedFingerprint = expectedFingerprints?.get(draftPath);
+    if (expectedFingerprints && expectedFingerprint === undefined) continue;
+    let content: string;
     try {
-      const content = fs.readFileSync(draftPath, 'utf8');
+      content = fs.readFileSync(draftPath, 'utf8');
+    } catch (err: unknown) {
+      // A listed draft that is already gone is the goal state, not a failure: a
+      // concurrent run — or the session that owned it — removed it between the
+      // caller's scan and this cleanup. `deleteSessionNote` already reports an
+      // absent target as deleted; this applies the same rule one step earlier.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        deleted.push(draftPath);
+      } else {
+        errors.push({ path: draftPath, error: err as Error });
+      }
+      continue;
+    }
+    try {
       const { frontmatter } = parseFrontmatter(content);
-      if (frontmatter && frontmatter.topic_id === topicId) {
-        deleteSessionNote(vaultPath, draftPath);
+      if (frontmatter && frontmatter.topic_id === topicId && deleteSessionNote(vaultPath, draftPath, expectedFingerprint)) {
         deleted.push(draftPath);
       }
     } catch (err: unknown) {
@@ -1236,14 +1369,30 @@ function deleteTopicDrafts(vaultPath: string, topicId: string): { deleted: strin
  *
  * @param vaultPath - Vault root path
  * @param targetPath - Path to the session note or draft file
- * @returns Void
+ * @param expectedFingerprint - Optional fingerprint of the complete note the caller consumed
+ * @param onSkip - Optional callback invoked with the skip reason when unlink is skipped
+ * @returns `true` when the target is gone (unlinked here, or already absent),
+ *   `false` when another live process holds its lock or its content no longer
+ *   matches `expectedFingerprint`
  * @remarks Validates that the target path does not escape `.palee/sessions/` directory.
+ * The unlink runs under the target's lock — the same one `atomicWrite` on this file
+ * takes — so it cannot pull the file out from under a concurrent writer mid-rename
+ * (#565 P3-02). A live lock is not an error: like `clearActiveSession`, the unlink
+ * is skipped and the target left for whoever holds it, reported to the caller as
+ * not-deleted rather than thrown.
  * @example
  * ```typescript
- * deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md');
+ * if (!deleteSessionNote('/vault', '/vault/.palee/sessions/DRAFT-S-1.md')) {
+ *   console.warn('Draft is locked by another process; left in place.');
+ * }
  * ```
  */
-function deleteSessionNote(vaultPath: string, targetPath: string): void {
+function deleteSessionNote(
+  vaultPath: string,
+  targetPath: string,
+  expectedFingerprint?: string,
+  onSkip?: (reason: 'locked' | 'fingerprint_mismatch') => void
+): boolean {
   const sessionsDir = getSessionsDir(vaultPath);
   const resolvedSessions = fs.realpathSync(sessionsDir);
   let resolvedTarget: string;
@@ -1260,13 +1409,45 @@ function deleteSessionNote(vaultPath: string, targetPath: string): void {
     throw new Error(`Security error: Cannot delete session file outside sessions directory: ${targetPath}`);
   }
 
+  // The unlink takes the target's lock: a concurrent `atomicWrite` on this same
+  // file holds it across its temp-write and rename, and an unguarded unlink raced
+  // that rename — surfacing EPERM/EBUSY on Windows or deleting the file the writer
+  // was about to replace. Contentions yield like `clearActiveSession`/`resetHotMemory`:
+  // a live writer re-creating the target is exactly when deleting it is wrong.
+  const lock = new Lock(vaultPath, resolvedTarget);
+  let lockAcquired = false;
   try {
-    if (fs.existsSync(resolvedTarget)) {
-      fs.unlinkSync(resolvedTarget);
+    try {
+      lock.acquireSync();
+      lockAcquired = true;
+    } catch (err: unknown) {
+      if (isConflictError(err)) {
+        onSkip?.('locked');
+        return false;
+      }
+      throw err;
     }
-  } catch (err: unknown) {
-    const e = err as { code?: string };
-    if (e.code !== 'ENOENT') throw err;
+    try {
+      // The lock serializes writers; the fingerprint protects a refresh that
+      // finished before we acquired it, including changes to the note's identity.
+      if (
+        expectedFingerprint !== undefined &&
+        computeFingerprint(fs.readFileSync(resolvedTarget, 'utf8')) !== expectedFingerprint
+      ) {
+        onSkip?.('fingerprint_mismatch');
+        return false;
+      }
+      fs.unlinkSync(resolvedTarget);
+      return true;
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e.code !== 'ENOENT') throw err;
+      return true;
+    }
+  } finally {
+    if (lockAcquired) {
+      lock.release();
+    }
   }
 }
 
