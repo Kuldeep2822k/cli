@@ -687,7 +687,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // 3-tier timestamp recovery algorithm
       // Tier 1: Check draft checkpoints for earliest started_at
       const topicDrafts = getTopicDrafts(vaultPath, topicId);
-      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts.map((draft) => draft.path));
+      const consumedDrafts = getConsumedDraftPaths(vaultPath, topicDrafts);
       const matchingDrafts = topicDrafts.filter((d) => {
         if (consumedDrafts.has(d.path) || !d.started_at) return false;
         const t = new Date(d.started_at).getTime();
@@ -700,7 +700,10 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
       // resolved interactively into a genuinely new session; while the
       // active-session marker names this topic, that new session is real and
       // must be allowed to end — consuming the draft into its own note.
-      if (consumedDrafts.size > 0 && activeSession?.topic_id !== topicId) {
+      const unconsumedDrafts = topicDrafts.filter((draft) => !consumedDrafts.has(draft.path));
+      // A consumed checkpoint alone is evidence of an already-ended session, but
+      // a newer unconsumed checkpoint is evidence of a new draft-only session.
+      if (consumedDrafts.size > 0 && unconsumedDrafts.length === 0 && activeSession?.topic_id !== topicId) {
         reportNoActiveSession(jsonMode);
         return;
       }
@@ -774,7 +777,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         : generateSessionId();
 
       const consumedDraftMarkers = topicDrafts
-        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)}`)
+        .map((draft) => `Draft checkpoint: ${path.basename(draft.path)} [fingerprint: ${draft.fingerprint}]`)
         .join('\n');
       const sessionPath = await writeSessionNote(vaultPath, {
         session_id: sessionId,

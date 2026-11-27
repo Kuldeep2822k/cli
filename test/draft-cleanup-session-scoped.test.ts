@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { sessionCommand } from '../src/cli/session';
 import { saveConfig } from '../src/cli/config';
-import { deleteSessionNote, deleteTopicDrafts, getTopicDrafts, recoverDraft, writeDraftCheckpoint, Lock } from '../src/storage';
+import { deleteSessionNote, deleteTopicDrafts, getConsumedDraftPaths, getTopicDrafts, recoverDraft, writeDraftCheckpoint, Lock } from '../src/storage';
 import { parseFrontmatter, computeFingerprint } from '../src/storage/frontmatter';
 
 /**
@@ -388,5 +388,97 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     const noteBody = parseFrontmatter(fs.readFileSync(notePath, 'utf8')).body;
     assert.ok(noteBody.includes(`Draft checkpoint: ${path.basename(unlocked)}`));
     assert.ok(noteBody.includes(`Draft checkpoint: ${path.basename(locked)}`));
+  });
+
+  test('recoverDraft save preserves a draft refreshed after the snapshot read', async () => {
+    const draft = writeDraft('DRAFT-S-jjjj0014', 'T-scoped', minutesAgo(10));
+    const originalContent = fs.readFileSync(draft, 'utf8');
+    const refreshedContent = originalContent.replace('Draft body', 'Refreshed draft body');
+
+    const renameSync = fs.renameSync;
+    let refreshed = false;
+    fs.renameSync = (src, dest) => {
+      renameSync(src, dest);
+      if (!refreshed && path.basename(String(dest)).startsWith('S-') && String(dest).endsWith('.md')) {
+        refreshed = true;
+        const lock = new Lock(vaultDir, draft);
+        lock.acquireSync();
+        try {
+          fs.writeFileSync(draft, refreshedContent);
+        } finally {
+          lock.release();
+        }
+      }
+    };
+
+    try {
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+    } finally {
+      fs.renameSync = renameSync;
+    }
+    assert.strictEqual(refreshed, true);
+    assert.strictEqual(fs.existsSync(draft), true, 'a refreshed draft must survive save retirement');
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+    const [sessionPath] = completedSessionPaths();
+    assert.ok(sessionPath !== undefined);
+    assert.ok(fs.readFileSync(sessionPath, 'utf8').includes('Draft body'));
+  });
+
+  test('recoverDraft save retry writes updated notes when the draft changed after a lock-blocked save', async () => {
+    const draft = writeDraft('DRAFT-S-kkkk0015', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+    } finally {
+      lock.release();
+    }
+    assert.strictEqual(completedSessionPaths().length, 1);
+
+    const updatedContent = fs.readFileSync(draft, 'utf8').replace('Draft body', 'Updated draft body after lock');
+    fs.writeFileSync(draft, updatedContent, 'utf8');
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false, 'the updated draft must be retired after saving');
+    const sessions = completedSessionPaths();
+    assert.strictEqual(sessions.length, 2, 'updated notes must be saved as a new session instead of matching the old snapshot');
+    assert.ok(sessions.some((p) => fs.readFileSync(p, 'utf8').includes('Updated draft body after lock')));
+  });
+
+  test('getConsumedDraftPaths matches versioned fingerprints and stays conservative on legacy markers', async () => {
+    const draft = writeDraft('DRAFT-S-mmmm0016', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      await sessionCommand('end', { topic: 'T-scoped' });
+    } finally {
+      lock.release();
+    }
+
+    const beforeRefresh = getTopicDrafts(vaultDir, 'T-scoped');
+    assert.strictEqual(getConsumedDraftPaths(vaultDir, beforeRefresh).has(draft), true);
+
+    const refreshedContent = fs.readFileSync(draft, 'utf8').replace('Draft body', 'Refreshed at same path');
+    fs.writeFileSync(draft, refreshedContent, 'utf8');
+    const afterRefresh = getTopicDrafts(vaultDir, 'T-scoped');
+    assert.strictEqual(
+      getConsumedDraftPaths(vaultDir, afterRefresh).has(draft),
+      false,
+      'a checkpoint refreshed at the same path must not be treated as already consumed'
+    );
+
+    const legacyDraft = writeDraft('DRAFT-S-nnnn0017', 'T-scoped', minutesAgo(8));
+    const legacySession = path.join(vaultDir, '.palee', 'sessions', 'S-20260101T000000-00000001.md');
+    fs.writeFileSync(
+      legacySession,
+      `---\npalee_schema: 1\nsession_id: S-20260101T000000-00000001\ntopic_id: T-scoped\nstarted_at: "${minutesAgo(8)}"\nended_at: "${minutesAgo(7)}"\nduration_minutes: 1\nstatus: completed\n---\n# Session: S-20260101T000000-00000001\n\nDraft checkpoint: ${path.basename(legacyDraft)}\n`,
+      'utf8'
+    );
+    const legacyRecords = getTopicDrafts(vaultDir, 'T-scoped').filter((d) => d.path === legacyDraft);
+    assert.strictEqual(
+      getConsumedDraftPaths(vaultDir, legacyRecords).has(legacyDraft),
+      true,
+      'legacy path-only markers without a fingerprint remain conservatively consumed'
+    );
   });
 });

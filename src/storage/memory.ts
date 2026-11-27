@@ -1069,7 +1069,7 @@ async function recoverDraft(
           const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
           if (Number.isNaN(candidateStartMs)) continue;
           if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
-          if (candidate.body.includes(draftHeading)) {
+          if (candidate.body.includes(draftHeading) && notesOf(candidate.body) === draftNotes) {
             alreadySavedSessionId = fm.session_id;
             break;
           }
@@ -1115,7 +1115,7 @@ async function recoverDraft(
     // the unlink itself fails the draft survives and the pass above recognises the
     // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
-    return deleteSessionNote(vaultPath, draftPath);
+    return deleteSessionNote(vaultPath, draftPath, computeFingerprint(content));
   }
 
   if (action === 'resume') {
@@ -1165,10 +1165,14 @@ function getTopicDrafts(vaultPath: string, topicId: string): Array<{ path: strin
 }
 
 /** Returns which supplied draft checkpoints a completed session already records as consumed. */
-function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<string> {
-  const draftMarkers = new Map(draftPaths.map((draftPath) => [
-    `Draft checkpoint: ${path.basename(draftPath)}`,
-    draftPath,
+function getConsumedDraftPaths(
+  vaultPath: string,
+  drafts: readonly string[] | readonly { path: string; fingerprint: string }[]
+): Set<string> {
+  const records = drafts.map((draft) => typeof draft === 'string' ? { path: draft, fingerprint: null } : draft);
+  const draftMarkers = new Map(records.map((draft) => [
+    path.basename(draft.path),
+    draft,
   ]));
   const consumed = new Set<string>();
   if (draftMarkers.size === 0) return consumed;
@@ -1180,8 +1184,20 @@ function getConsumedDraftPaths(vaultPath: string, draftPaths: string[]): Set<str
       const content = fs.readFileSync(path.join(sessionsDir, file), 'utf8');
       const { frontmatter, body } = parseFrontmatter(content);
       if (frontmatter?.status !== 'completed') continue;
-      for (const [marker, draftPath] of draftMarkers) {
-        if (body.includes(marker)) consumed.add(draftPath);
+      for (const [name, draft] of draftMarkers) {
+        const marker = `Draft checkpoint: ${name}`;
+        if (draft.fingerprint !== null) {
+          const versioned = `${marker} [fingerprint: ${draft.fingerprint}]`;
+          if (body.includes(versioned)) {
+            consumed.add(draft.path);
+          } else if (body.includes(marker) && !body.includes(`${marker} [fingerprint:`)) {
+            // Completed notes from before versioned markers remain conservative:
+            // their path-only marker cannot prove which revision was consumed.
+            consumed.add(draft.path);
+          }
+        } else if (body.includes(marker)) {
+          consumed.add(draft.path);
+        }
       }
     } catch {
       // An unreadable completed note cannot prove that this draft was consumed.

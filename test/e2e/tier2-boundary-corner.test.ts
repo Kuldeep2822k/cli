@@ -520,6 +520,36 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       });
     }
 
+    test('B4.11: a retained consumed draft does not block a new draft-only session', async () => {
+      env.createTopics(['T-draftonly']);
+      env.run(['session', 'draft', '--topic', 'T-draftonly']);
+      const [firstDraft] = env.listSessions().drafts;
+      assert.ok(firstDraft !== undefined);
+      const firstDraftAbs = path.join(env.vaultDir, '.palee', 'sessions', firstDraft);
+
+      const lock = new Lock(env.vaultDir, firstDraftAbs);
+      try {
+        await lock.acquire();
+        const firstEnd = env.run(['session', 'end', '--json', '--topic', 'T-draftonly']);
+        assert.strictEqual(firstEnd.status, 0);
+      } finally {
+        lock.release();
+      }
+      assert.deepStrictEqual(env.listSessions().drafts, [firstDraft]);
+      assert.strictEqual(env.listSessions().confirmed.length, 1);
+
+      env.run(['session', 'draft', '--topic', 'T-draftonly']);
+      const draftsAfter = env.listSessions().drafts;
+      assert.strictEqual(draftsAfter.length, 2, 'a new unconsumed draft should exist alongside the retained one');
+
+      const secondEnd = env.run(['session', 'end', '--json', '--topic', 'T-draftonly']);
+      assert.strictEqual(secondEnd.status, 0, `expected draft-only session to end: ${secondEnd.stderr}`);
+      const parsed = JSON.parse(secondEnd.stdout);
+      assert.strictEqual(parsed.status, 'recorded');
+      assert.strictEqual(env.listSessions().confirmed.length, 2);
+      assert.strictEqual(env.listSessions().drafts.length, 0);
+    });
+
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
       env.createTopics(['T-mixed-first', 'T-mixed-second']);
       env.run(['session', 'draft', '--topic', 'T-mixed-first']);
