@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTestVault, TestVaultEnv } from './test-env';
-import { Lock, writeDraftCheckpoint } from '../../src/storage';
+import { Lock, computeFingerprint, writeDraftCheckpoint } from '../../src/storage';
 
 describe('Tier 2: Boundary & Corner Cases', () => {
   let env: TestVaultEnv;
@@ -630,10 +630,8 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       const savedNote = env.readTopic(path.join('.palee', 'sessions', savedNoteName));
       assert.strictEqual(savedNote.frontmatter?.topic_id, topicId);
       assert.strictEqual(savedNote.frontmatter?.status, 'completed');
-      assert.match(
-        savedNote.body,
-        new RegExp(`Draft checkpoint: ${draftName.replace('.', '\\.')} \\[fingerprint: [a-f0-9]+\\]`)
-      );
+      const expectedMarker = `Draft checkpoint: ${draftName} [fingerprint: ${computeFingerprint(draftSnapshot)}]`;
+      assert.ok(savedNote.body.includes(expectedMarker), `expected versioned checkpoint marker '${expectedMarker}' in saved note`);
       assert.strictEqual(env.readHotMemory()?.frontmatter?.active_topic ?? null, null);
       assert.strictEqual(env.readHotMemory()?.frontmatter?.last_session, savedNoteName.replace(/\.md$/, ''));
 
@@ -686,6 +684,43 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.deepStrictEqual(env.listSessions().drafts, [], 'unlocked Save retry must retire the draft');
       const activeSession = env.readTopic(path.join('.palee', 'active-session.md'));
       assert.strictEqual(activeSession.frontmatter?.topic_id, topicId);
+    });
+
+    test('B4.15: interactive Save retires a lock-retained session-end checkpoint without duplicating the note', async () => {
+      const topicId = 'T-end-then-save';
+      env.createTopics([topicId]);
+      env.run(['session', 'draft', '--topic', topicId]);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const endRes = env.run(['session', 'end', '--json', '--topic', topicId]);
+        assert.strictEqual(endRes.status, 0, `${endRes.stdout}${endRes.stderr}`);
+      } finally {
+        lock.release();
+      }
+      const firstConfirmed = env.listSessions().confirmed;
+      assert.strictEqual(firstConfirmed.length, 1);
+      assert.deepStrictEqual(env.listSessions().drafts, [draftName]);
+
+      const saveRes = await env.runInteractive(
+        ['session', 'start', '--interactive', '--topic', topicId],
+        [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 's\n' }]
+      );
+      assert.strictEqual(saveRes.status, 0, `${saveRes.stdout}${saveRes.stderr}`);
+      assert.match(saveRes.stdout, /PALEE Session Started/);
+      assert.deepStrictEqual(
+        env.listSessions().confirmed,
+        firstConfirmed,
+        'interactive Save must not duplicate a checkpoint already consumed by session end'
+      );
+      assert.deepStrictEqual(env.listSessions().drafts, [], 'interactive Save must retire the leftover draft');
+      const index = env.readSessionIndex();
+      assert.ok(index !== null);
+      assert.match(index.raw, /Total Sessions: 1/);
     });
 
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {

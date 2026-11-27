@@ -1021,18 +1021,37 @@ async function recoverDraft(
     // an exact fingerprint match proves neither notes nor metadata (`started_at`,
     // `topic_id`) changed since the saved snapshot — even when a stale draft's
     // clamped `started_at` shifts between runs, or when a refreshed draft falls
-    // inside the ±60s window. Legacy completed notes without a versioned marker
+    // inside the ±60s window. Likewise, if a prior `session end` already recorded
+    // that exact versioned checkpoint line before a lock prevented cleanup, Save
+    // reuses that completed note and retires the leftover draft instead of writing
+    // a duplicate session. Legacy completed notes without a versioned marker
     // fall back to matching the `# Draft Session: <id>` heading and exact body.
     const draftFileName = path.basename(draftPath);
     const draftFingerprint = computeFingerprint(content);
     const draftHeading = `# Draft Session: ${path.basename(draftPath, '.md')}`;
     const draftBody = body.trim();
-    const snapshotMarker = `Draft checkpoint: ${draftFileName} [fingerprint: ${draftFingerprint}]`;
+    const snapshotPrefix = `Draft checkpoint: ${draftFileName} [fingerprint: `;
+    const snapshotMarker = `${snapshotPrefix}${draftFingerprint}]`;
     const savedNoteBody = draftBody ? `${draftBody}\n\n${snapshotMarker}` : snapshotMarker;
-    const escapedDraftFileName = draftFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const trailingSnapshotRegex = new RegExp(
-      `(?:^|\\r?\\n\\r?\\n)Draft checkpoint: ${escapedDraftFileName} \\[fingerprint: ([a-f0-9]+)\\]$`
-    );
+    const isHexFingerprint = (value: string): boolean => /^[a-f0-9]+$/.test(value);
+    const parseTrailingSnapshot = (envelopeBody: string): { fingerprint: string; savedDraftBody: string } | null => {
+      if (!envelopeBody.endsWith(']')) return null;
+      const markerStart = envelopeBody.lastIndexOf(snapshotPrefix);
+      if (markerStart === -1) return null;
+      const hex = envelopeBody.slice(markerStart + snapshotPrefix.length, -1);
+      if (!isHexFingerprint(hex)) return null;
+      if (markerStart === 0) {
+        return { fingerprint: hex, savedDraftBody: '' };
+      }
+      const before = envelopeBody.slice(0, markerStart);
+      if (!before.endsWith('\n\n') && !before.endsWith('\r\n\r\n')) {
+        return null;
+      }
+      return {
+        fingerprint: hex,
+        savedDraftBody: before.trim(),
+      };
+    };
     // `writeSessionNote` prepends a single `# Session: <session_id>` line to
     // `savedNoteBody`. Peel off only that generated outer envelope so user-authored
     // `# Session:` or `# Draft Session:` headings inside the draft remain part
@@ -1078,17 +1097,15 @@ async function recoverDraft(
           if (!fm || typeof fm.session_id !== 'string' || fm.session_id.startsWith('DRAFT-')) continue;
           if (fm.status !== 'completed') continue;
           if (String(fm.topic_id ?? 'unknown') !== topicId) continue;
-          const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
-          const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
-          if (Number.isNaN(candidateStartMs)) continue;
-          if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
           const envelopeBody = stripSessionEnvelope(fm.session_id, candidate.body);
           if (envelopeBody === null) continue;
-          const markerMatch = trailingSnapshotRegex.exec(envelopeBody);
-          if (markerMatch !== null) {
-            const recordedFingerprint = markerMatch[1];
-            const savedDraftBody = envelopeBody.slice(0, markerMatch.index).trim();
-            if (recordedFingerprint === draftFingerprint && savedDraftBody === draftBody) {
+          const trailingSnapshot = parseTrailingSnapshot(envelopeBody);
+          if (trailingSnapshot !== null) {
+            const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+            const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
+            if (Number.isNaN(candidateStartMs)) continue;
+            if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
+            if (trailingSnapshot.fingerprint === draftFingerprint && trailingSnapshot.savedDraftBody === draftBody) {
               alreadySavedSessionId = fm.session_id;
               break;
             }
@@ -1096,6 +1113,28 @@ async function recoverDraft(
             // a mismatch means metadata or notes changed, so never fall back.
             continue;
           }
+          const versionedMarkerLines = envelopeBody
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(
+              (line) =>
+                line.startsWith(snapshotPrefix) &&
+                line.endsWith(']') &&
+                isHexFingerprint(line.slice(snapshotPrefix.length, -1))
+            );
+          if (versionedMarkerLines.length > 0) {
+            if (versionedMarkerLines.includes(snapshotMarker)) {
+              alreadySavedSessionId = fm.session_id;
+              break;
+            }
+            // A completed session recording another version of this draft cannot
+            // satisfy a refreshed checkpoint on disk.
+            continue;
+          }
+          const rawCandidateStart = typeof fm.started_at === 'string' ? fm.started_at.trim() : '';
+          const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
+          if (Number.isNaN(candidateStartMs)) continue;
+          if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
           if (candidate.body.includes(draftHeading) && envelopeBody === draftBody) {
             alreadySavedSessionId = fm.session_id;
             break;
@@ -1211,18 +1250,22 @@ function getConsumedDraftPaths(
       const content = fs.readFileSync(path.join(sessionsDir, file), 'utf8');
       const { frontmatter, body } = parseFrontmatter(content);
       if (frontmatter?.status !== 'completed') continue;
+      const bodyLines = body.split(/\r?\n/).map((line) => line.trim());
       for (const [name, draft] of draftMarkers) {
         const marker = `Draft checkpoint: ${name}`;
         if (draft.fingerprint !== null) {
           const versioned = `${marker} [fingerprint: ${draft.fingerprint}]`;
-          if (body.includes(versioned)) {
+          const hasAnyVersioned = bodyLines.some(
+            (line) => line.startsWith(`${marker} [fingerprint: `) && line.endsWith(']')
+          );
+          if (bodyLines.includes(versioned)) {
             consumed.add(draft.path);
-          } else if (body.includes(marker) && !body.includes(`${marker} [fingerprint:`)) {
+          } else if (bodyLines.includes(marker) && !hasAnyVersioned) {
             // Completed notes from before versioned markers remain conservative:
             // their path-only marker cannot prove which revision was consumed.
             consumed.add(draft.path);
           }
-        } else if (body.includes(marker)) {
+        } else if (bodyLines.some((line) => line === marker || line.startsWith(`${marker} [fingerprint: `))) {
           consumed.add(draft.path);
         }
       }

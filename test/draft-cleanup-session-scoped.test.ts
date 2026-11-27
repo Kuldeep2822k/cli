@@ -739,4 +739,49 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
       'legacy path-only markers without a fingerprint remain conservatively consumed'
     );
   });
+
+  test('recoverDraft save does not duplicate a checkpoint already recorded by a lock-blocked session end', async () => {
+    const first = writeDraft('DRAFT-S-vvvv0025', 'T-scoped', minutesAgo(10));
+    const second = writeDraft('DRAFT-S-wwww0026', 'T-scoped', minutesAgo(5));
+    const lock = new Lock(vaultDir, first);
+    try {
+      await lock.acquire();
+      await sessionCommand('end', { topic: 'T-scoped' });
+    } finally {
+      lock.release();
+    }
+
+    const afterEnd = completedSessionPaths();
+    assert.strictEqual(afterEnd.length, 1);
+    assert.strictEqual(fs.existsSync(first), true, 'locked draft survives session end');
+    assert.strictEqual(fs.existsSync(second), false, 'unlocked draft is consumed and retired');
+
+    // `first` is listed before `second` inside S-end's body (not on the last line);
+    // unchanged Save must still recognize it and retire it without writing a second note.
+    assert.strictEqual(await recoverDraft(vaultDir, first, 'save'), true);
+    assert.strictEqual(fs.existsSync(first), false, 'Save retires the already-consumed leftover draft');
+    assert.deepStrictEqual(completedSessionPaths(), afterEnd, 'Save must not duplicate a checkpoint already recorded by session end');
+  });
+
+  test('recoverDraft save writes a new session when a lock-blocked session end draft is refreshed', async () => {
+    const draft = writeDraft('DRAFT-S-xxxx0027', 'T-scoped', minutesAgo(10));
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      await sessionCommand('end', { topic: 'T-scoped' });
+    } finally {
+      lock.release();
+    }
+    const afterEnd = completedSessionPaths();
+    assert.strictEqual(afterEnd.length, 1);
+
+    const refreshed = fs.readFileSync(draft, 'utf8').replace('Draft body', 'New notes after locked session end');
+    fs.writeFileSync(draft, refreshed, 'utf8');
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false);
+    const sessions = completedSessionPaths();
+    assert.strictEqual(sessions.length, 2, 'refreshed checkpoint must still be saved as a new session');
+    assert.ok(sessions.some((p) => fs.readFileSync(p, 'utf8').includes('New notes after locked session end')));
+  });
 });
