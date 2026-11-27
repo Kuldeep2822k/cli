@@ -1014,21 +1014,26 @@ async function recoverDraft(
     // session note reaches the vault but before the draft is retired, leaving both
     // files, and the next run then has to tell "already saved" from "not yet saved".
     // The session frontmatter carries no provenance key back to the draft, and adding
-    // one would change the pinned session format (and every fingerprint of it), so the
-    // match is made on bytes a save already leaves behind. `writeSessionNote` copies
-    // the draft body verbatim under its own heading, so the draft's
-    // `# Draft Session: <id>` line — carrying the draft's own id — survives inside the
-    // completed note. That is the exact signal. Two drafts always get different
-    // `DRAFT-S-<8 hex>` ids, so unlike a topic-and-time comparison it can never
-    // confuse a second draft of the same topic with a retry of the first.
-    // Hand-edited drafts need not carry that heading, so a weaker second match covers
-    // them: same topic, same notes (the heading lines stripped), a `started_at` inside
-    // the window this pass resolves to, and a note written after this draft — the only
-    // order a save of this draft could have produced.
+    // one would change the pinned session format (and every fingerprint of it), so
+    // `save` appends a `Draft checkpoint: <file> [fingerprint: <sha256>]` marker to
+    // the session note body (the same marker format `session end` writes). On retry,
+    // an exact fingerprint match proves neither notes nor metadata (`started_at`,
+    // `topic_id`) changed since the saved snapshot — even when a stale draft's
+    // clamped `started_at` shifts between runs, or when a refreshed draft falls
+    // inside the ±60s window. Legacy completed notes without a versioned marker
+    // fall back to matching the `# Draft Session: <id>` heading and exact body.
+    const draftFileName = path.basename(draftPath);
+    const draftFingerprint = computeFingerprint(content);
     const draftHeading = `# Draft Session: ${path.basename(draftPath, '.md')}`;
     const draftBody = body.trim();
+    const snapshotMarker = `Draft checkpoint: ${draftFileName} [fingerprint: ${draftFingerprint}]`;
+    const savedNoteBody = draftBody ? `${draftBody}\n\n${snapshotMarker}` : snapshotMarker;
+    const escapedDraftFileName = draftFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const trailingSnapshotRegex = new RegExp(
+      `(?:^|\\r?\\n\\r?\\n)Draft checkpoint: ${escapedDraftFileName} \\[fingerprint: ([a-f0-9]+)\\]$`
+    );
     // `writeSessionNote` prepends a single `# Session: <session_id>` line to
-    // `body.trim()`. Peel off only that generated outer envelope so user-authored
+    // `savedNoteBody`. Peel off only that generated outer envelope so user-authored
     // `# Session:` or `# Draft Session:` headings inside the draft remain part
     // of the comparison and a heading-only refresh is never treated as saved.
     const stripSessionEnvelope = (sessionId: string, candidateBody: string): string | null => {
@@ -1076,9 +1081,21 @@ async function recoverDraft(
           const candidateStartMs = rawCandidateStart ? new Date(rawCandidateStart).getTime() : Number.NaN;
           if (Number.isNaN(candidateStartMs)) continue;
           if (candidateStartMs < acceptedStartLow || candidateStartMs > acceptedStartHigh) continue;
-          const savedDraftBody = stripSessionEnvelope(fm.session_id, candidate.body);
-          if (savedDraftBody === null) continue;
-          if (candidate.body.includes(draftHeading) && savedDraftBody === draftBody) {
+          const envelopeBody = stripSessionEnvelope(fm.session_id, candidate.body);
+          if (envelopeBody === null) continue;
+          const markerMatch = trailingSnapshotRegex.exec(envelopeBody);
+          if (markerMatch !== null) {
+            const recordedFingerprint = markerMatch[1];
+            const savedDraftBody = envelopeBody.slice(0, markerMatch.index).trim();
+            if (recordedFingerprint === draftFingerprint && savedDraftBody === draftBody) {
+              alreadySavedSessionId = fm.session_id;
+              break;
+            }
+            // A versioned snapshot marker for this draft file is authoritative:
+            // a mismatch means metadata or notes changed, so never fall back.
+            continue;
+          }
+          if (candidate.body.includes(draftHeading) && envelopeBody === draftBody) {
             alreadySavedSessionId = fm.session_id;
             break;
           }
@@ -1093,7 +1110,7 @@ async function recoverDraft(
           if (
             draftBody !== '' &&
             !Number.isNaN(draftMtimeMs) &&
-            savedDraftBody === draftBody &&
+            envelopeBody === draftBody &&
             candidateStat.mtimeMs >= draftMtimeMs
           ) {
             alreadySavedSessionId = fm.session_id;
@@ -1112,7 +1129,7 @@ async function recoverDraft(
         started_at: startedAt,
         ended_at: endedAt,
         duration_minutes: durationMinutes,
-      }, body);
+      }, savedNoteBody);
     }
 
     // #328 ordering. `rebuildHotAndIndex` regenerates `.palee/hot.md` and
@@ -1124,7 +1141,7 @@ async function recoverDraft(
     // the unlink itself fails the draft survives and the pass above recognises the
     // session it already produced instead of minting a second one.
     await rebuildHotAndIndex(vaultPath);
-    return deleteSessionNote(vaultPath, draftPath, computeFingerprint(content), onSkip);
+    return deleteSessionNote(vaultPath, draftPath, draftFingerprint, onSkip);
   }
 
   if (action === 'resume') {

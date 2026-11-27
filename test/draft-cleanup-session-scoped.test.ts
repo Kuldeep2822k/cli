@@ -559,6 +559,44 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     assert.deepStrictEqual(completedSessionPaths(), firstSessions, 'unchanged retry must remain idempotent');
   });
 
+  test('recoverDraft save retry writes a new session on a metadata-only started_at refresh', async () => {
+    const oldStartedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const newStartedAt = new Date(Date.now() - (10 * 60 - 20) * 1000).toISOString();
+    const draft = await writeDraftCheckpoint(
+      vaultDir,
+      'DRAFT-S-ssss0022',
+      { topic_id: 'T-scoped', started_at: oldStartedAt },
+      'Metadata refresh body'
+    );
+
+    const lock = new Lock(vaultDir, draft);
+    try {
+      await lock.acquire();
+      assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), false);
+    } finally {
+      lock.release();
+    }
+    const firstSessions = completedSessionPaths();
+    assert.strictEqual(firstSessions.length, 1);
+
+    // Refresh only `started_at` within the ±60s tolerance window, keeping the body identical.
+    await writeDraftCheckpoint(
+      vaultDir,
+      'DRAFT-S-ssss0022',
+      { topic_id: 'T-scoped', started_at: newStartedAt },
+      'Metadata refresh body'
+    );
+
+    assert.strictEqual(await recoverDraft(vaultDir, draft, 'save'), true);
+    assert.strictEqual(fs.existsSync(draft), false, 'the refreshed draft must be retired after saving');
+    const sessions = completedSessionPaths();
+    assert.strictEqual(sessions.length, 2, 'a metadata-only started_at refresh must not reuse the earlier session');
+    const newSessionPath = sessions.find((p) => !firstSessions.includes(p));
+    assert.ok(newSessionPath !== undefined);
+    const { frontmatter } = parseFrontmatter(fs.readFileSync(newSessionPath, 'utf8'));
+    assert.strictEqual(frontmatter?.started_at, newStartedAt);
+  });
+
   test('getConsumedDraftPaths matches versioned fingerprints and stays conservative on legacy markers', async () => {
     const draft = writeDraft('DRAFT-S-mmmm0016', 'T-scoped', minutesAgo(10));
     const lock = new Lock(vaultDir, draft);

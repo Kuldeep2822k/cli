@@ -109,7 +109,7 @@ The `recoverDraft` function handles four distinct actions [src/storage/memory.ts
 | Action | Logic |
 | --- | --- |
 | `resume` | Retains the draft checkpoint note for continued study. |
-| `save` | Converts the draft into a completed session note via `writeSessionNote`, computes elapsed `duration_minutes`, refreshes views via `rebuildHotAndIndex`, and retires the draft via `deleteSessionNote` guarded by the saved snapshot's fingerprint. If the draft is locked or changed after the snapshot read, `deleteSessionNote` preserves the draft and `recoverDraft` returns `false` so the caller keeps it unresolved. |
+| `save` | Converts the draft into a completed session note via `writeSessionNote` (recording the saved snapshot's fingerprint marker so retries only reuse the session when the draft is unchanged), computes elapsed `duration_minutes`, refreshes views via `rebuildHotAndIndex`, and retires the draft via `deleteSessionNote` guarded by that snapshot's fingerprint. If the draft is locked or changed after the snapshot read, `deleteSessionNote` preserves the draft and `recoverDraft` returns `false` so the caller keeps it unresolved. |
 | `discard` | Permanently and safely deletes the draft file via `deleteSessionNote` (returns `false` if locked). |
 | `ignore` | Leaves the draft file in place without taking action. |
 
