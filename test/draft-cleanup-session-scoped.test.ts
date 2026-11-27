@@ -490,7 +490,113 @@ describe('Draft cleanup session scoping and lock awareness (#565 P3-02)', () => 
     const errText = errors.join('\n');
     assert.match(errText, /a draft changed during save and was kept on disk/);
     assert.doesNotMatch(errText, /a locked draft was left for its holder/);
+    assert.doesNotMatch(errText, /stdin closed/);
     assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+  });
+
+  test('session start --interactive does not report stdin closed on fingerprint mismatch when piped EOF follows the answer', async () => {
+    const draft = writeDraft('DRAFT-S-tttt0023', 'T-scoped', minutesAgo(10));
+    const originalContent = fs.readFileSync(draft, 'utf8');
+    const refreshedContent = originalContent.replace('Draft body', 'Refreshed before EOF completes save');
+
+    const realCreateInterface = readline.createInterface;
+    const realRenameSync = fs.renameSync;
+    const realConsoleError = console.error;
+    const errors: string[] = [];
+
+    const inputStream = new PassThrough();
+    inputStream.write('s\n');
+    inputStream.end();
+
+    readline.createInterface = (() => realCreateInterface({ input: inputStream, output: new PassThrough() })) as typeof readline.createInterface;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    };
+    let refreshed = false;
+    fs.renameSync = (src, dest) => {
+      realRenameSync(src, dest);
+      if (!refreshed && path.basename(String(dest)).startsWith('S-') && String(dest).endsWith('.md')) {
+        refreshed = true;
+        fs.writeFileSync(draft, refreshedContent, 'utf8');
+      }
+    };
+
+    try {
+      await sessionCommand('start', { interactive: true, topic: 'T-scoped' });
+    } finally {
+      readline.createInterface = realCreateInterface;
+      fs.renameSync = realRenameSync;
+      console.error = realConsoleError;
+    }
+
+    assert.strictEqual(process.exitCode, 2);
+    const errText = errors.join('\n');
+    assert.match(errText, /a draft changed during save and was kept on disk/);
+    assert.doesNotMatch(errText, /a locked draft was left for its holder/);
+    assert.doesNotMatch(errText, /stdin closed/);
+    assert.strictEqual(fs.existsSync(path.join(vaultDir, '.palee', 'active-session.md')), false);
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+  });
+
+  test('recoverDraft save checks fingerprint under the writer target lock before retiring', async () => {
+    const draft = writeDraft('DRAFT-S-uuuu0024', 'T-scoped', minutesAgo(10));
+    const originalContent = fs.readFileSync(draft, 'utf8');
+    const refreshedContent = originalContent.replace('Draft body', 'Refreshed right before target lock');
+
+    const realAcquireSync = Lock.prototype.acquireSync;
+    const realReadFileSync = fs.readFileSync;
+    let lockedTargetPath: string | undefined;
+    let refreshedBeforeLock = false;
+    let verifiedLockHeldDuringFingerprintRead = false;
+    Lock.prototype.acquireSync = function (this: Lock) {
+      const target = (this as unknown as { targetPath?: string }).targetPath;
+      if (!refreshedBeforeLock && String(target ?? '').includes('DRAFT-S-uuuu0024')) {
+        refreshedBeforeLock = true;
+        lockedTargetPath = target;
+        fs.writeFileSync(draft, refreshedContent, 'utf8');
+      }
+      return realAcquireSync.call(this);
+    };
+    (fs as unknown as { readFileSync: typeof fs.readFileSync }).readFileSync = ((
+      target: fs.PathOrFileDescriptor,
+      ...rest: unknown[]
+    ) => {
+      if (
+        refreshedBeforeLock &&
+        !verifiedLockHeldDuringFingerprintRead &&
+        path.resolve(String(target)) === fs.realpathSync(draft)
+      ) {
+        verifiedLockHeldDuringFingerprintRead = true;
+        const probeLock = new Lock(vaultDir, draft);
+        assert.throws(
+          () => realAcquireSync.call(probeLock),
+          /Lock conflict/,
+          'writer target lock must be held while checking the draft fingerprint'
+        );
+      }
+      return (realReadFileSync as (...args: unknown[]) => unknown)(target, ...rest);
+    }) as typeof fs.readFileSync;
+
+    let skipReason: string | undefined;
+    try {
+      const resolved = await recoverDraft(vaultDir, draft, 'save', (reason) => {
+        skipReason = reason;
+      });
+      assert.strictEqual(resolved, false);
+    } finally {
+      Lock.prototype.acquireSync = realAcquireSync;
+      fs.readFileSync = realReadFileSync;
+    }
+
+    assert.strictEqual(refreshedBeforeLock, true);
+    assert.strictEqual(verifiedLockHeldDuringFingerprintRead, true);
+    assert.strictEqual(lockedTargetPath, fs.realpathSync(draft));
+    assert.strictEqual(skipReason, 'fingerprint_mismatch');
+    assert.strictEqual(fs.readFileSync(draft, 'utf8'), refreshedContent);
+    // Lock must be released when skipped so a subsequent writer lock succeeds immediately.
+    const writerLock = new Lock(vaultDir, draft);
+    writerLock.acquireSync();
+    writerLock.release();
   });
 
   test('recoverDraft save retry writes updated notes when the draft changed after a lock-blocked save', async () => {

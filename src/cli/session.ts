@@ -349,10 +349,12 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
         const unresolvedDrafts: string[] = [];
         let lockSkipped = false;
         let fingerprintSkipped = false;
+        let stdinInterrupted = false;
         for (const draftPath of drafts) {
           const draftName = path.basename(draftPath);
           if (inputExhausted) {
             unresolvedDrafts.push(draftName);
+            stdinInterrupted = true;
             continue;
           }
           note(`\nDraft: ${draftName}`);
@@ -368,6 +370,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           }
           if (!recoveryAction) {
             unresolvedDrafts.push(draftName);
+            stdinInterrupted = true;
             continue;
           }
           let skipReason: 'locked' | 'fingerprint_mismatch' | null = null;
@@ -383,12 +386,11 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
             unresolvedDrafts.push(draftName);
             if (skipReason === 'fingerprint_mismatch') {
               fingerprintSkipped = true;
-            } else {
+            } else if (skipReason === 'locked') {
               lockSkipped = true;
             }
           }
         }
-        const stdinClosed = inputExhausted;
         rl.close();
 
         if (unresolvedDrafts.length > 0) {
@@ -400,7 +402,7 @@ async function sessionCommand(action: string, options: SessionOptions = {}): Pro
           const reasons: string[] = [];
           if (lockSkipped) reasons.push('a locked draft was left for its holder');
           if (fingerprintSkipped) reasons.push('a draft changed during save and was kept on disk');
-          if (stdinClosed) reasons.push('stdin closed');
+          if (stdinInterrupted) reasons.push('stdin closed');
           const why = `Draft recovery was not completed${reasons.length > 0 ? ` (${reasons.join('; ')})` : ''}.`;
           if (jsonMode) {
             console.error(JSON.stringify({

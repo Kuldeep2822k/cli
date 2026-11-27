@@ -255,4 +255,45 @@ describe('Draft recovery transaction ordering (#328)', () => {
       fs.rmSync(vaultPath, { recursive: true, force: true });
     }
   });
+
+  test('a session-write failure skips rebuild and retirement cleanly and retry completes in order', async () => {
+    const vaultPath = freshVault('write-fault');
+    const originalRenameSync = fs.renameSync;
+    try {
+      const startedAt = new Date(Date.now() - 15 * 60000).toISOString();
+      const draftPath = await writeDraftCheckpoint(
+        vaultPath,
+        'DRAFT-S-ffff6666',
+        { topic_id: 'T-write-fault', started_at: startedAt },
+        'Draft body preserved across stage-1 write fault.'
+      );
+      const beforeSnapshot = fs.readFileSync(draftPath, 'utf8');
+
+      fs.renameSync = ((src: fs.PathLike, dest: fs.PathLike) => {
+        const destStr = String(dest);
+        if (path.basename(destStr).startsWith('S-') && destStr.endsWith('.md')) {
+          const err: NodeJS.ErrnoException = new Error(`EACCES: permission denied, rename '${destStr}'`);
+          err.code = 'EACCES';
+          throw err;
+        }
+        return originalRenameSync(src, dest);
+      }) as typeof fs.renameSync;
+
+      await assert.rejects(() => recoverDraft(vaultPath, draftPath, 'save'), /EACCES/);
+      assert.deepStrictEqual(sessionFiles(vaultPath), [], 'no partial completed note may survive a failed write');
+      assert.strictEqual(fs.existsSync(path.join(vaultPath, '.palee', 'hot.md')), false, 'rebuild must not run when session write fails');
+      assert.strictEqual(fs.existsSync(path.join(vaultPath, '.palee', 'index.md')), false);
+      assert.strictEqual(fs.readFileSync(draftPath, 'utf8'), beforeSnapshot, 'draft must survive untouched when write fails');
+
+      fs.renameSync = originalRenameSync;
+      assert.strictEqual(await recoverDraft(vaultPath, draftPath, 'save'), true);
+      assert.strictEqual(sessionFiles(vaultPath).length, 1);
+      assert.deepStrictEqual(draftFiles(vaultPath), []);
+      const indexRaw = fs.readFileSync(path.join(vaultPath, '.palee', 'index.md'), 'utf8');
+      assert.ok(indexRaw.includes('Total Sessions: 1'));
+    } finally {
+      fs.renameSync = originalRenameSync;
+      fs.rmSync(vaultPath, { recursive: true, force: true });
+    }
+  });
 });

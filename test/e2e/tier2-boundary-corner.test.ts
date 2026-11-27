@@ -585,6 +585,109 @@ describe('Tier 2: Boundary & Corner Cases', () => {
       assert.strictEqual(env.listSessions().drafts.length, 0);
     });
 
+    test('B4.13: lock-blocked recovery save followed by lock release and session end creates no duplicate note', async () => {
+      const topicId = 'T-save-then-end';
+      env.createTopics([topicId]);
+
+      // 1. Create a draft without starting an active session.
+      const draftCmd = env.run(['session', 'draft', '--json', '--topic', topicId]);
+      assert.strictEqual(draftCmd.status, 0, `${draftCmd.stdout}${draftCmd.stderr}`);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+      const draftSnapshot = fs.readFileSync(draftAbs, 'utf8');
+      const activeMarkerPath = path.join(env.vaultDir, '.palee', 'active-session.md');
+      assert.strictEqual(fs.existsSync(activeMarkerPath), false, 'no active-session marker before start');
+
+      // 2. Hold the draft's target lock and 3. run interactive session start choosing Save.
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const startRes = await env.runInteractive(
+          ['session', 'start', '--interactive', '--topic', topicId],
+          [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 's\n' }]
+        );
+
+        // 4. Verify completed note written, draft remains, incomplete recovery exit 2, no active-session marker.
+        assert.strictEqual(startRes.status, 2, `${startRes.stdout}${startRes.stderr}`);
+        assert.match(startRes.stderr, /Draft recovery was not completed/);
+        assert.match(startRes.stderr, /a locked draft was left for its holder/);
+        assert.doesNotMatch(startRes.stderr, /stdin closed/);
+        assert.doesNotMatch(startRes.stderr, /a draft changed during save/);
+        assert.doesNotMatch(startRes.stdout, /PALEE Session Started/);
+      } finally {
+        lock.release();
+      }
+
+      const afterStartSessions = env.listSessions();
+      assert.strictEqual(afterStartSessions.confirmed.length, 1, 'locked save must still persist the completed note');
+      assert.deepStrictEqual(afterStartSessions.drafts, [draftName], 'locked draft must stay on disk');
+      assert.strictEqual(fs.readFileSync(draftAbs, 'utf8'), draftSnapshot, 'leftover draft must remain unchanged');
+      assert.strictEqual(fs.existsSync(activeMarkerPath), false, 'incomplete recovery must not create an active-session marker');
+
+      const [savedNoteName] = afterStartSessions.confirmed;
+      assert.ok(savedNoteName !== undefined);
+      const savedNote = env.readTopic(path.join('.palee', 'sessions', savedNoteName));
+      assert.strictEqual(savedNote.frontmatter?.topic_id, topicId);
+      assert.strictEqual(savedNote.frontmatter?.status, 'completed');
+      assert.match(
+        savedNote.body,
+        new RegExp(`Draft checkpoint: ${draftName.replace('.', '\\.')} \\[fingerprint: [a-f0-9]+\\]`)
+      );
+      assert.strictEqual(env.readHotMemory()?.frontmatter?.active_topic ?? null, null);
+      assert.strictEqual(env.readHotMemory()?.frontmatter?.last_session, savedNoteName.replace(/\.md$/, ''));
+
+      // 5. Release lock and run session end for T.
+      const endRes = env.run(['session', 'end', '--json', '--topic', topicId]);
+
+      // 6. Verify no second completed note is created for the unchanged checkpoint.
+      assert.strictEqual(endRes.status, 2, `${endRes.stdout}${endRes.stderr}`);
+      assert.strictEqual(endRes.stdout, '', 'refused end must emit no recorded session payload');
+      assert.match(endRes.stderr, /no active session/);
+
+      const afterEndSessions = env.listSessions();
+      assert.deepStrictEqual(afterEndSessions.confirmed, afterStartSessions.confirmed, 'session end must not create a second completed note');
+      assert.deepStrictEqual(afterEndSessions.drafts, [draftName]);
+      assert.strictEqual(fs.existsSync(activeMarkerPath), false);
+      const index = env.readSessionIndex();
+      assert.ok(index !== null);
+      assert.match(index.raw, /Total Sessions: 1/);
+    });
+
+    test('B4.14: lock-blocked recovery save retires cleanly on a subsequent interactive Save retry without duplicating the note', async () => {
+      const topicId = 'T-save-then-retry';
+      env.createTopics([topicId]);
+      env.run(['session', 'draft', '--topic', topicId]);
+      const [draftName] = env.listSessions().drafts;
+      assert.ok(draftName !== undefined);
+      const draftAbs = path.join(env.vaultDir, '.palee', 'sessions', draftName);
+
+      const lock = new Lock(env.vaultDir, draftAbs);
+      try {
+        await lock.acquire();
+        const blockedRes = await env.runInteractive(
+          ['session', 'start', '--interactive', '--topic', topicId],
+          [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 's\n' }]
+        );
+        assert.strictEqual(blockedRes.status, 2, `${blockedRes.stdout}${blockedRes.stderr}`);
+      } finally {
+        lock.release();
+      }
+      const firstConfirmed = env.listSessions().confirmed;
+      assert.strictEqual(firstConfirmed.length, 1);
+
+      const retryRes = await env.runInteractive(
+        ['session', 'start', '--interactive', '--topic', topicId],
+        [{ waitFor: /\[R\]esume\s+\[S\]ave as session/, write: 's\n' }]
+      );
+      assert.strictEqual(retryRes.status, 0, `${retryRes.stdout}${retryRes.stderr}`);
+      assert.match(retryRes.stdout, /PALEE Session Started/);
+      assert.deepStrictEqual(env.listSessions().confirmed, firstConfirmed, 'unchanged Save retry must reuse the completed note');
+      assert.deepStrictEqual(env.listSessions().drafts, [], 'unlocked Save retry must retire the draft');
+      const activeSession = env.readTopic(path.join('.palee', 'active-session.md'));
+      assert.strictEqual(activeSession.frontmatter?.topic_id, topicId);
+    });
+
     test('B4.7: interactive menu commits save for the first draft and resume for the second', async () => {
       env.createTopics(['T-mixed-first', 'T-mixed-second']);
       env.run(['session', 'draft', '--topic', 'T-mixed-first']);

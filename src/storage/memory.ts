@@ -954,6 +954,7 @@ function getDrafts(vaultPath: string): string[] {
  * @param vaultPath - Vault root path
  * @param draftPath - Path to draft checkpoint note
  * @param action - Action to take: `'save'`, `'discard'`, `'resume'`, or `'ignore'`
+ * @param onSkip - Optional callback invoked with the skip reason when unlink is skipped
  * @returns Promise resolving to `true` when the draft reached the state the
  *   action asked for — unlinked (`discard`, `save`), or deliberately kept
  *   (`resume`, `ignore`) — and `false` when a requested unlink was skipped
@@ -1323,6 +1324,7 @@ function deleteTopicDrafts(
  * @param vaultPath - Vault root path
  * @param targetPath - Path to the session note or draft file
  * @param expectedFingerprint - Optional fingerprint of the complete note the caller consumed
+ * @param onSkip - Optional callback invoked with the skip reason when unlink is skipped
  * @returns `true` when the target is gone (unlinked here, or already absent),
  *   `false` when another live process holds its lock or its content no longer
  *   matches `expectedFingerprint`
